@@ -1141,6 +1141,197 @@ describe("source location resolution", () => {
   })
 })
 
+describe("logger field caps", () => {
+  it.each([
+    { label: "ASCII", value: "a".repeat(300), expected: "a".repeat(255) + "…" },
+    { label: "code points", value: "🎉".repeat(300), expected: "🎉".repeat(255) + "…" },
+    {
+      label: "joined emoji",
+      value: "a".repeat(254) + "👩‍💻" + "suffix",
+      expected: "a".repeat(254) + "…",
+    },
+  ])("caps a top-level string at 256 code points for $label", ({ value, expected }) => {
+    const records = captureConsoleRecords()
+
+    logger.info("field cap", { value })
+
+    expect(records()).toEqual([expectedConsoleRecord("field cap", { value: expected })])
+  })
+
+  it("keeps a string at exactly 256 code points", () => {
+    const records = captureConsoleRecords()
+    const value = "🎉".repeat(256)
+
+    logger.info("field boundary", { value })
+
+    expect(records()).toEqual([expectedConsoleRecord("field boundary", { value })])
+  })
+
+  it("caps strings inside nested plain objects without mutating them", () => {
+    const records = captureConsoleRecords()
+    const context = Object.freeze({ detail: Object.freeze({ text: "a".repeat(300) }) })
+
+    logger.info("nested field", { context })
+
+    expect(records()).toEqual([
+      expectedConsoleRecord("nested field", {
+        context: { detail: { text: "a".repeat(255) + "…" } },
+      }),
+    ])
+    expect(context).toEqual({ detail: { text: "a".repeat(300) } })
+  })
+
+  it("caps strings inside objects with a null prototype", () => {
+    const records = captureConsoleRecords()
+    const context = Object.setPrototypeOf({ text: "a".repeat(300) }, null)
+
+    logger.info("null prototype", { context })
+
+    expect(records()).toEqual([
+      expectedConsoleRecord("null prototype", { context: { text: "a".repeat(255) + "…" } }),
+    ])
+  })
+
+  it("caps array strings and objects nested inside arrays", () => {
+    const records = captureConsoleRecords()
+    const values = ["a".repeat(300), { text: "b".repeat(300) }, ["c".repeat(300)]]
+
+    logger.info("array fields", { values })
+
+    expect(records()).toEqual([
+      expectedConsoleRecord("array fields", {
+        values: ["a".repeat(255) + "…", { text: "b".repeat(255) + "…" }, ["c".repeat(255) + "…"]],
+      }),
+    ])
+  })
+
+  it("caps child logger props after merging call data", () => {
+    const records = captureConsoleRecords()
+    const child = logger.child({ sessionId: "a".repeat(300), requestId: "overridden" })
+
+    child.info("child fields", { requestId: "b".repeat(300) })
+
+    expect(records()).toEqual([
+      expectedConsoleRecord("child fields", {
+        sessionId: "a".repeat(255) + "…",
+        requestId: "b".repeat(255) + "…",
+      }),
+    ])
+  })
+
+  it("caps lazy child props after resolving their current value", () => {
+    const records = captureConsoleRecords()
+    const transport = { sessionId: "initial" }
+    const child = logger.child({ sessionId: () => transport.sessionId })
+    transport.sessionId = "a".repeat(300)
+
+    child.info("lazy field")
+
+    expect(records()).toEqual([
+      expectedConsoleRecord("lazy field", { sessionId: "a".repeat(255) + "…" }),
+    ])
+  })
+
+  it.each([{ key: "error" }, { key: "cause" }, { key: "stack" }])(
+    "keeps $key text at exactly 4096 code points",
+    ({ key }) => {
+      const records = captureConsoleRecords()
+      const value = "🎉".repeat(4096)
+
+      logger.info("diagnostic boundary", { [key]: value })
+
+      expect(records()).toEqual([expectedConsoleRecord("diagnostic boundary", { [key]: value })])
+    },
+  )
+
+  it.each([{ key: "error" }, { key: "cause" }, { key: "stack" }])(
+    "caps $key text past 4096 code points",
+    ({ key }) => {
+      const records = captureConsoleRecords()
+
+      logger.info("diagnostic cap", { [key]: "🎉".repeat(4200) })
+
+      expect(records()).toEqual([
+        expectedConsoleRecord("diagnostic cap", { [key]: "🎉".repeat(4095) + "…" }),
+      ])
+    },
+  )
+
+  it("applies the diagnostic limit to a nested error key", () => {
+    const records = captureConsoleRecords()
+
+    logger.info("nested diagnostic", {
+      context: { error: "a".repeat(4200), value: "b".repeat(300) },
+    })
+
+    expect(records()).toEqual([
+      expectedConsoleRecord("nested diagnostic", {
+        context: { error: "a".repeat(4095) + "…", value: "b".repeat(255) + "…" },
+      }),
+    ])
+  })
+
+  it("preserves numbers, booleans, null, absent, empty and short fields", () => {
+    const records = captureConsoleRecords()
+
+    logger.info("unchanged fields", {
+      zero: 0,
+      requestId: 12,
+      enabled: true,
+      disabled: false,
+      missing: null,
+      absent: undefined,
+      empty: "",
+      path: "/mcp",
+      values: [undefined, null, 0, false],
+    })
+
+    expect(records()).toEqual([
+      expectedConsoleRecord("unchanged fields", {
+        zero: 0,
+        requestId: 12,
+        enabled: true,
+        disabled: false,
+        missing: null,
+        empty: "",
+        path: "/mcp",
+        values: [null, null, 0, false],
+      }),
+    ])
+  })
+
+  it("passes non-plain objects through for normal JSON serialization", () => {
+    const records = captureConsoleRecords()
+    const url = new URL(`https://example.com/${"a".repeat(300)}`)
+
+    logger.info("non-plain field", { url })
+
+    expect(records()).toEqual([
+      expectedConsoleRecord("non-plain field", { url: `https://example.com/${"a".repeat(300)}` }),
+    ])
+  })
+
+  it("writes the same capped JSON line to the console and file sink", async () => {
+    const logDir = createTempDir()
+    const records = captureConsoleRecords()
+    const fileLogger = await importFileLogger(logDir)
+    const stdoutSpy = vi.mocked(process.stdout.write)
+    const context = { text: "a".repeat(300), error: "b".repeat(4200) }
+
+    fileLogger.info("persisted fields", { context })
+
+    expect(records()).toEqual([
+      expectedConsoleRecord("persisted fields", {
+        context: { text: "a".repeat(255) + "…", error: "b".repeat(4095) + "…" },
+      }),
+    ])
+    const line = readFileSync(join(logDir, `vault-mcp-${DateTime.now().toISODate()}.log`), "utf8")
+
+    expect(stdoutSpy).toHaveBeenCalledTimes(1)
+    expect(stdoutSpy).toHaveBeenCalledWith(line)
+  })
+})
+
 describe("logger child lazy props", () => {
   /** Captures JSON log lines emitted to stdout while the spy is active.
    *  Non-JSON stdout writes (test-runner output) are filtered out. */

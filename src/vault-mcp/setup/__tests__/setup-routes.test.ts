@@ -7,7 +7,7 @@ import { join } from "node:path"
 import express from "express"
 import { DateTime } from "luxon"
 import { describe, expect, it, onTestFinished, vi } from "vitest"
-import type { Logger } from "../../../logger.js"
+import { logger, type Logger } from "../../../logger.js"
 import { createSetupRoutes } from "../setup-routes.js"
 import type { HostingPlatform } from "../setup-page.js"
 import { syncTokenStore } from "../sync-token-store.js"
@@ -27,18 +27,25 @@ const SIGNED_IN = {
 type LogCall = { level: string; message: string; data: Record<string, unknown> }
 
 const recordingLogger = (sink: LogCall[]): Logger => {
-  const make = (props: Record<string, unknown>): Logger => ({
-    debug: (message, data = {}) =>
-      sink.push({ level: "debug", message, data: { ...props, ...data } }),
-    info: (message, data = {}) =>
-      sink.push({ level: "info", message, data: { ...props, ...data } }),
-    warn: (message, data = {}) =>
-      sink.push({ level: "warn", message, data: { ...props, ...data } }),
-    error: (message, data = {}) =>
-      sink.push({ level: "error", message, data: { ...props, ...data } }),
-    child: (childProps) => make({ ...props, ...childProps }),
+  const captureLine = (chunk: string | Uint8Array): boolean => {
+    const {
+      timestamp: _timestamp,
+      name: _name,
+      source: _source,
+      level,
+      message,
+      ...data
+    } = JSON.parse(String(chunk))
+    sink.push({ level, message, data })
+    return true
+  }
+  const stdoutSpy = vi.spyOn(process.stdout, "write").mockImplementation(captureLine)
+  const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(captureLine)
+  onTestFinished(() => {
+    stdoutSpy.mockRestore()
+    stderrSpy.mockRestore()
   })
-  return make({})
+  return logger
 }
 
 /** Script the fake API per path; unhandled paths answer 404. */

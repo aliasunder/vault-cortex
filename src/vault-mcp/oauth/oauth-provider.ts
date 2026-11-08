@@ -37,7 +37,6 @@ import { canonicalResourceUri, safeEqual, tokenBindingForServer } from "../../au
 import { signJwt, verifyJwt, type JwtPayload } from "../../jwt.js"
 import { renderConsentPage } from "./consent-page.js"
 import type { Logger } from "../../logger.js"
-import { capLogField } from "../../utils/cap-log-field.js"
 
 // 6 hours
 const ACCESS_TOKEN_TTL_S = 6 * 60 * 60
@@ -278,7 +277,7 @@ class SqliteClientsStore implements OAuthRegisteredClientsStore {
     this.insertClientStmt.run(full.client_id, JSON.stringify(full))
     this.logger.info("oauth_client_registered", {
       clientId: full.client_id,
-      clientName: capLogField(full.client_name) ?? null,
+      clientName: full.client_name ?? null,
     })
     return full
   }
@@ -325,8 +324,8 @@ export const createOAuthProvider = ({
     if (requestedResource === audience) return
     if (requestedResource === rootResource) return
     oauthLogger.warn("oauth_resource_rejected", {
-      clientId: capLogField(clientId),
-      resource: capLogField(resource.href),
+      clientId,
+      resource: resource.href,
     })
     throw new InvalidTargetError("The resource parameter is not this server")
   }
@@ -613,7 +612,7 @@ export const createOAuthProvider = ({
       // Thrown before anything is sent, like the resource check above.
       if (paramsBytes > MAX_PENDING_REQUEST_PARAMS_BYTES) {
         oauthLogger.warn("oauth_authorize_rejected", {
-          clientId: capLogField(client.client_id),
+          clientId: client.client_id,
           reason: "params_too_large",
           paramsBytes,
         })
@@ -626,7 +625,7 @@ export const createOAuthProvider = ({
       })
 
       oauthLogger.info("oauth_authorize_started", {
-        clientId: capLogField(client.client_id),
+        clientId: client.client_id,
         requestId,
         scopes: scopes.join(" "),
       })
@@ -689,8 +688,8 @@ export const createOAuthProvider = ({
       if (stored.clientId !== client.client_id) {
         oauthLogger.warn("oauth_code_exchange_failed", {
           reason: "issued_to_another_client",
-          clientId: capLogField(stored.clientId),
-          presenterClientId: capLogField(client.client_id),
+          clientId: stored.clientId,
+          presenterClientId: client.client_id,
         })
         throw new InvalidGrantError(INVALID_AUTH_CODE_MESSAGE)
       }
@@ -706,7 +705,7 @@ export const createOAuthProvider = ({
       })
 
       oauthLogger.info("oauth_code_exchanged", {
-        clientId: capLogField(stored.clientId),
+        clientId: stored.clientId,
         scopes: scopes.join(" "),
       })
       return {
@@ -745,17 +744,15 @@ export const createOAuthProvider = ({
           revokedAt: DateTime.now().toUnixInteger(),
         })
         oauthLogger.warn("oauth_refresh_token_reuse", {
-          clientId: capLogField(consumed.ownerClientId),
-          ...(clientId !== consumed.ownerClientId
-            ? { presenterClientId: capLogField(clientId) }
-            : {}),
+          clientId: consumed.ownerClientId,
+          ...(clientId !== consumed.ownerClientId ? { presenterClientId: clientId } : {}),
         })
         throw new InvalidGrantError("Refresh token expired or invalid")
       }
       if (consumed.status === "not_found") {
         oauthLogger.warn("oauth_token_refresh_failed", {
           reason: "expired_or_invalid",
-          clientId: capLogField(clientId),
+          clientId,
         })
         throw new InvalidGrantError("Refresh token expired or invalid")
       }
@@ -773,7 +770,7 @@ export const createOAuthProvider = ({
         deleteConsumedRefreshTokenStmt.run(consumed.storageKey)
         oauthLogger.warn("oauth_token_refresh_failed", {
           reason: "scope_exceeds_grant",
-          clientId: capLogField(clientId),
+          clientId,
         })
         throw new InvalidScopeError("Requested scope exceeds the granted scope")
       }
@@ -786,8 +783,8 @@ export const createOAuthProvider = ({
       })
 
       oauthLogger.info("oauth_token_refreshed", {
-        clientId: capLogField(clientId),
-        scopes: capLogField(grantedScopes.join(" ")),
+        clientId,
+        scopes: grantedScopes.join(" "),
       })
       return {
         access_token: accessToken,
@@ -835,13 +832,13 @@ export const createOAuthProvider = ({
         if (revokedClient && (payload.iat ?? 0) < revokedClient.revoked_at) {
           oauthLogger.warn("oauth_token_rejected", {
             reason: "client_revoked",
-            clientId: capLogField(payload.sub),
+            clientId: payload.sub,
           })
           throw new InvalidTokenError("Token has been revoked")
         }
         oauthLogger.debug("oauth_token_verified", {
           method: "jwt",
-          clientId: capLogField(payload.sub),
+          clientId: payload.sub,
         })
         return {
           token,
@@ -882,7 +879,7 @@ export const createOAuthProvider = ({
         return "unknown"
       }
       oauthLogger.info("oauth_token_revoked", {
-        clientId: capLogField(client.client_id),
+        clientId: client.client_id,
         tokenType: revokedTokenType(),
       })
     },
@@ -909,7 +906,7 @@ export const createOAuthProvider = ({
     // or getClient refused the row because it has no secret.
     if (!client) {
       pendingRequests.delete(requestId)
-      reqLogger.info("oauth_request_client_missing", { clientId: capLogField(clientId) })
+      reqLogger.info("oauth_request_client_missing", { clientId })
       return undefined
     }
     return { ...heldRequest, client }

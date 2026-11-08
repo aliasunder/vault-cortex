@@ -3,7 +3,6 @@ import { logger } from "./logger.js"
 import { extractClientIp, headerAsString } from "./auth.js"
 import { describeError } from "./utils/describe-error.js"
 import { isHttpClientError } from "./utils/is-http-client-error.js"
-import { capLogField } from "./utils/cap-log-field.js"
 
 /** Request-body errors get a short 4xx warning; server failures retain their stack. */
 export const createErrorMiddleware = ({
@@ -13,10 +12,10 @@ export const createErrorMiddleware = ({
 }): ErrorRequestHandler => {
   return (err: Error, req: Request, res: Response, _next: NextFunction): void => {
     const requestContext = {
-      sessionId: capLogField(headerAsString(req.headers["mcp-session-id"])),
-      clientIp: capLogField(extractClientIp(req, trustForwardedHops)),
-      method: capLogField(req.method),
-      path: capLogField(req.path),
+      sessionId: headerAsString(req.headers["mcp-session-id"]),
+      clientIp: extractClientIp(req, trustForwardedHops),
+      method: req.method,
+      path: req.path,
     }
 
     // Routes answer other client errors themselves, so exposed 4xx errors

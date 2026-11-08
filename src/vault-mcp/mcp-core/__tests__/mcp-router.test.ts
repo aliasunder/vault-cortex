@@ -262,6 +262,14 @@ it.each([
 ])(
   "caps session IDs and client IPs in $method request and response logs",
   async ({ method, status }) => {
+    mockedLogger.info.mockRestore()
+    mockedLogger.warn.mockRestore()
+    const records: Record<string, unknown>[] = []
+    const stdoutSpy = vi.spyOn(process.stdout, "write").mockImplementation((chunk) => {
+      records.push(JSON.parse(String(chunk)))
+      return true
+    })
+    onTestFinished(() => stdoutSpy.mockRestore())
     const harness = await setupHarness({ config: loadConfig({ TRUST_FORWARDED_HOPS: "1" }) })
     const response = await fetch(harness.url(), {
       method,
@@ -275,18 +283,29 @@ it.each([
     await response.arrayBuffer()
 
     expect(response.status).toBe(status)
-    expect(mockedLogger.info).toHaveBeenCalledWith("mcp_request", {
-      sessionId: "s".repeat(255) + "…",
-      clientIp: "x".repeat(255) + "…",
-      method,
-    })
-    const responseLogger = method === "GET" ? mockedLogger.info : mockedLogger.warn
-    expect(responseLogger).toHaveBeenCalledWith("mcp_response", {
-      sessionId: "s".repeat(255) + "…",
-      clientIp: "x".repeat(255) + "…",
-      status,
-      outcome: method === "GET" ? "standalone SSE stream not offered" : "session not found",
-    })
+    expect(records).toEqual([
+      {
+        timestamp: expect.any(String),
+        level: "info",
+        name: "vault-cortex",
+        message: "mcp_request",
+        source: expect.stringMatching(/^mcp-router\.ts:\d+$/),
+        sessionId: "s".repeat(255) + "…",
+        clientIp: "x".repeat(255) + "…",
+        method,
+      },
+      {
+        timestamp: expect.any(String),
+        level: method === "GET" ? "info" : "warn",
+        name: "vault-cortex",
+        message: "mcp_response",
+        source: expect.stringMatching(/^mcp-router\.ts:\d+$/),
+        sessionId: "s".repeat(255) + "…",
+        clientIp: "x".repeat(255) + "…",
+        status,
+        outcome: method === "GET" ? "standalone SSE stream not offered" : "session not found",
+      },
+    ])
   },
 )
 

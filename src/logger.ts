@@ -12,6 +12,7 @@ import {
 import { findSourceMap, type SourceOrigin } from "node:module"
 import { join } from "node:path"
 import { DateTime } from "luxon"
+import { truncateToCodePointLimit } from "./utils/truncate-to-code-point-limit.js"
 
 type LogLevel = "debug" | "info" | "warn" | "error"
 
@@ -327,6 +328,44 @@ const resolveLazyProps = (props: Record<string, unknown>): Record<string, unknow
   return Object.fromEntries(resolvedEntries)
 }
 
+// Bounds arbitrary log fields so caller-controlled text cannot flood log storage.
+const LOG_FIELD_CODE_POINTS = 256
+// Keeps error descriptions and stack traces useful while bounding their size.
+const LOG_DIAGNOSTIC_CODE_POINTS = 4096
+
+const isPlainObject = (value: unknown): value is Record<string, unknown> => {
+  if (typeof value !== "object" || value === null) return false
+  const prototype = Object.getPrototypeOf(value)
+
+  return prototype === Object.prototype || prototype === null
+}
+
+const capLogField = (value: unknown, maxCodePoints: number): unknown => {
+  if (typeof value === "string") {
+    const cappedValue = truncateToCodePointLimit(value, maxCodePoints)
+
+    if (cappedValue === value) return value
+    return truncateToCodePointLimit(value, maxCodePoints - 1) + "…"
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((element) => capLogField(element, maxCodePoints))
+  }
+
+  if (isPlainObject(value)) return capLogData(value)
+  return value
+}
+
+const capLogData = (data: Readonly<Record<string, unknown>>): Record<string, unknown> => {
+  const cappedEntries = Object.entries(data).map(([key, value]) => {
+    const isDiagnostic = key === "error" || key === "cause" || key === "stack"
+    const maxCodePoints = isDiagnostic ? LOG_DIAGNOSTIC_CODE_POINTS : LOG_FIELD_CODE_POINTS
+
+    return [key, capLogField(value, maxCodePoints)]
+  })
+  return Object.fromEntries(cappedEntries)
+}
+
 const createLogger = (
   name: string,
   options?: {
@@ -343,7 +382,7 @@ const createLogger = (
     // Capture source location for info/warn/error (skip debug to avoid overhead)
     const source = level !== "debug" ? getCallerSource() : undefined
 
-    const mergedData = { ...resolveLazyProps(baseProps), ...data }
+    const mergedData = capLogData({ ...resolveLazyProps(baseProps), ...data })
     const entry: LogEntry = {
       timestamp: DateTime.now().toISO(),
       level,

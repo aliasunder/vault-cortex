@@ -27,22 +27,25 @@ type LogCall = {
   data: Record<string, unknown>
 }
 const recordingLogger = (sink: LogCall[]): Logger => {
-  const make = (props: Record<string, unknown>): Logger => ({
-    debug: (message, data = {}) => {
-      sink.push({ level: "debug", message, data: { ...props, ...data } })
-    },
-    info: (message, data = {}) => {
-      sink.push({ level: "info", message, data: { ...props, ...data } })
-    },
-    warn: (message, data = {}) => {
-      sink.push({ level: "warn", message, data: { ...props, ...data } })
-    },
-    error: (message, data = {}) => {
-      sink.push({ level: "error", message, data: { ...props, ...data } })
-    },
-    child: (childProps) => make({ ...props, ...childProps }),
+  const captureLine = (chunk: string | Uint8Array): boolean => {
+    const {
+      timestamp: _timestamp,
+      name: _name,
+      source: _source,
+      level,
+      message,
+      ...data
+    } = JSON.parse(String(chunk))
+    sink.push({ level, message, data })
+    return true
+  }
+  const stdoutSpy = vi.spyOn(process.stdout, "write").mockImplementation(captureLine)
+  const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(captureLine)
+  onTestFinished(() => {
+    stdoutSpy.mockRestore()
+    stderrSpy.mockRestore()
   })
-  return make({})
+  return logger
 }
 
 const AUTH_TOKEN = "test-static-token"

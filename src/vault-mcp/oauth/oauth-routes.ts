@@ -10,7 +10,6 @@ import { extractClientIp, safeEqual, tokenBindingForServer } from "../../auth.js
 import { renderConsentPage } from "./consent-page.js"
 import { VAULT_SCOPE, type OAuthProvider } from "./oauth-provider.js"
 import type { Logger } from "../../logger.js"
-import { capLogField } from "../../utils/cap-log-field.js"
 
 type OAuthRoutesOptions = {
   authToken: string
@@ -70,8 +69,8 @@ export const createOAuthRoutes = ({
       const requestPath =
         URL.parse(req.originalUrl, "http://localhost")?.pathname ?? req.originalUrl
       routeLogger.warn("oauth_rate_limited", {
-        clientIp: capLogField(extractClientIp(req, trustForwardedHops)),
-        path: capLogField(requestPath),
+        clientIp: extractClientIp(req, trustForwardedHops),
+        path: requestPath,
       })
       res.status(options.statusCode).send(options.message)
     },
@@ -170,16 +169,16 @@ export const createOAuthRoutes = ({
         return
       }
 
-      const clientIp = capLogField(extractClientIp(req, trustForwardedHops))
+      const clientIp = extractClientIp(req, trustForwardedHops)
       const pendingRequest = getPendingRequest(
         requestId,
-        routeLogger.child({ clientIp, requestId: capLogField(requestId) }),
+        routeLogger.child({ clientIp, requestId }),
       )
 
       if (!pendingRequest) {
         routeLogger.warn("oauth_consent_expired", {
           clientIp,
-          requestId: capLogField(requestId),
+          requestId,
         })
         res.status(400).send("Authorization request expired or invalid.")
         return
@@ -188,8 +187,8 @@ export const createOAuthRoutes = ({
       const clientId = pendingRequest.client.client_id
       const consentLogger = routeLogger.child({
         clientIp,
-        requestId: capLogField(requestId),
-        clientId: capLogField(clientId),
+        requestId,
+        clientId,
       })
 
       // Any action but an explicit Approve denies, so an unexpected form
