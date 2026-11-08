@@ -1125,9 +1125,10 @@ const splitTaskLine = (taskLine: string): TaskLineParts | null => {
   const { body: taskBody, blockLink } = splitTrailingBlockLink(trimmedAfterCheckbox)
   const metadataStart = findMetadataStart(taskBody)
 
-  // A task with text keeps its own spacing after the checkbox; an empty one
-  // keeps only the bracket, and joinTaskLine adds one space before new text.
-  const linePrefix = taskBody.trim() ? prefix : taskLine.slice(0, checkboxEnd)
+  // A task with text keeps its spacing after the checkbox, glued text included:
+  // a space before glued `^id` text would turn it into a block link. An empty
+  // task gets the one space the Tasks plugin writes before new text.
+  const linePrefix = taskBody.trim() ? prefix : `${taskLine.slice(0, checkboxEnd)} `
 
   if (metadataStart === -1) {
     return {
@@ -1156,10 +1157,10 @@ const joinTaskLine = ({
 }: TaskLineParts): string => {
   const body = [description.trim(), metadata.trim()].filter(Boolean).join(" ")
 
-  // A checkbox needs a space before its text to render as one, and the Tasks
-  // plugin always writes that space, so text added to a bare `- [ ]` gets it.
-  const checkboxSeparator = body && prefix.endsWith("]") ? " " : ""
-  return `${prefix}${checkboxSeparator}${body}${blockLink}${trailingWhitespace}`
+  // A line left with no text drops the spaces after its checkbox, so they
+  // cannot turn into a hard break on the next edit.
+  const linePrefix = body ? prefix : prefix.trimEnd()
+  return `${linePrefix}${body}${blockLink}${trailingWhitespace}`
 }
 
 /** Applies a field mutation to the metadata tail only — field-like text

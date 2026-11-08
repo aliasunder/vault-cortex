@@ -1647,10 +1647,35 @@ describe("task line mutations", () => {
       ).toBe("- [ ] New ^my-task  ")
     })
 
-    it("adds the space the Tasks plugin writes after a checkbox glued to its text", () => {
+    it("keeps text glued to its checkbox as written", () => {
       expect(
         tasks.replaceTaskLineDescription({ taskLine: "- [ ]Old ^my-task", newDescription: "New" }),
-      ).toBe("- [ ] New ^my-task")
+      ).toBe("- [ ]New ^my-task")
+    })
+
+    it("keeps glued caret text a description when completing the task", () => {
+      expect(
+        tasks.updateTaskLineStatus({
+          taskLine: "- [ ]^card",
+          newStatus: "done",
+          today: "2026-11-08",
+          config: EMOJI_CONFIG,
+        }),
+      ).toBe("- [x]^card ✅ 2026-11-08")
+    })
+
+    it("leaves no hard break when an emptied task gets a new field", () => {
+      const withoutDue = tasks.updateTaskLineDate({
+        taskLine: "- [ ]  📅 2026-11-09",
+        field: "due",
+        date: null,
+        config: EMOJI_CONFIG,
+      })
+
+      expect(withoutDue).toBe("- [ ]")
+      expect(
+        tasks.updateTaskLineTaskId({ taskLine: withoutDue, taskId: "new", config: EMOJI_CONFIG }),
+      ).toBe("- [ ] 🆔 new")
     })
 
     it("replaces description when only a block_id follows", () => {
@@ -2073,9 +2098,9 @@ describe("task line mutations", () => {
       {
         name: "glued to its text before a block link and hard break",
         taskLine: "- [ ]Old ^my-task  ",
-        expected: "- [ ] Old 🆔 abc123 ^my-task  ",
+        expected: "- [ ]Old 🆔 abc123 ^my-task  ",
       },
-    ])("sets an ID on an empty task body $name", ({ taskLine, expected }) => {
+    ])("sets an ID on a task $name", ({ taskLine, expected }) => {
       expect(tasks.isTaskLine(taskLine)).toBe(true)
       expect(tasks.updateTaskLineTaskId({ taskLine, taskId: "abc123", config: EMOJI_CONFIG })).toBe(
         expected,
