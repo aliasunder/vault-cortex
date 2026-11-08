@@ -396,6 +396,95 @@ describe("createFileSinkExtension", () => {
     expect(readFileSync(logFile, "utf8")).toBe(cappedContent)
   })
 
+  it("resumes after restarting with a raised cap and stops at the new cap", () => {
+    const logDir = createTempDir()
+    const records = captureConsoleRecords()
+    const line = '{"message":"first"}\n'
+    const extension = createFileSinkExtension({ logDir, maxDailyBytes: 10_000 })
+    extension(sampleEntry("first"), line)
+    extension(sampleEntry("too large"), sampleLine("x".repeat(10_000)))
+    const logFile = join(logDir, `vault-mcp-${DateTime.now().toISODate()}.log`)
+    const cappedContent = readFileSync(logFile, "utf8")
+    const maxDailyBytes = 20_000
+    const restartedExtension = createFileSinkExtension({ logDir, maxDailyBytes })
+    const remainingBytes = maxDailyBytes - Buffer.byteLength(cappedContent)
+    const resumedLine = sampleLine("x".repeat(remainingBytes - Buffer.byteLength(sampleLine(""))))
+
+    restartedExtension(sampleEntry("after restart"), resumedLine)
+
+    expect(readFileSync(logFile, "utf8")).toBe(cappedContent + resumedLine)
+    expect(statSync(logFile).size).toBe(maxDailyBytes)
+
+    restartedExtension(sampleEntry("new cap"), line)
+    restartedExtension(sampleEntry("still capped"), line)
+
+    expect(records()).toEqual([
+      {
+        timestamp: expect.any(String),
+        level: "warn",
+        name: "vault-cortex",
+        message: "file_log_daily_limit_reached",
+        maxDailyBytes: 10_000,
+      },
+      {
+        timestamp: expect.any(String),
+        level: "warn",
+        name: "vault-cortex",
+        message: "file_log_daily_limit_reached",
+        maxDailyBytes,
+      },
+    ])
+    expect(readFileSync(logFile, "utf8")).toBe(
+      cappedContent + resumedLine + JSON.stringify(records()[1]) + "\n",
+    )
+  })
+
+  it("resumes after restarting with LOG_MAX_DAILY_MB set to none", async () => {
+    const logDir = createTempDir()
+    const records = captureConsoleRecords()
+    vi.stubEnv("LOG_MAX_DAILY_MB", "1")
+    const fileLogger = await importFileLogger(logDir)
+    const message = "x".repeat(1_000_000)
+    fileLogger.info(message)
+    const logFile = join(logDir, `vault-mcp-${DateTime.now().toISODate()}.log`)
+    const cappedContent = readFileSync(logFile, "utf8")
+    expect(records()).toEqual([
+      expectedConsoleRecord(message),
+      {
+        timestamp: expect.any(String),
+        level: "warn",
+        name: "vault-cortex",
+        message: "file_log_daily_limit_reached",
+        maxDailyBytes: 1_000_000,
+      },
+    ])
+    vi.stubEnv("LOG_MAX_DAILY_MB", "none")
+    const restartedLogger = await importFileLogger(logDir)
+
+    restartedLogger.info(message)
+    restartedLogger.info("still writing")
+
+    expect(records()).toEqual([
+      expectedConsoleRecord(message),
+      {
+        timestamp: expect.any(String),
+        level: "warn",
+        name: "vault-cortex",
+        message: "file_log_daily_limit_reached",
+        maxDailyBytes: 1_000_000,
+      },
+      expectedConsoleRecord(message),
+      expectedConsoleRecord("still writing"),
+    ])
+    expect(readFileSync(logFile, "utf8")).toBe(
+      cappedContent +
+        records()
+          .slice(2)
+          .map((record) => JSON.stringify(record) + "\n")
+          .join(""),
+    )
+  })
+
   it("continues an under-cap file without a limit notice after restarting", () => {
     const logDir = createTempDir()
     const records = captureConsoleRecords()

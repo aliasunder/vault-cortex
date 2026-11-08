@@ -147,7 +147,7 @@ export const createMcpRouter = ({
           if (transport.sessionId) {
             transports.delete(transport.sessionId)
             logger.info("session_closed", {
-              sessionId: capLogField(transport.sessionId),
+              sessionId: transport.sessionId,
             })
           }
         }
@@ -170,7 +170,7 @@ export const createMcpRouter = ({
         const sessionLogger = logger.child({
           // Lazy: the transport generates its session id while handling the
           // initialize request — after this child is created. Resolved per-emit.
-          sessionId: () => capLogField(transport.sessionId),
+          sessionId: () => transport.sessionId,
           clientIp,
         })
         registerTools({
@@ -203,7 +203,7 @@ export const createMcpRouter = ({
         }
         transports.set(transport.sessionId, transport)
         logger.info("mcp_response", {
-          sessionId: capLogField(transport.sessionId),
+          sessionId: transport.sessionId,
           clientIp,
           status: 200,
           outcome: "session created",

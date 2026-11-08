@@ -106,7 +106,15 @@ const LIMIT_NOTICE_TAIL_BYTES = 512
 const LIMIT_NOTICE_PATTERN =
   /^\{"timestamp":"[^"]+","level":"warn","name":"vault-cortex","message":"file_log_daily_limit_reached",/
 
-const endsWithLimitNotice = (logPath: string, fileBytes: number): boolean => {
+const endsWithApplicableLimitNotice = ({
+  logPath,
+  fileBytes,
+  maxDailyBytes,
+}: {
+  logPath: string
+  fileBytes: number
+  maxDailyBytes: number
+}): boolean => {
   if (!fileBytes) return false
   const file = openSync(logPath, "r")
 
@@ -114,7 +122,30 @@ const endsWithLimitNotice = (logPath: string, fileBytes: number): boolean => {
     const tail = Buffer.alloc(Math.min(fileBytes, LIMIT_NOTICE_TAIL_BYTES))
     const bytesRead = readSync(file, tail, 0, tail.length, fileBytes - tail.length)
     const lastLine = tail.toString("utf8", 0, bytesRead).trimEnd().split("\n").at(-1)
-    return Boolean(lastLine && LIMIT_NOTICE_PATTERN.test(lastLine))
+
+    if (!lastLine || !LIMIT_NOTICE_PATTERN.test(lastLine)) return false
+
+    const notice: unknown = (() => {
+      try {
+        return JSON.parse(lastLine)
+      } catch (error) {
+        process.stdout.write(
+          consoleWarningLine("invalid_file_log_daily_limit_notice", {
+            error: describeSinkError(error),
+          }),
+        )
+        return undefined
+      }
+    })()
+    const recordedLimit =
+      typeof notice === "object" && notice !== null && "maxDailyBytes" in notice
+        ? notice.maxDailyBytes
+        : undefined
+
+    // An unreadable notice preserves the cap; only a known increase reopens the file.
+    if (typeof recordedLimit !== "number" || !Number.isFinite(recordedLimit)) return true
+
+    return maxDailyBytes <= recordedLimit
   } finally {
     closeSync(file)
   }
@@ -193,7 +224,9 @@ export const createFileSinkExtension = ({
       logDay.date = today
       // A notice can leave the file below the cap when the rejected line was large.
       // Exact-cap files without a notice still need one on the next rejected write.
-      logDay.capped = logDay.bytes > maxDailyBytes || endsWithLimitNotice(logPath, logDay.bytes)
+      logDay.capped =
+        logDay.bytes > maxDailyBytes ||
+        endsWithApplicableLimitNotice({ logPath, fileBytes: logDay.bytes, maxDailyBytes })
     }
 
     if (logDay.capped) return

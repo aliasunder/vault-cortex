@@ -435,8 +435,7 @@ and unchanged notes are not re-embedded.
 
 ## Restart
 
-On every boot, a catch-up sync brings the vault current before the server
-starts. The server then runs these startup tasks:
+On every boot, a catch-up sync runs before the server starts. The server then runs these startup tasks:
 
 1. Create memory template files if the memory folder doesn't exist (skipped
    when `MEMORY_ENABLED=false` or `READONLY_MODE=true`).

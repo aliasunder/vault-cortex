@@ -277,7 +277,7 @@ class SqliteClientsStore implements OAuthRegisteredClientsStore {
     this.sweepNeverSignedInClients()
     this.insertClientStmt.run(full.client_id, JSON.stringify(full))
     this.logger.info("oauth_client_registered", {
-      clientId: capLogField(full.client_id),
+      clientId: full.client_id,
       clientName: capLogField(full.client_name) ?? null,
     })
     return full
@@ -627,8 +627,8 @@ export const createOAuthProvider = ({
 
       oauthLogger.info("oauth_authorize_started", {
         clientId: capLogField(client.client_id),
-        requestId: capLogField(requestId),
-        scopes: capLogField(scopes.join(" ")),
+        requestId,
+        scopes: scopes.join(" "),
       })
       res.type("html").send(
         renderConsentPage({
@@ -707,7 +707,7 @@ export const createOAuthProvider = ({
 
       oauthLogger.info("oauth_code_exchanged", {
         clientId: capLogField(stored.clientId),
-        scopes: capLogField(scopes.join(" ")),
+        scopes: scopes.join(" "),
       })
       return {
         access_token: accessToken,
