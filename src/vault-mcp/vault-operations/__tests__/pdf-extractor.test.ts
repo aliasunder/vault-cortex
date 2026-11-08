@@ -93,6 +93,90 @@ describe("PDF extraction child", () => {
 })
 
 describe("PDF extraction ownership", () => {
+  it("starts the source child directly on macOS with only its own heap and loader flags", async () => {
+    const descriptor = Object.getOwnPropertyDescriptor(process, "platform")
+
+    if (!descriptor) throw new Error("process.platform has no descriptor")
+    Object.defineProperty(process, "platform", { value: "darwin" })
+    onTestFinished(() => {
+      Object.defineProperty(process, "platform", descriptor)
+    })
+    const { extractor, child } = startControlledExtractor()
+    const result = extractor.extractForIndex({ path: "one.pdf" }, logger)
+    ready(child)
+    finishIndex(child, 0)
+    await result
+
+    expect(spawn).toHaveBeenCalledTimes(1)
+    expect(spawn).toHaveBeenCalledWith(
+      process.execPath,
+      [
+        "--max-old-space-size=512",
+        "--import",
+        "tsx",
+        fileURLToPath(new URL("../pdf-extraction-child.ts", import.meta.url)),
+      ],
+      { env: { ...process.env, LOG_DIR: "none" }, stdio: ["ignore", "ignore", "ignore", "ipc"] },
+    )
+  })
+
+  it.each([
+    { preference: "unavailable", warnings: 1 },
+    { preference: "applied", warnings: 0 },
+  ])(
+    "logs $preference OOM preference once across reader reuse",
+    async ({ preference, warnings }) => {
+      const { extractor, child } = startControlledExtractor()
+      const requestLogger = { ...logger, warn: vi.fn() }
+      const callerLogger = { ...logger, child: vi.fn(() => requestLogger) }
+      const first = extractor.readText({ path: "first.pdf" }, callerLogger)
+      child.emit("message", { kind: "ready", oomPreference: preference })
+      finishRead(child, 0, "first.pdf")
+      expect(await first).toEqual({ kind: "text", path: "first.pdf", text: "read text" })
+      const second = extractor.readText({ path: "second.pdf" }, callerLogger)
+      await vi.waitFor(() => expect(child.send).toHaveBeenCalledTimes(2))
+      finishRead(child, 1, "second.pdf")
+      expect(await second).toEqual({ kind: "text", path: "second.pdf", text: "read text" })
+      expect(requestLogger.warn).toHaveBeenCalledTimes(warnings)
+      if (warnings)
+        expect(requestLogger.warn).toHaveBeenCalledWith("PDF child OOM preference unavailable", {
+          childPid: 1234,
+        })
+      expect(spawn).toHaveBeenCalledTimes(1)
+    },
+  )
+
+  it.each([
+    { signal: "SIGABRT" as const },
+    { signal: "SIGTRAP" as const },
+    { signal: "SIGKILL" as const },
+  ])("records $signal without diagnosing its cause and replaces the child", async ({ signal }) => {
+    const { extractor, child, children } = startControlledExtractor()
+    const replacement = createControlledChild(1235)
+    children.push(replacement)
+    const requestLogger = { ...logger, warn: vi.fn() }
+    const callerLogger = { ...logger, child: vi.fn(() => requestLogger) }
+    const request = extractor.readText({ path: "failed.pdf" }, callerLogger)
+    vi.mocked(spawn).mockReturnValueOnce(replacement)
+    const rejected = expect(request).rejects.toThrow(
+      codedError(stoppedMessage("failed.pdf"), "pdf-resource"),
+    )
+    ready(child)
+    Object.assign(child, { signalCode: signal })
+    child.emit("exit", null, signal)
+    await rejected
+    expect(requestLogger.warn).toHaveBeenCalledWith("PDF extraction child exited", {
+      path: "failed.pdf",
+      exitCode: null,
+      signal,
+    })
+    const recovery = extractor.readText({ path: "recovered.pdf" }, callerLogger)
+    await vi.waitFor(() => expect(spawn).toHaveBeenCalledTimes(2))
+    ready(replacement)
+    finishRead(replacement, 1, "recovered.pdf")
+    expect(await recovery).toEqual({ kind: "text", path: "recovered.pdf", text: "read text" })
+  })
+
   it("applies both Linux process limits and suppresses child file logging", async () => {
     const descriptor = Object.getOwnPropertyDescriptor(process, "platform")
 
