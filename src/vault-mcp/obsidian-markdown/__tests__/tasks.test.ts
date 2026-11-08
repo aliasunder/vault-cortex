@@ -270,7 +270,9 @@ describe("tasks.extractTasks", () => {
       ])
 
       expect(() => tasks.charForStatus("todo", registry)).toThrow(
-        'no checkbox symbol for status "todo" in the Tasks plugin registry (the default " " is typed non_task)',
+        new Error(
+          'no checkbox symbol for status "todo" in the Tasks plugin registry (the default " " is typed non_task)',
+        ),
       )
     })
 
@@ -292,7 +294,9 @@ describe("tasks.extractTasks", () => {
       ])
 
       expect(() => tasks.charForStatus("cancelled", registry)).toThrow(
-        'no checkbox symbol for status "cancelled" in the Tasks plugin registry (the default "-" is typed todo)',
+        new Error(
+          'no checkbox symbol for status "cancelled" in the Tasks plugin registry (the default "-" is typed todo)',
+        ),
       )
     })
 
@@ -798,9 +802,12 @@ describe("tasks.extractTasks", () => {
     })
 
     it("excludes task lines inside a tilde fence", () => {
-      const content = ["~~~", "- [ ] Hidden", "~~~"].join("\n")
+      const content = ["- [ ] Before", "~~~", "- [ ] Hidden", "~~~", "- [ ] After"].join("\n")
       const extracted = tasks.extractTasks(content)
-      expect(extracted).toEqual([])
+      expect(extracted).toEqual([
+        task({ line: 1, description: "Before" }),
+        task({ line: 5, description: "After" }),
+      ])
     })
 
     it("skips frontmatter and reports file-relative 1-based line numbers", () => {
@@ -2165,7 +2172,7 @@ describe("task line mutations", () => {
       expect(result).toBe("- [ ] My task 🏁 delete ➕ 2026-08-01 📅 2026-09-01 ^my-task")
     })
 
-    it("clearing strips all copies of both formats", () => {
+    it("clearing strips duplicated emoji-format fields", () => {
       const line = "- [ ] My task 🏁 delete 🏁 keep ➕ 2026-08-01 ^my-task"
       const result = tasks.updateTaskLineOnCompletion({
         taskLine: line,
@@ -2735,7 +2742,7 @@ describe("task line mutations", () => {
           "- [ ] Task A ^a",
           "  - [ ] Sub A ^sa",
           "## Up Next",
-          "- [ ] Task B ^b",
+          "  - [ ] Task B ^b",
         ].join("\n") + "\n"
       const parsed = tasks.extractTasks(content)
       expect(parsed).toEqual([
