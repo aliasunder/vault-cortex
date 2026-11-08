@@ -3909,6 +3909,38 @@ describe("rebuildFromVault deferred PDF content", () => {
     }
   }
 
+  it("skips deferred extraction after a failed PDF placeholder write and continues other PDFs", async () => {
+    const fixture = await createPdfRebuildFixture()
+    await writeFile(join(fixture.vaultPath, "Healthy.PDF"), "healthy disk bytes")
+    fixture.database.exec(`
+      CREATE TRIGGER reject_pdf_placeholder BEFORE INSERT ON file_content
+      WHEN NEW.path = 'Report.PDF' AND NEW.content = ''
+      BEGIN
+        SELECT RAISE(ABORT, 'controlled PDF placeholder failure');
+      END;
+    `)
+    const warnSpy = vi.spyOn(logger, "warn")
+    onTestFinished(() => warnSpy.mockRestore())
+    fixture.extractForIndex.mockResolvedValue({ text: "New newcobalt", totalPages: 1 })
+
+    const rebuilt = await fixture.rebuild()
+    await rebuilt.embedding
+    expect(warnSpy).toHaveBeenCalledExactlyOnceWith("skipped malformed file during rebuild", {
+      path: fixture.path,
+      error: "[SqliteError]: controlled PDF placeholder failure",
+    })
+    await rebuilt.startPdfPass()
+
+    expect(fixture.extractForIndex).toHaveBeenCalledExactlyOnceWith({ path: "Healthy.PDF" }, logger)
+    expect(fixture.fileRows()).toEqual([
+      { path: "Healthy.PDF", content: "New newcobalt", bytes: 18 },
+      { path: "decoy.txt", content: "Decoy controlsun", bytes: 16 },
+    ])
+    expect(fixture.keywordPaths("oldquartz")).toEqual([])
+    expect(fixture.keywordPaths("newcobalt")).toEqual([{ path: "Healthy.PDF" }])
+    expect(fixture.targetChunks()).toEqual([])
+  })
+
   it("clears persisted old text and vectors before extraction and awaits the fresh PDF embedding", async () => {
     const fixture = await createPdfRebuildFixture()
     const extraction = Promise.withResolvers<{ text: string; totalPages: number }>()

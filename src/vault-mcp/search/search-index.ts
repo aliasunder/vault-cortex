@@ -3000,6 +3000,7 @@ export const createSearchIndex = (
       for (const file of pdfPlaceholders) {
         const scheduledVersion = pdfVersionsForExtraction.get(file.relativePath)
 
+        if (!scheduledVersion) continue
         if (sourceVersions.get(file.relativePath) !== scheduledVersion) continue
         if (file.sizeBytes > maxFileBytes) continue
         const result = await (async () => {
