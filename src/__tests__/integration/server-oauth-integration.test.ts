@@ -1,7 +1,8 @@
 /** OAuth challenge, rotation, sweep, reuse, and scope behavior over real HTTP. */
 
-import { describe, it, expect, onTestFinished } from "vitest"
+import { describe, it, expect, onTestFinished, vi } from "vitest"
 import { createHash, randomBytes } from "node:crypto"
+import { request as httpRequest } from "node:http"
 import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -193,6 +194,61 @@ const refresh = ({
 
 describe("JSON parser placement", () => {
   it.each([
+    { label: "health check", method: "GET", path: "/healthz", status: 200, body: { ok: true } },
+    {
+      label: "MCP event stream",
+      method: "GET",
+      path: "/mcp",
+      status: 405,
+      body: { error: "method not allowed: this server does not offer a standalone SSE stream" },
+    },
+    {
+      label: "MCP session deletion",
+      method: "DELETE",
+      path: "/mcp",
+      status: 404,
+      body: { error: "session not found" },
+    },
+  ])("ignores malformed JSON on the $label route", async ({ method, path, status, body }) => {
+    const server = await startServer(await freePort(), { MCP_AUTH_TOKEN: TOKEN_A })
+    onTestFinished(server.cleanup)
+    // fetch forbids GET bodies; node:http sends the request the server must ignore.
+    const response = await new Promise<{ status: number | undefined; body: string }>(
+      (resolveResponse, reject) => {
+        const request = httpRequest(
+          `http://127.0.0.1:${server.port}${path}`,
+          {
+            method,
+            headers: {
+              "content-type": "application/json",
+              "content-length": "1",
+              authorization: `Bearer ${TOKEN_A}`,
+            },
+          },
+          (reply) => {
+            const chunks: Buffer[] = []
+            reply.on("data", (chunk: Buffer) => chunks.push(chunk))
+            reply.on("error", reject)
+            reply.on("end", () => {
+              resolveResponse({
+                status: reply.statusCode,
+                body: Buffer.concat(chunks).toString("utf8"),
+              })
+            })
+          },
+        )
+        request.on("error", reject)
+        request.end("{")
+      },
+    )
+
+    expect({ status: response.status, body: JSON.parse(response.body) }).toEqual({ status, body })
+    await server.cleanup()
+    expect(server.stdout()).not.toContain('"message":"request_body_rejected"')
+    expect(server.stderr()).not.toContain('"message":"unhandled_error"')
+  })
+
+  it.each([
     { label: "authenticated MCP", path: "/mcp" },
     { label: "public registration", path: "/register" },
   ])("answers malformed $label JSON with 400", async ({ path }) => {
@@ -208,6 +264,31 @@ describe("JSON parser placement", () => {
       status: 400,
       body: { error: "invalid request body" },
     })
+    await vi.waitFor(() => {
+      expect(server.stdout()).toContain('"message":"request_body_rejected"')
+    })
+    await server.cleanup()
+    const rejectionRecords = server
+      .stdout()
+      .trim()
+      .split("\n")
+      .map((line): Record<string, unknown> => JSON.parse(line))
+      .filter((record) => record.message === "request_body_rejected")
+
+    expect(rejectionRecords).toEqual([
+      {
+        timestamp: expect.any(String),
+        level: "warn",
+        name: "vault-cortex",
+        message: "request_body_rejected",
+        source: expect.stringMatching(/^server\.ts:\d+$/),
+        clientIp: "127.0.0.1",
+        method: "POST",
+        path,
+        type: "entity.parse.failed",
+        status: 400,
+      },
+    ])
     expect(server.stderr()).not.toContain('"message":"unhandled_error"')
   })
 
@@ -220,11 +301,14 @@ describe("JSON parser placement", () => {
       body: "{",
     })
 
-    expect(response.status).toBe(401)
-    expect(await response.json()).toEqual({
-      error: "invalid_token",
-      error_description: "Missing Authorization header",
+    expect({ status: response.status, body: await response.json() }).toEqual({
+      status: 401,
+      body: {
+        error: "invalid_token",
+        error_description: "Missing Authorization header",
+      },
     })
+    await server.cleanup()
     expect(server.stderr()).not.toContain('"message":"unhandled_error"')
     expect(server.stdout()).not.toContain('"message":"mcp_request"')
   })
@@ -243,6 +327,7 @@ describe("JSON parser placement", () => {
       cacheControl: response.headers.get("cache-control"),
       body: await response.text(),
     }).toEqual({ status: 400, cacheControl: "no-store", body: "Invalid form submission." })
+    await server.cleanup()
     expect(server.stderr()).not.toContain('"message":"unhandled_error"')
   })
 })
@@ -335,6 +420,7 @@ describe("rotating MCP_AUTH_TOKEN", () => {
       MCP_AUTH_TOKEN: TOKEN_A,
       INDEX_DB_PATH: indexDbPath,
     })
+    onTestFinished(before.cleanup)
     const client = await registerClient(port)
     const issued = await authorize({ port, client, authToken: TOKEN_A })
     expect(await mcpStatusWithBearer(port, issued.access_token)).toBe(200)
@@ -400,6 +486,7 @@ describe("client registration sweep", () => {
     const port = await freePort()
 
     const before = await startServer(port, sameDataDir)
+    onTestFinished(before.cleanup)
     const stale = await registerClient(port)
     const kept = await registerClient(port)
     await before.cleanup()
@@ -498,6 +585,7 @@ describe("refresh-token reuse detection", () => {
     const port = await freePort()
 
     const before = await startServer(port, sameDataDir)
+    onTestFinished(before.cleanup)
     const client = await registerClient(port)
     const issued = await authorize({ port, client, authToken: TOKEN_A })
     const rotated = await refresh({ port, client, refreshToken: issued.refresh_token })

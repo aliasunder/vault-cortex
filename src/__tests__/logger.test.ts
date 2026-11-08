@@ -29,10 +29,10 @@ const captureConsoleRecords = (): (() => Record<string, unknown>[]) => {
   return () => chunks.map((chunk) => JSON.parse(chunk))
 }
 
-const importFileLogger = async (logDir: string) => {
+const importFileLogger = async (logDir: string, level = "info") => {
   vi.resetModules()
   vi.stubEnv("LOG_DIR", logDir)
-  vi.stubEnv("LOG_LEVEL", "info")
+  vi.stubEnv("LOG_LEVEL", level)
   onTestFinished(() => {
     vi.restoreAllMocks()
     vi.unstubAllEnvs()
@@ -61,11 +61,7 @@ const expectedStoppedRecord = (error: string) => ({
 const createTempDir = (): string => {
   const dir = mkdtempSync(join(tmpdir(), "logger-test-"))
   onTestFinished(() => {
-    try {
-      rmSync(dir, { recursive: true, force: true })
-    } catch {
-      // ignore — OS tmp dir handles stragglers
-    }
+    rmSync(dir, { recursive: true, force: true })
   })
   return dir
 }
@@ -444,17 +440,14 @@ describe("createFileSinkExtension", () => {
     const logDir = createTempDir()
     const extension = createFileSinkExtension({ logDir })
 
-    extension(sampleEntry("hello"), sampleLine("hello"))
-    extension(sampleEntry("world"), sampleLine("world"))
+    const helloLine = sampleLine("hello")
+    const worldLine = sampleLine("world")
+
+    extension(sampleEntry("hello"), helloLine)
+    extension(sampleEntry("world"), worldLine)
 
     const today = DateTime.now().toISODate()
-    const lines = readFileSync(join(logDir, `vault-mcp-${today}.log`), "utf8")
-      .trim()
-      .split("\n")
-      .map((line) => JSON.parse(line))
-    expect(lines).toHaveLength(2)
-    expect(lines[0].message).toBe("hello")
-    expect(lines[1].message).toBe("world")
+    expect(readFileSync(join(logDir, `vault-mcp-${today}.log`), "utf8")).toBe(helloLine + worldLine)
   })
 
   it("creates the log directory if it does not exist", () => {
@@ -474,15 +467,10 @@ describe("createFileSinkExtension", () => {
     writeFileSync(logFile, '{"message":"existing"}\n')
 
     const extension = createFileSinkExtension({ logDir })
-    extension(sampleEntry("appended"), sampleLine("appended"))
+    const appendedLine = sampleLine("appended")
+    extension(sampleEntry("appended"), appendedLine)
 
-    const lines = readFileSync(logFile, "utf8")
-      .trim()
-      .split("\n")
-      .map((line) => JSON.parse(line))
-    expect(lines).toHaveLength(2)
-    expect(lines[0].message).toBe("existing")
-    expect(lines[1].message).toBe("appended")
+    expect(readFileSync(logFile, "utf8")).toBe('{"message":"existing"}\n' + appendedLine)
   })
 
   it("rolls to a new file when the date changes", () => {
@@ -507,10 +495,8 @@ describe("createFileSinkExtension", () => {
 
     const day1Content = readFileSync(join(logDir, "vault-mcp-2026-01-15.log"), "utf8")
     const day2Content = readFileSync(join(logDir, "vault-mcp-2026-01-16.log"), "utf8")
-    const day1Line = JSON.parse(day1Content.trim())
-    const day2Line = JSON.parse(day2Content.trim())
-    expect(day1Line.message).toBe("day1")
-    expect(day2Line.message).toBe("day2")
+    expect(day1Content).toBe('{"message":"day1"}\n')
+    expect(day2Content).toBe('{"message":"day2"}\n')
   })
 
   it("prunes old files on creation", () => {
@@ -520,7 +506,7 @@ describe("createFileSinkExtension", () => {
     createFileSinkExtension({ logDir, retentionDays: 7 })
 
     const remaining = readdirSync(logDir)
-    expect(remaining).toHaveLength(0)
+    expect(remaining).toEqual([])
   })
 })
 
@@ -592,6 +578,11 @@ describe("LOG_MAX_DAILY_MB", () => {
     { label: "fractional", value: "1.5" },
     { label: "malformed", value: "25MB" },
     { label: "non-number", value: "bad" },
+    { label: "unsafe byte count", value: "9007199255" },
+    { label: "non-finite number", value: "9".repeat(400) },
+    { label: "signed whole number", value: "+1" },
+    { label: "surrounding whitespace", value: " 1 " },
+    { label: "exponent", value: "1e1" },
   ])("uses the default with one startup warning for a $label value", async ({ value }) => {
     const logDir = createTempDir()
     const records = captureConsoleRecords()
@@ -654,8 +645,7 @@ describe("pruneOldLogFiles", () => {
     pruneOldLogFiles(logDir, 30)
 
     const remaining = readdirSync(logDir)
-    expect(remaining).toHaveLength(1)
-    expect(remaining[0]).toBe(`vault-mcp-${today}.log`)
+    expect(remaining).toEqual([`vault-mcp-${today}.log`])
   })
 
   it("ignores non-matching files", () => {
@@ -707,7 +697,7 @@ describe("pruneOldLogFiles", () => {
     pruneOldLogFiles(logDir, 1)
 
     const remaining = readdirSync(logDir)
-    expect(remaining).toHaveLength(0)
+    expect(remaining).toEqual([])
   })
 })
 
@@ -801,16 +791,20 @@ describe("source location resolution", () => {
     expect(source).toMatch(/\.(ts|js):\d+$/)
   })
 
-  it("does not emit a source field for debug-level logs", () => {
+  it("does not emit a source field for debug-level logs", async () => {
     const emittedLines = captureEmittedLines()
+    const debugLogger = await importFileLogger("none", "debug")
 
-    logger.debug("debug message")
+    debugLogger.debug("debug message")
 
-    const debugLines = emittedLines()
-
-    if (debugLines.length > 0) {
-      expect(debugLines[0]).not.toHaveProperty("source")
-    }
+    expect(emittedLines()).toEqual([
+      {
+        timestamp: expect.any(String),
+        level: "debug",
+        name: "vault-cortex",
+        message: "debug message",
+      },
+    ])
   })
 })
 
@@ -855,8 +849,10 @@ describe("logger child lazy props", () => {
     transport.sessionId = "second-session"
     childLogger.info("second line")
 
-    expect(emittedLines()[0]?.sessionId).toBe("first-session")
-    expect(emittedLines()[1]?.sessionId).toBe("second-session")
+    expect(emittedLines()).toEqual([
+      expectedConsoleRecord("first line", { sessionId: "first-session" }),
+      expectedConsoleRecord("second line", { sessionId: "second-session" }),
+    ])
   })
 
   it("omits a lazy prop that resolves to undefined", () => {
@@ -871,10 +867,9 @@ describe("logger child lazy props", () => {
 
     childLogger.info("tool_call")
 
-    const emittedLine = emittedLines()[0]
-    expect(emittedLine?.message).toBe("tool_call")
-    expect(emittedLine?.clientIp).toBe("203.0.113.7")
-    expect(emittedLine).not.toHaveProperty("sessionId")
+    expect(emittedLines()).toEqual([
+      expectedConsoleRecord("tool_call", { clientIp: "203.0.113.7" }),
+    ])
   })
 
   it("passes static props through unchanged alongside a lazy prop", () => {
@@ -886,8 +881,9 @@ describe("logger child lazy props", () => {
 
     childLogger.info("tool_call")
 
-    expect(emittedLines()[0]?.sessionId).toBe("session-abc")
-    expect(emittedLines()[0]?.clientIp).toBe("203.0.113.7")
+    expect(emittedLines()).toEqual([
+      expectedConsoleRecord("tool_call", { sessionId: "session-abc", clientIp: "203.0.113.7" }),
+    ])
   })
 
   it("resolves a lazy prop inherited through a grandchild logger", () => {
@@ -905,7 +901,8 @@ describe("logger child lazy props", () => {
     transport.sessionId = "session-abc"
     requestLogger.info("tool_call")
 
-    expect(emittedLines()[0]?.sessionId).toBe("session-abc")
-    expect(emittedLines()[0]?.requestId).toBe(12)
+    expect(emittedLines()).toEqual([
+      expectedConsoleRecord("tool_call", { sessionId: "session-abc", requestId: 12 }),
+    ])
   })
 })

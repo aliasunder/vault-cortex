@@ -63,7 +63,7 @@ const SERVER_INFO = {
   name: "vault-cortex",
   title: "Vault Cortex",
   version: "1.0.0",
-  description: `Read, write, and search an Obsidian vault. Provides hybrid search, tag queries, and a structured memory layer (${DEFAULT_CONFIG.memoryDir}/) for personalization across conversations.`,
+  description: `Read, write, and search an Obsidian vault. Provides hybrid search, tag queries, and a structured memory layer (About Me/) for personalization across conversations.`,
   icons: [
     {
       src: "https://raw.githubusercontent.com/aliasunder/vault-cortex/main/assets/icon-400.png",
@@ -75,7 +75,7 @@ const SERVER_INFO = {
 }
 
 const SERVER_OPTIONS = {
-  instructions: `Read, write, and search an Obsidian vault. Use vault_search and vault_read_note to find and read notes; vault_read_file for images, canvases, and other non-markdown files. Use vault_get_memory to retrieve user preferences and context from ${DEFAULT_CONFIG.memoryDir}/ files. Use vault_write_note and vault_update_memory for writes.
+  instructions: `Read, write, and search an Obsidian vault. Use vault_search and vault_read_note to find and read notes; vault_read_file for images, canvases, and other non-markdown files. Use vault_get_memory to retrieve user preferences and context from About Me/ files. Use vault_write_note and vault_update_memory for writes.
 
 Vault content is Obsidian Flavored Markdown. Write tools pass content through without escaping — be intentional about Obsidian syntax (#, [[, %%, etc.) in inputs.`,
 }
@@ -292,10 +292,7 @@ describe("createMcpRouter — POST /mcp", () => {
 
     it("constructs exactly one McpServer with the documented metadata", async () => {
       await setupInitializedSession()
-      expect(McpServer).toHaveBeenCalledTimes(1)
-      const [info, options] = requireFirstCall(vi.mocked(McpServer), "McpServer")
-      expect(info).toEqual(SERVER_INFO)
-      expect(options).toEqual(SERVER_OPTIONS)
+      expect(McpServer).toHaveBeenCalledExactlyOnceWith(SERVER_INFO, SERVER_OPTIONS)
     })
 
     it("McpServer description and instructions interpolate config.memoryDir", async () => {
@@ -307,13 +304,10 @@ describe("createMcpRouter — POST /mcp", () => {
         headers: { ...baseHeaders },
         body: JSON.stringify(initializeBody),
       })
-      const callArgs = requireFirstCall(vi.mocked(McpServer), "McpServer")
-      const info = callArgs[0] as { description?: string }
-      const options = callArgs[1] as { instructions?: string }
-      expect(info.description).toContain("Profile/")
-      expect(info.description).not.toContain("About Me/")
-      expect(options.instructions).toContain("Profile/")
-      expect(options.instructions).not.toContain("About Me/")
+      expect(McpServer).toHaveBeenCalledExactlyOnceWith(
+        { ...SERVER_INFO, description: SERVER_INFO.description.replace("About Me/", "Profile/") },
+        { instructions: SERVER_OPTIONS.instructions.replace("About Me/", "Profile/") },
+      )
     })
 
     it("instructions degrade the write sentence when DISABLED_TOOLS hides vault_update_memory", async () => {
@@ -327,14 +321,12 @@ describe("createMcpRouter — POST /mcp", () => {
         headers: { ...baseHeaders },
         body: JSON.stringify(initializeBody),
       })
-      const constructorCalls = vi.mocked(McpServer).mock.calls
-      expect(constructorCalls).toHaveLength(1)
-      const options = constructorCalls[0]?.[1] as { instructions?: string } | undefined
-      // The memory layer is still on (vault_get_memory serves reads), but
-      // the write directive falls back to vault_write_note alone.
-      expect(options?.instructions).toContain("vault_get_memory")
-      expect(options?.instructions).toContain(" Use vault_write_note for writes.")
-      expect(options?.instructions).not.toContain("vault_update_memory")
+      expect(McpServer).toHaveBeenCalledExactlyOnceWith(SERVER_INFO, {
+        instructions: SERVER_OPTIONS.instructions.replace(
+          "vault_write_note and vault_update_memory for writes.",
+          "vault_write_note for writes.",
+        ),
+      })
     })
 
     it("instructions omit vault_read_file when FILE_TOOLS_ENABLED is false", async () => {
@@ -346,11 +338,12 @@ describe("createMcpRouter — POST /mcp", () => {
         headers: { ...baseHeaders },
         body: JSON.stringify(initializeBody),
       })
-      const constructorCalls = vi.mocked(McpServer).mock.calls
-      expect(constructorCalls).toHaveLength(1)
-      const options = constructorCalls[0]?.[1] as { instructions?: string } | undefined
-      expect(options?.instructions).not.toContain("vault_read_file")
-      expect(options?.instructions).toContain("vault_search")
+      expect(McpServer).toHaveBeenCalledExactlyOnceWith(SERVER_INFO, {
+        instructions: SERVER_OPTIONS.instructions.replace(
+          "; vault_read_file for images, canvases, and other non-markdown files",
+          "",
+        ),
+      })
     })
 
     it("instructions omit both vault_read_file and vault_get_memory when both disabled", async () => {
@@ -365,12 +358,18 @@ describe("createMcpRouter — POST /mcp", () => {
         headers: { ...baseHeaders },
         body: JSON.stringify(initializeBody),
       })
-      const constructorCalls = vi.mocked(McpServer).mock.calls
-      expect(constructorCalls).toHaveLength(1)
-      const options = constructorCalls[0]?.[1] as { instructions?: string } | undefined
-      expect(options?.instructions).not.toContain("vault_read_file")
-      expect(options?.instructions).not.toContain("vault_get_memory")
-      expect(options?.instructions).toContain("vault_write_note")
+      expect(McpServer).toHaveBeenCalledExactlyOnceWith(
+        {
+          ...SERVER_INFO,
+          description:
+            "Read, write, and search an Obsidian vault. Provides hybrid search, tag queries, and property-based filtering.",
+        },
+        {
+          instructions: `Read, write, and search an Obsidian vault. Use vault_search and vault_read_note to find and read notes. Use vault_write_note for writes.
+
+Vault content is Obsidian Flavored Markdown. Write tools pass content through without escaping — be intentional about Obsidian syntax (#, [[, %%, etc.) in inputs.`,
+        },
+      )
     })
 
     it("instructions and description omit write references when READONLY_MODE is true", async () => {
@@ -382,17 +381,17 @@ describe("createMcpRouter — POST /mcp", () => {
         headers: { ...baseHeaders },
         body: JSON.stringify(initializeBody),
       })
-      const constructorCalls = vi.mocked(McpServer).mock.calls
-      expect(constructorCalls).toHaveLength(1)
-      const info = constructorCalls[0]?.[0] as { description?: string }
-      const options = constructorCalls[0]?.[1] as { instructions?: string } | undefined
-      expect(options?.instructions).toBe(
-        `Read and search an Obsidian vault. Use vault_search and vault_read_note to find and read notes; vault_read_file for images, canvases, and other non-markdown files. Use vault_get_memory to retrieve user preferences and context from ${DEFAULT_CONFIG.memoryDir}/ files.
+      expect(McpServer).toHaveBeenCalledExactlyOnceWith(
+        {
+          ...SERVER_INFO,
+          description:
+            "Read and search an Obsidian vault. Provides hybrid search, tag queries, and a structured memory layer (About Me/) for personalization across conversations.",
+        },
+        {
+          instructions: `Read and search an Obsidian vault. Use vault_search and vault_read_note to find and read notes; vault_read_file for images, canvases, and other non-markdown files. Use vault_get_memory to retrieve user preferences and context from About Me/ files.
 
 Vault content is Obsidian Flavored Markdown. No tools that modify the vault are available.`,
-      )
-      expect(info.description).toBe(
-        `Read and search an Obsidian vault. Provides hybrid search, tag queries, and a structured memory layer (${DEFAULT_CONFIG.memoryDir}/) for personalization across conversations.`,
+        },
       )
     })
 
@@ -408,13 +407,17 @@ Vault content is Obsidian Flavored Markdown. No tools that modify the vault are 
         headers: { ...baseHeaders },
         body: JSON.stringify(initializeBody),
       })
-      const constructorCalls = vi.mocked(McpServer).mock.calls
-      expect(constructorCalls).toHaveLength(1)
-      const options = constructorCalls[0]?.[1] as { instructions?: string } | undefined
-      expect(options?.instructions).toBe(
-        `Read and search an Obsidian vault. Use vault_search and vault_read_note to find and read notes; vault_read_file for images, canvases, and other non-markdown files.
+      expect(McpServer).toHaveBeenCalledExactlyOnceWith(
+        {
+          ...SERVER_INFO,
+          description:
+            "Read and search an Obsidian vault. Provides hybrid search, tag queries, and property-based filtering.",
+        },
+        {
+          instructions: `Read and search an Obsidian vault. Use vault_search and vault_read_note to find and read notes; vault_read_file for images, canvases, and other non-markdown files.
 
 Vault content is Obsidian Flavored Markdown. No tools that modify the vault are available.`,
+        },
       )
     })
 
@@ -434,17 +437,17 @@ Vault content is Obsidian Flavored Markdown. No tools that modify the vault are 
         headers: { ...baseHeaders },
         body: JSON.stringify(initializeBody),
       })
-      const constructorCalls = vi.mocked(McpServer).mock.calls
-      expect(constructorCalls).toHaveLength(1)
-      const info = constructorCalls[0]?.[0] as { description?: string }
-      const options = constructorCalls[0]?.[1] as { instructions?: string } | undefined
-      expect(options?.instructions).toBe(
-        `Read and search an Obsidian vault. Use vault_search and vault_read_note to find and read notes; vault_read_file for images, canvases, and other non-markdown files. Use vault_get_memory to retrieve user preferences and context from ${DEFAULT_CONFIG.memoryDir}/ files.
+      expect(McpServer).toHaveBeenCalledExactlyOnceWith(
+        {
+          ...SERVER_INFO,
+          description:
+            "Read and search an Obsidian vault. Provides hybrid search, tag queries, and a structured memory layer (About Me/) for personalization across conversations.",
+        },
+        {
+          instructions: `Read and search an Obsidian vault. Use vault_search and vault_read_note to find and read notes; vault_read_file for images, canvases, and other non-markdown files. Use vault_get_memory to retrieve user preferences and context from About Me/ files.
 
 Vault content is Obsidian Flavored Markdown. No tools that modify the vault are available.`,
-      )
-      expect(info.description).toBe(
-        `Read and search an Obsidian vault. Provides hybrid search, tag queries, and a structured memory layer (${DEFAULT_CONFIG.memoryDir}/) for personalization across conversations.`,
+        },
       )
     })
 
@@ -458,11 +461,7 @@ Vault content is Obsidian Flavored Markdown. No tools that modify the vault are 
         headers: { ...baseHeaders },
         body: JSON.stringify(initializeBody),
       })
-      const constructorCalls = vi.mocked(McpServer).mock.calls
-      expect(constructorCalls).toHaveLength(1)
-      const options = constructorCalls[0]?.[1] as { instructions?: string } | undefined
-      expect(options?.instructions).toContain("Read, write, and search")
-      expect(options?.instructions).toContain("Write tools pass content through without escaping")
+      expect(McpServer).toHaveBeenCalledExactlyOnceWith(SERVER_INFO, SERVER_OPTIONS)
     })
 
     // The write framing and the sentence naming a write tool have to agree:
@@ -478,13 +477,12 @@ Vault content is Obsidian Flavored Markdown. No tools that modify the vault are 
         headers: { ...baseHeaders },
         body: JSON.stringify(initializeBody),
       })
-      const constructorCalls = vi.mocked(McpServer).mock.calls
-      expect(constructorCalls).toHaveLength(1)
-      const options = constructorCalls[0]?.[1] as { instructions?: string } | undefined
-
-      expect(options?.instructions).toContain("Read, write, and search")
-      expect(options?.instructions).toContain(" Use vault_update_memory for writes.")
-      expect(options?.instructions).not.toContain("vault_write_note")
+      expect(McpServer).toHaveBeenCalledExactlyOnceWith(SERVER_INFO, {
+        instructions: SERVER_OPTIONS.instructions.replace(
+          "vault_write_note and vault_update_memory for writes.",
+          "vault_update_memory for writes.",
+        ),
+      })
     })
 
     // Exact-string tests for discovery-tool edge cases — these catch
@@ -499,14 +497,11 @@ Vault content is Obsidian Flavored Markdown. No tools that modify the vault are 
         headers: { ...baseHeaders },
         body: JSON.stringify(initializeBody),
       })
-      const constructorCalls = vi.mocked(McpServer).mock.calls
-      expect(constructorCalls).toHaveLength(1)
-      const options = constructorCalls[0]?.[1] as { instructions?: string } | undefined
-      expect(options?.instructions).toBe(
-        `Read, write, and search an Obsidian vault. Use vault_read_note to find and read notes; vault_read_file for images, canvases, and other non-markdown files. Use vault_get_memory to retrieve user preferences and context from ${DEFAULT_CONFIG.memoryDir}/ files. Use vault_write_note and vault_update_memory for writes.
+      expect(McpServer).toHaveBeenCalledExactlyOnceWith(SERVER_INFO, {
+        instructions: `Read, write, and search an Obsidian vault. Use vault_read_note to find and read notes; vault_read_file for images, canvases, and other non-markdown files. Use vault_get_memory to retrieve user preferences and context from About Me/ files. Use vault_write_note and vault_update_memory for writes.
 
 Vault content is Obsidian Flavored Markdown. Write tools pass content through without escaping — be intentional about Obsidian syntax (#, [[, %%, etc.) in inputs.`,
-      )
+      })
     })
 
     it("produces clean prose when both discovery tools are disabled", async () => {
@@ -521,14 +516,11 @@ Vault content is Obsidian Flavored Markdown. Write tools pass content through wi
         headers: { ...baseHeaders },
         body: JSON.stringify(initializeBody),
       })
-      const constructorCalls = vi.mocked(McpServer).mock.calls
-      expect(constructorCalls).toHaveLength(1)
-      const options = constructorCalls[0]?.[1] as { instructions?: string } | undefined
-      expect(options?.instructions).toBe(
-        `Read, write, and search an Obsidian vault. Use vault_read_file for images, canvases, and other non-markdown files. Use vault_get_memory to retrieve user preferences and context from ${DEFAULT_CONFIG.memoryDir}/ files. Use vault_write_note and vault_update_memory for writes.
+      expect(McpServer).toHaveBeenCalledExactlyOnceWith(SERVER_INFO, {
+        instructions: `Read, write, and search an Obsidian vault. Use vault_read_file for images, canvases, and other non-markdown files. Use vault_get_memory to retrieve user preferences and context from About Me/ files. Use vault_write_note and vault_update_memory for writes.
 
 Vault content is Obsidian Flavored Markdown. Write tools pass content through without escaping — be intentional about Obsidian syntax (#, [[, %%, etc.) in inputs.`,
-      )
+      })
     })
 
     it("produces clean prose when discovery tools and vault_read_file are all disabled", async () => {
@@ -543,14 +535,11 @@ Vault content is Obsidian Flavored Markdown. Write tools pass content through wi
         headers: { ...baseHeaders },
         body: JSON.stringify(initializeBody),
       })
-      const constructorCalls = vi.mocked(McpServer).mock.calls
-      expect(constructorCalls).toHaveLength(1)
-      const options = constructorCalls[0]?.[1] as { instructions?: string } | undefined
-      expect(options?.instructions).toBe(
-        `Read, write, and search an Obsidian vault. Use vault_get_memory to retrieve user preferences and context from ${DEFAULT_CONFIG.memoryDir}/ files. Use vault_write_note and vault_update_memory for writes.
+      expect(McpServer).toHaveBeenCalledExactlyOnceWith(SERVER_INFO, {
+        instructions: `Read, write, and search an Obsidian vault. Use vault_get_memory to retrieve user preferences and context from About Me/ files. Use vault_write_note and vault_update_memory for writes.
 
 Vault content is Obsidian Flavored Markdown. Write tools pass content through without escaping — be intentional about Obsidian syntax (#, [[, %%, etc.) in inputs.`,
-      )
+      })
     })
 
     it("connects the new server to the new transport", async () => {
@@ -578,30 +567,31 @@ Vault content is Obsidian Flavored Markdown. Write tools pass content through wi
     it("registers tools on the new server with vault context and config", async () => {
       const { harness } = await setupInitializedSession()
       expect(registerTools).toHaveBeenCalledTimes(1)
-      const [toolRegistration] = requireFirstCall(vi.mocked(registerTools), "registerTools")
       const sessionLoggerResult = mockedLogger.child.mock.results[0]
 
       if (!sessionLoggerResult) {
         throw new Error("logger.child was never called")
       }
-      expect(toolRegistration.server).toBe(harness.serverInstances[0])
-      expect(toolRegistration.vaultPath).toBe(VAULT_PATH)
-      expect(toolRegistration.search).toBe(harness.search)
-      expect(toolRegistration.logger).toBe(sessionLoggerResult.value)
-      expect(toolRegistration.config).toBe(DEFAULT_CONFIG)
+      expect(registerTools).toHaveBeenCalledWith({
+        server: harness.serverInstances[0],
+        vaultPath: VAULT_PATH,
+        search: harness.search,
+        logger: sessionLoggerResult.value,
+        config: DEFAULT_CONFIG,
+      })
     })
 
     it("registers prompts on the new server with the same vault context as the tools", async () => {
       const { harness } = await setupInitializedSession()
       expect(registerPrompts).toHaveBeenCalledTimes(1)
-      const [promptRegistration] = requireFirstCall(vi.mocked(registerPrompts), "registerPrompts")
       const [toolRegistration] = requireFirstCall(vi.mocked(registerTools), "registerTools")
-      expect(promptRegistration.server).toBe(harness.serverInstances[0])
-      expect(promptRegistration.vaultPath).toBe(VAULT_PATH)
-      expect(promptRegistration.search).toBe(harness.search)
-      expect(promptRegistration.config).toBe(DEFAULT_CONFIG)
-      // Prompts and tools share the same session-scoped logger and context.
-      expect(promptRegistration.logger).toBe(toolRegistration.logger)
+      expect(registerPrompts).toHaveBeenCalledWith({
+        server: harness.serverInstances[0],
+        vaultPath: VAULT_PATH,
+        search: harness.search,
+        config: DEFAULT_CONFIG,
+        logger: toolRegistration.logger,
+      })
     })
 
     it("scopes the logger for registerTools to a lazy sessionId and clientIp", async () => {
@@ -638,12 +628,22 @@ Vault content is Obsidian Flavored Markdown. Write tools pass content through wi
         writtenChunks.push(String(chunk))
         return true
       })
+      onTestFinished(() => stdoutSpy.mockRestore())
       sessionLogger.info("tool_call")
       stdoutSpy.mockRestore()
 
       const emittedLines = writtenChunks.map((chunk) => JSON.parse(chunk))
-      expect(emittedLines[0]?.sessionId).toBe(sessionId)
-      expect(emittedLines[0]?.clientIp).toBe(FORWARDED_IP)
+      expect(emittedLines).toEqual([
+        {
+          timestamp: expect.any(String),
+          level: "info",
+          name: "vault-cortex",
+          message: "tool_call",
+          source: expect.stringMatching(/^mcp-router\.test\.ts:\d+$/),
+          sessionId,
+          clientIp: FORWARDED_IP,
+        },
+      ])
     })
 
     it("logs the 'session created' response", async () => {

@@ -154,21 +154,29 @@ describe("setup-server entry point", () => {
       cacheControl: "no-store",
     })
     await vi.waitFor(() => expect(server.stdout()).toContain('"message":"request_body_rejected"'))
-    const { timestamp, source, ...record } = lastLogRecord(server.stdout())
+    await stopChild(server.child)
+    const rejectionRecords = server
+      .stdout()
+      .trim()
+      .split("\n")
+      .map((line): Record<string, unknown> => JSON.parse(line))
+      .filter((record) => record.message === "request_body_rejected")
 
-    expect(timestamp).toEqual(expect.any(String))
-    expect(source).toMatch(/^setup-server\.ts:\d+$/)
-    expect(record).toEqual({
-      level: "warn",
-      name: "vault-cortex",
-      message: "request_body_rejected",
-      method: "POST",
-      path: "/setup",
-      sessionId: "s".repeat(255) + "…",
-      clientIp: "i".repeat(255) + "…",
-      type: "entity.too.large",
-      status: 413,
-    })
+    expect(rejectionRecords).toEqual([
+      {
+        timestamp: expect.any(String),
+        source: expect.stringMatching(/^setup-server\.ts:\d+$/),
+        level: "warn",
+        name: "vault-cortex",
+        message: "request_body_rejected",
+        method: "POST",
+        path: "/setup",
+        sessionId: "s".repeat(255) + "…",
+        clientIp: "i".repeat(255) + "…",
+        type: "entity.too.large",
+        status: 413,
+      },
+    ])
     expect(server.stderr()).toBe("")
   })
 

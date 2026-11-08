@@ -513,9 +513,18 @@ describe("POST /setup — sign-in outcomes", () => {
 
     await (await harness.postForm(CREDENTIALS)).text()
 
-    const logged = JSON.stringify(harness.logs)
-    expect(logged).not.toContain("user@example.com")
-    expect(logged).not.toContain('"pw"')
+    expect(harness.logs).toEqual([
+      {
+        level: "warn",
+        message: "setup_signin_failed",
+        data: {
+          component: "setup-routes",
+          requestId: expect.any(String),
+          clientIp: "127.0.0.1",
+          error: "Invalid email or password",
+        },
+      },
+    ])
   })
 
   it("reports an unreachable API as a reachability problem, not a stack trace", async () => {

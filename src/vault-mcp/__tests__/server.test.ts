@@ -50,6 +50,32 @@ const createMockReqRes = (
 }
 
 describe("createErrorMiddleware", () => {
+  it("logs a client error without writing a second response when headers are already sent", () => {
+    const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {})
+    const errorSpy = vi.spyOn(logger, "error").mockImplementation(() => {})
+    onTestFinished(() => {
+      vi.restoreAllMocks()
+    })
+    const middleware = createErrorMiddleware({ trustForwardedHops: 0 })
+    const { req, res, resStatus, resJson, next } = createMockReqRes({}, true)
+    const error = Object.assign(new Error("private body"), { status: 400, expose: true })
+
+    middleware(error, req, res, next)
+
+    expect(warnSpy).toHaveBeenCalledExactlyOnceWith("request_body_rejected", {
+      sessionId: undefined,
+      clientIp: "10.0.0.1",
+      method: "POST",
+      path: "/mcp",
+      type: "Error",
+      status: 400,
+    })
+    expect(errorSpy).not.toHaveBeenCalled()
+    expect(resStatus).not.toHaveBeenCalled()
+    expect(resJson).not.toHaveBeenCalled()
+    expect(next).not.toHaveBeenCalled()
+  })
+
   it.each([
     { label: "malformed JSON", status: 400, type: "entity.parse.failed" },
     { label: "oversized body", status: 413, type: "entity.too.large" },
