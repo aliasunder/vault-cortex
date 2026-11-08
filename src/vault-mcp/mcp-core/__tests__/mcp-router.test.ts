@@ -1,4 +1,4 @@
-import { unusedPdfExtractor } from "../../../__tests__/pdf-extractor.js"
+import { unusedPdfExtractor } from "../../../__tests__/helpers/pdf-extractor.js"
 import { describe, it, expect, beforeEach, afterEach, onTestFinished, vi } from "vitest"
 import express from "express"
 import { randomUUID } from "node:crypto"

@@ -1,4 +1,4 @@
-import { unusedPdfExtractor } from "../../../__tests__/pdf-extractor.js"
+import { unusedPdfExtractor } from "../../../__tests__/helpers/pdf-extractor.js"
 import { describe, it, expect, onTestFinished } from "vitest"
 import { mkdtemp, rm, writeFile, mkdir } from "node:fs/promises"
 import { join } from "node:path"

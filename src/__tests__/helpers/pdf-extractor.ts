@@ -2,7 +2,7 @@ import { onTestFinished } from "vitest"
 import {
   createPdfExtractor,
   type PdfExtractor,
-} from "../vault-mcp/vault-operations/pdf-extractor.js"
+} from "../../vault-mcp/vault-operations/pdf-extractor.js"
 
 export const unusedPdfExtractor: PdfExtractor = {
   extractForIndex: async () => {

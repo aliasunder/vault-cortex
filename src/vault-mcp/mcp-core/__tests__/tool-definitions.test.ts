@@ -1,4 +1,7 @@
-import { createTestPdfExtractor, unusedPdfExtractor } from "../../../__tests__/pdf-extractor.js"
+import {
+  createTestPdfExtractor,
+  unusedPdfExtractor,
+} from "../../../__tests__/helpers/pdf-extractor.js"
 import { describe, it, expect, beforeEach, vi, onTestFinished } from "vitest"
 import sharp from "sharp"
 import { mkdtemp, rm, writeFile, mkdir, readFile, utimes } from "node:fs/promises"
