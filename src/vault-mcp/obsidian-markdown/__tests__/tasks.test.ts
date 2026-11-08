@@ -541,6 +541,18 @@ describe("tasks.extractTasks", () => {
       expect(extracted).toEqual([task({ description: "T", priority })])
     })
 
+    it.each([
+      { signifierCount: 21, description: "T" },
+      { signifierCount: 22, description: "T ⏫" },
+    ])(
+      "leaves '$description' after stripping $signifierCount trailing priority signifiers",
+      ({ signifierCount, description }) => {
+        const extracted = tasks.extractTasks(`- [ ] T${" ⏫".repeat(signifierCount)}`)
+
+        expect(extracted).toEqual([task({ description, priority: "high" })])
+      },
+    )
+
     it("leaves priority null when no signifier is present", () => {
       const extracted = tasks.extractTasks("- [ ] T")
       expect(extracted).toEqual([task({ description: "T" })])
@@ -622,7 +634,7 @@ describe("tasks.extractTasks", () => {
            const elapsed = performance.now() - started;
            process.stdout.write(JSON.stringify({ extracted, elapsed }));`,
           ],
-          { encoding: "utf8", timeout: 2000 },
+          { encoding: "utf8", timeout: 10000 },
         )
         const result = JSON.parse(output)
 

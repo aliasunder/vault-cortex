@@ -5,7 +5,7 @@
  *  **Parsing:** a faithful reimplementation of the plugin's own parser
  *  (obsidian-tasks-group/obsidian-tasks, `DefaultTaskSerializer` +
  *  `DataviewTaskSerializer`): metadata is stripped off the END of the line, one
- *  `$`-anchored field at a time, until nothing matches or 20 passes finish. Any
+ *  `$`-anchored field at a time, until nothing matches or 21 passes finish. Any
  *  order of fields parses; unrecognized trailing text stops the scan and leaves
  *  everything to its left as description — exactly the plugin's behavior.
  *  Unlike the plugin (which reads one configured format per vault), both
@@ -162,7 +162,10 @@ const TASK_ID = /[a-zA-Z0-9_-]+/
 const TASK_ID_WHOLE_RE = new RegExp(`^${TASK_ID.source}$`)
 const isTaskId = (candidate: string): boolean => TASK_ID_WHOLE_RE.test(candidate)
 /** A comma-separated sequence of task IDs, as accepted after ⛔ / `dependsOn::`.
- *  The repeated suffix consumes trailing spaces as one maximal run. */
+ *  The Tasks plugin builds this as `ID( *, *ID *)*`; each repetition's trailing
+ *  spaces can also match the next repetition's leading spaces, so a space before
+ *  each comma causes exponential backtracking. This form gives each space run
+ *  one place to match. */
 const TASK_ID_SEQUENCE = new RegExp(`${TASK_ID.source}(?:(?: *, *${TASK_ID.source})+ *(?! ))?`)
 
 /** Builds an emoji field regex: signifier + optional VS16 (U+FE0F, matched
@@ -321,8 +324,10 @@ type TaskMetadata = Pick<
   | "tags"
 >
 
-/** Matches the Tasks plugin's 20-pass limit; any unstripped prefix remains description text. */
-const MAX_STRIPPING_PASSES = 20
+/** The Tasks plugin continues while runs <= maxRuns after incrementing runs. */
+const PLUGIN_MAX_RUNS = 20
+/** The plugin's do/while executes once before checking its limit, allowing 21 passes. */
+const MAX_STRIPPING_PASSES = PLUGIN_MAX_RUNS + 1
 
 /** Extracts a regex capture group, throwing if absent. Capture groups are
  *  guaranteed by the engine when the regex matches, but noUncheckedIndexedAccess
