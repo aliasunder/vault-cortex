@@ -91,6 +91,7 @@ const main = async (): Promise<void> => {
     void extract(request).catch((error: unknown) => {
       const description = describeErrorRelativeTo({ error, directory: request.vaultPath })
       const message = description.replace(FORMATTED_ERROR_NAME_PREFIX, "")
+      // vaultFs.readAsset prefixes byte-cap failures with this text, preserving their size code.
       const code = message.startsWith("file too large:") ? "size" : "read"
       const systemError = getSystemErrorDetails(error)
       send({

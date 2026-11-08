@@ -12,29 +12,29 @@ type PageTextContent = Awaited<ReturnType<PDFPageProxy["getTextContent"]>>
 
 const structuredPageItems = (content: PageTextContent): StructuredTextItem[] => {
   const toStructuredItem = (
-    item: Extract<PageTextContent["items"][number], { str: string }>,
+    textItem: Extract<PageTextContent["items"][number], { str: string }>,
   ): StructuredTextItem => {
-    const [, , verticalBasisX, verticalBasisY, xCoordinate, yCoordinate] = item.transform
-    const direction = item.dir
+    const [, , verticalBasisX, verticalBasisY, xCoordinate, yCoordinate] = textItem.transform
+    const direction = textItem.dir
 
     if (direction !== "ltr" && direction !== "rtl" && direction !== "ttb") {
       throw new Error("PDF text has an invalid direction")
     }
 
     return {
-      str: item.str,
+      str: textItem.str,
       x: xCoordinate,
       y: yCoordinate,
-      width: item.width,
-      height: item.height,
+      width: textItem.width,
+      height: textItem.height,
       // The transformed vertical unit vector's length gives the font size even for rotated text.
       fontSize: Math.hypot(verticalBasisX, verticalBasisY),
-      fontFamily: content.styles[item.fontName]?.fontFamily ?? "",
+      fontFamily: content.styles[textItem.fontName]?.fontFamily ?? "",
       dir: direction,
-      hasEOL: item.hasEOL,
+      hasEOL: textItem.hasEOL,
     }
   }
-  return content.items.filter((item) => "str" in item).map(toStructuredItem)
+  return content.items.filter((textItem) => "str" in textItem).map(toStructuredItem)
 }
 
 /** Stops at whole code points so an internal byte budget cannot introduce replacement characters. */
@@ -552,11 +552,12 @@ export const extractPdfIndexText = async (pdfData: Uint8Array): Promise<PdfTextR
         itemsByPage.push(structuredPageItems(await page.getTextContent()))
         const annotations = await page.getAnnotations()
         for (const annotation of annotations) {
-          if (
+          const isWebLink =
             annotation.subtype === "Link" &&
             typeof annotation.url === "string" &&
-            annotation.url
-          ) {
+            annotation.url.length > 0
+
+          if (isWebLink) {
             pdfLinks.push(annotation.url)
           }
         }

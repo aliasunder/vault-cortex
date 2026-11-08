@@ -259,6 +259,7 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
          *    file_content row still lets search find it by name;
          *  - null for an HTML page or script that is not UTF-8 or holds a NUL byte
          *    early on, which vault_read_file refuses too;
+         *  - null for obsolete PDF work or a PDF whose watcher has closed;
          *  - the file's text otherwise. */
         const readContentAndResetPdfIndex = async (): Promise<string | null> => {
           switch (fileKind) {
@@ -322,8 +323,8 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
         // A byte-gated PDF keeps the filename row without creating new vectors.
         if (fileKind === "pdf" && fileStat.size > maxFileBytes) return { status: "file-indexed" }
 
-        // A file that stopped reading as text loses what search held for it,
-        // while its file row above stays
+        // Rejected text and closed PDF work lose indexed content but keep the file row.
+        // The event-token check above already discarded obsolete PDF work.
         if (contentToIndex === null) {
           search.removeFileContent({ filePath: relativePath }, logger)
           logger.debug("indexed non-md file without its content", { path: relativePath })
@@ -964,8 +965,8 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
   }
 
   /**
-   * Reads one held path again for the startup batch, under its reservation,
-   * without waiting for its embedding.
+   * Reads one held path again for the startup batch, under its reservation.
+   * - PDF completion includes embedding; other embeddings run in the background.
    * - If a live event for the path replaced the reservation after going live,
    *   the read drops what it read, as an older live read does.
    * - A path that vanished by its read is left to the `unlink` chokidar sends
@@ -1214,8 +1215,8 @@ export const watchVaultAndBuildIndex = async (
   const pdfStart = Promise.withResolvers<undefined>()
   const pdfs = (async (): Promise<void> => {
     await pdfStart.promise
-    const watcherPdfs = holdingWatcher.startPdfPass()
-    await Promise.all([rebuildResult.startPdfPass(), watcherPdfs])
+    const initiallyRegisteredWatcherPdfs = holdingWatcher.startPdfPass()
+    await Promise.all([rebuildResult.startPdfPass(), initiallyRegisteredWatcherPdfs])
     // A startup deadline can return before the held batch has queued its PDFs.
     await applied
     await holdingWatcher.startPdfPass()

@@ -1,5 +1,3 @@
-import { createPdfExtractor } from "../src/vault-mcp/vault-operations/pdf-extractor.js"
-import { loadConfig } from "../src/vault-mcp/config.js"
 /** Search ranking eval harness — measures hybrid search against a local
  *  judgment file of queries with expected results.
  *
@@ -52,6 +50,8 @@ import { loadConfig } from "../src/vault-mcp/config.js"
  */
 
 import { parseArgs } from "node:util"
+import { createPdfExtractor } from "../src/vault-mcp/vault-operations/pdf-extractor.js"
+import { loadConfig } from "../src/vault-mcp/config.js"
 import { mkdirSync, writeFileSync } from "node:fs"
 import { readFile } from "node:fs/promises"
 import { join } from "node:path"

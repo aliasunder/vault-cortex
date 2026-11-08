@@ -98,6 +98,7 @@ Example: vault_search({ query: "decision", filters: { modified: { after: "2026-0
   const searchedContentText = config.fileToolsEnabled
     ? `vault notes and file content (canvas, PDF, the text formats ${textExtensions}, the visible text of HTML pages, and ${scriptExtensions} scripts)`
     : "vault notes"
+  // The PDF page cap matches MAX_INDEXED_PDF_PAGES in obsidian-markdown/pdf.ts.
   const fileContentLimitsSentence = config.fileToolsEnabled
     ? ` Files contribute their first ${indexedPrefixKiB} KiB of text; PDFs also stop after 500 pages. PDFs over ${config.maxFileBytes} bytes or whose text extraction fails are found by name only; PDF content becomes searchable after startup. A page or script over ${nameOnlyLimitMiB} MiB is found by its name only${scriptMatchClause}.`
     : ""

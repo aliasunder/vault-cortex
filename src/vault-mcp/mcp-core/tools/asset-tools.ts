@@ -1,6 +1,6 @@
-import { MAX_TEXT_OUTPUT_BYTES } from "../../vault-operations/asset-text.js"
 /** Asset tool registration — reading and discovering non-markdown vault files. */
 
+import { MAX_TEXT_OUTPUT_BYTES } from "../../vault-operations/asset-text.js"
 import { z } from "zod"
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js"
 import { assetOperations } from "../../vault-operations/asset-operations.js"

@@ -409,12 +409,13 @@ export type OutgoingLinkEntry = {
 //      notes without links (skipLinks), Pass 2 extracts links with the
 //      complete path list so all targets can resolve.
 
-/** Background pass failures are logged; PDF work starts only when startPdfPass is called. */
+/** Background pass failures are logged. */
 export type RebuildResult = {
   count: number
   embedding: Promise<void>
   bodyTags: Promise<void>
   pdfs: Promise<void>
+  /** Releases PDF extraction and waits for its text publications and embeddings. */
   startPdfPass: () => Promise<void>
 }
 
@@ -2257,7 +2258,6 @@ export const createSearchIndex = (
 
   /** Rebuilds note, task, file and graph indexes; reconciles retained memory rows and vectors.
    * Returns the note count, background embedding and body-tag passes, and a deferred PDF pass.
-   * - startPdfPass releases PDF extraction and returns its completion promise.
    * - No source write may run while it does. A source write is an upsert or remove call
    *   that changes the tables this clears; one that lands during its reads is replaced by
    *   the older content it read.
@@ -2472,7 +2472,7 @@ export const createSearchIndex = (
     const canvasContents = canvasContentResults.filter((entry) => entry !== null)
 
     // PDF names are available before extraction, and old chunks must disappear during this interval.
-    const pdfContents = nonMarkdownFileSizes
+    const pdfPlaceholders = nonMarkdownFileSizes
       .filter((file) => fileToolsEnabled && getFileKind(file.relativePath) === "pdf")
       .map((file) => ({
         relativePath: file.relativePath,
@@ -2694,7 +2694,7 @@ export const createSearchIndex = (
         // links before inserting, so canvas links append cleanly after the note link pass.
         const allFileContents = [
           ...canvasContents,
-          ...pdfContents,
+          ...pdfPlaceholders,
           ...textFileContents,
           ...htmlAndScriptContents,
         ]
@@ -2997,7 +2997,7 @@ export const createSearchIndex = (
       const passStart = performance.now()
       // Finish other files after an embedding failure, then reject completion so eval cannot score it.
       const embeddingFailures: unknown[] = []
-      for (const file of pdfContents) {
+      for (const file of pdfPlaceholders) {
         const scheduledVersion = pdfVersionsForExtraction.get(file.relativePath)
 
         if (sourceVersions.get(file.relativePath) !== scheduledVersion) continue
@@ -3035,7 +3035,7 @@ export const createSearchIndex = (
         }
       }
       logger.info("PDF content pass complete", {
-        files: pdfContents.length,
+        files: pdfPlaceholders.length,
         durationMs: Math.round(performance.now() - passStart),
       })
 

@@ -130,7 +130,13 @@ export const createPdfExtractor = (params: {
       // Settlement may race a deadline, IPC disconnect and process exit.
       let settled = false
 
-      const finish = (outcome: PdfReply | Error, discard: boolean): void => {
+      const finish = ({
+        outcome,
+        readerDisposition,
+      }: {
+        outcome: PdfReply | Error
+        readerDisposition: "reap" | "reuse"
+      }): void => {
         if (settled) return
         settled = true
         clearTimeout(timer)
@@ -147,7 +153,7 @@ export const createPdfExtractor = (params: {
         else job.resolve(outcome)
         // The queue awaits termination even though the caller can receive its error immediately.
         const complete = async (): Promise<void> => {
-          if (discard) {
+          if (readerDisposition === "reap") {
             await stopReader()
             requestLogger.warn("PDF extraction reader discarded", {
               path: job.request.path,
@@ -166,7 +172,10 @@ export const createPdfExtractor = (params: {
           exitCode: child.exitCode,
           signal: child.signalCode,
         })
-        finish(extractionError(job.request.path, state.ready ? "pdf-resource" : "pdf-start"), true)
+        finish({
+          outcome: extractionError(job.request.path, state.ready ? "pdf-resource" : "pdf-start"),
+          readerDisposition: "reap",
+        })
       }
       const send = (): void => {
         requestLogger.debug("PDF extraction dispatched", {
@@ -205,7 +214,11 @@ export const createPdfExtractor = (params: {
         if (reply.kind === "failure") {
           const code = reply.code === "size" ? "pdf-size" : "pdf-read"
           const failureDetails = reply.systemError ?? { pdfFailure: code }
-          finish(Object.assign(new Error(reply.message), failureDetails), false)
+          // The child catches per-file errors after the request unwinds, leaving its loop reusable.
+          finish({
+            outcome: Object.assign(new Error(reply.message), failureDetails),
+            readerDisposition: "reuse",
+          })
           return
         }
         const expected = job.request.kind === "index" ? "index-result" : "read-result"
@@ -214,7 +227,7 @@ export const createPdfExtractor = (params: {
           fail("unexpected result")
           return
         }
-        finish(reply, false)
+        finish({ outcome: reply, readerDisposition: "reuse" })
       }
       const onExit = (exitCode: number | null, signal: NodeJS.Signals | null): void => {
         requestLogger.warn("PDF extraction child exited", {
@@ -234,9 +247,17 @@ export const createPdfExtractor = (params: {
           path: job.request.path,
           timeoutMs: ACTIVE_TIMEOUT_MS,
         })
-        finish(extractionError(job.request.path, "pdf-resource"), true)
+        finish({
+          outcome: extractionError(job.request.path, "pdf-resource"),
+          readerDisposition: "reap",
+        })
       }, ACTIVE_TIMEOUT_MS)
-      cancelActive = () => finish(extractionError(job.request.path, "pdf-closed"), true)
+      cancelActive = () => {
+        finish({
+          outcome: extractionError(job.request.path, "pdf-closed"),
+          readerDisposition: "reap",
+        })
+      }
       child.on("message", onMessage)
       child.once("exit", onExit)
       child.once("error", onError)

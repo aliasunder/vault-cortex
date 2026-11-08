@@ -1,6 +1,6 @@
-import type { PdfExtractor } from "../vault-operations/pdf-extractor.js"
 /** MCP session routes — transport lifecycle, session creation, request routing. */
 
+import type { PdfExtractor } from "../vault-operations/pdf-extractor.js"
 import { Router } from "express"
 import type { Request, Response } from "express"
 import { randomUUID } from "node:crypto"

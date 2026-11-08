@@ -284,6 +284,7 @@ const readAssetContent = async (
     maxFileBytes: number
     maxImageOutputBytes: number
     maxPdfRenderPages: number
+    /** Must be bound to this vaultPath and maxFileBytes. */
     pdfExtractor: PdfExtractor
   },
   logger: Logger,
