@@ -1,4 +1,5 @@
 import { fileURLToPath } from "node:url"
+import assert from "node:assert/strict"
 import { performance } from "node:perf_hooks"
 import { execFileSync } from "node:child_process"
 import { linearizeCanvas } from "../../canvas.js"
@@ -75,19 +76,17 @@ const measure = (run: () => void): number => {
 
 const yamlCase = (size: number, duplicate: boolean): (() => void) => {
   const note = yamlFixture(size, duplicate)
-  return () => {
-    if (!duplicate) {
-      const parsed = parseNote(note)
 
-      if (
-        Object.keys(parsed.data).length !== size ||
-        parsed.data[`k${size - 1}`] !== size - 1 ||
-        parsed.content !== "body"
-      ) {
-        throw new Error("unique-key fixture lost properties or body")
-      }
-      return
+  if (!duplicate) {
+    const data = Object.fromEntries(
+      Array.from({ length: size }, (_, index) => [`k${index}`, index]),
+    )
+
+    return () => {
+      assert.deepEqual(parseNote(note), { data, content: "body" })
     }
+  }
+  return () => {
     try {
       parseNote(note)
     } catch (error) {

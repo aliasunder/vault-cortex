@@ -255,7 +255,33 @@ describe("task recognizer compatibility", () => {
     )
     const measurements: unknown = JSON.parse(output)
 
-    expect(Array.isArray(measurements)).toBe(true)
+    expect(measurements).toEqual([
+      {
+        name: "task-u2028",
+        sizes: [10_000, 20_000, 40_000],
+        medians: [expect.any(Number), expect.any(Number), expect.any(Number)],
+      },
+      {
+        name: "task-u2029",
+        sizes: [10_000, 20_000, 40_000],
+        medians: [expect.any(Number), expect.any(Number), expect.any(Number)],
+      },
+      {
+        name: "emoji-recurrence",
+        sizes: [20_000, 40_000, 80_000],
+        medians: [expect.any(Number), expect.any(Number), expect.any(Number)],
+      },
+      {
+        name: "dataview-recurrence",
+        sizes: [1_000, 2_000, 4_000],
+        medians: [expect.any(Number), expect.any(Number), expect.any(Number)],
+      },
+      {
+        name: "dataview-lookahead",
+        sizes: [25_000, 50_000, 100_000],
+        medians: [expect.any(Number), expect.any(Number), expect.any(Number)],
+      },
+    ])
     process.stdout.write(`Task parser timings ${output}\n`)
   }, 35_000)
 })

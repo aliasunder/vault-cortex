@@ -1419,7 +1419,7 @@ describe("task line mutations", () => {
       expect(result).toBe("- [ ] Task ➕ 2026-07-01")
     })
 
-    it("replacing a duplicated priority keeps the first and swaps the last", () => {
+    it("inserts a replacement priority before the surviving duplicate", () => {
       const result = tasks.updateTaskLinePriority({
         taskLine: "- [ ] Task ⏫ ➕ 2026-07-01 ⏫",
         newPriority: "highest",
@@ -2291,7 +2291,7 @@ describe("task line mutations", () => {
       expect(result).toBe("- [ ] My task 🏁 delete ➕ 2026-08-01 📅 2026-09-01 ^my-task")
     })
 
-    it("clearing strips duplicated emoji-format fields", () => {
+    it("clearing strips duplicated emoji onCompletion fields", () => {
       const line = "- [ ] My task 🏁 delete 🏁 keep ➕ 2026-08-01 ^my-task"
       const result = tasks.updateTaskLineOnCompletion({
         taskLine: line,
@@ -2850,7 +2850,7 @@ describe("task line mutations", () => {
       ])
     })
 
-    it("resets the indent stack at heading boundaries", () => {
+    it("attributes top-level tasks to the next heading after a nested list", () => {
       const content =
         [
           "---",
@@ -2888,6 +2888,34 @@ describe("task line mutations", () => {
           heading: "Up Next",
           depth: 0,
           parentLine: null,
+        }),
+      ])
+    })
+
+    it("starts an indented task after a heading without a parent from the prior section", () => {
+      const content = [
+        "## Active",
+        "- [ ] Parent ^parent",
+        "  - [ ] Child ^child",
+        "## Up Next",
+        "  - [ ] Independent ^independent",
+      ].join("\n")
+
+      expect(tasks.extractTasks(content)).toEqual([
+        task({ line: 2, description: "Parent", blockId: "parent", heading: "Active" }),
+        task({
+          line: 3,
+          description: "Child",
+          blockId: "child",
+          heading: "Active",
+          depth: 1,
+          parentLine: 2,
+        }),
+        task({
+          line: 5,
+          description: "Independent",
+          blockId: "independent",
+          heading: "Up Next",
         }),
       ])
     })

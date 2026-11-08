@@ -209,7 +209,7 @@ describe("list tokenizer", () => {
     { label: "loose item", document: "- a\n\n  b\n- c" },
     { label: "trailing indented blank lines", document: "- a\n  \n  \n- b" },
     { label: "CRLF lines", document: "- a\r\n\r\n  b\r\n- c" },
-    { label: "CR lines", document: "- a\r\n- b" },
+    { label: "a single CRLF line break", document: "- a\r\n- b" },
     { label: "task and nested items", document: "- [x] a\n\n  b\n  - c" },
   ])("preserves the upstream AST for $label", ({ document }) => {
     expect(parseList(document, list)).toEqual(parseList(document))
