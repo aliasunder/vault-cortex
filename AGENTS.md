@@ -976,11 +976,11 @@ Two naming layers — MCP (JSON wire format) and TypeScript (internal):
   suite (`src/__tests__/docker/`, see "Remote image boot tests — when to
   add"); the branches inside one script stay in that script's test file.
 
-- Only test files sit directly in a `__tests__/` folder. A module that a
-  test imports or runs (a harness, an input generator, an oracle, a
-  script the test spawns) goes in the folder's `helpers/` subfolder; data
-  that the code under test reads (a sample vault, JSON vectors, a stub
-  binary) goes in the folder's `fixtures/` subfolder.
+- New test support files go in subfolders of their `__tests__/` folder:
+  a module that a test imports or runs (a harness, an input generator,
+  an oracle, a script the test spawns) in `helpers/`, and data that the
+  code under test reads (a sample vault, JSON vectors, a stub binary) in
+  `fixtures/`.
 - Separate `it()` blocks over callback-pattern `it.each` when assertions
   are structurally different. `it.each` is for identical assertion
   shapes, with labeled case objects and `$label` in the title, never
