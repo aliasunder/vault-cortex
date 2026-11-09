@@ -1,4 +1,6 @@
-import { describe, it, expect } from "vitest"
+import { execFileSync } from "node:child_process"
+import { readFileSync } from "node:fs"
+import { describe, it, expect, vi } from "vitest"
 import {
   tasks,
   type ParsedTask,
@@ -268,7 +270,9 @@ describe("tasks.extractTasks", () => {
       ])
 
       expect(() => tasks.charForStatus("todo", registry)).toThrow(
-        'no checkbox symbol for status "todo" in the Tasks plugin registry (the default " " is typed non_task)',
+        new Error(
+          'no checkbox symbol for status "todo" in the Tasks plugin registry (the default " " is typed non_task)',
+        ),
       )
     })
 
@@ -290,7 +294,9 @@ describe("tasks.extractTasks", () => {
       ])
 
       expect(() => tasks.charForStatus("cancelled", registry)).toThrow(
-        'no checkbox symbol for status "cancelled" in the Tasks plugin registry (the default "-" is typed todo)',
+        new Error(
+          'no checkbox symbol for status "cancelled" in the Tasks plugin registry (the default "-" is typed todo)',
+        ),
       )
     })
 
@@ -535,6 +541,18 @@ describe("tasks.extractTasks", () => {
       expect(extracted).toEqual([task({ description: "T", priority })])
     })
 
+    it.each([
+      { signifierCount: 21, description: "T" },
+      { signifierCount: 22, description: "T ⏫" },
+    ])(
+      "leaves '$description' after stripping $signifierCount trailing priority signifiers",
+      ({ signifierCount, description }) => {
+        const extracted = tasks.extractTasks(`- [ ] T${" ⏫".repeat(signifierCount)}`)
+
+        expect(extracted).toEqual([task({ description, priority: "high" })])
+      },
+    )
+
     it("leaves priority null when no signifier is present", () => {
       const extracted = tasks.extractTasks("- [ ] T")
       expect(extracted).toEqual([task({ description: "T" })])
@@ -578,6 +596,125 @@ describe("tasks.extractTasks", () => {
           onCompletion: "delete",
         }),
       ])
+    })
+
+    it.each([
+      { name: "emoji", field: (value: string) => `⛔ ${value}`, idCount: 60, trailingSpaces: 0 },
+      {
+        name: "Dataview",
+        field: (value: string) => `[dependsOn:: ${value}]`,
+        idCount: 60,
+        trailingSpaces: 0,
+      },
+      {
+        name: "Dataview with a long whitespace suffix",
+        field: (value: string) => `[dependsOn:: ${value}]`,
+        idCount: 2,
+        // A long run exposes retries between the list and its surrounding field grammar.
+        trailingSpaces: 60000,
+      },
+    ])(
+      "rejects an adversarial $name dependency list in under 50 ms",
+      ({ field, idCount, trailingSpaces }) => {
+        const ids = Array.from({ length: idCount }, () => "a").join(" , ")
+        const dependencies = `${ids}${" ".repeat(trailingSpaces)}`
+        const line = `- [ ] x ${field(`${dependencies}!`)}`
+        const parserUrl = new URL("../tasks.ts", import.meta.url).href
+        // The child deadline can interrupt a synchronous regex that blocks the event loop.
+        const output = execFileSync(
+          process.execPath,
+          [
+            "--import",
+            "tsx",
+            "--input-type=module",
+            "--eval",
+            `import { tasks } from ${JSON.stringify(parserUrl)};
+           const started = performance.now();
+           const extracted = tasks.extractTasks(${JSON.stringify(line)});
+           const elapsed = performance.now() - started;
+           process.stdout.write(JSON.stringify({ extracted, elapsed }));`,
+          ],
+          { encoding: "utf8", timeout: 10000, killSignal: "SIGKILL" },
+        )
+        const result = JSON.parse(output)
+
+        expect(result.extracted).toEqual([
+          task({ description: `x ${field(`${dependencies}!`)}`, dependsOn: [] }),
+        ])
+        expect(result.elapsed).toBeLessThan(50)
+      },
+    )
+
+    it("preserves emoji dependency matches and group 1 across fixed-seed lists and existing fixtures", () => {
+      /** The former dependency grammar, retained as the compatibility oracle. */
+      const oldSequence = /[a-zA-Z0-9_-]+( *, *[a-zA-Z0-9_-]+ *)*/
+      const observedPatterns: RegExp[] = []
+      const originalExec = RegExp.prototype.exec
+      // A regular function preserves exec's receiver so the real private patterns are compared.
+      const execSpy = vi.spyOn(RegExp.prototype, "exec").mockImplementation(function (
+        this: RegExp,
+        text,
+      ) {
+        if (this.source.includes("⛔")) {
+          observedPatterns.push(this)
+        }
+        return originalExec.call(this, text)
+      })
+
+      try {
+        tasks.extractTasks("- [ ] x [dependsOn:: a]")
+      } finally {
+        execSpy.mockRestore()
+      }
+
+      const dependencyPatterns = [...new Set(observedPatterns)].filter((pattern) =>
+        pattern.source.includes("[a-zA-Z0-9_-]+"),
+      )
+      expect(dependencyPatterns.length).toBe(1)
+
+      // State advances once per draw so this corpus is reproducible.
+      let randomState = 0x5eed1234
+      const draw = (limit: number): number => {
+        randomState = (Math.imul(randomState, 1664525) + 1013904223) >>> 0
+        return randomState % limit
+      }
+      const ids = ["a", "B2", "db-setup", "cache_setup", "0", "_-", ""]
+      const punctuation = ["", "!", ".", ":", ",", "é"]
+      // At most five IDs keeps failures of the exponential oracle short.
+      const randomLists = Array.from({ length: 1000 }, () => {
+        const values = Array.from({ length: 1 + draw(5) }, () => {
+          return `${" ".repeat(draw(3))}${ids[draw(ids.length)]}${" ".repeat(draw(3))}`
+        })
+        return `${values.join(",")}${punctuation[draw(punctuation.length)]}`
+      })
+      const testSource = readFileSync(new URL("./tasks.test.ts", import.meta.url), "utf8")
+      /** Quoted strings containing dependency fields include all existing literal fixtures. */
+      const dependencyFixture = /["`]([^"`\n]*(?:⛔|dependsOn::)[^"`\n]*)["`]/gu
+      const fixtureLines = Array.from(
+        testSource.matchAll(dependencyFixture),
+        (match) => match[1] ?? "",
+      )
+      const generatedLines = randomLists.flatMap((value) => [
+        `- [ ] x ⛔ ${value}`,
+        `- [ ] x [dependsOn:: ${value}]`,
+        `- [ ] x (dependsOn:: ${value}),`,
+      ])
+      const lines = [...fixtureLines, ...generatedLines]
+
+      for (const pattern of dependencyPatterns) {
+        const oldPattern = new RegExp(`⛔\\uFE0F? *(${oldSequence.source})$`)
+        expect(oldPattern.source).not.toBe(pattern.source)
+
+        for (const line of lines) {
+          const oldMatch = oldPattern.exec(line)
+          const newMatch = pattern.exec(line)
+          expect({ line, match: newMatch?.[0], group1: newMatch?.[1] }).toEqual({
+            line,
+            match: oldMatch?.[0],
+            group1: oldMatch?.[1],
+          })
+        }
+      }
     })
 
     it("parses 🆔 id and ⛔ dependsOn with spaces around commas", () => {
@@ -687,9 +824,12 @@ describe("tasks.extractTasks", () => {
     })
 
     it("excludes task lines inside a tilde fence", () => {
-      const content = ["~~~", "- [ ] Hidden", "~~~"].join("\n")
+      const content = ["- [ ] Before", "~~~", "- [ ] Hidden", "~~~", "- [ ] After"].join("\n")
       const extracted = tasks.extractTasks(content)
-      expect(extracted).toEqual([])
+      expect(extracted).toEqual([
+        task({ line: 1, description: "Before" }),
+        task({ line: 5, description: "After" }),
+      ])
     })
 
     it("skips frontmatter and reports file-relative 1-based line numbers", () => {
@@ -1273,7 +1413,7 @@ describe("task line mutations", () => {
       expect(result).toBe("- [ ] Task ➕ 2026-07-01")
     })
 
-    it("replacing a duplicated priority keeps the first and swaps the last", () => {
+    it("inserts a replacement priority before the surviving duplicate", () => {
       const result = tasks.updateTaskLinePriority({
         taskLine: "- [ ] Task ⏫ ➕ 2026-07-01 ⏫",
         newPriority: "highest",
@@ -1479,6 +1619,57 @@ describe("task line mutations", () => {
 
   // ── replaceTaskLineDescription ────────────────────────────────
 
+  describe("Dataview fields adjacent to hashtags", () => {
+    const fields = [
+      { label: "square ID", field: "[id:: a]" },
+      { label: "parenthesized ID", field: "(id:: a)" },
+      { label: "square due date", field: "[due:: 2026-01-02]" },
+      { label: "parenthesized due date", field: "(due:: 2026-01-02)" },
+      { label: "square priority", field: "[priority:: high]" },
+      { label: "parenthesized priority", field: "(priority:: high)" },
+    ]
+
+    it.each(fields)("preserves a $label when replacing the description", ({ field }) => {
+      expect(
+        tasks.replaceTaskLineDescription({
+          taskLine: `- [ ] work #tag${field}`,
+          newDescription: "New",
+        }),
+      ).toBe(`- [ ] New ${field}`)
+    })
+
+    it.each(fields.slice(0, 2))("clears a $label after a hashtag", ({ field }) => {
+      expect(
+        tasks.updateTaskLineTaskId({
+          taskLine: `- [ ] work #tag${field}`,
+          taskId: null,
+          config: DATAVIEW_CONFIG,
+        }),
+      ).toBe("- [ ] work #tag")
+    })
+
+    it.each(fields.slice(2, 4))("clears a $label after a hashtag", ({ field }) => {
+      expect(
+        tasks.updateTaskLineDate({
+          taskLine: `- [ ] work #tag${field}`,
+          field: "due",
+          date: null,
+          config: DATAVIEW_CONFIG,
+        }),
+      ).toBe("- [ ] work #tag")
+    })
+
+    it.each(fields.slice(4))("clears a $label after a hashtag", ({ field }) => {
+      expect(
+        tasks.updateTaskLinePriority({
+          taskLine: `- [ ] work #tag${field}`,
+          newPriority: null,
+          config: DATAVIEW_CONFIG,
+        }),
+      ).toBe("- [ ] work #tag")
+    })
+  })
+
   describe("replaceTaskLineDescription", () => {
     it("replaces description before metadata signifiers", () => {
       const line = "- [ ] Old description ⏫ ➕ 2026-08-01 ^my-task"
@@ -1487,6 +1678,67 @@ describe("task line mutations", () => {
         newDescription: "New description",
       })
       expect(result).toBe("- [ ] New description ⏫ ➕ 2026-08-01 ^my-task")
+    })
+
+    it("separates a new description from a bare checkbox with one space", () => {
+      expect(tasks.replaceTaskLineDescription({ taskLine: "- [ ]", newDescription: "New" })).toBe(
+        "- [ ] New",
+      )
+    })
+
+    it("keeps the block link and hard break of a task with no description", () => {
+      expect(
+        tasks.replaceTaskLineDescription({ taskLine: "- [ ] ^my-task  ", newDescription: "New" }),
+      ).toBe("- [ ] New ^my-task  ")
+    })
+
+    it("keeps text glued to its checkbox as written", () => {
+      expect(
+        tasks.replaceTaskLineDescription({ taskLine: "- [ ]Old ^my-task", newDescription: "New" }),
+      ).toBe("- [ ]New ^my-task")
+    })
+
+    it("keeps glued caret text a description when completing the task", () => {
+      expect(
+        tasks.updateTaskLineStatus({
+          taskLine: "- [ ]^card",
+          newStatus: "done",
+          today: "2026-11-08",
+          config: EMOJI_CONFIG,
+        }),
+      ).toBe("- [x]^card ✅ 2026-11-08")
+    })
+
+    it.each([
+      { label: "a tab", taskLine: "- [ ]\tOld ^id", expected: "- [x]\tOld ✅ 2026-11-08 ^id" },
+      {
+        label: "a space and a tab",
+        taskLine: "- [ ] \tOld",
+        expected: "- [x] \tOld ✅ 2026-11-08",
+      },
+    ])("keeps $label after the checkbox when completing the task", ({ taskLine, expected }) => {
+      expect(
+        tasks.updateTaskLineStatus({
+          taskLine,
+          newStatus: "done",
+          today: "2026-11-08",
+          config: EMOJI_CONFIG,
+        }),
+      ).toBe(expected)
+    })
+
+    it("leaves no hard break when an emptied task gets a new field", () => {
+      const withoutDue = tasks.updateTaskLineDate({
+        taskLine: "- [ ]  📅 2026-11-09",
+        field: "due",
+        date: null,
+        config: EMOJI_CONFIG,
+      })
+
+      expect(withoutDue).toBe("- [ ]")
+      expect(
+        tasks.updateTaskLineTaskId({ taskLine: withoutDue, taskId: "new", config: EMOJI_CONFIG }),
+      ).toBe("- [ ] 🆔 new")
     })
 
     it("replaces description when only a block_id follows", () => {
@@ -1888,6 +2140,36 @@ describe("task line mutations", () => {
   // ── updateTaskLineTaskId ──────────────────────────────────────
 
   describe("updateTaskLineTaskId", () => {
+    it.each([
+      { name: "a newline", lineBreak: "\n" },
+      { name: "a carriage return", lineBreak: "\r" },
+      { name: "a line separator", lineBreak: "\u2028" },
+      { name: "a paragraph separator", lineBreak: "\u2029" },
+    ])("does not mutate a body containing $name", ({ lineBreak }) => {
+      const taskLine = `- [ ] First${lineBreak}second`
+
+      expect(tasks.isTaskLine(taskLine)).toBe(false)
+      expect(tasks.updateTaskLineTaskId({ taskLine, taskId: "abc123", config: EMOJI_CONFIG })).toBe(
+        taskLine,
+      )
+    })
+
+    it.each([
+      { name: "without a trailing space", taskLine: "- [ ]", expected: "- [ ] 🆔 abc123" },
+      { name: "with a trailing space", taskLine: "- [ ] ", expected: "- [ ] 🆔 abc123 " },
+      { name: "ending in a hard break", taskLine: "- [ ]  ", expected: "- [ ] 🆔 abc123  " },
+      {
+        name: "glued to its text before a block link and hard break",
+        taskLine: "- [ ]Old ^my-task  ",
+        expected: "- [ ]Old 🆔 abc123 ^my-task  ",
+      },
+    ])("sets an ID on a task $name", ({ taskLine, expected }) => {
+      expect(tasks.isTaskLine(taskLine)).toBe(true)
+      expect(tasks.updateTaskLineTaskId({ taskLine, taskId: "abc123", config: EMOJI_CONFIG })).toBe(
+        expected,
+      )
+    })
+
     it("sets a task ID (emoji format)", () => {
       const line = "- [ ] My task ➕ 2026-08-01 ^my-task"
       const result = tasks.updateTaskLineTaskId({
@@ -2054,7 +2336,7 @@ describe("task line mutations", () => {
       expect(result).toBe("- [ ] My task 🏁 delete ➕ 2026-08-01 📅 2026-09-01 ^my-task")
     })
 
-    it("clearing strips all copies of both formats", () => {
+    it("clearing strips duplicated emoji onCompletion fields", () => {
       const line = "- [ ] My task 🏁 delete 🏁 keep ➕ 2026-08-01 ^my-task"
       const result = tasks.updateTaskLineOnCompletion({
         taskLine: line,
@@ -2613,7 +2895,7 @@ describe("task line mutations", () => {
       ])
     })
 
-    it("resets the indent stack at heading boundaries", () => {
+    it("attributes top-level tasks to the next heading after a nested list", () => {
       const content =
         [
           "---",
@@ -2624,7 +2906,7 @@ describe("task line mutations", () => {
           "- [ ] Task A ^a",
           "  - [ ] Sub A ^sa",
           "## Up Next",
-          "- [ ] Task B ^b",
+          "  - [ ] Task B ^b",
         ].join("\n") + "\n"
       const parsed = tasks.extractTasks(content)
       expect(parsed).toEqual([
@@ -2651,6 +2933,34 @@ describe("task line mutations", () => {
           heading: "Up Next",
           depth: 0,
           parentLine: null,
+        }),
+      ])
+    })
+
+    it("starts an indented task after a heading without a parent from the prior section", () => {
+      const content = [
+        "## Active",
+        "- [ ] Parent ^parent",
+        "  - [ ] Child ^child",
+        "## Up Next",
+        "  - [ ] Independent ^independent",
+      ].join("\n")
+
+      expect(tasks.extractTasks(content)).toEqual([
+        task({ line: 2, description: "Parent", blockId: "parent", heading: "Active" }),
+        task({
+          line: 3,
+          description: "Child",
+          blockId: "child",
+          heading: "Active",
+          depth: 1,
+          parentLine: 2,
+        }),
+        task({
+          line: 5,
+          description: "Independent",
+          blockId: "independent",
+          heading: "Up Next",
         }),
       ])
     })

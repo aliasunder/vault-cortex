@@ -195,7 +195,10 @@ const collectSectionSpans = (
   headings: readonly HeadingInfo[],
   preambleExists: boolean,
 ): SectionSpan[] => {
-  const topLevel = Math.min(...headings.map((heading) => heading.level))
+  const topLevel = headings.reduce(
+    (shallowestLevel, heading) => Math.min(shallowestLevel, heading.level),
+    Infinity,
+  )
   const topLevelHeadingCount = headings.filter((heading) => heading.level === topLevel).length
 
   // A lone top-level heading that opens the note (the `# Title` wrapper

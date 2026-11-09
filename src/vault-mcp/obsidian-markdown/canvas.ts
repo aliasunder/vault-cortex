@@ -10,8 +10,9 @@ import { posix } from "node:path"
  * opaque node ids — a reader consuming the raw JSON spends most of its
  * attention on `x`/`y`/`width`/`height` noise and mental id-joins. This
  * transform keeps exactly what carries meaning and re-expresses it as
- * document structure: spatial grouping becomes heading nesting, canvas
- * position becomes reading order (top-to-bottom, left-to-right), and
+ * document structure: spatial grouping becomes heading nesting within the
+ * ownership-work budget, canvas position becomes reading order (top-to-bottom,
+ * left-to-right), and
  * edges become an `A → B (label)` list with ids resolved to display
  * names. Geometry is dropped entirely — it is presentation, and the
  * rendition is a reading surface, not a round-trippable format (callers
@@ -25,8 +26,7 @@ import { posix } from "node:path"
  *
  * Lenient by design: real Obsidian canvases carry extra properties and
  * occasionally partial entries, so unknown props are ignored and entries
- * missing their required fields are skipped rather than thrown. Only
- * unparseable JSON throws.
+ * missing their required fields are skipped rather than thrown.
  *
  * The module also extracts and rewrites the links a canvas holds, for the
  * search index and the note mover. Obsidian calls nodes "cards": a text card
@@ -174,25 +174,48 @@ const renderNode = (node: CanvasNode): string => {
   return `[${node.type}]`
 }
 
-/** Renders a group section: heading, member nodes in reading order, then
- *  child groups recursively one heading level deeper (capped at H6). */
-const renderGroup = (
-  group: CanvasNode,
-  depth: number,
-  membersByGroupId: ReadonlyMap<string | undefined, CanvasNode[]>,
-  childGroupsByParentId: ReadonlyMap<string | undefined, CanvasNode[]>,
-): string => {
-  // H1 is the canvas overview line, so top-level groups (depth 0) start at H2.
+// Bounds both ownership axes while retaining nesting for ordinary multi-group canvases.
+const CANVAS_GROUP_WORK_BUDGET = 16_000_000
+
+export const canNestCanvasGroups = (counts: { contentNodes: number; groups: number }): boolean => {
+  return counts.groups * (counts.contentNodes + counts.groups) <= CANVAS_GROUP_WORK_BUDGET
+}
+
+const groupHeading = (group: CanvasNode, depth: number): string => {
+  // H1 is the overview, so groups start at H2 and deeper groups cap at H6.
   const heading = "#".repeat(Math.min(2 + depth, 6))
-  const members = membersByGroupId.get(group.id) ?? []
-  const childGroups = childGroupsByParentId.get(group.id) ?? []
-  return [
-    `${heading} Group: ${group.label ?? "(unlabeled)"}`,
-    ...members.map(renderNode),
-    ...childGroups.map((child) =>
-      renderGroup(child, depth + 1, membersByGroupId, childGroupsByParentId),
-    ),
-  ].join("\n\n")
+  return `${heading} Group: ${group.label ?? "(unlabeled)"}`
+}
+
+/** Buckets keyed by node identity append each section once, even when IDs repeat. */
+const renderNestedNodes = ({
+  contentNodes,
+  groups,
+}: {
+  contentNodes: readonly CanvasNode[]
+  groups: readonly CanvasNode[]
+}): string[] => {
+  const membersByGroup = groupBy(contentNodes, (node) => smallestContainingGroup(node, groups))
+  const childGroupsByParent = groupBy(groups, (group) => smallestContainingGroup(group, groups))
+  const sections = (membersByGroup.get(undefined) ?? []).map(renderNode)
+  const frames = (childGroupsByParent.get(undefined) ?? [])
+    .toReversed()
+    .map((group) => ({ group, depth: 0 }))
+
+  // Reverse pushes retain the buckets' reading order during depth-first traversal.
+  while (frames.length) {
+    const frame = frames.pop()
+
+    if (!frame) break
+    const { group, depth } = frame
+
+    sections.push(groupHeading(group, depth))
+    for (const member of membersByGroup.get(group) ?? []) sections.push(renderNode(member))
+    for (const child of (childGroupsByParent.get(group) ?? []).toReversed()) {
+      frames.push({ group: child, depth: depth + 1 })
+    }
+  }
+  return sections
 }
 
 /** Groups a list by a key function, preserving each bucket's insertion order. */
@@ -230,7 +253,9 @@ const parseCanvasJson = (canvasJson: string): unknown => {
  * Linearizes .canvas JSON into readable markdown: an overview line, ungrouped
  * node content first, each group's content under a `Group:` heading (nested
  * groups one level deeper), then a `Connections` edge list in `A → B (label)`
- * form with ids resolved to display names. Throws only on unparseable JSON.
+ * form with ids resolved to display names. Above the ownership-work budget,
+ * node content and group headings stay flat in reading order. Throws on
+ * unparseable JSON. Every valid node is rendered once, even when IDs repeat.
  */
 export const linearizeCanvas = (canvasJson: string): string => {
   const parsed = parseCanvasJson(canvasJson)
@@ -245,14 +270,13 @@ export const linearizeCanvas = (canvasJson: string): string => {
 
   const groups = nodes.filter((node) => node.type === "group")
   const contentNodes = nodes.filter((node) => node.type !== "group")
-  const membersByGroupId = groupBy(
-    contentNodes,
-    (node) => smallestContainingGroup(node, groups)?.id,
-  )
-  const childGroupsByParentId = groupBy(
-    groups,
-    (group) => smallestContainingGroup(group, groups)?.id,
-  )
+  const keepNesting = canNestCanvasGroups({
+    contentNodes: contentNodes.length,
+    groups: groups.length,
+  })
+  const nodeSections = keepNesting
+    ? renderNestedNodes({ contentNodes, groups })
+    : nodes.map((node) => (node.type === "group" ? groupHeading(node, 0) : renderNode(node)))
 
   const nodeById = new Map(nodes.map((node) => [node.id, node]))
   const edgeEndpointName = (id: string): string => {
@@ -260,10 +284,6 @@ export const linearizeCanvas = (canvasJson: string): string => {
     return node ? displayName(node) : `(missing node "${id}")`
   }
 
-  // A node outside every group has no containing group id, so groupBy filed
-  // it under the key undefined.
-  const ungroupedNodes = membersByGroupId.get(undefined) ?? []
-  const topLevelGroups = childGroupsByParentId.get(undefined) ?? []
   const edgeLines = edges.map((edge) => {
     const label = edge.label ? ` (${edge.label})` : ""
     return `${edgeEndpointName(edge.fromNode)} → ${edgeEndpointName(edge.toNode)}${label}`
@@ -271,10 +291,7 @@ export const linearizeCanvas = (canvasJson: string): string => {
 
   const sections = [
     `# Canvas: ${nodes.length} ${nodes.length === 1 ? "node" : "nodes"}, ${edges.length} ${edges.length === 1 ? "edge" : "edges"}`,
-    ...ungroupedNodes.map(renderNode),
-    ...topLevelGroups.map((group) =>
-      renderGroup(group, 0, membersByGroupId, childGroupsByParentId),
-    ),
+    ...nodeSections,
     ...(edgeLines.length > 0 ? [["## Connections", ...edgeLines].join("\n\n")] : []),
   ]
   return sections.join("\n\n")
@@ -283,7 +300,7 @@ export const linearizeCanvas = (canvasJson: string): string => {
 /** Extracts deduplicated vault-relative file paths from canvas `file`-type
  *  nodes. Text-node wikilinks are deliberately excluded — only explicit file
  *  references create graph edges (matching Obsidian's behavior). Throws on
- *  unparseable JSON (same contract as `linearizeCanvas`). */
+ *  unparseable JSON. */
 export const extractCanvasFileLinks = (canvasJson: string): string[] => {
   const parsed = parseCanvasJson(canvasJson)
 
@@ -303,7 +320,7 @@ export const extractCanvasFileLinks = (canvasJson: string): string[] => {
 /** The text of every text-type node, in JSON order. Obsidian updates the
  *  links in these cards when their target is renamed, so the note mover
  *  reads them to find a Canvas that links to a moving note. Throws on
- *  unparseable JSON (same contract as `linearizeCanvas`). */
+ *  unparseable JSON. */
 export const extractCanvasCardTexts = (canvasJson: string): string[] => {
   const parsed = parseCanvasJson(canvasJson)
 

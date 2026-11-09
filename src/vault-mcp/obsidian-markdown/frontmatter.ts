@@ -1,6 +1,16 @@
 import matter from "gray-matter"
-import { LineCounter, parseDocument, stringify as stringifyYaml, visit } from "yaml"
-import type { Document } from "yaml"
+import {
+  isMap,
+  isNode,
+  isScalar,
+  isSeq,
+  LineCounter,
+  parseDocument,
+  stringify as stringifyYaml,
+  visit,
+  YAMLParseError,
+} from "yaml"
+import type { Document, Pair } from "yaml"
 import { splitIntoLines } from "./lines.js"
 
 /** A parsed note, with its properties in `data` and its body in `content`. */
@@ -231,6 +241,72 @@ const convertDocumentToValue = (
   }
 }
 
+type DuplicateKeyStep =
+  | { kind: "node"; node: unknown }
+  | { kind: "key"; pair: Pair; nodes: Set<unknown>; values: Set<unknown> }
+
+/** Preserves the YAML composer's duplicate-key error position. */
+const duplicateKeyOffset = (pair: Pair): number => {
+  const lastPrefixToken = pair.srcToken?.start.at(-1)
+
+  // For `?\n: value`, the prefix ends at the colon; the empty key's range starts earlier.
+  if (lastPrefixToken) return lastPrefixToken.offset + lastPrefixToken.source.length
+  if (pair.srcToken?.key) return pair.srcToken.key.offset
+  if (isNode(pair.key) && pair.key.range) return pair.key.range[0]
+  return pair.srcToken?.sep?.[0]?.offset ?? 0
+}
+
+/** Mirrors composition order without the library's repeated scan of all earlier keys. */
+const findFirstDuplicateKey = (document: Document): YAMLParseError | undefined => {
+  const steps: DuplicateKeyStep[] = [{ kind: "node", node: document.contents }]
+
+  // A stack interleaves each key, duplicate check and value in native composition order.
+  while (steps.length) {
+    const step = steps.pop()
+
+    if (!step) break
+    if (step.kind === "key") {
+      const { pair, nodes, values } = step
+      const key = pair.key
+
+      // YAML compares scalar values with ===; unlike Set equality, that keeps NaN keys distinct.
+      const hasScalarValue = isScalar(key) && !Number.isNaN(key.value)
+      const repeated = nodes.has(key) || (hasScalarValue && values.has(key.value))
+
+      if (repeated) {
+        const offset = duplicateKeyOffset(pair)
+        return new YAMLParseError([offset, offset + 1], "DUPLICATE_KEY", "Map keys must be unique")
+      }
+      nodes.add(key)
+      if (hasScalarValue) values.add(key.value)
+      continue
+    }
+    const { node } = step
+
+    if (isMap(node)) {
+      const nodes = new Set<unknown>()
+      const values = new Set<unknown>()
+      for (const pair of node.items.toReversed()) {
+        const check: DuplicateKeyStep = { kind: "key", pair, nodes, values }
+        const value: DuplicateKeyStep = { kind: "node", node: pair.value }
+
+        // LIFO scheduling visits key → value → check in flow maps, key → check → value in blocks.
+        if (node.flow) {
+          steps.push(check, value)
+        } else {
+          steps.push(value, check)
+        }
+        steps.push({ kind: "node", node: pair.key })
+      }
+      continue
+    }
+    if (isSeq(node)) {
+      for (const item of node.items.toReversed()) steps.push({ kind: "node", node: item })
+    }
+  }
+  return undefined
+}
+
 /**
  * Reads a raw properties block with the `yaml` package (YAML 1.2 core
  * schema). That schema reads no untagged value as a timestamp, so datetime
@@ -246,8 +322,14 @@ const readPropertiesBlock = (blockText: string): PropertiesBlockReading => {
   const lineCounter = new LineCounter()
   // prettyErrors would append its own position and a multi-line excerpt of
   // the block to each message; the message below states the position itself
-  const document = parseDocument(blockText, { prettyErrors: false, lineCounter })
-  const [firstError] = document.errors
+  const document = parseDocument(blockText, {
+    prettyErrors: false,
+    lineCounter,
+    uniqueKeys: false,
+    keepSourceTokens: true,
+  })
+  // Syntax failures may take precedence; duplicate-only blocks retain the native first error.
+  const firstError = document.errors[0] ?? findFirstDuplicateKey(document)
 
   if (firstError) {
     const [errorStartOffset] = firstError.pos

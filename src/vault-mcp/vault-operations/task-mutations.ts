@@ -471,16 +471,14 @@ const isNonTaskCheckbox = ({
  *  position-counting purposes. */
 const isExcludedFromLane = ({
   line,
-  lineIndex,
-  lines,
+  excluded,
   statusRegistry,
 }: {
   line: string
-  lineIndex: number
-  lines: readonly string[]
+  excluded: boolean
   statusRegistry: ReadonlyMap<string, StatusClassification> | undefined
 }): boolean => {
-  if (isInsideFenceOrComment(lines, lineIndex)) return true
+  if (excluded) return true
 
   if (!statusRegistry) return false
 
@@ -529,6 +527,7 @@ const headingInsertIndexAtPosition = ({
   // Cards under child headings belong to those headings, not this lane.
   const firstChildStart = findFirstChildHeadingStart({ lines, heading })
   const walkEnd = firstChildStart ?? sectionEnd
+  const fenceOrCommentLineIndices = findFenceOrCommentLineIndices(lines)
 
   const cardStartIndices: number[] = []
   // Variable-length jumps through the section: each card's sub-item block
@@ -546,7 +545,13 @@ const headingInsertIndexAtPosition = ({
       walkIndex++
       continue
     }
-    if (isExcludedFromLane({ line, lineIndex: walkIndex, lines, statusRegistry })) {
+    if (
+      isExcludedFromLane({
+        line,
+        excluded: fenceOrCommentLineIndices.has(walkIndex),
+        statusRegistry,
+      })
+    ) {
       walkIndex = findTaskBlockEnd(lines, walkIndex)
       continue
     }
@@ -904,34 +909,35 @@ const rejectNonTaskCheckbox = ({
   throw new Error(`checkbox "[${statusChar}]" is a NON_TASK status in the Tasks plugin registry`)
 }
 
-/** Returns true when the body-line index falls inside a fenced code block
- *  or a `%% %%` comment block — the same exclusions extractTasks applies. */
-const isInsideFenceOrComment = (bodyLines: readonly string[], lineIndex: number): boolean => {
-  // Sequential parser state — fence and comment scanners are inherently
-  // stateful (same pattern as scanBodyLinesForTasks in tasks.ts).
+/** Classifies a note once so lane walks and ID checks never rescan its prefix per candidate. */
+const findFenceOrCommentLineIndices = (bodyLines: readonly string[]): ReadonlySet<number> => {
+  const fenceOrCommentLineIndices = new Set<number>()
+  // Fence and comment state must flow through every line, including skipped card sub-items.
   let openFence: OpenFence = null
   let commentOpen = false
 
-  for (let index = 0; index <= lineIndex; index++) {
-    const lineText = bodyLines[index]
-
-    if (lineText === undefined) return false
-
+  for (const [lineIndex, lineText] of bodyLines.entries()) {
     if (!commentOpen) {
       const fenceResult = advanceFence(lineText, openFence)
       openFence = fenceResult.openFence
 
-      if (index === lineIndex) return fenceResult.lineIsCode
-      if (fenceResult.lineIsCode) continue
+      if (fenceResult.lineIsCode) {
+        fenceOrCommentLineIndices.add(lineIndex)
+        continue
+      }
     }
-
+    // A line outside a comment is classified by its fence state before its comment opener.
+    const wasCommentOpen = commentOpen
     const commentResult = advanceComment(lineText, commentOpen)
     commentOpen = commentResult.commentOpen
 
-    if (index === lineIndex) return commentResult.lineIsComment
+    if (wasCommentOpen && commentResult.lineIsComment) fenceOrCommentLineIndices.add(lineIndex)
   }
-  return false
+  return fenceOrCommentLineIndices
 }
+
+const isInsideFenceOrComment = (bodyLines: readonly string[], lineIndex: number): boolean =>
+  findFenceOrCommentLineIndices(bodyLines).has(lineIndex)
 
 /** No-op when the task already sits under the target heading and no
  *  explicit position is requested. With a position, same-lane reorders
@@ -1102,6 +1108,7 @@ const positionOfTaskInLane = ({
 
   const firstChildStart = findFirstChildHeadingStart({ lines, heading })
   const walkEnd = firstChildStart ?? sectionEnd
+  const fenceOrCommentLineIndices = findFenceOrCommentLineIndices(lines)
 
   // Each card's sub-items are skipped via findTaskBlockEnd, so the
   // step size varies per iteration — both counters must be mutable.
@@ -1115,7 +1122,13 @@ const positionOfTaskInLane = ({
       walkIndex++
       continue
     }
-    if (isExcludedFromLane({ line, lineIndex: walkIndex, lines, statusRegistry })) {
+    if (
+      isExcludedFromLane({
+        line,
+        excluded: fenceOrCommentLineIndices.has(walkIndex),
+        statusRegistry,
+      })
+    ) {
       walkIndex = findTaskBlockEnd(lines, walkIndex)
       continue
     }
@@ -1187,19 +1200,6 @@ type RecurrenceSpawn =
   | { kind: "advisory"; advisory: string }
   | { kind: "none" }
 
-/** taskBefore.status already reflects the registry (extractTasks receives
- *  it), so the registry lookup is belt-and-suspenders — guards against a
- *  caller that extracted tasks without the registry. */
-const wasTaskAlreadyDone = ({
-  taskBefore,
-  statusRegistry,
-}: {
-  taskBefore: ParsedTask
-  statusRegistry: ReadonlyMap<string, StatusClassification>
-}): boolean => {
-  return taskBefore.status === "done" || statusRegistry.get(taskBefore.statusChar) === "done"
-}
-
 /** Resolves the recurrence spawn for an update, mirroring the Tasks plugin:
  *  spawn only on a transition to done from a not-done status (custom
  *  DONE-typed checkbox chars from the status registry count as done), with
@@ -1227,7 +1227,7 @@ const resolveRecurrenceSpawn = ({
 }): RecurrenceSpawn => {
   if (status !== "done") return { kind: "none" }
 
-  if (wasTaskAlreadyDone({ taskBefore, statusRegistry: config.statusRegistry })) {
+  if (taskBefore.status === "done") {
     return { kind: "none" }
   }
 
@@ -1375,10 +1375,11 @@ const validateBlockId = ({
   // - Every line counts, not only tasks: Obsidian resolves a block id on any line.
   // - trimEnd, so a hard break's trailing spaces cannot hide an existing id; a
   //   missed duplicate on a task line would make later lookups by it ambiguous.
+  const fenceOrCommentLineIndices = findFenceOrCommentLineIndices(bodyLines)
   const existingIndex = bodyLines.findIndex((bodyLine, index) => {
     if (index === excludeLineIndex) return false
     if (!bodyLine.trimEnd().endsWith(` ^${blockId}`)) return false
-    return !isInsideFenceOrComment(bodyLines, index)
+    return !fenceOrCommentLineIndices.has(index)
   })
 
   if (existingIndex !== -1) {
@@ -2276,7 +2277,7 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
       onCompletion !== undefined ? onCompletion : taskBefore.onCompletion
     const shouldDeleteOnCompletion =
       status === "done" &&
-      !wasTaskAlreadyDone({ taskBefore, statusRegistry: formatConfig.statusRegistry }) &&
+      taskBefore.status !== "done" &&
       effectiveOnCompletion?.toLowerCase() === "delete"
 
     if (shouldDeleteOnCompletion) {

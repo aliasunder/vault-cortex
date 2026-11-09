@@ -1,9 +1,10 @@
-import { describe, it, expect, onTestFinished } from "vitest"
+import { describe, it, expect, onTestFinished, vi } from "vitest"
 import { mkdtemp, rm, writeFile, readFile, mkdir } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { DateTime } from "luxon"
 import { taskMutations } from "../task-mutations.js"
+import * as lineParsers from "../../obsidian-markdown/lines.js"
 import {
   DEFAULT_STATUS_REGISTRY,
   type StatusClassification,
@@ -2984,6 +2985,129 @@ kanban-plugin: board
       })
 
       // ── integer position ──────────────────────────────────────
+
+      it("inserts at position 2 after counting a card that opens a comment", async () => {
+        const vault = await createVault()
+        const board =
+          "## Active\n- [ ] Commented %%\n%%\n- [ ] First ^first\n- [ ] Second ^second\n"
+        await writeTestNote(vault, "board.md", board)
+
+        const created = await taskMutations.createTask(
+          {
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
+            vaultPath: vault,
+            path: "board.md",
+            description: "Inserted",
+            blockId: "inserted",
+            heading: "Active",
+            position: 2,
+          },
+          logger,
+        )
+
+        expect(created).toEqual({
+          path: "board.md",
+          line: 4,
+          description: "Inserted",
+          block_id: "inserted",
+          heading: "Active",
+          changes: [`created: (none) → ${today()}`],
+        })
+        expect(await readTestNote(vault, "board.md")).toBe(
+          `## Active\n- [ ] Commented %%\n%%\n- [ ] Inserted ➕ ${today()} ^inserted\n- [ ] First ^first\n- [ ] Second ^second\n`,
+        )
+      })
+
+      it("reports position 3 when reordering after a card that opens a comment", async () => {
+        const vault = await createVault()
+        const board =
+          "## Active\n- [ ] Commented %%\n%%\n- [ ] First ^first\n- [ ] Second ^second\n"
+        await writeTestNote(vault, "board.md", board)
+
+        const moved = await taskMutations.updateTask(
+          {
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
+            vaultPath: vault,
+            path: "board.md",
+            blockId: "second",
+            position: 2,
+          },
+          logger,
+        )
+
+        expect(moved.changes).toEqual(["position: 3 → 2"])
+        expect(await readTestNote(vault, "board.md")).toBe(
+          "## Active\n- [ ] Commented %%\n%%\n- [ ] Second ^second\n- [ ] First ^first\n",
+        )
+      })
+
+      it("classifies each line a bounded number of times during large lane insertions and reorders", async () => {
+        const vault = await createVault()
+        const cards = Array.from(
+          { length: 1000 },
+          (_, index) => `- [ ] Card ${index} ^card-${index}`,
+        )
+        const commentedCards = Array.from({ length: 1000 }, () => "- [ ] Commented ^hidden").join(
+          "\n",
+        )
+        const hiddenCards = `\`\`\`\n- [ ] Fenced ^hidden\n\`\`\`\n%%\n${commentedCards}\n%%\n- [>] Non-task\n`
+        const prefix = `---\nkanban-plugin: board\n---\n## Active\n${hiddenCards}`
+        const original = `${prefix}${cards.join("\n")}\n`
+        await writeTestNote(vault, "board.md", original)
+        const originalAdvanceFence = lineParsers.advanceFence
+        // Count actual parser work across the whole mutation, including its heading scans.
+        let fenceVisits = 0
+        const fenceSpy = vi
+          .spyOn(lineParsers, "advanceFence")
+          .mockImplementation((line, openFence) => {
+            fenceVisits += 1
+            return originalAdvanceFence(line, openFence)
+          })
+        onTestFinished(() => fenceSpy.mockRestore())
+
+        const created = await taskMutations.createTask(
+          {
+            statusRegistry: NON_TASK_REGISTRY,
+            vaultPath: vault,
+            path: "board.md",
+            description: "Inserted",
+            blockId: "hidden",
+            heading: "Active",
+            position: 2,
+          },
+          logger,
+        )
+        const inserted = `- [ ] Inserted ➕ ${today()} ^hidden`
+        const afterInsertion = `${prefix}${cards.toSpliced(1, 0, inserted).join("\n")}\n`
+
+        expect(created).toEqual({
+          path: "board.md",
+          line: prefix.split("\n").length + 1,
+          description: "Inserted",
+          block_id: "hidden",
+          heading: "Active",
+          changes: [`created: (none) → ${today()}`],
+        })
+        expect(await readTestNote(vault, "board.md")).toBe(afterInsertion)
+        expect(fenceVisits).toBeLessThan(20 * cards.length)
+        fenceVisits = 0
+        const moved = await taskMutations.updateTask(
+          {
+            statusRegistry: NON_TASK_REGISTRY,
+            vaultPath: vault,
+            path: "board.md",
+            blockId: "card-999",
+            position: 2,
+          },
+          logger,
+        )
+        const remainingCards = cards.slice(0, -1)
+        const afterMove = remainingCards.toSpliced(1, 0, cards.at(-1) ?? "", inserted)
+
+        expect(moved.changes).toEqual(["position: 1001 → 2"])
+        expect(await readTestNote(vault, "board.md")).toBe(`${prefix}${afterMove.join("\n")}\n`)
+        expect(fenceVisits).toBeLessThan(30 * cards.length)
+      })
 
       it("position=2 inserts the card as the 2nd top-level card", async () => {
         const vault = await createVault()

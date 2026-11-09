@@ -292,9 +292,9 @@ exists.
   while the config readers do light I/O, yet both use named exports because
   neither is an operation surface.
 - **`links.ts` is the deliberate edge case** — a pure parser that nonetheless
-  exports a single `links` namespace, _not_ for the service-grouping reason above
-  but to wall off its `/g` grammar regexes (shared `lastIndex` footgun) behind
-  position-safe methods.
+  exports a single `links` namespace to keep link recognition private behind
+  position-safe methods. Its scanners own their cursors per call; the remaining
+  `/g` inline-code regex is used through `matchAll` and `replace`.
 
 `vault-filesystem.ts` illustrates the nuance within one module: its high-level
 data API is grouped under `vaultFs`, but its low-level shared primitives
@@ -979,6 +979,11 @@ Two naming layers — MCP (JSON wire format) and TypeScript (internal):
   suite (`src/__tests__/docker/`, see "Remote image boot tests — when to
   add"); the branches inside one script stay in that script's test file.
 
+- New test support files go in subfolders of their `__tests__/` folder:
+  a module that a test imports or runs (a harness, an input generator,
+  an oracle, a script the test spawns) in `helpers/`, and data that the
+  code under test reads (a sample vault, JSON vectors, a stub binary) in
+  `fixtures/`.
 - Separate `it()` blocks over callback-pattern `it.each` when assertions
   are structurally different. `it.each` is for identical assertion
   shapes, with labeled case objects and `$label` in the title, never
