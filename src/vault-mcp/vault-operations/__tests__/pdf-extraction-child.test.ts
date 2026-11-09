@@ -153,6 +153,22 @@ describe("PDF extraction child admission", () => {
     })
   }, 15_000)
 
+  it("preserves the wrapped parser cause when a PDF cannot be opened", async () => {
+    const { vaultPath, request } = await startPdfChild()
+    const content = Buffer.from("plain text, not a PDF")
+    await writeFile(join(vaultPath, "damaged.pdf"), content)
+
+    expect(
+      await request({ kind: "read", requestId: 0, path: "damaged.pdf", maxFileBytes: 1_000_000 }),
+    ).toEqual({
+      kind: "failure",
+      requestId: 0,
+      code: "read",
+      message: `PDF is damaged or not a PDF: "damaged.pdf" exists (${content.length} bytes) but cannot be parsed`,
+      cause: "[InvalidPDFException]: Invalid PDF structure.",
+    })
+  }, 15_000)
+
   it("emits a successful read log without creating a persistent log directory", async () => {
     const { vaultPath, request, stdout } = await startPdfChild()
     await writeFile(join(vaultPath, "good.pdf"), buildMinimalPdf())
