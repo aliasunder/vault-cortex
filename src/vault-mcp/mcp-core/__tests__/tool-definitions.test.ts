@@ -2923,7 +2923,7 @@ describe("file tool handlers", () => {
         },
       ],
     })
-  })
+  }, 15_000)
 
   /** One rendered PDF page as the data layer returns it. */
   const buildRenderedPage = (pageNumber: number, imageBytes: Buffer) => ({

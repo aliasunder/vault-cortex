@@ -2,9 +2,69 @@ import { describe, it, expect, beforeEach, afterEach, vi, onTestFinished } from 
 import { mkdtemp, readdir, rm } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
-import { bootstrapMemoryIfEnabled, createShutdownHandler, resolveDataPaths } from "../server.js"
+import {
+  bootstrapMemoryIfEnabled,
+  createShutdownHandler,
+  resolveDataPaths,
+  startServer,
+} from "../server.js"
+import { createBodyTagParser } from "../search/body-tag-parser.js"
+import { createPdfExtractor } from "../vault-operations/pdf-extractor.js"
+import { watchVaultAndBuildIndex } from "../search/file-watcher.js"
 import { loadConfig } from "../config.js"
 import { logger } from "../../logger.js"
+
+vi.mock("../search/body-tag-parser.js", { spy: true })
+vi.mock("../vault-operations/pdf-extractor.js", { spy: true })
+vi.mock("../search/file-watcher.js", { spy: true })
+
+describe("startServer", () => {
+  it("rethrows the startup error after logging every failed cleanup with its cause", async () => {
+    const vaultPath = await mkdtemp(join(tmpdir(), "server-startup-cleanup-"))
+    onTestFinished(async () => {
+      vi.unstubAllEnvs()
+      vi.restoreAllMocks()
+      await rm(vaultPath, { recursive: true, force: true })
+    })
+    vi.stubEnv("VAULT_PATH", vaultPath)
+    vi.stubEnv("MCP_AUTH_TOKEN", "test-startup-token")
+    vi.stubEnv("PUBLIC_URL", "http://localhost:8000")
+    vi.stubEnv("INDEX_DB_PATH", join(vaultPath, "search.db"))
+    vi.stubEnv("EMBEDDING_ENABLED", "false")
+    vi.stubEnv("MEMORY_ENABLED", "false")
+    const startupError = new Error("controlled startup failure")
+    const pdfClose = vi.fn(async () => {
+      throw new Error("PDF close failed", { cause: new Error("PDF termination failed") })
+    })
+    const parserClose = vi.fn(async () => {
+      throw new Error("parser close failed", { cause: new Error("worker termination failed") })
+    })
+    vi.mocked(createPdfExtractor).mockReturnValue({
+      close: pdfClose,
+      extractForIndex: vi.fn(),
+      readText: vi.fn(),
+    })
+    vi.mocked(createBodyTagParser).mockReturnValue({ close: parserClose, parse: vi.fn() })
+    vi.mocked(watchVaultAndBuildIndex).mockRejectedValue(startupError)
+    vi.spyOn(process, "once").mockReturnValue(process)
+    const errorSpy = vi.spyOn(logger, "error").mockImplementation(() => {})
+
+    await expect(startServer()).rejects.toBe(startupError)
+
+    expect(watchVaultAndBuildIndex).toHaveBeenCalledTimes(1)
+    expect(pdfClose).toHaveBeenCalledExactlyOnceWith()
+    expect(parserClose).toHaveBeenCalledExactlyOnceWith()
+    expect(errorSpy).toHaveBeenCalledTimes(2)
+    expect(errorSpy).toHaveBeenNthCalledWith(1, "startup cleanup failed", {
+      error: "[Error]: PDF close failed",
+      cause: "[Error]: PDF termination failed",
+    })
+    expect(errorSpy).toHaveBeenNthCalledWith(2, "startup cleanup failed", {
+      error: "[Error]: parser close failed",
+      cause: "[Error]: worker termination failed",
+    })
+  })
+})
 
 describe("createShutdownHandler", () => {
   beforeEach(() => {

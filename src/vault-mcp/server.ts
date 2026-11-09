@@ -22,7 +22,7 @@ import { renderSetupPage } from "./setup/setup-page.js"
 import { loadConfig, type VaultConfig } from "./config.js"
 import { logger } from "../logger.js"
 import { createErrorMiddleware } from "../http-error-middleware.js"
-import { describeError } from "../utils/describe-error.js"
+import { describeError, describeErrorForLog } from "../utils/describe-error.js"
 import { urlHasCredentials } from "../utils/url-has-credentials.js"
 import { securityHeaders } from "../utils/security-headers.js"
 import env from "env-var"
@@ -111,7 +111,7 @@ export const resolveDataPaths = (indexDbPathSetting: string | undefined): DataPa
 /** Matches `*`, `?`, or `[`, which the `:remote` init scripts' `find -path` reads as wildcards. */
 const GLOB_CHARS = /[*?[]/
 
-const startServer = async (): Promise<void> => {
+export const startServer = async (): Promise<void> => {
   const config = loadConfig()
   // Trim so a stray trailing space or newline on MCP_AUTH_TOKEN in .env
   // can't silently break every auth attempt — a valid token has no
@@ -332,7 +332,13 @@ const startServer = async (): Promise<void> => {
       )
     }
   } catch (error) {
-    await Promise.all([pdfExtractor.close(), bodyTagParser.close()])
+    const cleanupResults = await Promise.allSettled([pdfExtractor.close(), bodyTagParser.close()])
+
+    for (const result of cleanupResults) {
+      if (result.status === "rejected") {
+        logger.error("startup cleanup failed", describeErrorForLog(result.reason))
+      }
+    }
     throw error
   }
 }

@@ -46,6 +46,7 @@ export const pdfReplySchema = z.discriminatedUnion("kind", [
     requestId: z.number(),
     code: z.enum(["read", "size"]),
     message: z.string(),
+    cause: z.string().optional(),
     systemError: z.object({ code: z.string(), syscall: z.string() }).optional(),
   }),
 ])

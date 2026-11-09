@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest"
 import { logger } from "../../../logger.js"
 import { buildMinimalPdf } from "../../obsidian-markdown/__tests__/pdf-fixture.js"
 import { createPdfExtractor } from "../pdf-extractor.js"
+import { createSafeHandlers } from "../../mcp-core/tools/tool-helpers.js"
 
 vi.mock("node:child_process", { spy: true })
 
@@ -83,6 +84,11 @@ const stoppedMessage = (path: string): string => {
 
 const pdfFailureError = (message: string, code: string): Error => {
   return Object.assign(new Error(message), { pdfFailure: code })
+}
+
+const errorRecord = (error: unknown) => {
+  if (!(error instanceof Error)) throw error
+  return { ...error, name: error.name, message: error.message, cause: error.cause }
 }
 
 describe("PDF extraction child", () => {
@@ -202,12 +208,28 @@ describe("PDF extraction child", () => {
     }
 
     expect(await extractor.readText({ path: "good.pdf" }, logger)).toEqual(expected)
-    await expect(extractor.readText({ path: "bad.pdf" }, logger)).rejects.toThrow(
-      pdfFailureError(
-        'PDF is damaged or not a PDF: "bad.pdf" exists (9 bytes) but cannot be parsed',
-        "pdf-read",
+    const requestLogger = { ...logger, warn: vi.fn() }
+    const { safeHandler } = createSafeHandlers({ vaultPath, isToolEnabled: () => false })
+    expect(
+      await safeHandler(
+        requestLogger,
+        () => extractor.readText({ path: "bad.pdf" }, logger),
+        (result) => result.text,
       ),
-    )
+    ).toEqual({
+      content: [
+        {
+          type: "text",
+          text: '[Error]: PDF is damaged or not a PDF: "bad.pdf" exists (9 bytes) but cannot be parsed',
+        },
+      ],
+      isError: true,
+    })
+    expect(requestLogger.warn).toHaveBeenCalledExactlyOnceWith("tool_error", {
+      error:
+        '[Error]: PDF is damaged or not a PDF: "bad.pdf" exists (9 bytes) but cannot be parsed',
+      cause: "[InvalidPDFException]: Invalid PDF structure.",
+    })
     expect(await extractor.readText({ path: "good.pdf" }, logger)).toEqual(expected)
     expect(await extractor.extractForIndex({ path: "good.pdf" }, logger)).toEqual({
       text: "Title: (untitled) | Pages: 1\n\nHello PDF",
@@ -238,9 +260,13 @@ describe("PDF extraction ownership", () => {
   it("preserves system error metadata for the caller's repair guidance", async () => {
     const { extractor, child } = startControlledExtractor()
     const request = extractor.readText({ path: "locked.pdf" }, logger)
-    const rejected = expect(request).rejects.toThrow(
-      Object.assign(new Error("permission denied"), { code: "EACCES", syscall: "open" }),
-    )
+    const rejected = expect(request.catch(errorRecord)).resolves.toEqual({
+      name: "Error",
+      message: "permission denied",
+      code: "EACCES",
+      syscall: "open",
+      cause: undefined,
+    })
     ready(child)
     child.emit("message", {
       kind: "failure",
@@ -255,9 +281,12 @@ describe("PDF extraction ownership", () => {
   it("uses the controlled size code without interpreting the failure message", async () => {
     const { extractor, child } = startControlledExtractor()
     const request = extractor.extractForIndex({ path: "one.pdf" }, logger)
-    const rejected = expect(request).rejects.toThrow(
-      pdfFailureError("controlled byte refusal", "pdf-size"),
-    )
+    const rejected = expect(request.catch(errorRecord)).resolves.toEqual({
+      name: "Error",
+      message: "controlled byte refusal",
+      pdfFailure: "pdf-size",
+      cause: undefined,
+    })
     ready(child)
     child.emit("message", {
       kind: "failure",
@@ -671,6 +700,25 @@ describe("PDF extraction ownership", () => {
     expect(child.kill).toHaveBeenCalledTimes(1)
     await vi.advanceTimersByTimeAsync(60_000)
     expect(spawn).toHaveBeenCalledTimes(1)
+  })
+
+  it("classifies a deadline before readiness as a reader-start failure", async () => {
+    vi.useFakeTimers()
+    const { extractor, child } = startControlledExtractor()
+    const request = extractor.readText({ path: "slow-start.pdf" }, logger)
+    const rejection = expect(request.catch(errorRecord)).resolves.toEqual({
+      name: "Error",
+      message: 'PDF reader could not start: "slow-start.pdf"; retry later',
+      pdfFailure: "pdf-start",
+      cause: undefined,
+    })
+    await vi.advanceTimersByTimeAsync(19_999)
+    expect(child.kill).not.toHaveBeenCalled()
+    await vi.advanceTimersByTimeAsync(1)
+    await rejection
+    expect(child.send).not.toHaveBeenCalled()
+    expect(child.kill).toHaveBeenCalledExactlyOnceWith("SIGKILL")
+    child.emit("exit", null, "SIGKILL")
   })
 
   it("expires a read that waits sixty seconds behind earlier reads", async () => {

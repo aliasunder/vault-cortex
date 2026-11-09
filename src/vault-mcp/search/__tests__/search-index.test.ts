@@ -4080,6 +4080,26 @@ describe("rebuildFromVault deferred PDF content", () => {
     },
   )
 
+  it("keeps a superseded rebuild PDF filename-only without warning", async () => {
+    const fixture = await createPdfRebuildFixture()
+    const warnSpy = vi.spyOn(logger, "warn")
+    onTestFinished(() => warnSpy.mockRestore())
+    fixture.extractForIndex.mockRejectedValue(
+      Object.assign(new Error("superseded extraction"), { pdfFailure: "pdf-superseded" }),
+    )
+    const rebuilt = await fixture.rebuild()
+    await rebuilt.embedding
+    await rebuilt.startPdfPass()
+
+    expect(fixture.extractForIndex).toHaveBeenCalledExactlyOnceWith({ path: fixture.path }, logger)
+    expect(warnSpy).not.toHaveBeenCalled()
+    expect(fixture.fileRows()).toEqual([
+      { path: fixture.path, content: "", bytes: 18 },
+      { path: "decoy.txt", content: "Decoy controlsun", bytes: 16 },
+    ])
+    expect(fixture.targetChunks()).toEqual([])
+  })
+
   it("leaves a resource-budget failure filename-only without restoring persisted text or vectors", async () => {
     const fixture = await createPdfRebuildFixture()
     const failure = Object.assign(new Error("controlled extraction budget"), {

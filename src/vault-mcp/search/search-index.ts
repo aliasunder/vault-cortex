@@ -2991,6 +2991,12 @@ export const createSearchIndex = (
           try {
             return await pdfExtractor.extractForIndex({ path: file.relativePath }, logger)
           } catch (error) {
+            const isSupersededPdf =
+              error instanceof Error &&
+              "pdfFailure" in error &&
+              error.pdfFailure === "pdf-superseded"
+
+            if (isSupersededPdf) return null
             logger.warn("PDF content pass could not index file", {
               path: file.relativePath,
               ...describeErrorForLog(error),
@@ -3041,10 +3047,6 @@ export const createSearchIndex = (
         throw new AggregateError(embeddingFailures, "PDF embedding pass failed")
       }
     })()
-    // The server observes completion without making readiness wait for PDF work.
-    pdfPromise.catch((error: unknown) =>
-      logger.error("PDF content pass failed", { error: describeError(error) }),
-    )
     return {
       count: indexedNotes.length,
       embedding: embeddingPromise,

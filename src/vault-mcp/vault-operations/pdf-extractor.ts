@@ -20,6 +20,7 @@ const LINUX_DATA_BUDGET_MIB = 512
 /** Matches the child's current data allocation in Linux proc status. */
 const VM_DATA_PATTERN = /^VmData:\s+(?<startupDataKiB>\d+)\s+kB$/m
 const execFileAsync = promisify(execFile)
+// The child's extension follows this module's, so tsx runs spawn .ts and compiled images spawn .js.
 const CHILD_ENTRY = fileURLToPath(
   new URL(`./pdf-extraction-child${extname(fileURLToPath(import.meta.url))}`, import.meta.url),
 )
@@ -255,7 +256,10 @@ export const createPdfExtractor = (params: {
           const failureDetails = reply.systemError ?? { pdfFailure: code }
           // The child catches per-file errors after the request unwinds, leaving its loop reusable.
           finish({
-            outcome: Object.assign(new Error(reply.message), failureDetails),
+            outcome: Object.assign(
+              new Error(reply.message, reply.cause ? { cause: reply.cause } : undefined),
+              failureDetails,
+            ),
             readerDisposition: "reuse",
           })
           return
@@ -287,7 +291,7 @@ export const createPdfExtractor = (params: {
           timeoutMs: ACTIVE_TIMEOUT_MS,
         })
         finish({
-          outcome: extractionError(job.request.path, "pdf-resource"),
+          outcome: extractionError(job.request.path, state.ready ? "pdf-resource" : "pdf-start"),
           readerDisposition: "reap",
         })
       }, ACTIVE_TIMEOUT_MS)

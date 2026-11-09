@@ -2992,6 +2992,45 @@ describe("watchVaultAndBuildIndex — changes during startup", HELD_BATCH_TIMEOU
     await startup
   })
 
+  it("logs one pass failure when a rebuild PDF embedding rejects", async () => {
+    const embeddingError = new Error("controlled PDF embedding failure")
+    const embedder = {
+      embedText: vi.fn(async (): Promise<Float32Array> => {
+        throw embeddingError
+      }),
+      embedBatch: vi.fn(async (): Promise<Float32Array[]> => []),
+    }
+    const errorSpy = spyOnLogger("error")
+    const extractionSpy = vi
+      .mocked(extractPdfText)
+      .mockResolvedValue({ text: "pdftopaz", totalPages: 1 })
+    onTestFinished(() => extractionSpy.mockRestore())
+    const { startup } = await createControlledStartup({
+      rebuild: "real",
+      embedder,
+      beforeStart: async (testVault) => {
+        await writeFile(join(testVault, "report.pdf"), "controlled PDF bytes")
+      },
+    })
+    const rebuilding = await startup
+    await rebuilding.embedding
+    const failure = new AggregateError([embeddingError], "PDF embedding pass failed")
+    await expect(rebuilding.startPdfPass()).rejects.toThrow(failure)
+
+    expect(extractionSpy).toHaveBeenCalledExactlyOnceWith(
+      new Uint8Array(Buffer.from("controlled PDF bytes")),
+    )
+    expect(embedder.embedText).toHaveBeenCalledExactlyOnceWith("report\n\npdftopaz")
+    expect(errorSpy).toHaveBeenCalledTimes(2)
+    expect(errorSpy).toHaveBeenNthCalledWith(1, "PDF embedding failed", {
+      path: "report.pdf",
+      error: "[Error]: controlled PDF embedding failure",
+    })
+    expect(errorSpy).toHaveBeenNthCalledWith(2, "PDF content pass failed", {
+      error: "[AggregateError]: PDF embedding pass failed",
+    })
+  })
+
   it("defers held PDF extraction until the PDF pass starts", async () => {
     const { testVault, database, fire, startup, finishRebuild } = await createControlledStartup()
     const fileNames = Array.from({ length: 10 }, (_unused, pdfIndex) => `doc-${pdfIndex}.pdf`)

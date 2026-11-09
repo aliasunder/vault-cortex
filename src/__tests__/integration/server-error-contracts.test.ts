@@ -43,12 +43,15 @@ let cleanup: (() => Promise<void>) | undefined
 // The server's on-disk vault root, so a test can address a note by its
 // absolute container path — the input form the absolute-path tests pin.
 let serverVaultPath: string
+// The shared server is booted once for all contracts, including log assertions.
+let serverStdout: () => string
 
 beforeAll(async () => {
   const port = await freePort()
   const server = await startServer(port)
   cleanup = server.cleanup
   serverVaultPath = server.vaultPath
+  serverStdout = server.stdout
   client = await createTestClient(server.port)
 }, 30_000)
 
@@ -2429,6 +2432,23 @@ describe("unreadable PDF", () => {
         ],
         isError: true,
       })
+
+      if (!raw) {
+        await vi.waitFor(() => {
+          const failures = parseLogEntries(serverStdout()).filter(
+            (entry) =>
+              entry.message === "tool_error" &&
+              entry.error ===
+                `[Error]: PDF is damaged or not a PDF: "Not Really A PDF.pdf" exists (${pdfContent.length} bytes) but cannot be parsed`,
+          )
+          expect(failures.map(({ error, cause }) => ({ error, cause }))).toEqual([
+            {
+              error: `[Error]: PDF is damaged or not a PDF: "Not Really A PDF.pdf" exists (${pdfContent.length} bytes) but cannot be parsed`,
+              cause: "[InvalidPDFException]: Invalid PDF structure.",
+            },
+          ])
+        }, SERVER_LOG_WAIT)
+      }
     },
   )
 
@@ -2719,11 +2739,22 @@ describe("isolated PDF extraction error contracts", () => {
       ),
     ).toEqual([])
     const blockerResults = await Promise.all(blockers)
-    expect(blockerResults.slice(0, 3)).toEqual([
-      expectedStoppedExtraction({ path: "Blocker1.pdf", remedy: "split" }),
-      expectedStoppedExtraction({ path: "Blocker2.pdf", remedy: "split" }),
-      expectedStoppedExtraction({ path: "Blocker3.pdf", remedy: "split" }),
-    ])
+    // SIGSTOP can freeze a replacement before readiness, so its deadline reports a start failure.
+    const dispatchedReads = readExtractionLogs(server.stdout).filter(
+      (entry) => entry.message === "PDF extraction dispatched" && entry.kind === "read",
+    )
+    const expectedBlockerFailure = (path: string): ToolResult => {
+      if (dispatchedReads.some((entry) => entry.path === path)) {
+        return expectedStoppedExtraction({ path, remedy: "split" })
+      }
+      return {
+        content: [
+          { type: "text", text: `[Error]: PDF reader could not start: "${path}"; retry later` },
+        ],
+        isError: true,
+      }
+    }
+    expect(blockerResults.slice(0, 3)).toEqual(paths.slice(0, 3).map(expectedBlockerFailure))
     await assertRecovery()
   }, 120_000)
 

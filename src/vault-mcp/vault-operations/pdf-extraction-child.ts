@@ -99,6 +99,7 @@ const main = async (): Promise<void> => {
         requestId: request.requestId,
         code,
         message,
+        cause: describeError(error instanceof Error ? (error.cause ?? error) : error),
         ...(systemError ? { systemError } : {}),
       })
     })
