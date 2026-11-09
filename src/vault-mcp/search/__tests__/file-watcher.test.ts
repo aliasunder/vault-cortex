@@ -1522,6 +1522,36 @@ describe("file watcher — obsolete events and embedding queues", () => {
     },
   )
 
+  it.each([{ code: "pdf-superseded" }, { code: "pdf-closed" }])(
+    "keeps a $code watched PDF filename-only without warning",
+    async ({ code }) => {
+      const extractForIndex = vi
+        .fn<PdfExtractor["extractForIndex"]>()
+        .mockRejectedValue(Object.assign(new Error("cancelled extraction"), { pdfFailure: code }))
+      const pdfExtractor: PdfExtractor = { ...createTestPdfExtractor(""), extractForIndex }
+      const { testVault, database, fire } = await createControlledWatcher(undefined, {
+        pdfExtractor,
+      })
+      const warnSpy = vi.spyOn(logger, "warn")
+      onTestFinished(() => warnSpy.mockRestore())
+      await writeFile(join(testVault, "cancelled.pdf"), "PDF bytes")
+
+      await fire("change", "cancelled.pdf")
+
+      expect(extractForIndex).toHaveBeenCalledExactlyOnceWith(
+        { path: "cancelled.pdf", coalesce: true },
+        logger,
+      )
+      expect(warnSpy).not.toHaveBeenCalled()
+      expect(database.prepare("SELECT path FROM non_md_files").all()).toEqual([
+        { path: "cancelled.pdf" },
+      ])
+      expect(database.prepare("SELECT path, content FROM file_content").all()).toEqual([
+        { path: "cancelled.pdf", content: "" },
+      ])
+    },
+  )
+
   it("reads a PDF at the byte cap and clears its old text and vectors one byte above it", async () => {
     const vector = new Float32Array(384).fill(0.1)
     const embedder = {
@@ -1584,6 +1614,8 @@ describe("file watcher — obsolete events and embedding queues", () => {
       const { testVault, database, fire } = await createControlledWatcher(embedder, {
         pdfExtractor,
       })
+      const warnSpy = vi.spyOn(logger, "warn")
+      onTestFinished(() => warnSpy.mockRestore())
       const filePath = join(testVault, "resource.pdf")
       await writeFile(filePath, "old PDF")
       await fire("add", "resource.pdf")
@@ -1614,6 +1646,10 @@ describe("file watcher — obsolete events and embedding queues", () => {
       })
       finishExtraction.resolve(undefined)
       await changed
+      expect(warnSpy).toHaveBeenCalledExactlyOnceWith("file content indexing failed", {
+        path: "resource.pdf",
+        error: "[Error]: controlled PDF failure",
+      })
       expect(database.prepare("SELECT path, content, bytes FROM file_content").all()).toEqual([
         { path: "resource.pdf", content: "", bytes: 11 },
       ])

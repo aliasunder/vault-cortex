@@ -2991,12 +2991,12 @@ export const createSearchIndex = (
           try {
             return await pdfExtractor.extractForIndex({ path: file.relativePath }, logger)
           } catch (error) {
-            const isSupersededPdf =
+            const isCancelledPdf =
               error instanceof Error &&
               "pdfFailure" in error &&
-              error.pdfFailure === "pdf-superseded"
+              (error.pdfFailure === "pdf-superseded" || error.pdfFailure === "pdf-closed")
 
-            if (isSupersededPdf) return null
+            if (isCancelledPdf) return null
             logger.warn("PDF content pass could not index file", {
               path: file.relativePath,
               ...describeErrorForLog(error),
