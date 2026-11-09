@@ -2688,7 +2688,7 @@ describe("isolated PDF extraction error contracts", () => {
   it("returns retry later for a read that spends sixty seconds queued", async () => {
     const paths = ["Blocker1.pdf", "Blocker2.pdf", "Blocker3.pdf", "Blocker4.pdf", "Expired.pdf"]
     const preloadPath = fileURLToPath(
-      new URL("./fixtures/stop-ready-pdf-replacements.ts", import.meta.url),
+      new URL("./helpers/stop-ready-pdf-replacements.ts", import.meta.url),
     )
     const { server, ownClient, childPid, assertRecovery } = await startPdfFailureServer(paths, {
       NODE_OPTIONS: `--import=${JSON.stringify(preloadPath)}`,
