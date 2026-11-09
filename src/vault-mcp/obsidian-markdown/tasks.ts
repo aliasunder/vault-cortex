@@ -5,7 +5,7 @@
  *  **Parsing:** a faithful reimplementation of the plugin's own parser
  *  (obsidian-tasks-group/obsidian-tasks, `DefaultTaskSerializer` +
  *  `DataviewTaskSerializer`): metadata is stripped off the END of the line, one
- *  `$`-anchored field at a time, in repeated passes until nothing matches. Any
+ *  `$`-anchored field at a time, until nothing matches or 21 passes finish. Any
  *  order of fields parses; unrecognized trailing text stops the scan and leaves
  *  everything to its left as description — exactly the plugin's behavior.
  *  Unlike the plugin (which reads one configured format per vault), both
@@ -64,8 +64,8 @@ export type ParsedTask = Readonly<{
   doneDate: string | null
   cancelledDate: string | null
   priority: TaskPriority | null
-  /** Verbatim recurrence rule text after 🔁 / `repeat::` (e.g. "every week
-   *  when done"). Completing the task spawns the next occurrence from it. */
+  /** Recurrence rule text after 🔁 / `repeat::` (e.g. "every week when done").
+   *  Completion uses it to compute the next occurrence, if one exists. */
   recurrence: string | null
   /** Raw word after 🏁 / `onCompletion::` (the plugin accepts "delete" and
    *  "keep"). */
@@ -84,8 +84,7 @@ export type ParsedTask = Readonly<{
   heading: string | null
   /** Nesting depth: 0 for top-level tasks, 1+ for sub-tasks. Derived from
    *  structural indentation relative to ancestor task lines; a plain list
-   *  item at a task's indent ends its scope, so a task nested under a
-   *  non-task bullet is top-level. */
+   *  item closes tasks at its indent or deeper without becoming a parent. */
   depth: number
   /** 1-based file line number of the parent task, or null for top-level
    *  tasks. The index resolves it to the parent's block_id; the wire shape
@@ -162,8 +161,12 @@ const TASK_ID = /[a-zA-Z0-9_-]+/
  *  anything else lands on the line as prose the parser never reads back. */
 const TASK_ID_WHOLE_RE = new RegExp(`^${TASK_ID.source}$`)
 const isTaskId = (candidate: string): boolean => TASK_ID_WHOLE_RE.test(candidate)
-/** A comma-separated sequence of task IDs, as accepted after ⛔ / `dependsOn::`. */
-const TASK_ID_SEQUENCE = new RegExp(`${TASK_ID.source}( *, *${TASK_ID.source} *)*`)
+/** A comma-separated sequence of task IDs, as accepted after ⛔ / `dependsOn::`.
+ *  The Tasks plugin builds this as `ID( *, *ID *)*`; each repetition's trailing
+ *  spaces can also match the next repetition's leading spaces, so a space before
+ *  each comma causes exponential backtracking. This form gives each space run
+ *  one place to match. */
+const TASK_ID_SEQUENCE = new RegExp(`${TASK_ID.source}(?:(?: *, *${TASK_ID.source})+ *(?! ))?`)
 
 /** Builds an emoji field regex: signifier + optional VS16 (U+FE0F, matched
  *  via escape so no invisible character hides in this source) + spaces +
@@ -174,8 +177,14 @@ const emojiField = ({ symbols, valuePattern }: { symbols: string; valuePattern: 
 /** Builds a Dataview inline-field regex: `[key:: value]` or `(key:: value)`
  *  with matched brackets and an optional trailing comma, anchored to line end
  *  (see block comment above). */
-const dataviewField = (innerPattern: string): RegExp =>
-  new RegExp(`(?:(?=[^\\]]+\\])\\[|(?=[^)]+\\))\\() *${innerPattern} *[)\\]](?: *,)?$`)
+const dataviewField = (innerPattern: string): RegExp => {
+  const squareBracketOpener = String.raw`(?=[^\]]+\])\[`
+  const parenthesisOpener = String.raw`(?=[^)]+\))\(`
+
+  return new RegExp(
+    `(?:${squareBracketOpener}|${parenthesisOpener}) *${innerPattern} *[)\\]](?: *,)?$`,
+  )
+}
 
 /** `YYYY-MM-DD` — the only date format the plugin recognizes on task lines. */
 const DATE_VALUE = "(\\d{4}-\\d{2}-\\d{2})"
@@ -315,9 +324,10 @@ type TaskMetadata = Pick<
   | "tags"
 >
 
-/** Passes cap for the stripping loop — the plugin's own runaway guard. A
- *  well-formed line finishes in one pass; 20 covers any field permutation. */
-const MAX_STRIPPING_PASSES = 20
+/** The Tasks plugin continues while runs <= maxRuns after incrementing runs. */
+const PLUGIN_MAX_RUNS = 20
+/** The plugin's do/while executes once before checking its limit, allowing 21 passes. */
+const MAX_STRIPPING_PASSES = PLUGIN_MAX_RUNS + 1
 
 /** Extracts a regex capture group, throwing if absent. Capture groups are
  *  guaranteed by the engine when the regex matches, but noUncheckedIndexedAccess
@@ -348,7 +358,7 @@ const capturedPriority = (
 /** Strips metadata fields off the end of a task body, mirroring the plugin's
  *  deserialize():
  *  - each pass tries every field regex (all `$`-anchored) and removes what
- *    matches; the loop repeats until a pass matches nothing;
+ *    matches; the loop repeats until a pass matches nothing or the cap is reached;
  *  - a field written twice keeps its leftmost value, the one stripped last;
  *  - tags interleaved with signifiers are stripped too, then re-appended, so
  *    they stay part of the description without blocking fields to their left. */
@@ -577,9 +587,8 @@ const scanBodyLinesForTasks = ({
     const statusChar = capturedGroup(taskLineMatch, 1)
     const resolvedStatus = statusForChar(statusChar, statusRegistry)
 
-    // NON_TASK lines are invisible to the task system — prune the indent
-    // stack (closing any open task at the same or deeper indent) so tasks
-    // nested below become top-level, then skip the line.
+    // NON_TASK lines cannot parent tasks. Close tasks at the same or deeper
+    // indent while retaining shallower task ancestors for the next task.
     // After this guard, resolvedStatus is narrowed to TaskStatus
     // (StatusClassification is TaskStatus | "non_task").
     if (resolvedStatus === "non_task") {
@@ -793,8 +802,7 @@ const removeLastMetadataMatch = (metadata: string, regex: RegExp): string => {
 }
 
 /** Removes EVERY occurrence of a field regex from a metadata tail.
- *  Used by clear paths (field set to null) where no copy should survive;
- *  the set paths use removeLastMetadataMatch to preserve a description signifier. */
+ *  Clear paths, onCompletion sets, and completion stamps discard every duplicate. */
 const removeAllMetadataMatches = (metadata: string, regex: RegExp): string => {
   const stripped = removeLastMetadataMatch(metadata, regex)
   return stripped === metadata ? metadata : removeAllMetadataMatches(stripped, regex)
@@ -1005,8 +1013,8 @@ const updateTaskLineRecurrence = ({
   })
 }
 
-/** Sets or clears the 🏁 / `[onCompletion:: ]` field on a task line.
- *  Inserted after recurrence and before dates — the plugin's field order. */
+/** Sets or clears 🏁 / `[onCompletion:: ]`, replacing every duplicate action.
+ *  New actions follow recurrence and precede dates — the plugin's field order. */
 const updateTaskLineOnCompletion = ({
   taskLine,
   onCompletion,
@@ -1090,8 +1098,12 @@ type TaskLineParts = {
 }
 
 /** Same prefix grammar as TASK_LINE_RE, captured up to and including the
- *  checkbox — the two must stay in sync on what counts as the prefix. */
-const TASK_PREFIX_RE = /^([\s>]*(?:[-*+]|[0-9]+[.)]) +\[.\] *)/u
+ *  checkbox — the two must stay in sync on what counts as the prefix. The
+ *  spaces or tabs after the checkbox are captured too, so an edit keeps them. */
+const TASK_PREFIX_RE = /^([\s>]*(?:[-*+]|[0-9]+[.)]) +\[.\][ \t]*)/u
+
+/** Matches line terminators excluded by TASK_LINE_RE's body capture. */
+const TASK_BODY_LINE_BREAK_RE = /[\r\n\u2028\u2029]/u
 
 /** Splits a task line at the parser's description/metadata boundary.
  *  Returns null when the line is not a task line. */
@@ -1100,7 +1112,13 @@ const splitTaskLine = (taskLine: string): TaskLineParts | null => {
   const prefix = checkboxMatch?.[1]
 
   if (!prefix) return null
-  const afterCheckbox = taskLine.slice(prefix.length)
+  // Split from the checkbox's closing bracket, not the spaces after it, so the
+  // spaces after an empty checkbox still separate a block link or end the line.
+  const checkboxEnd = prefix.trimEnd().length
+  const afterCheckbox = taskLine.slice(checkboxEnd)
+
+  if (TASK_BODY_LINE_BREAK_RE.test(afterCheckbox)) return null
+
   // Capture trailing whitespace before splitTrailingBlockLink trims it —
   // a markdown hard break (two+ trailing spaces) must survive the round-trip.
   const trimmedAfterCheckbox = afterCheckbox.trimEnd()
@@ -1108,9 +1126,14 @@ const splitTaskLine = (taskLine: string): TaskLineParts | null => {
   const { body: taskBody, blockLink } = splitTrailingBlockLink(trimmedAfterCheckbox)
   const metadataStart = findMetadataStart(taskBody)
 
+  // A task with text keeps its spacing after the checkbox, glued text included:
+  // a space before glued `^id` text would turn it into a block link. An empty
+  // task gets the one space the Tasks plugin writes before new text.
+  const linePrefix = taskBody.trim() ? prefix : `${taskLine.slice(0, checkboxEnd)} `
+
   if (metadataStart === -1) {
     return {
-      prefix,
+      prefix: linePrefix,
       description: taskBody.trim(),
       metadata: "",
       blockLink,
@@ -1118,7 +1141,7 @@ const splitTaskLine = (taskLine: string): TaskLineParts | null => {
     }
   }
   return {
-    prefix,
+    prefix: linePrefix,
     description: taskBody.slice(0, metadataStart).trim(),
     metadata: taskBody.slice(metadataStart).trim(),
     blockLink,
@@ -1134,7 +1157,11 @@ const joinTaskLine = ({
   trailingWhitespace,
 }: TaskLineParts): string => {
   const body = [description.trim(), metadata.trim()].filter(Boolean).join(" ")
-  return `${prefix}${body}${blockLink}${trailingWhitespace}`
+
+  // A line left with no text drops the spaces after its checkbox, so they
+  // cannot turn into a hard break on the next edit.
+  const linePrefix = body ? prefix : prefix.trimEnd()
+  return `${linePrefix}${body}${blockLink}${trailingWhitespace}`
 }
 
 /** Applies a field mutation to the metadata tail only — field-like text
@@ -1157,11 +1184,8 @@ const appendMetadataField = ({
   fieldText: string
 }): string => [metadata, fieldText].filter(Boolean).join(" ")
 
-/** Inserts a field at its correct position in the task-line metadata by
- *  placing it before the first field in `laterFieldRegexes` that already
- *  exists, or appending when none of them is present. Each caller passes the
- *  fields that come after the one being inserted, so the canonical ordering
- *  (priority → recurrence → dates → id → depends_on) is maintained. */
+/** Inserts before the first present field in the caller's canonical field order.
+ *  Existing fields retain their order, even when it differs from the canonical order. */
 const insertFieldAtPosition = ({
   metadata,
   fieldText,
@@ -1369,9 +1393,8 @@ const consumedDescriptionTail = ({
 
 /** Description divergence uses two comparison modes with different
  *  representations:
- *  - Submitted this call: trimmed submitted text vs the after SLOT — the
- *    slot excludes tags the parser re-appends from the metadata tail, which
- *    would otherwise flag every description edit on a tagged line.
+ *  - Submitted this call: trimmed submitted text may match either the raw
+ *    description slot or the parser's description with tags re-appended.
  *  - Not submitted: prior PARSER view vs after PARSER view — both sides
  *    tag-enriched identically, so a trailing tag migrating into the slot
  *    when the last metadata field is cleared reads as no change.
@@ -1389,9 +1412,6 @@ const descriptionDivergences = ({
   const submittedDescription = submitted.description?.trim()
 
   if (submittedDescription !== undefined) {
-    // The slot triggers the divergence check (the parser view re-appends
-    // tags and would flag every edit on a tagged line), but the advisory
-    // quotes storedDescription — what vault_list_tasks actually returns.
     if (afterReading.descriptionSlot === submittedDescription) return []
     const storedDescription =
       afterReading.metadata.description === "" ? null : afterReading.metadata.description
@@ -1568,9 +1588,8 @@ const removeBlockId = (taskLine: string): string => {
   return `${trimmedLine.slice(0, blockLinkMatch.index)}${trailingWhitespace}`
 }
 
-/** Removes the trailing `^block-id` from a task line, if it has one, and
- *  drops trailing whitespace either way — unlike removeBlockId, which keeps a
- *  hard break. Used to start a spawned occurrence's line. */
+/** Removes the trailing ` ^block-id` after trimming the line's end.
+ *  Spaces before that link remain. Used to start a spawned occurrence's line. */
 const stripBlockLink = (taskLine: string): string => {
   const trimmedLine = taskLine.trimEnd()
   const blockLinkMatch = BLOCK_LINK_RE.exec(trimmedLine)
@@ -1579,9 +1598,8 @@ const stripBlockLink = (taskLine: string): string => {
   return trimmedLine.slice(0, blockLinkMatch.index)
 }
 
-/** Extracts the structural indent of a line — leading whitespace after
- *  stripping blockquote `>` markers. A top-level task returns 0; an
- *  indented sub-task returns the whitespace count before its list marker. */
+/** Counts leading whitespace characters after removing column-zero blockquote prefixes.
+ *  Each tab counts as one; whitespace before `>` remains part of the indent. */
 const getStructuralIndent = (line: string): number => {
   // Strip leading blockquote markers: each `> ` (one `>` + one optional
   // space) is a blockquote level. Only the marker's own space is consumed;
@@ -1710,7 +1728,7 @@ const updateTaskLineStatus = (params: {
 /** The next-occurrence line for a completed recurring task — the plugin's
  *  createNextOccurrence as a line transform. The completed line's copy keeps
  *  its description, priority, tags, recurrence rule, and indentation, and:
- *  - becomes `[ ]` with done/cancelled dates stripped;
+ *  - becomes the configured todo checkbox with done/cancelled dates stripped;
  *  - loses its block link, 🆔 id, and ⛔ dependencies (a new occurrence
  *    cannot share identity with the completed one);
  *  - has start/scheduled/due replaced by the next occurrence's dates;
@@ -1815,10 +1833,7 @@ const updateTaskLinePriority = ({
 const COMPLETE_MARKER = "**Complete**"
 
 /** Extracts heading names whose body starts with a `**Complete**` marker
- *  paragraph — the Kanban plugin's per-lane completion signal. Relies on
- *  `parseHeadings` (which is fence/comment-aware) to define section
- *  boundaries, so markers inside code blocks are excluded by the heading
- *  parser's span computation — not re-checked here.
+ *  paragraph — the Kanban plugin's per-lane completion signal.
  *
  *  @param bodyLines Note body lines (frontmatter stripped)
  *  @param headings  Pre-parsed headings from `parseHeadings(bodyLines)` */
@@ -1826,8 +1841,8 @@ const extractDoneLanes = (
   bodyLines: readonly string[],
   headings: readonly HeadingInfo[],
 ): string[] => {
-  // The marker must be the very first content paragraph after the heading —
-  // blank lines are skipped, anything else means the lane has no marker.
+  // An opening fence or comment is content, so a marker inside it cannot
+  // be the first content line after the heading.
   const startsWithCompleteMarker = (heading: HeadingInfo): boolean => {
     const firstContentLine = bodyLines
       .slice(heading.bodyStartLine, heading.bodyEndLine)
@@ -1845,9 +1860,9 @@ type KanbanCardInsertionMethod = "prepend" | "append"
 /** Matches a backtick fence delimiter (with or without a language tag). */
 const BACKTICK_FENCE_RE = /^`{3,}/
 
-/** Extracts `new-card-insertion-method` from the `%% kanban:settings %%`
- *  comment block. Returns `undefined` when the block is absent, the JSON
- *  is malformed, or the value is not a recognized insertion method. */
+/** Reads `new-card-insertion-method` after a `%% kanban:settings` marker.
+ *  - The next two backtick fences bound the JSON, even beyond a closing `%%`.
+ *  - Returns `undefined` for missing fences, malformed JSON, or an unrecognized value. */
 const parseKanbanCardInsertionMethod = (
   bodyLines: readonly string[],
 ): KanbanCardInsertionMethod | undefined => {
@@ -1857,8 +1872,6 @@ const parseKanbanCardInsertionMethod = (
 
   if (settingsLineIndex === -1) return undefined
 
-  // The block structure is fixed: %% kanban:settings → backtick fence →
-  // JSON → closing fence → %%. Extract the lines between the fences.
   const blockLines = bodyLines.slice(settingsLineIndex + 1)
   const fenceStart = blockLines.findIndex((line) => BACKTICK_FENCE_RE.test(line.trim()))
 
