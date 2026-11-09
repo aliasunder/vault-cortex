@@ -183,6 +183,27 @@ describe("createShutdownHandler", () => {
       await vi.advanceTimersByTimeAsync(0)
     }
   })
+
+  it("logs every failed cleanup when extraction and the parser both fail to close", async () => {
+    const exitSpy = vi.spyOn(process, "exit").mockImplementation((() => undefined) as never)
+    onTestFinished(() => exitSpy.mockRestore())
+
+    createShutdownHandler({
+      httpServer: { close: vi.fn((callback: () => void) => callback()) },
+      bodyTagParser: { close: vi.fn(async () => Promise.reject(new Error("terminate failed"))) },
+      pdfExtractor: { close: vi.fn(async () => Promise.reject(new Error("kill failed"))) },
+    })()
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(logger.warn).toHaveBeenCalledTimes(2)
+    expect(logger.warn).toHaveBeenNthCalledWith(1, "shutdown cleanup failed", {
+      error: "[Error]: kill failed",
+    })
+    expect(logger.warn).toHaveBeenNthCalledWith(2, "shutdown cleanup failed", {
+      error: "[Error]: terminate failed",
+    })
+    expect(exitSpy).toHaveBeenCalledExactlyOnceWith(1)
+  })
 })
 
 describe("bootstrapMemoryIfEnabled", () => {

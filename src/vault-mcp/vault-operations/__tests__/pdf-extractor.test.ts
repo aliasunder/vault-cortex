@@ -173,13 +173,10 @@ describe("PDF extraction child", () => {
       await expect(extractor.readText({ path: "good.pdf" }, callerLogger)).rejects.toThrow(
         pdfFailureError('PDF reader could not start: "good.pdf"; retry later', "pdf-start"),
       )
-      const failure = await failedLimit.promise
-
-      if (!(failure?.error instanceof Error)) throw new Error("PDF limit failure has no cause")
-      expect(failure.error.message).toBe("spawn prlimit ENOENT")
+      await failedLimit.promise
       expect(error).toHaveBeenCalledExactlyOnceWith("PDF child data limit could not be applied", {
         childPid: expect.any(Number),
-        error: failure.error,
+        error: "[Error]: spawn prlimit ENOENT",
       })
       vi.unstubAllEnvs()
       expect(await extractor.readText({ path: "good.pdf" }, callerLogger)).toEqual({

@@ -5,6 +5,7 @@ import { extname } from "node:path"
 import { fileURLToPath } from "node:url"
 import { promisify } from "node:util"
 import type { Logger } from "../../logger.js"
+import { describeErrorForLog } from "../../utils/describe-error.js"
 import type { AssetTextResult } from "./asset-text.js"
 import type { PdfTextResult } from "../obsidian-markdown/pdf.js"
 import { pdfReplySchema, type PdfReply, type PdfRequest } from "./pdf-extraction-protocol.js"
@@ -217,7 +218,7 @@ export const createPdfExtractor = (params: {
           } catch (error) {
             requestLogger.error("PDF child data limit could not be applied", {
               childPid: child.pid,
-              error,
+              ...describeErrorForLog(error),
             })
             fail("data limit")
             return

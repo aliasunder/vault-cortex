@@ -57,17 +57,16 @@ export const createShutdownHandler =
     const parserClosed = bodyTagParser.close()
     const drained = new Promise<void>((resolveDrain) => httpServer.close(resolveDrain))
     const finishShutdown = async (): Promise<void> => {
-      try {
-        const cleanupResults = await Promise.allSettled([extractionClosed, parserClosed, drained])
-        const failedCleanup = cleanupResults.find((result) => result.status === "rejected")
+      const cleanupResults = await Promise.allSettled([extractionClosed, parserClosed, drained])
+      const failedCleanups = cleanupResults.filter((result) => result.status === "rejected")
 
-        if (failedCleanup) throw failedCleanup.reason
-        logger.info("drained, exiting")
-        process.exit(0)
-      } catch (error) {
-        logger.warn("shutdown cleanup failed", { error: describeError(error) })
-        process.exit(1)
+      for (const failedCleanup of failedCleanups) {
+        logger.warn("shutdown cleanup failed", { error: describeError(failedCleanup.reason) })
       }
+      const cleanupSucceeded = failedCleanups.length === 0
+
+      if (cleanupSucceeded) logger.info("drained, exiting")
+      process.exit(cleanupSucceeded ? 0 : 1)
     }
     void finishShutdown()
     setTimeout(() => {

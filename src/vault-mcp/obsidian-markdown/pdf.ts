@@ -6,7 +6,7 @@ import { getUtf8BytePrefix } from "../../utils/get-utf8-byte-prefix.js"
 import { createPdfDocumentProxy } from "./pdf-engine.js"
 
 // Bound useful indexing work while the extraction process contains individual-page expansion.
-const MAX_INDEXED_PDF_PAGES = 500
+export const MAX_INDEXED_PDF_PAGES = 500
 // Match the searchable-content budget, including metadata, separators and links.
 const MAX_INDEXED_PDF_BYTES = 102_400
 
