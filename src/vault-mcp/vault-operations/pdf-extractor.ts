@@ -189,7 +189,10 @@ export const createPdfExtractor = (params: {
         }
         void complete()
       }
-      const fail = (reason: string): void => {
+      const fail = (
+        reason: string,
+        failure: Parameters<typeof extractionError>[1] = state.ready ? "pdf-resource" : "pdf-start",
+      ): void => {
         requestLogger.warn("PDF extraction child failed", {
           path: job.request.path,
           reason,
@@ -197,7 +200,7 @@ export const createPdfExtractor = (params: {
           signal: child.signalCode,
         })
         finish({
-          outcome: extractionError(job.request.path, state.ready ? "pdf-resource" : "pdf-start"),
+          outcome: extractionError(job.request.path, failure),
           readerDisposition: "reap",
         })
       }
@@ -208,7 +211,8 @@ export const createPdfExtractor = (params: {
           childPid: child.pid,
         })
         child.send(job.request, (error) => {
-          if (error) fail("send")
+          // The request never reached the child, so the PDF was not read and a fresh child can retry it.
+          if (error) fail("send", "pdf-start")
         })
       }
       const initialize = async (): Promise<void> => {

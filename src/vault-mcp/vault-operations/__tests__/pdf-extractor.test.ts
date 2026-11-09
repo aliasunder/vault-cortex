@@ -547,8 +547,9 @@ describe("PDF extraction ownership", () => {
     children.push(replacement)
     const failed = extractor.readText({ path: "failed.pdf" }, logger)
     vi.mocked(spawn).mockReturnValueOnce(replacement)
+    // The request never reached the child, so the caller is told to retry, not to split the PDF.
     const rejection = expect(failed).rejects.toThrow(
-      pdfFailureError(stoppedMessage("failed.pdf"), "pdf-resource"),
+      pdfFailureError('PDF reader could not start: "failed.pdf"; retry later', "pdf-start"),
     )
     const recovery = extractor.readText({ path: "recovered.pdf" }, logger)
     ready(child)
