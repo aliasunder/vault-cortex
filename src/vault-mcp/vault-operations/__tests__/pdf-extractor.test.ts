@@ -479,12 +479,12 @@ describe("PDF extraction ownership", () => {
     const otherPath = extractor.extractForIndex({ path: "other.pdf" }, logger)
     const samePathRead = extractor.readText({ path: "same.pdf" }, logger)
     const oldUpdate = extractor.extractForIndex({ path: "same.pdf", coalesce: true }, logger)
-    const oldRejection = expect(oldUpdate).rejects.toThrow(
-      pdfFailureError(
-        'PDF text extraction stopped: "same.pdf" could not be completed; retry later',
-        "pdf-superseded",
-      ),
-    )
+    const oldRejection = expect(oldUpdate.catch(errorRecord)).resolves.toEqual({
+      name: "Error",
+      message: 'PDF text extraction stopped: "same.pdf" could not be completed; retry later',
+      pdfFailure: "pdf-superseded",
+      cause: undefined,
+    })
     const latestUpdate = extractor.extractForIndex({ path: "same.pdf", coalesce: true }, logger)
     // Observe rejected decoys immediately if a regression settles the wrong queued job.
     const queuedResults = Promise.allSettled([otherPath, samePathRead, latestUpdate])

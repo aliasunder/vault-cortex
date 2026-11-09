@@ -851,12 +851,15 @@ describe("readAssetContent — line paging", () => {
     })
   })
 
-  it("rejects paging combined with raw PDF page rendering", async () => {
+  it.each([
+    { label: "a start line", lineWindow: { startLine: 1 } },
+    { label: "a line limit", lineWindow: { limit: 1 } },
+  ])("rejects $label combined with raw PDF page rendering", async ({ lineWindow }) => {
     stubReadAsset("fake-pdf-bytes", ".pdf")
 
     await expect(
       assetOperations.readAssetContent(
-        { ...defaultParams, path: "doc.pdf", raw: true, startLine: 1 },
+        { ...defaultParams, path: "doc.pdf", raw: true, ...lineWindow },
         logger,
       ),
     ).rejects.toThrow(
