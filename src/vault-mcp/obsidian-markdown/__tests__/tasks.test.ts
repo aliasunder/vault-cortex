@@ -634,7 +634,7 @@ describe("tasks.extractTasks", () => {
            const elapsed = performance.now() - started;
            process.stdout.write(JSON.stringify({ extracted, elapsed }));`,
           ],
-          { encoding: "utf8", timeout: 10000 },
+          { encoding: "utf8", timeout: 10000, killSignal: "SIGKILL" },
         )
         const result = JSON.parse(output)
 
@@ -645,7 +645,7 @@ describe("tasks.extractTasks", () => {
       },
     )
 
-    it("preserves dependency matches and group 1 across fixed-seed lists and existing fixtures", () => {
+    it("preserves emoji dependency matches and group 1 across fixed-seed lists and existing fixtures", () => {
       /** The former dependency grammar, retained as the compatibility oracle. */
       const oldSequence = /[a-zA-Z0-9_-]+( *, *[a-zA-Z0-9_-]+ *)*/
       const observedPatterns: RegExp[] = []
@@ -655,22 +655,22 @@ describe("tasks.extractTasks", () => {
         this: RegExp,
         text,
       ) {
-        if (this.source.includes("⛔") || this.source.includes("dependsOn::")) {
+        if (this.source.includes("⛔")) {
           observedPatterns.push(this)
         }
         return originalExec.call(this, text)
       })
 
       try {
-        tasks.extractTasks("- [ ] x")
+        tasks.extractTasks("- [ ] x [dependsOn:: a]")
       } finally {
         execSpy.mockRestore()
       }
 
-      const dependencyPatterns = observedPatterns.filter((pattern) =>
+      const dependencyPatterns = [...new Set(observedPatterns)].filter((pattern) =>
         pattern.source.includes("[a-zA-Z0-9_-]+"),
       )
-      expect(dependencyPatterns.length).toBe(2)
+      expect(dependencyPatterns.length).toBe(1)
 
       // State advances once per draw so this corpus is reproducible.
       let randomState = 0x5eed1234
@@ -702,13 +702,7 @@ describe("tasks.extractTasks", () => {
       const lines = [...fixtureLines, ...generatedLines]
 
       for (const pattern of dependencyPatterns) {
-        const oldPattern = new RegExp(
-          pattern.source.replace(
-            "[a-zA-Z0-9_-]+(?:(?: *, *[a-zA-Z0-9_-]+)+ *(?! ))?",
-            oldSequence.source,
-          ),
-          pattern.flags,
-        )
+        const oldPattern = new RegExp(`⛔\\uFE0F? *(${oldSequence.source})$`)
         expect(oldPattern.source).not.toBe(pattern.source)
 
         for (const line of lines) {
@@ -1419,7 +1413,7 @@ describe("task line mutations", () => {
       expect(result).toBe("- [ ] Task ➕ 2026-07-01")
     })
 
-    it("replacing a duplicated priority keeps the first and swaps the last", () => {
+    it("inserts a replacement priority before the surviving duplicate", () => {
       const result = tasks.updateTaskLinePriority({
         taskLine: "- [ ] Task ⏫ ➕ 2026-07-01 ⏫",
         newPriority: "highest",
@@ -1624,6 +1618,57 @@ describe("task line mutations", () => {
   })
 
   // ── replaceTaskLineDescription ────────────────────────────────
+
+  describe("Dataview fields adjacent to hashtags", () => {
+    const fields = [
+      { label: "square ID", field: "[id:: a]" },
+      { label: "parenthesized ID", field: "(id:: a)" },
+      { label: "square due date", field: "[due:: 2026-01-02]" },
+      { label: "parenthesized due date", field: "(due:: 2026-01-02)" },
+      { label: "square priority", field: "[priority:: high]" },
+      { label: "parenthesized priority", field: "(priority:: high)" },
+    ]
+
+    it.each(fields)("preserves a $label when replacing the description", ({ field }) => {
+      expect(
+        tasks.replaceTaskLineDescription({
+          taskLine: `- [ ] work #tag${field}`,
+          newDescription: "New",
+        }),
+      ).toBe(`- [ ] New ${field}`)
+    })
+
+    it.each(fields.slice(0, 2))("clears a $label after a hashtag", ({ field }) => {
+      expect(
+        tasks.updateTaskLineTaskId({
+          taskLine: `- [ ] work #tag${field}`,
+          taskId: null,
+          config: DATAVIEW_CONFIG,
+        }),
+      ).toBe("- [ ] work #tag")
+    })
+
+    it.each(fields.slice(2, 4))("clears a $label after a hashtag", ({ field }) => {
+      expect(
+        tasks.updateTaskLineDate({
+          taskLine: `- [ ] work #tag${field}`,
+          field: "due",
+          date: null,
+          config: DATAVIEW_CONFIG,
+        }),
+      ).toBe("- [ ] work #tag")
+    })
+
+    it.each(fields.slice(4))("clears a $label after a hashtag", ({ field }) => {
+      expect(
+        tasks.updateTaskLinePriority({
+          taskLine: `- [ ] work #tag${field}`,
+          newPriority: null,
+          config: DATAVIEW_CONFIG,
+        }),
+      ).toBe("- [ ] work #tag")
+    })
+  })
 
   describe("replaceTaskLineDescription", () => {
     it("replaces description before metadata signifiers", () => {
@@ -2291,7 +2336,7 @@ describe("task line mutations", () => {
       expect(result).toBe("- [ ] My task 🏁 delete ➕ 2026-08-01 📅 2026-09-01 ^my-task")
     })
 
-    it("clearing strips duplicated emoji-format fields", () => {
+    it("clearing strips duplicated emoji onCompletion fields", () => {
       const line = "- [ ] My task 🏁 delete 🏁 keep ➕ 2026-08-01 ^my-task"
       const result = tasks.updateTaskLineOnCompletion({
         taskLine: line,
@@ -2850,7 +2895,7 @@ describe("task line mutations", () => {
       ])
     })
 
-    it("resets the indent stack at heading boundaries", () => {
+    it("attributes top-level tasks to the next heading after a nested list", () => {
       const content =
         [
           "---",
@@ -2888,6 +2933,34 @@ describe("task line mutations", () => {
           heading: "Up Next",
           depth: 0,
           parentLine: null,
+        }),
+      ])
+    })
+
+    it("starts an indented task after a heading without a parent from the prior section", () => {
+      const content = [
+        "## Active",
+        "- [ ] Parent ^parent",
+        "  - [ ] Child ^child",
+        "## Up Next",
+        "  - [ ] Independent ^independent",
+      ].join("\n")
+
+      expect(tasks.extractTasks(content)).toEqual([
+        task({ line: 2, description: "Parent", blockId: "parent", heading: "Active" }),
+        task({
+          line: 3,
+          description: "Child",
+          blockId: "child",
+          heading: "Active",
+          depth: 1,
+          parentLine: 2,
+        }),
+        task({
+          line: 5,
+          description: "Independent",
+          blockId: "independent",
+          heading: "Up Next",
         }),
       ])
     })

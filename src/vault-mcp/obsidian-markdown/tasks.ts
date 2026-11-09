@@ -99,7 +99,10 @@ export type ParsedTask = Readonly<{
  *  `1.` / `1)`), one or more spaces, and `[c]` with exactly one status
  *  character. Captures: [1] status character, [2] everything after the
  *  checkbox. Anchored and non-global — safe for .exec(). */
-const TASK_LINE_RE = /^[\s>]*(?:[-*+]|[0-9]+[.)]) +\[(.)\] *(.*)$/u
+const TASK_LINE_RE = /^[\s>]*(?:[-*+]|[0-9]+[.)]) +\[(.)\](.*)$/u
+
+/** Matches ASCII spaces before a task body's content. */
+const LEADING_BODY_SPACES_RE = /^ +/
 
 /** Matches any list item — the same prefix and marker grammar as
  *  TASK_LINE_RE without the checkbox. A non-task item at a task's indent
@@ -152,8 +155,8 @@ const HASHTAG_FROM_END_RE = /(^|\s)#[^ !@#$%^&*(),.?":{}|<>]+$/
 //
 // Dataview regexes mirror toInlineFieldRegex(): the `key:: value` pair wrapped
 // in matching `[...]` or `(...)`, with an optional trailing comma, anchored to
-// line end. Each opener's lookahead requires its own closer before the line
-// ends, so a mismatched pair such as `[due:: 2026-01-01)` does not match.
+// line end. The suffix scan requires paired brackets, so a mismatched pair
+// such as `[due:: 2026-01-01)` does not match.
 
 /** The allowed characters in a single 🆔 / `id::` task ID. */
 const TASK_ID = /[a-zA-Z0-9_-]+/
@@ -174,16 +177,56 @@ const TASK_ID_SEQUENCE = new RegExp(`${TASK_ID.source}(?:(?: *, *${TASK_ID.sourc
 const emojiField = ({ symbols, valuePattern }: { symbols: string; valuePattern: string }): RegExp =>
   new RegExp(valuePattern === "" ? `${symbols}\\uFE0F?$` : `${symbols}\\uFE0F? *${valuePattern}$`)
 
-/** Builds a Dataview inline-field regex: `[key:: value]` or `(key:: value)`
- *  with matched brackets and an optional trailing comma, anchored to line end
- *  (see block comment above). */
-const dataviewField = (innerPattern: string): RegExp => {
-  const squareBracketOpener = String.raw`(?=[^\]]+\])\[`
-  const parenthesisOpener = String.raw`(?=[^)]+\))\(`
+type FieldMatch = Pick<RegExpExecArray, number | "index">
+type FieldMatcher = { exec: (line: string) => FieldMatch | null }
 
-  return new RegExp(
-    `(?:${squareBracketOpener}|${parenthesisOpener}) *${innerPattern} *[)\\]](?: *,)?$`,
-  )
+/** Matches only the last bracketed field, so failed openers never rescan its suffix. */
+const dataviewField = ({
+  key,
+  valuePattern: valueSource,
+}: {
+  key: string
+  valuePattern: string
+}): FieldMatcher => {
+  const keyPrefix = `${key}::`
+  const innerPattern = `${keyPrefix} *${valueSource}`
+  /** Matches the complete field value after its surrounding ASCII spaces are removed. */
+  const valuePattern = new RegExp(`^${valueSource}$`)
+  /** Matches a single field whose bracket pairing the suffix scan already checked. */
+  const fieldPattern = new RegExp(`^[[(] *${innerPattern} *[)\\]](?: *,)?$`)
+
+  return {
+    exec: (line) => {
+      // The cursors move backward once to the closing delimiter and last opener.
+      let close = line.length - 1
+
+      if (line[close] === ",") {
+        close -= 1
+        while (line[close] === " ") close -= 1
+      }
+      const closer = line[close]
+
+      if (closer !== "]" && closer !== ")") return null
+      let open = close - 1
+
+      while (open >= 0 && line[open] !== "[" && line[open] !== "(") open -= 1
+      if (open < 0 || closer !== (line[open] === "[" ? "]" : ")")) return null
+      let valueStart = open + 1
+
+      while (line[valueStart] === " ") valueStart += 1
+      if (!line.startsWith(keyPrefix, valueStart)) return null
+      valueStart += keyPrefix.length
+      while (line[valueStart] === " ") valueStart += 1
+      let valueEnd = close
+
+      while (valueEnd > valueStart && line[valueEnd - 1] === " ") valueEnd -= 1
+      if (!valuePattern.test(line.slice(valueStart, valueEnd))) return null
+      const match = fieldPattern.exec(line.slice(open))
+
+      if (match) match.index += open
+      return match
+    },
+  }
 }
 
 /** `YYYY-MM-DD` — the only date format the plugin recognizes on task lines. */
@@ -194,37 +237,37 @@ const DATE_VALUE = "(\\d{4}-\\d{2}-\\d{2})"
 const DATE_FIELDS: ReadonlyArray<{
   key: "done" | "cancelled" | "due" | "scheduled" | "start" | "created"
   emoji: RegExp
-  dataview: RegExp
+  dataview: FieldMatcher
 }> = [
   {
     key: "done",
     emoji: emojiField({ symbols: "✅", valuePattern: DATE_VALUE }),
-    dataview: dataviewField(`completion:: *${DATE_VALUE}`),
+    dataview: dataviewField({ key: "completion", valuePattern: DATE_VALUE }),
   },
   {
     key: "cancelled",
     emoji: emojiField({ symbols: "❌", valuePattern: DATE_VALUE }),
-    dataview: dataviewField(`cancelled:: *${DATE_VALUE}`),
+    dataview: dataviewField({ key: "cancelled", valuePattern: DATE_VALUE }),
   },
   {
     key: "due",
     emoji: emojiField({ symbols: "(?:📅|📆|🗓)", valuePattern: DATE_VALUE }),
-    dataview: dataviewField(`due:: *${DATE_VALUE}`),
+    dataview: dataviewField({ key: "due", valuePattern: DATE_VALUE }),
   },
   {
     key: "scheduled",
     emoji: emojiField({ symbols: "(?:⏳|⌛)", valuePattern: DATE_VALUE }),
-    dataview: dataviewField(`scheduled:: *${DATE_VALUE}`),
+    dataview: dataviewField({ key: "scheduled", valuePattern: DATE_VALUE }),
   },
   {
     key: "start",
     emoji: emojiField({ symbols: "🛫", valuePattern: DATE_VALUE }),
-    dataview: dataviewField(`start:: *${DATE_VALUE}`),
+    dataview: dataviewField({ key: "start", valuePattern: DATE_VALUE }),
   },
   {
     key: "created",
     emoji: emojiField({ symbols: "➕", valuePattern: DATE_VALUE }),
-    dataview: dataviewField(`created:: *${DATE_VALUE}`),
+    dataview: dataviewField({ key: "created", valuePattern: DATE_VALUE }),
   },
 ]
 
@@ -236,31 +279,39 @@ const EMOJI_PRIORITY_RE = emojiField({
 /** Dataview priority field, anchored to line end. Captures the level word
  *  (lowercase only, matching the plugin's regex; `highest` before `high` so
  *  the longer word wins). */
-const DATAVIEW_PRIORITY_RE = dataviewField("priority:: *(highest|high|medium|low|lowest)")
-/** Recurrence rule text after 🔁 — letters, digits, commas, spaces, `!`. */
-const EMOJI_RECURRENCE_RE = emojiField({
-  symbols: "🔁",
-  valuePattern: "([a-zA-Z0-9, !]+)",
+const DATAVIEW_PRIORITY_RE = dataviewField({
+  key: "priority",
+  valuePattern: "(highest|high|medium|low|lowest)",
 })
-const DATAVIEW_RECURRENCE_RE = dataviewField("repeat:: *([a-zA-Z0-9, !]+)")
+/** Recurrence rule text after 🔁 — letters, digits, commas, spaces, `!`. */
+const EMOJI_RECURRENCE_RE = /🔁\uFE0F?([a-zA-Z0-9, !]+)$/
+/** Matches recurrence fields with their leading/trailing spaces inside the value. */
+const DATAVIEW_RECURRENCE_RE =
+  /(?:\[ *repeat::([a-zA-Z0-9, !]+)\]|\( *repeat::([a-zA-Z0-9, !]+)\))(?: *,)?$/
 /** On-completion action word after 🏁 (the plugin accepts delete/keep). */
 const EMOJI_ON_COMPLETION_RE = emojiField({
   symbols: "🏁",
   valuePattern: "([a-zA-Z]+)",
 })
-const DATAVIEW_ON_COMPLETION_RE = dataviewField("onCompletion:: *([a-zA-Z]+)")
+const DATAVIEW_ON_COMPLETION_RE = dataviewField({
+  key: "onCompletion",
+  valuePattern: "([a-zA-Z]+)",
+})
 /** The task's own ID after 🆔. */
 const EMOJI_ID_RE = emojiField({
   symbols: "🆔",
   valuePattern: `(${TASK_ID.source})`,
 })
-const DATAVIEW_ID_RE = dataviewField(`id:: *(${TASK_ID.source})`)
+const DATAVIEW_ID_RE = dataviewField({ key: "id", valuePattern: `(${TASK_ID.source})` })
 /** Comma-separated IDs this task depends on, after ⛔. */
 const EMOJI_DEPENDS_ON_RE = emojiField({
   symbols: "⛔",
   valuePattern: `(${TASK_ID_SEQUENCE.source})`,
 })
-const DATAVIEW_DEPENDS_ON_RE = dataviewField(`dependsOn:: *(${TASK_ID_SEQUENCE.source})`)
+const DATAVIEW_DEPENDS_ON_RE = dataviewField({
+  key: "dependsOn",
+  valuePattern: `(${TASK_ID_SEQUENCE.source})`,
+})
 
 /** Emoji signifier → priority level. */
 const PRIORITY_BY_EMOJI: Readonly<Record<string, TaskPriority>> = {
@@ -329,10 +380,25 @@ const PLUGIN_MAX_RUNS = 20
 /** The plugin's do/while executes once before checking its limit, allowing 21 passes. */
 const MAX_STRIPPING_PASSES = PLUGIN_MAX_RUNS + 1
 
+const METADATA_MATCHERS = [
+  EMOJI_PRIORITY_RE,
+  DATAVIEW_PRIORITY_RE,
+  ...DATE_FIELDS.flatMap((field) => [field.emoji, field.dataview]),
+  EMOJI_RECURRENCE_RE,
+  DATAVIEW_RECURRENCE_RE,
+  EMOJI_ON_COMPLETION_RE,
+  DATAVIEW_ON_COMPLETION_RE,
+  HASHTAG_FROM_END_RE,
+  EMOJI_ID_RE,
+  DATAVIEW_ID_RE,
+  EMOJI_DEPENDS_ON_RE,
+  DATAVIEW_DEPENDS_ON_RE,
+]
+
 /** Extracts a regex capture group, throwing if absent. Capture groups are
  *  guaranteed by the engine when the regex matches, but noUncheckedIndexedAccess
  *  adds `| undefined` to all indexed access. */
-const capturedGroup = (match: RegExpExecArray, index: number): string => {
+const capturedGroup = (match: FieldMatch, index: number): string => {
   const value = match[index]
 
   if (value === undefined) {
@@ -384,21 +450,22 @@ const parseTaskMetadata = (taskBody: string): TaskMetadata => {
   let dependsOn: readonly string[] = []
   let trailingTags = ""
 
-  const extractField = (regex: RegExp, onMatch: (match: RegExpExecArray) => void): void => {
+  const extractField = (regex: FieldMatcher, onMatch: (match: FieldMatch) => void): void => {
     const match = regex.exec(line)
 
     if (!match) return
     onMatch(match)
-    line = line.replace(regex, "").trim()
+    line = line.slice(0, match.index).trim()
     matchedThisPass = true
   }
 
-  const extractDate = (regex: RegExp, key: (typeof DATE_FIELDS)[number]["key"]): void => {
+  const extractDate = (regex: FieldMatcher, key: (typeof DATE_FIELDS)[number]["key"]): void => {
     extractField(regex, (match) => {
       dates[key] = capturedGroup(match, 1)
     })
   }
 
+  // Removing a suffix can expose a field whose turn already passed; the next pass reads it.
   for (let pass = 0; pass < MAX_STRIPPING_PASSES; pass++) {
     matchedThisPass = false
 
@@ -418,7 +485,8 @@ const parseTaskMetadata = (taskBody: string): TaskMetadata => {
       recurrence = capturedGroup(match, 1).trim()
     })
     extractField(DATAVIEW_RECURRENCE_RE, (match) => {
-      recurrence = capturedGroup(match, 1).trim()
+      const recurrenceValue = match[1] ?? capturedGroup(match, 2)
+      recurrence = recurrenceValue.trim()
     })
 
     extractField(EMOJI_ON_COMPLETION_RE, (match) => {
@@ -547,6 +615,9 @@ const scanBodyLinesForTasks = ({
   // state across the loop (same pattern as classifyLines).
   let openFence: OpenFence = null
   let commentOpen = false
+  // Heading starts are ordered; each heading is visited once during the line scan.
+  let headingIndex = 0
+  let nearestHeading: HeadingInfo | undefined
   for (let lineIndex = 0; lineIndex < bodyLines.length; lineIndex++) {
     const lineText = bodyLines[lineIndex]
 
@@ -566,7 +637,11 @@ const scanBodyLinesForTasks = ({
     if (commentResult.lineIsComment) continue
 
     // Reset indent stack at heading boundaries — sub-tasks can't span headings
-    const lineStartsHeading = headings.some((heading) => heading.startLine === lineIndex)
+    while (headings[headingIndex] && (headings[headingIndex]?.startLine ?? Infinity) < lineIndex) {
+      nearestHeading = headings[headingIndex]
+      headingIndex += 1
+    }
+    const lineStartsHeading = headings[headingIndex]?.startLine === lineIndex
 
     if (lineStartsHeading) {
       indentStack = []
@@ -598,10 +673,8 @@ const scanBodyLinesForTasks = ({
 
     // The block link sits at the end of the line — strip it before metadata
     // parsing, exactly as the plugin does.
-    const bodyWithBlockLink = capturedGroup(taskLineMatch, 2)
+    const bodyWithBlockLink = capturedGroup(taskLineMatch, 2).replace(LEADING_BODY_SPACES_RE, "")
     const { body: taskBody, blockId } = splitTrailingBlockLink(bodyWithBlockLink)
-
-    const nearestHeading = headings.findLast((heading) => heading.startLine < lineIndex)
 
     const taskIndent = getStructuralIndent(lineText)
     const ancestors = ancestorsOf(indentStack, taskIndent)
@@ -801,11 +874,156 @@ const removeLastMetadataMatch = (metadata: string, regex: RegExp): string => {
   return `${beforeMatch}${afterMatch}`.replace(/ {2,}/g, " ").trim()
 }
 
-/** Removes EVERY occurrence of a field regex from a metadata tail.
- *  Clear paths, onCompletion sets, and completion stamps discard every duplicate. */
+type MetadataRemovalGrammar = Readonly<{
+  regex: RegExp
+  symbols: string
+  key: string
+  value: "date" | "priority" | "id" | "dependencies" | "recurrence" | "action"
+}>
+
+/** Matches a lowercase priority-word character. */
+const PRIORITY_CHARACTER_RE = /[a-z]/u
+/** Matches an on-completion action character. */
+const ACTION_CHARACTER_RE = /[a-zA-Z]/u
+/** Matches a recurrence-rule character. */
+const RECURRENCE_CHARACTER_RE = /[a-zA-Z0-9, !]/u
+
+const METADATA_REMOVAL_GRAMMARS: ReadonlyArray<MetadataRemovalGrammar> = [
+  { regex: DONE_DATE_INLINE_RE, symbols: "✅", key: "completion", value: "date" },
+  { regex: CANCELLED_DATE_INLINE_RE, symbols: "❌", key: "cancelled", value: "date" },
+  { regex: DUE_DATE_INLINE_RE, symbols: "📅📆🗓", key: "due", value: "date" },
+  { regex: SCHEDULED_DATE_INLINE_RE, symbols: "⏳⌛", key: "scheduled", value: "date" },
+  { regex: START_DATE_INLINE_RE, symbols: "🛫", key: "start", value: "date" },
+  { regex: CREATED_DATE_INLINE_RE, symbols: "➕", key: "created", value: "date" },
+  { regex: PRIORITY_INLINE_RE, symbols: "🔺⏫🔼🔽⏬", key: "priority", value: "priority" },
+  { regex: TASK_ID_INLINE_RE, symbols: "🆔", key: "id", value: "id" },
+  { regex: DEPENDS_ON_INLINE_RE, symbols: "⛔", key: "dependsOn", value: "dependencies" },
+  { regex: RECURRENCE_INLINE_RE, symbols: "🔁", key: "repeat", value: "recurrence" },
+  { regex: ON_COMPLETION_INLINE_RE, symbols: "🏁", key: "onCompletion", value: "action" },
+]
+
+/** Removes duplicates from right to left, including fields exposed by an earlier removal. */
 const removeAllMetadataMatches = (metadata: string, regex: RegExp): string => {
-  const stripped = removeLastMetadataMatch(metadata, regex)
-  return stripped === metadata ? metadata : removeAllMetadataMatches(stripped, regex)
+  const grammar = METADATA_REMOVAL_GRAMMARS.find((entry) => entry.regex === regex)
+
+  if (!grammar) throw new Error("unknown metadata removal grammar")
+  const matcher = new RegExp(`^(?:${regex.source})`, regex.flags)
+  const suffix: string[] = []
+  // The stack and its lower bound retain surviving text without copying it after each removal.
+  let suffixStart = 0
+  let removed = false
+  const read = (offset: number): string => {
+    const index = suffix.length - 1 - offset
+
+    return index >= suffixStart ? (suffix[index] ?? "") : ""
+  }
+  const skipSpace = (offset: number): number => offset + Number(read(offset) === " ")
+  const scan = (offset: number, characterPattern: RegExp): number => {
+    // Each successful variable-length scan consumes its characters; failed fields stop at an opener.
+    let end = offset
+
+    while (end < suffix.length - suffixStart && characterPattern.test(read(end))) end += 1
+    return end
+  }
+  const valueEnd = (offset: number): number => {
+    switch (grammar.value) {
+      case "date":
+        return offset + 10
+      case "priority":
+        return scan(offset, PRIORITY_CHARACTER_RE)
+      case "id":
+        return scan(offset, TASK_ID_WHOLE_RE)
+      case "action":
+        return scan(offset, ACTION_CHARACTER_RE)
+      case "recurrence":
+        return scan(offset, RECURRENCE_CHARACTER_RE)
+      case "dependencies": {
+        let end = scan(offset, TASK_ID_WHOLE_RE)
+        let comma = skipSpace(end)
+
+        while (read(comma) === ",") {
+          const nextStart = skipSpace(comma + 1)
+          const nextEnd = scan(nextStart, TASK_ID_WHOLE_RE)
+
+          if (nextEnd === nextStart) break
+          end = nextEnd
+          comma = skipSpace(end)
+        }
+        return end
+      }
+    }
+  }
+  const matchLength = (character: string): number => {
+    const bracketed = character === "[" || character === "("
+
+    if (!bracketed && !grammar.symbols.includes(character)) return 0
+    let offset = 1
+
+    if (bracketed) {
+      offset = skipSpace(offset)
+      for (const keyCharacter of `${grammar.key}::`) {
+        if (read(offset) !== keyCharacter) return 0
+        offset += 1
+      }
+    } else if (read(offset) === "\uFE0F") {
+      offset += 1
+    }
+    if (bracketed || grammar.value !== "priority") {
+      offset = valueEnd(skipSpace(offset))
+    }
+    if (bracketed) {
+      offset = skipSpace(offset)
+      if (read(offset) !== "]" && read(offset) !== ")") return 0
+      offset += 1
+      const comma = skipSpace(offset)
+
+      if (read(comma) === ",") offset = comma + 1
+    }
+    if (offset > suffix.length - suffixStart) return 0
+    const candidate = suffix
+      .slice(suffix.length - offset)
+      .reverse()
+      .join("")
+    const match = matcher.exec(candidate)
+
+    return match?.[0].length ? Array.from(match[0]).length : 0
+  }
+
+  // Walk code points backward without copying the full input into character arrays.
+  for (let index = metadata.length - 1; index >= 0; index -= 1) {
+    const codeUnit = metadata.charCodeAt(index)
+    const precedingCodeUnit = metadata.charCodeAt(index - 1)
+    const hasSurrogatePair =
+      codeUnit >= 0xdc00 &&
+      codeUnit <= 0xdfff &&
+      precedingCodeUnit >= 0xd800 &&
+      precedingCodeUnit <= 0xdbff
+    const character = metadata.slice(index - Number(hasSurrogatePair), index + 1)
+
+    index -= Number(hasSurrogatePair)
+    if (character === " " && read(0) === " ") continue
+    if (removed && suffix.length === suffixStart && character.trim() === "") continue
+    const nextCharacter = read(0)
+    const nextCodeUnit = nextCharacter.charCodeAt(0)
+    const formsSurrogatePair =
+      character.length === 1 &&
+      codeUnit >= 0xd800 &&
+      codeUnit <= 0xdbff &&
+      nextCodeUnit >= 0xdc00 &&
+      nextCodeUnit <= 0xdfff
+    const fieldCharacter = formsSurrogatePair ? character + nextCharacter : character
+
+    // A deletion can join previously unpaired surrogates into a metadata emoji.
+    if (formsSurrogatePair) suffix.pop()
+    suffix.push(fieldCharacter)
+    const length = matchLength(fieldCharacter)
+
+    if (!length) continue
+    suffix.length -= length
+    removed = true
+    while (suffixStart < suffix.length && suffix[suffixStart]?.trim() === "") suffixStart += 1
+  }
+  return removed ? suffix.slice(suffixStart).reverse().join("").trim() : metadata
 }
 
 // Re-export config types so consumers of tasks.ts don't need a
@@ -1025,6 +1243,7 @@ const updateTaskLineOnCompletion = ({
   config: TaskFormatConfig
 }): string => {
   return transformMetadata(taskLine, (metadata) => {
+    // Parsing keeps the leftmost action; a surviving copy could still make completion delete the task.
     const metadataWithoutOnCompletion = removeAllMetadataMatches(metadata, ON_COMPLETION_INLINE_RE)
 
     if (onCompletion === null) {
@@ -1064,24 +1283,74 @@ const updateTaskLineDependsOn = ({
   })
 }
 
-/** Global twin of FIRST_METADATA_SIGNIFIER_RE for matchAll — kept separate
- *  so the non-global regex never carries a lastIndex. */
-const METADATA_SIGNIFIER_CANDIDATES_RE = new RegExp(FIRST_METADATA_SIGNIFIER_RE.source, "gu")
-
-/** Index in a task body (checkbox prefix and block link removed) where the
- *  metadata tail begins, or -1 when the whole body is description.
- *  - A signifier opens the tail only when everything after it parses as
- *    metadata — the parser strips from the right, so an emoji mid-sentence
- *    ("Prefer 🔼 arrows in docs 📅 2026-09-15") stays in the description.
- *  - Tags interleaved with fields belong to the tail, not the description. */
+/** Finds the earliest signifier consumed within the plugin's stripping budget.
+ *  Only hashtags can contain another signifier, so each stripped hashtag gets
+ *  one suffix walk starting immediately after its turn in the current pass. */
 const findMetadataStart = (taskBody: string): number => {
-  for (const candidate of taskBody.matchAll(METADATA_SIGNIFIER_CANDIDATES_RE)) {
-    const tail = parseTaskMetadata(taskBody.slice(candidate.index))
-    const tailDescription = tail.description.replace(HASHTAG_RE, "").trim()
+  const scanSuffix = ({
+    text,
+    offset,
+    firstPass,
+    firstMatcher,
+    hadEarlierMatch,
+  }: {
+    text: string
+    offset: number
+    firstPass: number
+    firstMatcher: number
+    hadEarlierMatch: boolean
+  }): number => {
+    // Suffix removal and the earliest consumed signifier are sequential parser state.
+    let line = text.trimEnd()
+    let earliestStart = Infinity
 
-    if (tailDescription === "") return candidate.index
+    for (let pass = firstPass; pass < MAX_STRIPPING_PASSES; pass++) {
+      let matchedThisPass = pass === firstPass && hadEarlierMatch
+      const matcherStart = pass === firstPass ? firstMatcher : 0
+
+      for (
+        let matcherIndex = matcherStart;
+        matcherIndex < METADATA_MATCHERS.length;
+        matcherIndex++
+      ) {
+        const matcher = METADATA_MATCHERS[matcherIndex]
+        const match = matcher?.exec(line)
+
+        if (!match) continue
+        const matchedText = capturedGroup(match, 0)
+
+        if (matcher === HASHTAG_FROM_END_RE) {
+          // Dropping this tag's '#' exposes its inner fields. Later tags have already
+          // spent their passes; replaying them for every inner signifier is unnecessary.
+          const tagStart = match.index + matchedText.indexOf("#") + 1
+          const innerStart = scanSuffix({
+            text: line.slice(tagStart),
+            offset: offset + tagStart,
+            firstPass: pass,
+            firstMatcher: matcherIndex + 1,
+            hadEarlierMatch: matchedThisPass,
+          })
+          earliestStart = Math.min(earliestStart, innerStart)
+        } else if (FIRST_METADATA_SIGNIFIER_RE.exec(matchedText)?.index === 0) {
+          // Spaced Dataview openers parse as fields but are not legacy boundary candidates.
+          earliestStart = Math.min(earliestStart, offset + match.index)
+        }
+        matchedThisPass = true
+        line = line.slice(0, match.index).trimEnd()
+      }
+      if (!matchedThisPass) break
+    }
+    return earliestStart
   }
-  return -1
+  const earliestStart = scanSuffix({
+    text: taskBody,
+    offset: 0,
+    firstPass: 0,
+    firstMatcher: 0,
+    hadEarlierMatch: false,
+  })
+
+  return Number.isFinite(earliestStart) ? earliestStart : -1
 }
 
 type TaskLineParts = {
@@ -1184,8 +1453,9 @@ const appendMetadataField = ({
   fieldText: string
 }): string => [metadata, fieldText].filter(Boolean).join(" ")
 
-/** Inserts before the first present field in the caller's canonical field order.
- *  Existing fields retain their order, even when it differs from the canonical order. */
+/** Inserts before the first present field in the caller's canonical field order,
+ *  or appends when none is present. Existing fields keep their order, even when
+ *  it differs from the canonical order. */
 const insertFieldAtPosition = ({
   metadata,
   fieldText,
@@ -1211,7 +1481,7 @@ const parseTaskLineMetadata = (taskLine: string): TaskMetadata | null => {
   const taskLineMatch = TASK_LINE_RE.exec(taskLine)
 
   if (!taskLineMatch) return null
-  const bodyWithBlockLink = capturedGroup(taskLineMatch, 2)
+  const bodyWithBlockLink = capturedGroup(taskLineMatch, 2).replace(LEADING_BODY_SPACES_RE, "")
   const { body: taskBody } = splitTrailingBlockLink(bodyWithBlockLink)
   return parseTaskMetadata(taskBody)
 }
@@ -1498,26 +1768,30 @@ const replaceTaskLineDescription = ({
   return joinTaskLine({ ...parts, description: newDescription })
 }
 
-/** Matches a specific hashtag as a whole token — preceded by start-of-string
- *  or whitespace, followed by whitespace or end-of-string. */
-const hashtagTokenPattern = (escapedTag: string): RegExp => {
-  return new RegExp(`(^|\\s)${escapedTag}(?=\\s|$)`)
-}
+/** Matches the characters allowed after '#' in the plugin's hashtag grammar. */
+const HASHTAG_CHARACTER_RE = /[^ !@#$%^&*(),.?":{}|<>]/u
+/** Matches whitespace consumed between successive trailing tags. */
+const TAG_WHITESPACE_RE = /\s/u
 
-/** Extracts trailing hashtags from a string by repeated right-to-left
- *  stripping — the same loop shape as parseTaskMetadata's tag pass. */
+/** Extracts the trailing hashtag run without rescanning earlier tags. */
 const extractTrailingTags = (text: string): readonly string[] => {
   const tags: string[] = []
-  // Each iteration shortens the string from the right; later passes
-  // depend on the shortened result (sequential parser state).
-  let remaining = text
-  let tagMatch = HASHTAG_FROM_END_RE.exec(remaining)
-  while (tagMatch) {
-    tags.unshift(tagMatch[0].trim())
-    remaining = remaining.slice(0, tagMatch.index).trim()
-    tagMatch = HASHTAG_FROM_END_RE.exec(remaining)
+  // Both boundaries move left once across the suffix, preserving the stripping order.
+  let end = text.length
+
+  while (end > 0) {
+    let start = end - 1
+
+    while (start >= 0 && HASHTAG_CHARACTER_RE.test(text.charAt(start))) start -= 1
+    const hasTagValue = start < end - 1
+    const hasTagBoundary = start === 0 || TAG_WHITESPACE_RE.test(text.charAt(start - 1))
+
+    if (text[start] !== "#" || !hasTagValue || !hasTagBoundary) break
+    tags.push(text.slice(start, end).trim())
+    end = start
+    while (end > 0 && TAG_WHITESPACE_RE.test(text.charAt(end - 1))) end -= 1
   }
-  return tags
+  return tags.toReversed()
 }
 
 /** Strips tags from the metadata tail that byte-match trailing tags in the
@@ -1539,18 +1813,42 @@ const deduplicateDescriptionTags = (
     return { taskLine, deduplicatedTags: [] }
   }
 
-  // Strip from the metadata only tags that byte-match a trailing
-  // description tag — non-overlapping tags stay in both positions.
-  // Each iteration shortens the metadata (sequential stripping state).
+  // Each stripping pass consumes at most one hashtag, and other fields exclude
+  // its marker. The metadata therefore has at most MAX_STRIPPING_PASSES markers;
+  // checking those positions avoids a whole-tail search for every description tag.
+  const tagPositionsIn = (metadata: string): readonly number[] => {
+    const positions: number[] = []
+
+    for (let index = 0; index < metadata.length; index++) {
+      if (
+        metadata[index] === "#" &&
+        (index === 0 || TAG_WHITESPACE_RE.test(metadata.charAt(index - 1)))
+      ) {
+        positions.push(index)
+      }
+    }
+    return positions
+  }
+
+  // Successful removals change subsequent positions and consume a hashtag.
   let dedupedMetadata = parts.metadata
+  let tagPositions = tagPositionsIn(dedupedMetadata)
   const deduplicatedTags: string[] = []
   for (const tag of descriptionTrailingTags) {
-    const tagPattern = hashtagTokenPattern(RegExp.escape(tag))
+    const tagStart = tagPositions.find((position) => {
+      const tagEnd = position + tag.length
+      const hasTokenEnd =
+        tagEnd === dedupedMetadata.length || TAG_WHITESPACE_RE.test(dedupedMetadata.charAt(tagEnd))
+      return hasTokenEnd && dedupedMetadata.startsWith(tag, position)
+    })
 
-    if (tagPattern.test(dedupedMetadata)) {
-      dedupedMetadata = dedupedMetadata.replace(tagPattern, "").trim()
-      deduplicatedTags.push(tag)
-    }
+    if (tagStart === undefined) continue
+    const removalStart = tagStart === 0 ? 0 : tagStart - 1
+    dedupedMetadata = (
+      dedupedMetadata.slice(0, removalStart) + dedupedMetadata.slice(tagStart + tag.length)
+    ).trim()
+    tagPositions = tagPositionsIn(dedupedMetadata)
+    deduplicatedTags.push(tag)
   }
 
   if (deduplicatedTags.length === 0) {
