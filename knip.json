@@ -4,7 +4,8 @@
     "src/vault-mcp/setup/setup-server.ts",
     "src/vault-mcp/search/body-tag-worker.ts",
     "src/vault-mcp/vault-operations/pdf-extraction-child.ts",
-    "src/__tests__/docker/fixtures/sync-engine-oracle.ts"
+    "src/__tests__/docker/fixtures/sync-engine-oracle.ts",
+    "src/__tests__/integration/helpers/stop-ready-pdf-replacements.ts"
   ],
   "project": ["src/**/*.ts", "cli/src/**/*.ts", "scripts/**/*.ts"],
   "ignoreBinaries": ["optipng", "perl", "setpriv"],
