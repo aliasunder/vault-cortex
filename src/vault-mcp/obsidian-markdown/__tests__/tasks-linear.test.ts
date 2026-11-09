@@ -421,7 +421,7 @@ describe("task recognizer compatibility", () => {
         process.stdout.write(JSON.stringify({sizes,medians}));
       `,
       ],
-      { encoding: "utf8", timeout: 10_000 },
+      { encoding: "utf8", timeout: 10_000, killSignal: "SIGKILL" },
     )
     const measurements: unknown = JSON.parse(output)
 
@@ -646,7 +646,7 @@ describe("task recognizer compatibility", () => {
       process.stdout.write(JSON.stringify(measurements));
     `,
       ],
-      { encoding: "utf8", timeout: 30_000 },
+      { encoding: "utf8", timeout: 30_000, killSignal: "SIGKILL" },
     )
     const measurements: unknown = JSON.parse(output)
 

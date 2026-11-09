@@ -208,7 +208,7 @@ describe("heading traversal compatibility", () => {
       process.stdout.write(JSON.stringify(measurements));
     `,
       ],
-      { encoding: "utf8", timeout: 30_000 },
+      { encoding: "utf8", timeout: 30_000, killSignal: "SIGKILL" },
     )
 
     expect(

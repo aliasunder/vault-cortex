@@ -125,7 +125,7 @@ Embeddings persist across rebuilds to reuse unchanged content and can be regener
 
 The `obsidian-markdown/` parsers read text straight from vault files, so one crafted note must not be able to stall the server. Their work grows linearly with input size (sorting canvas nodes adds a log factor), and adversarial tests check that bound at doubling input sizes. Two exceptions remain:
 
-- **Large canvases:** groups nest only while `content nodes × groups + groups²` stays at most 16,000,000, which is about 2,000 groups and 2,000 nodes. A larger canvas renders flat, still listing every node, group label and connection.
+- **Large canvases:** groups nest only while `content nodes × groups + groups²` stays at most 16,000,000 (2,800 groups with 2,800 nodes fit). A larger canvas renders flat, still listing every node, group label and connection.
 - **Body tags:** the tag parser can still slow quadratically, so it runs in a worker with a time limit (see **Body tags column** → Worker under [Property discovery + daily notes](#property-discovery--daily-notes)).
 
 ## MCP Tools

@@ -634,7 +634,7 @@ describe("tasks.extractTasks", () => {
            const elapsed = performance.now() - started;
            process.stdout.write(JSON.stringify({ extracted, elapsed }));`,
           ],
-          { encoding: "utf8", timeout: 10000 },
+          { encoding: "utf8", timeout: 10000, killSignal: "SIGKILL" },
         )
         const result = JSON.parse(output)
 
