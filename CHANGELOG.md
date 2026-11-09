@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.57.1] — 2026-11-09
+
+### Bug Fixes
+
+- **parsers:** Keep task, heading, link, frontmatter and canvas parsing linear (#753)
+- **tasks:** Parse task dependency lists in linear time (#752)
+- **server:** Parse JSON after auth, answer bad bodies with 4xx and cap daily log files (#750)
+- **oauth:** Rate-limit consent form submissions (#749)
+
 ## [0.57.0] — 2026-11-08
 
 ### Features
