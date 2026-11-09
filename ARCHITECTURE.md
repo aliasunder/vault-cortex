@@ -402,7 +402,7 @@ Search indexes file content in the `file_content` + `file_content_fts` tables, c
 - `server.ts` owns one lazy `vault-operations/pdf-extractor.ts` instance for
   tool reads, rebuilds and watcher updates. The child owns the safe file read,
   validated IPC carries results to the parent, which owns index publication and request diagnostics. The child uses `LOG_DIR=none`, leaving the parent as the persistent log-file writer.
-- The child has a 512 MiB V8 heap limit, a 768 MiB Linux data limit and a 20 s
+- The child has a 512 MiB V8 heap limit, a Linux data limit of 512 MiB above its startup footprint and a 20 s
   active deadline. Linux requests `oom_score_adj=1000` on a best-effort basis.
   These are not RSS ceilings; macOS development relies on heap/deadline because
   its data limit does not constrain mmap.

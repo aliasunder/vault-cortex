@@ -1,7 +1,9 @@
-import { spawn, type ChildProcess } from "node:child_process"
+import { execFile, spawn, type ChildProcess } from "node:child_process"
+import { readFile } from "node:fs/promises"
 import { env as inheritedEnvironment } from "node:process"
 import { extname } from "node:path"
 import { fileURLToPath } from "node:url"
+import { promisify } from "node:util"
 import type { Logger } from "../../logger.js"
 import type { AssetTextResult } from "./asset-text.js"
 import type { PdfTextResult } from "../obsidian-markdown/pdf.js"
@@ -13,7 +15,11 @@ const ACTIVE_TIMEOUT_MS = 20_000
 const QUEUE_TIMEOUT_MS = 60_000
 // Bound the child's heap and Linux data allocations so an expanding PDF can be discarded.
 const CHILD_HEAP_LIMIT_MIB = 512
-const LINUX_DATA_LIMIT_KIB = 786_432
+// This is room above startup; a text-heavy 3,000-page PDF needs about 400 MiB of it.
+const LINUX_DATA_BUDGET_MIB = 512
+/** Matches the child's current data allocation in Linux proc status. */
+const VM_DATA_PATTERN = /^VmData:\s+(?<startupDataKiB>\d+)\s+kB$/m
+const execFileAsync = promisify(execFile)
 const CHILD_ENTRY = fileURLToPath(
   new URL(`./pdf-extraction-child${extname(fileURLToPath(import.meta.url))}`, import.meta.url),
 )
@@ -58,6 +64,24 @@ type Job = {
 }
 type Reader = { child: ChildProcess; ready: boolean; exited: Promise<void>; ended: boolean }
 
+const applyLinuxDataLimit = async (child: ChildProcess, logger: Logger): Promise<void> => {
+  if (!child.pid) throw new Error("PDF child has no process ID")
+  const status = await readFile(`/proc/${child.pid}/status`, "utf8")
+  const startupDataKiB = Number(VM_DATA_PATTERN.exec(status)?.groups?.startupDataKiB)
+
+  if (!Number.isSafeInteger(startupDataKiB) || startupDataKiB <= 0) {
+    throw new Error("PDF child data footprint is unavailable")
+  }
+  // V8's x64 code region counts toward this limit, so fixed totals leave unequal room by architecture.
+  const dataLimitKiB = startupDataKiB + LINUX_DATA_BUDGET_MIB * 1024
+  await execFileAsync("prlimit", ["--pid", String(child.pid), `--data=${dataLimitKiB * 1024}`])
+  logger.info("PDF child data limit applied", {
+    childPid: child.pid,
+    startupDataKiB,
+    dataLimitKiB,
+  })
+}
+
 /** One process owns all PDF text work; failed readers are reaped before the queue resumes. */
 export const createPdfExtractor = (params: {
   vaultPath: string
@@ -88,25 +112,13 @@ export const createPdfExtractor = (params: {
       ...(CHILD_ENTRY.endsWith(".ts") ? ["--import", "tsx"] : []),
       CHILD_ENTRY,
     ]
-    const command = process.platform === "linux" ? "/bin/sh" : process.execPath
-    // Positional shell arguments preserve spaces and metacharacters in executable/entry paths.
-    const args =
-      process.platform === "linux"
-        ? [
-            "-c",
-            `ulimit -d ${LINUX_DATA_LIMIT_KIB} && exec "$@"`,
-            "pdf-extraction",
-            process.execPath,
-            ...nodeArgs,
-          ]
-        : nodeArgs
-    const child = spawn(command, args, {
+    const child = spawn(process.execPath, nodeArgs, {
       // The child owns its Node flags; launcher/debug settings must not reach it.
       env: {
         ...inheritedEnvironment,
         NODE_OPTIONS: undefined,
         LOG_DIR: "none",
-        // tsx's extra esbuild V8 isolate can exhaust the Linux data limit.
+        // Avoid tsx's extra esbuild V8 isolate inflating the Linux startup footprint.
         ...(process.platform === "linux" && CHILD_ENTRY.endsWith(".ts")
           ? { ESBUILD_WORKER_THREADS: "0" }
           : {}),
@@ -137,6 +149,8 @@ export const createPdfExtractor = (params: {
       const { child } = state
       // Settlement may race a deadline, IPC disconnect and process exit.
       let settled = false
+      // Readiness spans the asynchronous Linux limit application.
+      let initializing = false
 
       const finish = ({
         outcome,
@@ -195,6 +209,23 @@ export const createPdfExtractor = (params: {
           if (error) fail("send")
         })
       }
+      const initialize = async (): Promise<void> => {
+        if (process.platform === "linux") {
+          try {
+            await applyLinuxDataLimit(child, requestLogger)
+          } catch (error) {
+            requestLogger.error("PDF child data limit could not be applied", {
+              childPid: child.pid,
+              error,
+            })
+            fail("data limit")
+            return
+          }
+        }
+        if (settled) return
+        state.ready = true
+        send()
+      }
       const onMessage = (message: unknown): void => {
         const parsed = pdfReplySchema.safeParse(message)
 
@@ -205,14 +236,14 @@ export const createPdfExtractor = (params: {
         const reply = parsed.data
 
         if (reply.kind === "ready") {
-          if (state.ready) {
+          if (state.ready || initializing) {
             fail("duplicate readiness")
             return
           }
-          state.ready = true
+          initializing = true
           if (reply.oomPreference === "unavailable")
             requestLogger.warn("PDF child OOM preference unavailable", { childPid: child.pid })
-          send()
+          void initialize()
           return
         }
         if (reply.requestId !== job.request.requestId) {

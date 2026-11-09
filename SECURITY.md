@@ -246,7 +246,7 @@ The server, and the `:remote` image's setup mode, set these headers:
 ### Container hardening
 
 - PDF text reads and indexing share one child process with a 512 MiB V8
-  heap limit, a 768 MiB Linux data limit and a 20 s active deadline. The
+  heap limit, a Linux data limit of 512 MiB above its startup footprint and a 20 s active deadline. The
   Linux child requests `oom_score_adj=1000` on a best-effort basis. These
   limits are not an RSS ceiling; macOS development relies on the heap
   limit and deadline because its data limit does not constrain mmap

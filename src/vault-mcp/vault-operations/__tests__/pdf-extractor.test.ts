@@ -1,5 +1,5 @@
 import { ChildProcess, spawn } from "node:child_process"
-import { mkdtemp, writeFile, rm } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, writeFile, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -24,6 +24,14 @@ const createControlledChild = (pid = 1234) => {
 }
 
 const startControlledExtractor = () => {
+  // Controlled children exercise lifecycle events without accessing a real Linux PID.
+  const descriptor = Object.getOwnPropertyDescriptor(process, "platform")
+
+  if (!descriptor) throw new Error("process.platform has no descriptor")
+  Object.defineProperty(process, "platform", { value: "darwin" })
+  onTestFinished(() => {
+    Object.defineProperty(process, "platform", descriptor)
+  })
   const child = createControlledChild()
   const children = [child]
   vi.mocked(spawn).mockReturnValue(child)
@@ -78,6 +86,106 @@ const pdfFailureError = (message: string, code: string): Error => {
 }
 
 describe("PDF extraction child", () => {
+  it.skipIf(process.platform !== "linux")(
+    "sets both Linux data limits to startup data plus 512 MiB",
+    async () => {
+      const vaultPath = await mkdtemp(join(tmpdir(), "probe-pdf-data-limit-"))
+      const extractor = createPdfExtractor({ vaultPath, maxFileBytes: 1_000_000 })
+      onTestFinished(async () => {
+        await extractor.close()
+        await rm(vaultPath, { recursive: true, force: true })
+      })
+      const appliedLimit = Promise.withResolvers<{
+        childPid: number
+        startupDataKiB: number
+        dataLimitKiB: number
+      }>()
+      const info = vi.fn((message: string, data?: Record<string, unknown>) => {
+        if (message !== "PDF child data limit applied") return
+        const { childPid, startupDataKiB, dataLimitKiB } = data ?? {}
+
+        if (
+          typeof childPid !== "number" ||
+          typeof startupDataKiB !== "number" ||
+          typeof dataLimitKiB !== "number"
+        ) {
+          throw new Error("PDF data limit log is missing numeric fields")
+        }
+        appliedLimit.resolve({ childPid, startupDataKiB, dataLimitKiB })
+      })
+      const requestLogger = { ...logger, info }
+      const callerLogger = { ...logger, child: () => requestLogger }
+      await writeFile(join(vaultPath, "good.pdf"), buildMinimalPdf())
+
+      expect(await extractor.readText({ path: "good.pdf" }, callerLogger)).toEqual({
+        kind: "text",
+        path: "good.pdf",
+        text: "Title: (untitled) | Pages: 1\n\nHello PDF",
+      })
+      const { childPid, startupDataKiB, dataLimitKiB } = await appliedLimit.promise
+      expect(startupDataKiB).toBeGreaterThan(0)
+      expect(dataLimitKiB).toBe(startupDataKiB + 512 * 1024)
+      expect(info).toHaveBeenCalledExactlyOnceWith("PDF child data limit applied", {
+        childPid,
+        startupDataKiB,
+        dataLimitKiB,
+      })
+      const limits = await readFile(`/proc/${childPid}/limits`, "utf8")
+      /** Matches the kernel's soft and hard data limits in bytes. */
+      const dataLimitsPattern = /^Max data size\s+(?<soft>\d+)\s+(?<hard>\d+)\s+bytes[ \t]*$/m
+      const dataLimits = dataLimitsPattern.exec(limits)?.groups
+      expect(dataLimits).toEqual({
+        soft: String(dataLimitKiB * 1024),
+        hard: String(dataLimitKiB * 1024),
+      })
+      expect(spawn).toHaveBeenCalledTimes(1)
+    },
+    15_000,
+  )
+
+  it.skipIf(process.platform !== "linux")(
+    "rejects startup and replaces the child when prlimit is unavailable",
+    async () => {
+      const vaultPath = await mkdtemp(join(tmpdir(), "probe-pdf-no-prlimit-"))
+      const emptyPath = join(vaultPath, "empty-path")
+      await mkdir(emptyPath)
+      const extractor = createPdfExtractor({ vaultPath, maxFileBytes: 1_000_000 })
+      onTestFinished(async () => {
+        vi.unstubAllEnvs()
+        await extractor.close()
+        await rm(vaultPath, { recursive: true, force: true })
+      })
+      await writeFile(join(vaultPath, "good.pdf"), buildMinimalPdf())
+      const failedLimit = Promise.withResolvers<Record<string, unknown> | undefined>()
+      const error = vi.fn((_message: string, data?: Record<string, unknown>) => {
+        failedLimit.resolve(data)
+      })
+      const requestLogger = { ...logger, error }
+      const callerLogger = { ...logger, child: () => requestLogger }
+      vi.stubEnv("PATH", emptyPath)
+
+      await expect(extractor.readText({ path: "good.pdf" }, callerLogger)).rejects.toThrow(
+        pdfFailureError('PDF reader could not start: "good.pdf"; retry later', "pdf-start"),
+      )
+      const failure = await failedLimit.promise
+
+      if (!(failure?.error instanceof Error)) throw new Error("PDF limit failure has no cause")
+      expect(failure.error.message).toBe("spawn prlimit ENOENT")
+      expect(error).toHaveBeenCalledExactlyOnceWith("PDF child data limit could not be applied", {
+        childPid: expect.any(Number),
+        error: failure.error,
+      })
+      vi.unstubAllEnvs()
+      expect(await extractor.readText({ path: "good.pdf" }, callerLogger)).toEqual({
+        kind: "text",
+        path: "good.pdf",
+        text: "Title: (untitled) | Pages: 1\n\nHello PDF",
+      })
+      expect(spawn).toHaveBeenCalledTimes(2)
+    },
+    15_000,
+  )
+
   it("reuses a real child after a successful read and a damaged-file error", async () => {
     const vaultPath = await mkdtemp(join(tmpdir(), "probe-pdf-extractor-"))
     const extractor = createPdfExtractor({ vaultPath, maxFileBytes: 1_000_000 })
@@ -267,7 +375,7 @@ describe("PDF extraction ownership", () => {
     expect(await recovery).toEqual({ kind: "text", path: "recovered.pdf", text: "read text" })
   })
 
-  it("applies both Linux process limits and suppresses child file logging", async () => {
+  it("starts the Linux source child directly and suppresses child file logging", async () => {
     vi.stubEnv("ESBUILD_WORKER_THREADS", "1")
     onTestFinished(() => {
       vi.unstubAllEnvs()
@@ -275,25 +383,24 @@ describe("PDF extraction ownership", () => {
     const descriptor = Object.getOwnPropertyDescriptor(process, "platform")
 
     if (!descriptor) throw new Error("process.platform has no descriptor")
+    const { extractor, child } = startControlledExtractor()
     Object.defineProperty(process, "platform", { value: "linux" })
     onTestFinished(() => {
       Object.defineProperty(process, "platform", descriptor)
     })
-    const { extractor, child } = startControlledExtractor()
     const launch = captureChildLaunch(child)
     const result = extractor.extractForIndex({ path: "one.pdf" }, logger)
-    ready(child)
-    finishIndex(child, 0)
-    await result
+    const rejection = expect(result).rejects.toThrow(
+      pdfFailureError(
+        'PDF text extraction stopped: "one.pdf" could not be completed; retry later',
+        "pdf-closed",
+      ),
+    )
 
     expect(spawn).toHaveBeenCalledTimes(1)
     expect(launch).toHaveBeenCalledExactlyOnceWith({
-      command: "/bin/sh",
+      command: process.execPath,
       args: [
-        "-c",
-        'ulimit -d 786432 && exec "$@"',
-        "pdf-extraction",
-        process.execPath,
         "--max-old-space-size=512",
         "--import",
         "tsx",
@@ -304,17 +411,11 @@ describe("PDF extraction ownership", () => {
       nodeOptions: undefined,
       esbuildWorkerThreads: "0",
     })
-    expect(child.send).toHaveBeenCalledTimes(1)
-    expect(child.send).toHaveBeenCalledWith(
-      {
-        kind: "index",
-        path: "one.pdf",
-        vaultPath: "/vault",
-        maxFileBytes: 1_000_000,
-        requestId: 0,
-      },
-      expect.any(Function),
-    )
+    expect(child.send).not.toHaveBeenCalled()
+    const closing = extractor.close()
+    child.emit("exit", null, "SIGKILL")
+    await closing
+    await rejection
   })
 
   it("runs a queued read before queued indexing after the current extraction", async () => {
