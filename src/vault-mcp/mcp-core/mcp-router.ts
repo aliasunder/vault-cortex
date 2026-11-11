@@ -1,7 +1,8 @@
 /** MCP session routes — transport lifecycle, session creation, request routing. */
 
 import express, { Router } from "express"
-import type { Request, Response } from "express"
+import type { NextFunction, Request, Response } from "express"
+import { ipKeyGenerator, rateLimit } from "express-rate-limit"
 import { randomUUID } from "node:crypto"
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js"
@@ -25,7 +26,18 @@ type McpRouterOptions = {
   provider: OAuthServerProvider
   config: VaultConfig
   serverUrl: URL
+  /** Whether /mcp rate-limits failed sign-in attempts; see server.ts for
+   *  what decides it. */
+  failedAuthLimiterEnabled: boolean
 }
+
+// How many 401 answers a minute one client IP (an IPv6 client by its /56)
+// may collect before /mcp answers 429, when the limiter is on. A valid
+// client produces a 401 only when its six-hour access token expires, so
+// thirty a minute is far above any honest rate; the OAuth endpoints use five
+// because a sign-in touches each of them at most twice a minute.
+const MCP_FAILED_AUTH_LIMIT = 30
+const MCP_FAILED_AUTH_WINDOW_MS = 60 * 1000
 
 /**
  * Server icon for MCP clients (spec 2025-11-25, SEP-973). Clients that
@@ -109,6 +121,7 @@ export const createMcpRouter = ({
   provider,
   config,
   serverUrl,
+  failedAuthLimiterEnabled,
 }: McpRouterOptions): Router => {
   const router = Router()
   // MCP spec: a 401 MUST carry WWW-Authenticate with a resource_metadata
@@ -120,9 +133,56 @@ export const createMcpRouter = ({
   })
   const transports = new Map<string, StreamableHTTPServerTransport>()
 
+  // The MCP Streamable HTTP spec requires servers to validate Origin. Every
+  // MCP client sends no Origin; a browser page does, and a page on another
+  // site could otherwise reach a local install with a token it holds (DNS
+  // rebinding). Only the server's own origin, PUBLIC_URL's, is admitted.
+  const originCheck = (req: Request, res: Response, next: NextFunction): void => {
+    const origin = headerAsString(req.headers.origin)
+
+    if (!origin || origin === serverUrl.origin) {
+      next()
+      return
+    }
+    logger.warn("mcp_origin_rejected", {
+      clientIp: extractClientIp(req, config.trustForwardedHops),
+      origin,
+    })
+    res.status(403).json({ error: "origin not allowed" })
+  }
+
+  // Counts only 401 answers: a valid client's 404 (unknown session), 400 (no
+  // session) and 405 (GET) never count. The library counts a request when it
+  // arrives and subtracts it when the response finishes, so requests still in
+  // flight count until then, and the window resets every minute. Refusing
+  // before the token is checked is what bounds guessing, and it means a full
+  // bucket refuses a valid token from the same client IP for the rest of the
+  // window; see server.ts for why the limiter is on at all.
+  const failedAuthLimiter = rateLimit({
+    windowMs: MCP_FAILED_AUTH_WINDOW_MS,
+    max: MCP_FAILED_AUTH_LIMIT,
+    skipSuccessfulRequests: true,
+    requestWasSuccessful: (_req: Request, res: Response) => res.statusCode !== 401,
+    keyGenerator: (req: Request) => {
+      return ipKeyGenerator(extractClientIp(req, config.trustForwardedHops))
+    },
+    standardHeaders: true,
+    legacyHeaders: false,
+    handler: (req: Request, res: Response) => {
+      logger.warn("mcp_auth_rate_limited", {
+        clientIp: extractClientIp(req, config.trustForwardedHops),
+      })
+      res
+        .status(429)
+        .set("Cache-Control", "no-store")
+        .json({ error: "too many failed authentication attempts" })
+    },
+  })
+  const guards = failedAuthLimiterEnabled ? [originCheck, failedAuthLimiter] : [originCheck]
+
   const parseMcpJson = express.json({ limit: MCP_JSON_BODY_LIMIT })
 
-  router.post("/mcp", bearerAuth, parseMcpJson, async (req: Request, res: Response) => {
+  router.post("/mcp", ...guards, bearerAuth, parseMcpJson, async (req: Request, res: Response) => {
     const sessionId = headerAsString(req.headers["mcp-session-id"])
     const clientIp = extractClientIp(req, config.trustForwardedHops)
     logger.info("mcp_request", { sessionId, clientIp, method: "POST" })
@@ -237,7 +297,7 @@ export const createMcpRouter = ({
   // don't offer one to reject the request with 405. vault-cortex never sends
   // server-initiated messages, so a held stream would only ever sit idle
   // until an upstream proxy timeout kills it (surfacing as gateway 5xx).
-  router.get("/mcp", bearerAuth, (req: Request, res: Response) => {
+  router.get("/mcp", ...guards, bearerAuth, (req: Request, res: Response) => {
     const sessionId = headerAsString(req.headers["mcp-session-id"])
     const clientIp = extractClientIp(req, config.trustForwardedHops)
     logger.info("mcp_request", { sessionId, clientIp, method: "GET" })
@@ -252,7 +312,7 @@ export const createMcpRouter = ({
     })
   })
 
-  router.delete("/mcp", bearerAuth, async (req: Request, res: Response) => {
+  router.delete("/mcp", ...guards, bearerAuth, async (req: Request, res: Response) => {
     const sessionId = headerAsString(req.headers["mcp-session-id"])
     const clientIp = extractClientIp(req, config.trustForwardedHops)
     logger.info("mcp_request", { sessionId, clientIp, method: "DELETE" })

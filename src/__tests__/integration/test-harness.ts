@@ -11,7 +11,10 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js"
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js"
 import type { ChildProcess } from "node:child_process"
 
-const AUTH_TOKEN = "test-integration-token"
+// As long as a generated token, so the harness boots like a documented
+// install: /mcp's failed sign-in limiter stays off unless a test shortens
+// the token on purpose.
+const AUTH_TOKEN = "test-integration-token-of-generated-length-sixty-four-characters"
 const FIXTURE_VAULT = resolve(import.meta.dirname, "fixtures/vault")
 const SERVER_ENTRY = resolve(import.meta.dirname, "../../vault-mcp/server.ts")
 

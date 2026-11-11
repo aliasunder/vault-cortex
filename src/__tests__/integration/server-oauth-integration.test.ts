@@ -530,6 +530,67 @@ describe("authorization errors answered directly", () => {
   })
 })
 
+// ── MCP endpoint guards ───────────────────────────────────────
+
+describe("MCP endpoint Origin check", () => {
+  it("refuses a request from another origin even with a valid token", async () => {
+    const server = await startServer(await freePort(), { MCP_AUTH_TOKEN: TOKEN_A })
+    onTestFinished(server.cleanup)
+
+    const response = await fetch(`http://127.0.0.1:${server.port}/mcp`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        accept: "application/json, text/event-stream",
+        authorization: `Bearer ${TOKEN_A}`,
+        origin: "https://attacker.example",
+      },
+      body: JSON.stringify({ jsonrpc: "2.0", method: "initialize", id: 1, params: {} }),
+    })
+
+    expect({ status: response.status, body: await response.json() }).toEqual({
+      status: 403,
+      body: { error: "origin not allowed" },
+    })
+  })
+})
+
+describe("MCP endpoint failed sign-in limiter", () => {
+  // 64 hex characters, the length every documented install path generates,
+  // against a token under the 32-character gate. (TOKEN_A is 33 characters,
+  // so the other suites run with the limiter off.)
+  const GENERATED_TOKEN = "a".repeat(64)
+  const SHORT_TOKEN = "short-token"
+
+  const wrongTokenStatuses = async (port: number, count: number): Promise<number[]> => {
+    const statuses: number[] = []
+
+    for (let attempt = 0; attempt < count; attempt++) {
+      statuses.push(await mcpStatusWithBearer(port, `wrong-${attempt}`))
+    }
+    return statuses
+  }
+
+  it("answers the 31st wrong token in a minute with 429 and warns at boot when the token is short", async () => {
+    const server = await startServer(await freePort(), { MCP_AUTH_TOKEN: SHORT_TOKEN })
+    onTestFinished(server.cleanup)
+
+    expect(await wrongTokenStatuses(server.port, 30)).toEqual(Array(30).fill(401))
+    expect(await mcpStatusWithBearer(server.port, "wrong-31")).toBe(429)
+    expect(server.stdout()).toContain(
+      '"message":"MCP_AUTH_TOKEN is shorter than 32 characters, so failed sign-in attempts on /mcp are rate-limited; a generated token needs no limiter"',
+    )
+  })
+
+  it("never rate-limits and never warns when the token is a generated one", async () => {
+    const server = await startServer(await freePort(), { MCP_AUTH_TOKEN: GENERATED_TOKEN })
+    onTestFinished(server.cleanup)
+
+    expect(await wrongTokenStatuses(server.port, 31)).toEqual(Array(31).fill(401))
+    expect(server.stdout()).not.toContain("failed sign-in attempts on /mcp are rate-limited")
+  })
+})
+
 // ── Expired access token challenge ─────────────────────────────
 
 describe("expired access token challenge", () => {

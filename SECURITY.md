@@ -314,6 +314,21 @@ while the owner decides are bounded:
   never with a redirect to the client's registered address, so a link on
   this server's domain cannot send a visitor to a site a client registered
 
+### MCP endpoint
+
+- **Origin is checked** — a `/mcp` request that carries an `Origin` header
+  other than `PUBLIC_URL`'s origin is refused with 403 before the token is
+  checked, as the MCP Streamable HTTP specification requires. MCP clients
+  send no `Origin`; a browser page on another site does, so a page cannot
+  reach a local install through DNS rebinding with a token it holds
+- **Failed sign-ins are rate-limited only for a short token** — when
+  `MCP_AUTH_TOKEN` is under 32 characters, 30 answers of 401 a minute from
+  one client IP (an IPv6 client by its /56) turn into 429 for the rest of
+  that minute, valid tokens from that IP included, and the server warns at
+  boot. A generated token (every install guide makes 64 hex characters)
+  cannot be guessed, so the limiter stays off and no one sharing the
+  owner's IP or proxy can lock the owner's clients out
+
 ### OAuth client registrations
 
 `/register` needs no sign-in either, so the registrations it stores in

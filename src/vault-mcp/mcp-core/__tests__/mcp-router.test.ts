@@ -122,6 +122,7 @@ const setupHarness = async (
   opts: {
     authMiddleware?: express.RequestHandler
     config?: ReturnType<typeof loadConfig>
+    failedAuthLimiterEnabled?: boolean
   } = {},
 ): Promise<Harness> => {
   const transportInstances: TransportMock[] = []
@@ -171,6 +172,7 @@ const setupHarness = async (
       provider,
       config,
       serverUrl: new URL("http://localhost:8000"),
+      failedAuthLimiterEnabled: opts.failedAuthLimiterEnabled ?? false,
     }),
   )
 
@@ -883,6 +885,164 @@ Vault content is Obsidian Flavored Markdown. Write tools pass content through wi
     expect(response.status).toBe(401)
     expect(harness.transportInstances).toHaveLength(0)
     expect(mockedLogger.info).not.toHaveBeenCalled()
+  })
+})
+
+describe("createMcpRouter — Origin check", () => {
+  it.each([{ method: "POST" }, { method: "GET" }, { method: "DELETE" }])(
+    "refuses a $method request from another origin before bearer auth runs",
+    async ({ method }) => {
+      const harness = await setupHarness({
+        authMiddleware: denyAuth,
+        config: TRUSTED_PROXY_CONFIG,
+      })
+
+      const response = await fetch(harness.url(), {
+        method,
+        headers: { ...baseHeaders, origin: "https://attacker.example" },
+        ...(method === "POST" ? { body: JSON.stringify(initializeBody) } : {}),
+      })
+
+      // denyAuth would answer 401; the 403 proves the check ran first.
+      expect({ status: response.status, body: await response.json() }).toEqual({
+        status: 403,
+        body: { error: "origin not allowed" },
+      })
+      expect(mockedLogger.warn).toHaveBeenCalledTimes(1)
+      expect(mockedLogger.warn).toHaveBeenCalledWith("mcp_origin_rejected", {
+        clientIp: FORWARDED_IP,
+        origin: "https://attacker.example",
+      })
+    },
+  )
+
+  it.each([
+    { label: "the server's own origin", origin: "http://localhost:8000" },
+    { label: "no Origin header", origin: undefined },
+  ])("admits a request with $label", async ({ origin }) => {
+    const harness = await setupHarness()
+
+    const response = await fetch(harness.url(), {
+      method: "POST",
+      headers: { ...baseHeaders, ...(origin ? { origin } : {}) },
+      body: JSON.stringify(initializeBody),
+    })
+    await response.arrayBuffer()
+
+    expect(response.status).toBe(202)
+    expect(harness.transportInstances).toHaveLength(1)
+  })
+})
+
+describe("createMcpRouter — failed sign-in limiter", () => {
+  const RIGHT_TOKEN = "Bearer right-token"
+  /** Stands in for bearer auth: one token passes, every other answer is 401. */
+  const tokenAuth: express.RequestHandler = (req, res, next) => {
+    if (req.headers.authorization === RIGHT_TOKEN) {
+      next()
+      return
+    }
+    res.status(401).json({ error: "unauthorized" })
+  }
+
+  const initialize = (harness: Harness, headers: Record<string, string>): Promise<Response> => {
+    return fetch(harness.url(), {
+      method: "POST",
+      headers: { ...baseHeaders, ...headers },
+      body: JSON.stringify(initializeBody),
+    })
+  }
+
+  const statusesOf = async (
+    harness: Harness,
+    headers: Record<string, string>,
+    count: number,
+  ): Promise<number[]> => {
+    const statuses: number[] = []
+
+    // Sequential, so each request's count is settled before the next.
+    for (let attempt = 0; attempt < count; attempt++) {
+      const response = await initialize(harness, headers)
+      await response.arrayBuffer()
+      statuses.push(response.status)
+    }
+    return statuses
+  }
+
+  it("answers 429 to the 31st wrong token in a minute from one client IP, not cacheable", async () => {
+    const harness = await setupHarness({
+      authMiddleware: tokenAuth,
+      config: TRUSTED_PROXY_CONFIG,
+      failedAuthLimiterEnabled: true,
+    })
+    const wrong = { authorization: "Bearer wrong-token" }
+
+    expect(await statusesOf(harness, wrong, 30)).toEqual(Array(30).fill(401))
+    const refused = await initialize(harness, wrong)
+
+    expect({
+      status: refused.status,
+      body: await refused.json(),
+      cacheControl: refused.headers.get("cache-control"),
+      rateLimit: refused.headers.get("ratelimit-limit"),
+    }).toEqual({
+      status: 429,
+      body: { error: "too many failed authentication attempts" },
+      cacheControl: "no-store",
+      rateLimit: "30",
+    })
+    expect(mockedLogger.warn).toHaveBeenCalledWith("mcp_auth_rate_limited", {
+      clientIp: FORWARDED_IP,
+    })
+  })
+
+  it("refuses a valid token from the exhausted client IP until the window resets, and still serves another IP", async () => {
+    const harness = await setupHarness({
+      authMiddleware: tokenAuth,
+      config: TRUSTED_PROXY_CONFIG,
+      failedAuthLimiterEnabled: true,
+    })
+    await statusesOf(harness, { authorization: "Bearer wrong-token" }, 30)
+
+    const sameIpValid = await initialize(harness, { authorization: RIGHT_TOKEN })
+    await sameIpValid.arrayBuffer()
+    const otherIpValid = await initialize(harness, {
+      authorization: RIGHT_TOKEN,
+      "x-forwarded-for": "198.51.100.7",
+    })
+    await otherIpValid.arrayBuffer()
+
+    expect({ sameIp: sameIpValid.status, otherIp: otherIpValid.status }).toEqual({
+      sameIp: 429,
+      otherIp: 202,
+    })
+  })
+
+  it("counts only 401 answers, so a valid client's unknown-session 404s never fill the bucket", async () => {
+    const harness = await setupHarness({
+      authMiddleware: tokenAuth,
+      config: TRUSTED_PROXY_CONFIG,
+      failedAuthLimiterEnabled: true,
+    })
+    const unknownSession = { authorization: RIGHT_TOKEN, "mcp-session-id": randomUUID() }
+
+    expect(await statusesOf(harness, unknownSession, 31)).toEqual(Array(31).fill(404))
+    const valid = await initialize(harness, { authorization: RIGHT_TOKEN })
+    await valid.arrayBuffer()
+
+    expect(valid.status).toBe(202)
+  })
+
+  it("answers every wrong token with 401 when the limiter is off", async () => {
+    const harness = await setupHarness({
+      authMiddleware: tokenAuth,
+      config: TRUSTED_PROXY_CONFIG,
+      failedAuthLimiterEnabled: false,
+    })
+
+    expect(await statusesOf(harness, { authorization: "Bearer wrong-token" }, 40)).toEqual(
+      Array(40).fill(401),
+    )
   })
 })
 
