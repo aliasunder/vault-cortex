@@ -98,7 +98,8 @@ type MarkdownLinkParts = {
 
 /** Delimiter cursors only advance, so failed openers share suffix scans. */
 const scanWikilinks = (text: string, visit: (span: TargetSpan) => void): void => {
-  // An overlapping opener before a cached delimiter has no intervening delimiter to find.
+  // A later opener can start inside text an earlier attempt already scanned.
+  // That text holds no delimiter, so each search resumes from its cursor.
   let targetEnd = 0
   let headingEnd = 0
   let closeBracket = 0
@@ -112,7 +113,6 @@ const scanWikilinks = (text: string, visit: (span: TargetSpan) => void): void =>
 
     while (targetEnd < text.length && !"]#|".includes(text.charAt(targetEnd))) targetEnd++
     if (targetEnd === targetStart) continue
-    // The grammar permits an empty heading, but requires a nonempty alias.
     let end = targetEnd
 
     if (text[end] === "#") {
@@ -124,16 +124,21 @@ const scanWikilinks = (text: string, visit: (span: TargetSpan) => void): void =>
       const aliasStart = end + 1
       closeBracket = Math.max(closeBracket, aliasStart)
       while (closeBracket < text.length && text[closeBracket] !== "]") closeBracket++
+      // The grammar permits an empty heading, but requires a nonempty alias.
       if (closeBracket === aliasStart) continue
       end = closeBracket
     }
     if (text[end] !== "]" || text[end + 1] !== "]") continue
     visit({ start, end: end + 2, targetStart, targetEnd })
+    // end + 1 is the second "]", and the loop's start++ moves past it.
     start = end + 1
   }
 }
 
-/** URI schemes follow RFC 3986, including uppercase letters and punctuation. */
+/** Finds markdown links `[text](target)` whose target can name a vault file.
+ *  It skips a target that starts with `#`, a heading in the same note, and a
+ *  target that starts with a URI scheme such as `https:`. URI schemes follow
+ *  RFC 3986, including uppercase letters and punctuation. */
 const scanMarkdownLinks = (text: string, visit: (span: TargetSpan) => void): void => {
   // Later openers reuse the same ] or reach a later one, so ]( target starts never move back.
   // A cached scheme end stays valid until a target starts beyond it.
@@ -183,7 +188,10 @@ const scanMarkdownLinks = (text: string, visit: (span: TargetSpan) => void): voi
   }
 }
 
-/** Line terminators stop Templater expressions even when the caller supplies a whole note. */
+/** Replaces each Templater plugin expression (`<% … %>`,
+ *  https://silentvoid13.github.io/Templater/) with spaces of the same length,
+ *  so links inside one are not extracted. Line terminators stop an expression
+ *  even when the caller supplies a whole note. */
 const maskTemplaterExpressions = (text: string): string => {
   const pieces: string[] = []
   // The closer cursor is shared by every failed opener before it.
@@ -203,7 +211,7 @@ const maskTemplaterExpressions = (text: string): string => {
     copiedThrough = end
     start = end - 1
   }
-  if (!copiedThrough) return text
+  if (pieces.length === 0) return text
   pieces.push(text.slice(copiedThrough))
   return pieces.join("")
 }
@@ -244,6 +252,7 @@ const splitWikilink = (linkText: string): WikilinkParts | null => {
   if (!parts) return null
   const [, embed, rawTarget, heading = "", rawAlias = ""] = parts
 
+  // Both groups take part in every match; the check only narrows their types.
   if (embed === undefined || rawTarget === undefined) return null
   const hasEscapedPipe = rawTarget.endsWith("\\")
   const target = hasEscapedPipe ? rawTarget.slice(0, -1) : rawTarget
@@ -363,12 +372,7 @@ const extractFromFrontmatter = (data: Record<string, unknown>): string[] => {
 const codePointLength = (path: string): number => [...path].length
 
 /** Lowercases ASCII letters only, the fold SQLite applies in LIKE and in
- *  COLLATE NOCASE.
- *  - Asset resolution folds with it, because every asset comparison has an
- *    SQL twin in the index (search/search-index.ts), and a wider fold would
- *    let the two resolvers pick different files for one link.
- *  - Note resolution folds every letter with toLowerCase, because it runs
- *    only in memory, so nothing narrows it to ASCII. */
+ *  COLLATE NOCASE. */
 const foldAsciiCase = (path: string): string => {
   return path.replace(/[A-Z]/g, (letter) => letter.toLowerCase())
 }
@@ -399,7 +403,10 @@ const shortestOf = (paths: string[]): string | null => {
  *  nothing, so a link that resolves with its own letter case keeps its target. */
 type LetterCase = "exact" | "folded"
 
-const notePathInLetterCase = (path: string, letterCase: LetterCase): string => {
+/** The form of a note path that one pass compares. The folded form lowercases
+ *  every letter, because note resolution runs only in memory, so nothing
+ *  narrows it to ASCII. */
+const notePathForComparison = (path: string, letterCase: LetterCase): string => {
   switch (letterCase) {
     case "exact":
       return path
@@ -408,7 +415,11 @@ const notePathInLetterCase = (path: string, letterCase: LetterCase): string => {
   }
 }
 
-const assetPathInLetterCase = (path: string, letterCase: LetterCase): string => {
+/** The form of an asset path that one pass compares. The folded form
+ *  lowercases ASCII letters only, because every asset comparison has an SQL
+ *  twin in the index (search/search-index.ts), and a wider fold would let the
+ *  two resolvers pick different files for one link. */
+const assetPathForComparison = (path: string, letterCase: LetterCase): string => {
   switch (letterCase) {
     case "exact":
       return path
@@ -426,7 +437,7 @@ const resolveNoteInLetterCase = (params: {
   letterCase: LetterCase
 }): string | null => {
   const { targetWithExtension, allPaths, sourcePath, letterCase } = params
-  const comparableTarget = notePathInLetterCase(targetWithExtension, letterCase)
+  const comparableTarget = notePathForComparison(targetWithExtension, letterCase)
 
   // In the folded pass, two notes that differ only in letter case both match
   // one link, so every tier picks with shortestOf rather than taking the
@@ -437,7 +448,7 @@ const resolveNoteInLetterCase = (params: {
     if (letterCase === "exact") return allPaths.includes(comparablePath) ? [comparablePath] : []
 
     return allPaths.filter(
-      (candidatePath) => notePathInLetterCase(candidatePath, letterCase) === comparablePath,
+      (candidatePath) => notePathForComparison(candidatePath, letterCase) === comparablePath,
     )
   }
 
@@ -453,19 +464,17 @@ const resolveNoteInLetterCase = (params: {
   if (sourcePath) {
     const targetRelativeToSource = posix.join(posix.dirname(sourcePath), targetWithExtension)
     const relativeMatch = shortestOf(
-      findPathsEqualTo(notePathInLetterCase(targetRelativeToSource, letterCase)),
+      findPathsEqualTo(notePathForComparison(targetRelativeToSource, letterCase)),
     )
 
     if (relativeMatch) return relativeMatch
   }
 
-  // A basename match is any path that ends with the target's filename.
+  // A basename match is any path that ends with the whole target, folders
+  // included, so [[sub/Note]] reaches A/sub/Note.md. A path equal to the
+  // target already returned at the exact tier.
   const basenameMatches = allPaths.filter((candidatePath) => {
-    const comparableCandidate = notePathInLetterCase(candidatePath, letterCase)
-    return (
-      comparableCandidate === comparableTarget ||
-      comparableCandidate.endsWith(`/${comparableTarget}`)
-    )
+    return notePathForComparison(candidatePath, letterCase).endsWith(`/${comparableTarget}`)
   })
 
   // With multiple matches, Obsidian's heuristic prefers the shortest path;
@@ -530,15 +539,15 @@ const resolveAssetInLetterCase = (params: {
 }): string | null => {
   const { target, allAssetPaths, sourcePath, letterCase } = params
   const relativeTarget = sourcePath ? posix.join(posix.dirname(sourcePath), target) : null
-  const comparableTarget = assetPathInLetterCase(target, letterCase)
+  const comparableTarget = assetPathForComparison(target, letterCase)
   const comparableRelativeTarget =
-    relativeTarget === null ? null : assetPathInLetterCase(relativeTarget, letterCase)
+    relativeTarget === null ? null : assetPathForComparison(relativeTarget, letterCase)
 
   // In the folded pass, two files that differ only in letter case both match
   // one link, so the exact tiers pick with shortestOf as the stem tiers do.
   const findPathsWhere = (comparablePathMatches: (comparablePath: string) => boolean): string[] => {
     return allAssetPaths.filter((assetPath) => {
-      return comparablePathMatches(assetPathInLetterCase(assetPath, letterCase))
+      return comparablePathMatches(assetPathForComparison(assetPath, letterCase))
     })
   }
 
@@ -618,9 +627,11 @@ const resolveAssetInLetterCase = (params: {
  *  (LICENSE, Dockerfile) by exact path or path suffix, and the stem tiers
  *  hit any file whose extension-stripped name matches.
  *
- *  All tiers run with exact letter case first, then again with ASCII letter
- *  case folded, so `![[Photo.PNG]]` reaches `photo.png` only when no file
- *  matches it exactly. */
+ *  The exact, relative and stem tiers run with exact letter case first, then
+ *  again with ASCII letter case folded, so `![[Photo.PNG]]` reaches
+ *  `photo.png` only when no file matches it exactly. The two path-suffix
+ *  tiers fold ASCII case in the first pass too, so `![[photo.png]]` reaches
+ *  the shorter of `A/Photo.PNG` and `B/sub/photo.png`. */
 const resolveAsset = (params: {
   target: string
   allAssetPaths: readonly string[]
