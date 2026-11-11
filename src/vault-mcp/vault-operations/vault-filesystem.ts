@@ -208,12 +208,15 @@ const removeLeftoverFile = async (
  * must not already exist.
  */
 export const atomicWriteFile = async (
-  params: { filePath: string; content: string },
+  params: { filePath: string; content: string | Uint8Array },
   logger: Logger,
 ): Promise<void> => {
   const tmpPath = tempSavePath(params.filePath)
   try {
-    await writeFile(tmpPath, params.content, "utf8")
+    // Text is written as UTF-8; bytes (attachments) are written verbatim.
+    await (typeof params.content === "string"
+      ? writeFile(tmpPath, params.content, "utf8")
+      : writeFile(tmpPath, params.content))
     await rename(tmpPath, params.filePath)
   } catch (err) {
     // A failed write never strands its temp file
@@ -777,8 +780,12 @@ const moveNoteToTrash = async (
 /** Deletes or trashes a note depending on the vault's Deleted files setting.
  *  Rejects paths under the configured protected paths. When pruneEmptyFolders
  *  is set, removes any parent folders the operation empties. */
-const deleteNote = async (
+const deleteVaultEntry = async (
   params: {
+    /** "note" requires a .md path; "file" requires an extension in
+     *  allowedExtensions. Error and log text name the kind. */
+    kind: "note" | "file"
+    allowedExtensions?: readonly string[] | undefined
     vaultPath: string
     path: string
     protectedPaths: readonly string[]
@@ -794,7 +801,11 @@ const deleteNote = async (
   },
   logger: Logger,
 ): Promise<DeleteNoteResult> => {
-  assertPathHasExtension(params.path, ".md")
+  if (params.kind === "note") {
+    assertPathHasExtension(params.path, ".md")
+  } else {
+    assertAttachmentExtension(params.path, params.allowedExtensions ?? [])
+  }
   // Canonicalize before the protected-path check so an aliased spelling —
   // traversal ("X/../About Me/x.md") or separator variant — can't evade the
   // prefix test yet still resolve into a protected folder. Absolute input
@@ -818,7 +829,7 @@ const deleteNote = async (
     // missing note fails with the "note not found" error the tool documents
     // instead of Node's ENOENT text.
     if (!(await fileExists(fullPath))) {
-      throw new Error(`note not found: "${path}"`)
+      throw new Error(`${params.kind} not found: "${path}"`)
     }
 
     // Assigned inside the try, read after it — pruning and the completion
@@ -869,7 +880,7 @@ const deleteNote = async (
     // In the logs, trashOption is the only record of whether a trashed note
     // is swept later ("system") or kept forever ("local") — the result text
     // and the tool_result log say "trashed" for both.
-    logger.info("deleted note", {
+    logger.info(`deleted ${params.kind}`, {
       path,
       trashOption: params.trashOption,
       ...(trashLocation ? { trashLocation } : {}),
@@ -879,6 +890,75 @@ const deleteNote = async (
       prunedFolderCount,
       ...(trashLocation ? { trashLocation } : {}),
     }
+  })
+}
+
+type DeleteEntryParams = Omit<Parameters<typeof deleteVaultEntry>[0], "kind" | "allowedExtensions">
+
+/** Deletes or trashes a markdown note (see deleteVaultEntry). */
+const deleteNote = (params: DeleteEntryParams, logger: Logger): Promise<DeleteNoteResult> =>
+  deleteVaultEntry({ ...params, kind: "note" }, logger)
+
+/** Deletes or trashes a non-markdown attachment whose extension is in
+ *  allowedExtensions — the same protected-path, trash and prune rules as a
+ *  note delete. */
+const deleteFile = (
+  params: DeleteEntryParams & { allowedExtensions: readonly string[] },
+  logger: Logger,
+): Promise<DeleteNoteResult> => deleteVaultEntry({ ...params, kind: "file" }, logger)
+
+/** Throws unless the path names a non-markdown file whose lowercase extension
+ *  is in `allowed`. */
+const assertAttachmentExtension = (path: string, allowed: readonly string[]): void => {
+  const extension = posix.extname(path).toLowerCase()
+
+  if (extension === ".md") {
+    throw new Error(`not a file: "${path}" is a markdown note`)
+  }
+  if (!allowed.includes(extension)) {
+    throw new Error(
+      `unsupported attachment type: "${path}" — allowed extensions: ${allowed.join(", ")}`,
+    )
+  }
+}
+
+/** Writes raw bytes to a non-markdown vault file (an attachment), creating
+ *  parent folders. Rejects an existing file unless overwrite is set. Uses the
+ *  same path guards, per-path lock and atomic temp-then-rename save as note
+ *  writes, so Obsidian Sync picks the file up like any other vault change. */
+const writeFileBytes = async (
+  params: {
+    vaultPath: string
+    path: string
+    bytes: Uint8Array
+    allowedExtensions: readonly string[]
+    overwrite?: boolean | undefined
+  },
+  logger: Logger,
+): Promise<{ path: string; bytes: number; replaced: boolean }> => {
+  assertAttachmentExtension(params.path, params.allowedExtensions)
+  if (params.bytes.length === 0) {
+    throw new Error(`empty content: "${params.path}" would be a 0-byte file`)
+  }
+  const path = resolveVaultRelativePath({ vaultPath: params.vaultPath, notePath: params.path })
+  const fullPath = resolveSafePath(params.vaultPath, path)
+  return withExclusiveFileLock(fullPath, async () => {
+    await mkdir(dirname(fullPath), { recursive: true })
+    const occupant = await statOrNull(fullPath)
+
+    if (occupant && !occupant.isFile()) {
+      throw new Error(`cannot write file "${path}": that path is not a file`)
+    }
+    if (occupant && !params.overwrite) {
+      throw new Error(`file already exists: "${path}" — pass overwrite: true to replace it`)
+    }
+    await atomicWriteFile({ filePath: fullPath, content: params.bytes }, logger)
+    logger.info("wrote file", {
+      path,
+      beforeBytes: occupant ? occupant.size : 0,
+      afterBytes: params.bytes.length,
+    })
+    return { path, bytes: params.bytes.length, replaced: occupant !== null }
   })
 }
 
@@ -1083,6 +1163,8 @@ export const vaultFs = {
   updateProperties,
   replaceProperties,
   deleteNote,
+  deleteFile,
+  writeFileBytes,
   listNotes,
   listAssets,
   readAsset,

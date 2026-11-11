@@ -592,7 +592,138 @@ const buildAssetListing = async (
 /** The asset operations surface — one namespace for the grouped read/browse
  *  functionality, matching the folder's operation modules (noteMover,
  *  vaultPatcher, taskMutations). */
+// ── Writing ─────────────────────────────────────────────────────
+
+/** Attachment types vault_write_file / vault_delete_file accept: images and
+ *  PDFs, the files notes embed. Lowercase; lookups lowercase the path's
+ *  extension. */
+export const WRITABLE_ATTACHMENT_EXTENSIONS: readonly string[] = [
+  ".png",
+  ".jpg",
+  ".jpeg",
+  ".webp",
+  ".gif",
+  ".svg",
+  ".pdf",
+]
+
+/** Cap on one written attachment's decoded size. */
+export const MAX_WRITE_FILE_BYTES = 10 * 1024 * 1024
+
+const BASE64_PATTERN = /^[A-Za-z0-9+/]*={0,2}$/
+
+const startsWithBytes = (buffer: Buffer, bytes: readonly number[]): boolean =>
+  buffer.length >= bytes.length && bytes.every((byte, index) => buffer[index] === byte)
+
+const latin1Slice = (buffer: Buffer, start: number, end: number): string =>
+  buffer.subarray(start, end).toString("latin1")
+
+const isJpeg = (buffer: Buffer): boolean => startsWithBytes(buffer, [0xff, 0xd8, 0xff])
+
+/** Per-extension content check, so a mislabelled upload (an HTML error page
+ *  saved as .png, a JPEG named .webp) is refused instead of landing as a
+ *  file Obsidian can't render. */
+const CONTENT_SIGNATURES: ReadonlyMap<string, (buffer: Buffer) => boolean> = new Map([
+  [
+    ".png",
+    (buffer: Buffer) => startsWithBytes(buffer, [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+  ],
+  [".jpg", isJpeg],
+  [".jpeg", isJpeg],
+  [".gif", (buffer: Buffer) => latin1Slice(buffer, 0, 4) === "GIF8"],
+  [
+    ".webp",
+    (buffer: Buffer) =>
+      latin1Slice(buffer, 0, 4) === "RIFF" && latin1Slice(buffer, 8, 12) === "WEBP",
+  ],
+  [".pdf", (buffer: Buffer) => latin1Slice(buffer, 0, 5) === "%PDF-"],
+  [".svg", (buffer: Buffer) => /<svg[\s>]/i.test(buffer.subarray(0, 4096).toString("utf8"))],
+])
+
+/** Decodes an upload's base64 text: an optional data: URL prefix and any
+ *  whitespace are dropped, and base64url is accepted. Throws on malformed
+ *  input, on content over the cap (checked before decoding), and on bytes
+ *  that don't match the path's file type. */
+const decodeAttachmentContent = (params: { path: string; contentBase64: string }): Buffer => {
+  const compact = params.contentBase64
+    .replace(/^data:[^;,]*;base64,/i, "")
+    .replace(/\s+/g, "")
+    .replace(/-/g, "+")
+    .replace(/_/g, "/")
+  const padded = compact.length % 4 === 0 ? compact : compact + "=".repeat(4 - (compact.length % 4))
+
+  if (padded.length === 0) {
+    throw new Error(`empty content: content_base64 for "${params.path}" is empty`)
+  }
+  if (!BASE64_PATTERN.test(padded) || compact.length % 4 === 1) {
+    throw new Error(
+      `invalid base64: content_base64 for "${params.path}" is not base64 — send the file's bytes base64-encoded`,
+    )
+  }
+  const estimatedBytes = Math.floor((padded.length * 3) / 4)
+
+  if (estimatedBytes - 2 > MAX_WRITE_FILE_BYTES) {
+    throw new Error(
+      `file too large: "${params.path}" is about ${estimatedBytes} bytes (cap ${MAX_WRITE_FILE_BYTES} bytes) — shrink or split it`,
+    )
+  }
+  const bytes = Buffer.from(padded, "base64")
+
+  if (bytes.length > MAX_WRITE_FILE_BYTES) {
+    throw new Error(
+      `file too large: "${params.path}" is ${bytes.length} bytes (cap ${MAX_WRITE_FILE_BYTES} bytes) — shrink or split it`,
+    )
+  }
+  const matchesType = CONTENT_SIGNATURES.get(posix.extname(params.path).toLowerCase())
+
+  if (matchesType && bytes.length > 0 && !matchesType(bytes)) {
+    throw new Error(
+      `content does not match file type: the bytes for "${params.path}" are not a ${posix.extname(params.path).toLowerCase()} file`,
+    )
+  }
+  return bytes
+}
+
+/** Writes a base64-encoded attachment into the vault. Returns the canonical
+ *  vault-relative path, its byte size, whether an existing file was
+ *  replaced, and the ![[…]] embed a note uses to show it. */
+const writeAttachment = async (
+  params: {
+    vaultPath: string
+    path: string
+    contentBase64: string
+    overwrite?: boolean | undefined
+  },
+  logger: Logger,
+): Promise<{ path: string; bytes: number; replaced: boolean; embed: string }> => {
+  const extension = posix.extname(params.path).toLowerCase()
+
+  // The type check runs before decoding so a .md or .exe path fails fast with
+  // the extension error, not a content error.
+  if (extension === ".md") {
+    throw new Error(`not a file: "${params.path}" is a markdown note`)
+  }
+  if (!WRITABLE_ATTACHMENT_EXTENSIONS.includes(extension)) {
+    throw new Error(
+      `unsupported attachment type: "${params.path}" — allowed extensions: ${WRITABLE_ATTACHMENT_EXTENSIONS.join(", ")}`,
+    )
+  }
+  const bytes = decodeAttachmentContent({ path: params.path, contentBase64: params.contentBase64 })
+  const written = await vaultFs.writeFileBytes(
+    {
+      vaultPath: params.vaultPath,
+      path: params.path,
+      bytes,
+      allowedExtensions: WRITABLE_ATTACHMENT_EXTENSIONS,
+      overwrite: params.overwrite,
+    },
+    logger,
+  )
+  return { ...written, embed: `![[${written.path}]]` }
+}
+
 export const assetOperations = {
   readAssetContent,
   buildAssetListing,
+  writeAttachment,
 }

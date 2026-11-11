@@ -41,6 +41,8 @@ export const TOOL_NAMES = {
   VAULT_UPDATE_TASK: "vault_update_task",
   VAULT_READ_FILE: "vault_read_file",
   VAULT_LIST_FILES: "vault_list_files",
+  VAULT_WRITE_FILE: "vault_write_file",
+  VAULT_DELETE_FILE: "vault_delete_file",
 } as const
 
 export type ToolName = (typeof TOOL_NAMES)[keyof typeof TOOL_NAMES]
@@ -285,6 +287,18 @@ export const TOOL_REGISTRY: readonly RegistryEntry[] = [
     name: TOOL_NAMES.VAULT_LIST_FILES,
     group: "asset",
     annotations: READ_ONLY_ANNOTATIONS,
+  },
+  {
+    // Overwrite: true replaces an existing attachment, so a write can
+    // destroy content; a replayed create fails with "file already exists".
+    name: TOOL_NAMES.VAULT_WRITE_FILE,
+    group: "asset",
+    annotations: DESTRUCTIVE_WRITE_ANNOTATIONS,
+  },
+  {
+    name: TOOL_NAMES.VAULT_DELETE_FILE,
+    group: "asset",
+    annotations: DESTRUCTIVE_WRITE_ANNOTATIONS,
   },
 ]
 

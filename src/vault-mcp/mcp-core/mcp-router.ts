@@ -41,8 +41,10 @@ const SERVER_ICONS = [
   },
 ]
 
-// Large note writes need room; this parser is reachable only with a valid token.
-const MCP_JSON_BODY_LIMIT = "5mb"
+// Large note writes and base64 attachment uploads (vault_write_file caps the
+// decoded file at 10 MiB, about 13.4 MiB as base64) need room; this parser is
+// reachable only with a valid token.
+const MCP_JSON_BODY_LIMIT = "16mb"
 
 const SERVER_WEBSITE_URL = "https://github.com/aliasunder/vault-cortex"
 

@@ -2,7 +2,15 @@
 
 import { z } from "zod"
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js"
-import { assetOperations, MAX_TEXT_OUTPUT_BYTES } from "../../vault-operations/asset-operations.js"
+import {
+  assetOperations,
+  MAX_TEXT_OUTPUT_BYTES,
+  MAX_WRITE_FILE_BYTES,
+  WRITABLE_ATTACHMENT_EXTENSIONS,
+} from "../../vault-operations/asset-operations.js"
+import { vaultFs } from "../../vault-operations/vault-filesystem.js"
+import { resolveEffectiveProtectedPaths } from "../../vault-operations/vault-folder-config.js"
+import { readTrashConfig } from "../../vault-operations/trash-config.js"
 import type { AssetReadResult } from "../../vault-operations/asset-operations.js"
 import type { FittedImage } from "../../../utils/fit-image-to-byte-budget.js"
 import { getExtensionsOfKind } from "../../obsidian-markdown/file-kinds.js"
@@ -10,6 +18,7 @@ import type { FileKind } from "../../obsidian-markdown/file-kinds.js"
 import { TOOL_NAMES } from "../tool-registry.js"
 import type { ToolRegistrationContext } from "./tool-helpers.js"
 import {
+  CONCURRENT_WRITE_RETRY_ERROR_ENTRY,
   describeTextWindow,
   FILESYSTEM_ERROR_ENTRY,
   LISTING_FILESYSTEM_ERROR_ENTRY,
@@ -90,6 +99,7 @@ export const registerAssetTools = ({
   isToolEnabled,
   whenToolEnabledText,
   vaultPath,
+  search,
   logger: sessionLogger,
   config,
 }: ToolRegistrationContext): void => {
@@ -311,6 +321,161 @@ Returns: JSON with files (array of { path, extension, bytes }, sorted by path; e
             returned: result.files.length,
           })
           return JSON.stringify(result)
+        },
+      )
+    },
+  )
+
+  const writableExtensions = WRITABLE_ATTACHMENT_EXTENSIONS.join(", ")
+  const maxWriteMiB = MAX_WRITE_FILE_BYTES / (1024 * 1024)
+
+  registerTool(
+    TOOL_NAMES.VAULT_WRITE_FILE,
+    {
+      title: "Write File",
+      description: `Write an image or PDF attachment into the vault from base64 content — the binary companion to${whenToolEnabledText("vault_write_note", " vault_write_note")} text note writes, so a note can embed screenshots, diagrams, or documents with ![[…]].
+
+Example: vault_write_file({ path: "Reports/attachments/home.png", content_base64: "iVBORw0KGgo…" })
+Example: vault_write_file({ path: "Reports/attachments/home.png", content_base64: "…", overwrite: true }) — replace an existing file
+
+When to use: saving a screenshot, chart, or PDF that a note should embed. Write the file first, then put the returned embed (e.g. ![[Reports/attachments/home.png]]) in the note.${whenToolEnabledText("vault_read_file", " Read it back with vault_read_file.")}${whenToolEnabledText("vault_delete_file", " Remove it with vault_delete_file.")}
+
+Behavior: Creates missing parent folders. The save is atomic and syncs to the owner's devices like any other vault change. Allowed types: ${writableExtensions}. The content must match the extension (a PNG signature for .png, and so on). A data: URL prefix, whitespace, and base64url are accepted.
+
+Errors:
+- "unsupported attachment type" — the extension isn't one of ${writableExtensions}
+- "not a file: … is a markdown note" — the path ends in .md${whenToolEnabledText("vault_write_note", "; write notes with vault_write_note")}
+- "file already exists" — pass overwrite: true to replace it, or pick another path
+- "invalid base64" / "empty content" — send the file's bytes base64-encoded
+- "content does not match file type" — the bytes aren't that file type; fix the extension or the content
+- "file too large" — the decoded file is over ${maxWriteMiB} MiB; shrink or split it
+- "cannot write file … that path is not a file" — a folder sits at that path
+${PATH_SAFETY_ERROR_ENTRY}
+${CONCURRENT_WRITE_RETRY_ERROR_ENTRY}
+${FILESYSTEM_ERROR_ENTRY}
+
+Returns: JSON with path (canonical vault-relative path), bytes (decoded size), replaced (true when an existing file was overwritten), and embed (the ![[path]] string to put in a note).`,
+      inputSchema: {
+        path: z
+          .string()
+          .min(1)
+          .describe(
+            `Vault-relative path for the file, including its extension (one of ${writableExtensions}), e.g. "Reports/attachments/home.png".`,
+          ),
+        content_base64: z
+          .string()
+          .min(1)
+          .describe(`The file's bytes, base64-encoded (max ${maxWriteMiB} MiB decoded).`),
+        overwrite: z
+          .boolean()
+          .optional()
+          .default(false)
+          .describe("Replace the file if it already exists. Default false."),
+      },
+    },
+    async ({ path, content_base64: contentBase64, overwrite }, extra) => {
+      const reqLogger = sessionLogger.child({
+        requestId: extra.requestId,
+        tool: TOOL_NAMES.VAULT_WRITE_FILE,
+      })
+      reqLogger.info("tool_call", { path, base64Chars: contentBase64.length, overwrite })
+      return safeHandler(
+        reqLogger,
+        () =>
+          assetOperations.writeAttachment({ vaultPath, path, contentBase64, overwrite }, reqLogger),
+        (result) => {
+          reqLogger.info("tool_result", {
+            path: result.path,
+            bytes: result.bytes,
+            replaced: result.replaced,
+          })
+          return JSON.stringify(result)
+        },
+      )
+    },
+  )
+
+  registerTool(
+    TOOL_NAMES.VAULT_DELETE_FILE,
+    {
+      title: "Delete File",
+      description: `Delete an image or PDF attachment (${writableExtensions}) from the vault${whenToolEnabledText("vault_delete_note", " — the attachment companion to vault_delete_note")}.
+
+Example: vault_delete_file({ path: "Reports/attachments/home.png" })
+Example: vault_delete_file({ path: "Scratch/tmp/shot.png", prune_empty_folders: true })
+
+When to use: removing an attachment you wrote that is no longer embedded anywhere.${whenToolEnabledText("vault_get_backlinks", " Notes that embed it show a broken embed afterwards; check with vault_get_backlinks first.")}
+
+Behavior: Follows the vault's Deleted files setting like a note delete (under Obsidian Sync the file is deleted, and Sync's version history is the recovery path). Protected paths are refused.
+
+Errors:
+- "unsupported attachment type" — only ${writableExtensions} files can be deleted with this tool
+- "not a file: … is a markdown note" — the path ends in .md${whenToolEnabledText("vault_delete_note", "; delete notes with vault_delete_note")}
+- "file not found: …" — no file exists at that path${whenToolEnabledText("vault_list_files", "; discover paths with vault_list_files")}
+- "cannot delete protected path" — the path sits under a protected folder
+${PATH_SAFETY_ERROR_ENTRY}
+${CONCURRENT_WRITE_RETRY_ERROR_ENTRY}
+${FILESYSTEM_ERROR_ENTRY}
+
+Returns: a one-line confirmation, noting a trash location and pruned folders when any.`,
+      inputSchema: {
+        path: z
+          .string()
+          .min(1)
+          .describe("Vault-relative path of the file to delete, including its extension."),
+        prune_empty_folders: z
+          .boolean()
+          .optional()
+          .default(false)
+          .describe(
+            "When true, also remove parent folders the delete leaves empty. Default false.",
+          ),
+      },
+    },
+    async ({ path, prune_empty_folders: pruneEmptyFolders }, extra) => {
+      const reqLogger = sessionLogger.child({
+        requestId: extra.requestId,
+        tool: TOOL_NAMES.VAULT_DELETE_FILE,
+      })
+      reqLogger.info("tool_call", { path, pruneEmptyFolders })
+      return safeHandler(
+        reqLogger,
+        async () => {
+          const protectedPaths = await resolveEffectiveProtectedPaths(
+            { config, vaultPath },
+            reqLogger,
+          )
+          // Same trash rule as vault_delete_note: under Obsidian Sync the file
+          // is deleted for good and Sync's version history is the recovery path.
+          const trashOption = config.obsidianSyncEnabled
+            ? "none"
+            : await readTrashConfig(vaultPath, reqLogger)
+          return vaultFs.deleteFile(
+            {
+              vaultPath,
+              path,
+              allowedExtensions: WRITABLE_ATTACHMENT_EXTENSIONS,
+              protectedPaths,
+              pruneEmptyFolders,
+              trashOption,
+              recordTrashEntry: trashOption === "system" ? search.recordTrashEntry : undefined,
+              clearStaleTrashEntry: search.deleteTrashEntry,
+            },
+            reqLogger,
+          )
+        },
+        ({ prunedFolderCount, trashLocation }) => {
+          reqLogger.info("tool_result", {
+            outcome: trashLocation ? "trashed" : "deleted",
+            prunedFolderCount,
+            ...(trashLocation ? { trashLocation } : {}),
+          })
+          const folderLabel = prunedFolderCount > 1 ? "folders" : "folder"
+          const pruneSuffix =
+            prunedFolderCount > 0 ? ` (removed ${prunedFolderCount} empty ${folderLabel})` : ""
+          return trashLocation
+            ? `Moved ${path} to trash (${trashLocation})${pruneSuffix}`
+            : `Deleted ${path}${pruneSuffix}`
         },
       )
     },
