@@ -349,8 +349,8 @@ const findTaskBlockEnd = (lines: readonly string[], taskLineIndex: number): numb
   // Structural indent — blockquote markers stripped, the same measure the
   // parser uses for depth, so a quoted card's block matches its sub-tasks.
   const taskIndent = tasks.getStructuralIndent(taskLine)
-  // Walks forward with variable-length jumps (blank lines skipped,
-  // sub-items grouped), then trims trailing blanks — both loops mutate.
+  // The first loop walks forward past blank and deeper-indented lines, and
+  // the second walks back over trailing blank lines, so the index is mutable.
   let endIndex = taskLineIndex + 1
 
   while (endIndex < lines.length) {
@@ -488,7 +488,8 @@ const isExcludedFromLane = ({
 }
 
 /** The line of the first heading nested in a heading's section, or undefined
- *  when the section has none. */
+ *  when the section has none. The section ends at the next heading of the
+ *  same or a shallower level, so every heading inside it is nested. */
 const findFirstChildHeadingStart = ({
   lines,
   heading,
@@ -550,8 +551,8 @@ const findLaneCards = ({
 }
 
 /** Body-line index for inserting at position N (1-based) among a lane's
- *  top-level cards (see findLaneCards). An N past the last card clamps to the
- *  lane's end site rather than its trailing-content position. */
+ *  top-level cards (see findLaneCards). An N past the last card lands right
+ *  after the last card's block, ahead of any other text that ends the lane. */
 const headingInsertIndexAtPosition = ({
   lines,
   heading,
@@ -775,9 +776,12 @@ const findTaskLineByBlockId = ({
     // Empty strings are valid body lines (blank lines), so only undefined is skipped.
     if (lineText === undefined) continue
 
-    // Each scanner hides the other's markers: an open %% comment hides fence
-    // markers, and a code line hides %%. So the fence scanner skips lines
-    // inside a comment, and the comment scanner skips code lines.
+    // - Each scanner hides the other's markers: an open %% comment hides fence
+    //   markers, and a code line hides %%. So the fence scanner skips lines
+    //   inside a comment, and the comment scanner skips code lines.
+    // - This comment test also marks a line that starts or ends with `%%`,
+    //   which validateBlockId's findFenceOrCommentLineIndices does not. A task
+    //   line ending in a valid ` ^id` does neither, so the two agree on it.
     let isExcluded = false
 
     if (!commentOpen) {
@@ -955,8 +959,8 @@ const isInsideFenceOrComment = (bodyLines: readonly string[], lineIndex: number)
   findFenceOrCommentLineIndices(bodyLines).has(lineIndex)
 
 /** No-op when the task already sits under the target heading and no
- *  explicit position is requested. With a position, same-lane reorders
- *  go through the extract-reinsert cycle:
+ *  explicit position is requested. A move to another lane, or a reorder
+ *  within this one, goes through the extract-reinsert cycle:
  *  1. Splice the task and its sub-items out.
  *  2. Re-parse the headings, since every line below the block moved up.
  *  3. Splice the block in at the target slot.
@@ -977,6 +981,10 @@ const moveTaskBlock = ({
   targetHeading: HeadingInfo
   headings: readonly HeadingInfo[]
   position?: "top" | "bottom" | number
+  /** The card's position counted before this update wrote a completed
+   *  recurring task's next occurrence, reported as the position's before
+   *  value. Set only when a next occurrence was written and the call asked
+   *  for a position. */
   beforePosition?: number | undefined
   statusRegistry?: ReadonlyMap<string, StatusClassification> | undefined
 }): {
@@ -1061,9 +1069,9 @@ const moveTaskBlock = ({
   }
 
   if (isSameLane) {
-    // Compare the card's position in the move-input lines (not the
-    // pre-spawn before-value) with the result — a spawn shifts the
-    // card's slot, so pre-spawn equality would suppress a real move.
+    // Compare the card's position in `lines`, not beforePosition, with the
+    // result: a next occurrence written above the card shifts its slot, so
+    // comparing beforePosition would report a real move as none.
     const currentSlot = positionOfTaskInLane({
       lines,
       heading: targetHeading,
@@ -2266,8 +2274,10 @@ const deleteTaskOnCompletion = async (
 
 /** The heading to place the task under, or undefined when the call asks for
  *  no move. Three paths resolve it:
- *   1. Explicit heading param — the first heading with that name; a
- *      repeated name is caught later by the position guards.
+ *   1. Explicit heading param — the first heading with that name. When the
+ *      name repeats, moveTaskBlock refuses an integer position and a reorder
+ *      within that lane; a move from another lane to its top or bottom
+ *      lands under the first heading of that name.
  *   2. Auto-done-lane — completing a top-level Kanban card with no
  *      explicit heading detects the board's done lane.
  *   3. Same-lane reorder — position without a heading or auto-done
