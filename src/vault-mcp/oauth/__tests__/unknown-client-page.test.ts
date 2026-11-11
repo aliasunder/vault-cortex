@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { renderUnknownClientPage, UNKNOWN_CLIENT_TITLE } from "../unknown-client-page.js"
+import { renderUnknownClientPage } from "../unknown-client-page.js"
 
 /** Each list item's bold client name and the text after it, in page order. */
 const CLIENT_STEP_PATTERN = /<li><strong>([^<]*)<\/strong> (.*?)<\/li>/g
@@ -26,8 +26,8 @@ describe("unknown client page", () => {
       title: TITLE_PATTERN.exec(html)?.[1],
       heading: HEADING_PATTERN.exec(html)?.[1],
     }).toEqual({
-      title: `${UNKNOWN_CLIENT_TITLE} — Vault Cortex`,
-      heading: UNKNOWN_CLIENT_TITLE,
+      title: "This sign-in can't continue — Vault Cortex",
+      heading: "This sign-in can't continue",
     })
   })
 

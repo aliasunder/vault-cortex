@@ -3,7 +3,7 @@
  *  from the request, because the request came from a link anyone could
  *  have written. */
 
-export const UNKNOWN_CLIENT_TITLE = "This sign-in can't continue"
+const UNKNOWN_CLIENT_TITLE = "This sign-in can't continue"
 
 export const renderUnknownClientPage = (): string => {
   return `<!DOCTYPE html>
