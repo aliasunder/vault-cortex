@@ -1553,6 +1553,24 @@ describe("X-Forwarded-For rate limiting (default proxy trust)", () => {
 
 // ── TRUST_PROXY_HOPS=1 ─────────────────────────────────────────
 
+describe("HOST unset", () => {
+  // The default decides what a bare run exposes, so the test boots without
+  // the harness's own HOST and reads the address the server reports.
+  it("listens on loopback only", async () => {
+    const port = await freePort()
+    const server = await startServer(port, { HOST: undefined })
+    onTestFinished(server.cleanup)
+
+    const startedLine = server
+      .stdout()
+      .split("\n")
+      .find((line) => line.includes('"message":"server started"'))
+    const startedLog: unknown = JSON.parse(startedLine ?? "{}")
+
+    expect(startedLog).toMatchObject({ host: "127.0.0.1", port })
+  }, 30_000)
+})
+
 describe("TRUST_PROXY_HOPS=1", () => {
   let cleanup: (() => Promise<void>) | undefined
   let port: number
