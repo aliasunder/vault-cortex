@@ -1,6 +1,5 @@
-import { readFileSync, writeFileSync } from "node:fs"
-
 import type { DockerRunner } from "../adapters/docker.js"
+import { envFile } from "../adapters/env-file.js"
 import type { Prompts } from "../adapters/prompts.js"
 import { buildSettingsSavedWithoutRuntimeMessage, vaultCortexCommand } from "../rules/messages.js"
 import { portsOfOtherContainers } from "../rules/ports.js"
@@ -42,9 +41,7 @@ export const runConfigure = async (flags: ConfigureFlags, deps: ConfigureDeps): 
   const initialized = requireInitializedDir(flags.dir, prompts)
 
   if (!initialized) return 1
-  const { targetDir, envFilePath, mode, instanceName } = initialized
-
-  const envContent = readFileSync(envFilePath, "utf8")
+  const { targetDir, envFilePath, envContent, mode, instanceName } = initialized
   const daemonStatus = docker.daemonStatus()
   const portsInUse = portsOfOtherContainers(
     daemonStatus === "running" ? docker.publishedHostPorts() : [],
@@ -63,7 +60,7 @@ export const runConfigure = async (flags: ConfigureFlags, deps: ConfigureDeps): 
 
   const overrides = withPublicUrlOverride({ overrides: pickedOverrides, envContent })
   const changedNames = Object.keys(overrides)
-  writeFileSync(envFilePath, applyOptionalSettings(envContent, overrides))
+  envFile.replace(envFilePath, applyOptionalSettings(envContent, overrides))
   prompts.log(`Updated ${changedNames.join(", ")} in ${targetDir}/.env.`)
 
   const publicUrlWarning = describeStrandedPublicUrl({

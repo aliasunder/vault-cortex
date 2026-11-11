@@ -101,6 +101,18 @@ describe("write permissions", () => {
   })
 })
 
+describe("replace", () => {
+  it("rewrites an existing .env and keeps its owner-only permissions", () => {
+    const envPath = join(mkdtempSync(join(tmpdir(), "vault-cli-")), ".env")
+    writeFileSync(envPath, "MCP_AUTH_TOKEN=old\n", { mode: 0o600 })
+
+    envFile.replace(envPath, "MCP_AUTH_TOKEN=new\n")
+
+    expect(readFileSync(envPath, "utf8")).toBe("MCP_AUTH_TOKEN=new\n")
+    expect(statSync(envPath).mode & 0o777).toBe(0o600)
+  })
+})
+
 describe("patchObsidianToken", () => {
   it("replaces an existing token value", () => {
     const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-patch-"))

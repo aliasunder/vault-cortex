@@ -40,6 +40,8 @@ export const DEFAULT_TARGET_DIR = "./vault-cortex"
 type InitializedDir = {
   targetDir: string
   envFilePath: string
+  /** The .env's text as read, for a caller that rewrites the file. */
+  envContent: string
   /** The .env's values, parsed once for every check that follows. */
   envValues: EnvValues
   mode: Mode
@@ -75,6 +77,7 @@ export const requireInitializedDir = (
   return {
     targetDir,
     envFilePath,
+    envContent,
     envValues,
     mode: detectMode(envValues),
     instanceName: instanceNameRead.instanceName,

@@ -21,6 +21,11 @@ const read = (envFilePath: string): string | undefined => {
   return readFileSync(envFilePath, "utf8")
 }
 
+/** Replaces an existing .env's text; the file keeps its permissions. */
+const replace = (envFilePath: string, envContent: string): void => {
+  writeFileSync(envFilePath, envContent)
+}
+
 /**
  * Patches every active OBSIDIAN_AUTH_TOKEN line in an existing .env, since
  * `docker run --env-file` lets the last duplicate win. Returns false when the
@@ -90,6 +95,7 @@ const write = async (
 /** Reads and writes a deployment's .env file; parseEnvValues in env-values.ts parses what read returns. */
 export const envFile = {
   read,
+  replace,
   patchObsidianToken,
   stripQuotedValues,
   write,
