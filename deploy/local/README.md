@@ -151,7 +151,9 @@ CLI always keeps the server on this machine, so switch to Compose first: run
 [`docker-compose.yml`](./docker-compose.yml) next to the CLI's `.env`, in the
 `vault-cortex` folder `init` created or the folder you passed to `--dir`.
 Compose picks up that `.env` and the search index the CLI made, so run the
-steps below from that folder.
+steps below from that folder. From then on, manage the server with this
+guide's Compose commands: the CLI's `start`, `restart` and `upgrade` put it
+back on this machine only.
 
 1. Find this computer's address on your network, such as `192.168.1.20`:
    on macOS, System Settings → Wi-Fi → Details → TCP/IP; on Windows,
