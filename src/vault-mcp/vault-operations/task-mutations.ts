@@ -493,13 +493,14 @@ const isExcludedFromLane = ({
  *  when the section has none. The section ends at the next heading of the
  *  same or a shallower level, so every heading inside it is nested. */
 const findFirstChildHeadingStart = ({
-  lines,
+  headings,
   heading,
 }: {
-  lines: readonly string[]
+  /** The parse of the lines `heading` comes from. */
+  headings: readonly HeadingInfo[]
   heading: HeadingInfo
 }): number | undefined => {
-  const firstChildHeading = parseHeadings(lines).find((childHeading) => {
+  const firstChildHeading = headings.find((childHeading) => {
     return (
       childHeading.startLine >= heading.bodyStartLine &&
       childHeading.startLine < heading.bodyEndLine
@@ -516,14 +517,16 @@ const findFirstChildHeadingStart = ({
  *  so the two always agree. */
 const findLaneCards = ({
   lines,
+  headings,
   heading,
   statusRegistry,
 }: {
   lines: readonly string[]
+  headings: readonly HeadingInfo[]
   heading: HeadingInfo
   statusRegistry: ReadonlyMap<string, StatusClassification>
 }): { cardStartIndices: readonly number[]; firstChildStart: number | undefined } => {
-  const firstChildStart = findFirstChildHeadingStart({ lines, heading })
+  const firstChildStart = findFirstChildHeadingStart({ headings, heading })
   const walkEnd = firstChildStart ?? heading.bodyEndLine
   const fenceOrCommentLineIndices = findFenceOrCommentLineIndices(lines)
   const cardStartIndices: number[] = []
@@ -557,16 +560,23 @@ const findLaneCards = ({
  *  after the last card's block, ahead of any other text that ends the lane. */
 const headingInsertIndexAtPosition = ({
   lines,
+  headings,
   heading,
   position,
   statusRegistry,
 }: {
   lines: readonly string[]
+  headings: readonly HeadingInfo[]
   heading: HeadingInfo
   position: number
   statusRegistry: ReadonlyMap<string, StatusClassification>
 }): number => {
-  const { cardStartIndices, firstChildStart } = findLaneCards({ lines, heading, statusRegistry })
+  const { cardStartIndices, firstChildStart } = findLaneCards({
+    lines,
+    headings,
+    heading,
+    statusRegistry,
+  })
   const cardStartIndex = cardStartIndices[position - 1]
 
   if (cardStartIndex !== undefined) return cardStartIndex
@@ -582,24 +592,27 @@ const headingInsertIndexAtPosition = ({
 
 const headingInsertIndex = ({
   lines,
+  headings,
   heading,
   position,
   statusRegistry,
 }: {
   lines: readonly string[]
+  /** The parse of `lines`, which `heading` is one of. */
+  headings: readonly HeadingInfo[]
   heading: HeadingInfo
   position: "top" | "bottom" | number
   statusRegistry: ReadonlyMap<string, StatusClassification>
 }): number => {
   if (typeof position === "number") {
-    return headingInsertIndexAtPosition({ lines, heading, position, statusRegistry })
+    return headingInsertIndexAtPosition({ lines, headings, heading, position, statusRegistry })
   }
   if (position === "top") {
     return taskInsertIndexUnderHeading({ lines, heading })
   }
   // "bottom" — append after the lane's own content, bounded at the first
   // child heading so the card doesn't land inside a nested section.
-  const firstChildStart = findFirstChildHeadingStart({ lines, heading })
+  const firstChildStart = findFirstChildHeadingStart({ headings, heading })
 
   if (firstChildStart !== undefined) {
     const sectionLines = lines.slice(heading.bodyStartLine, firstChildStart)
@@ -707,6 +720,7 @@ const resolveNewTaskPlacement = ({
     return {
       insertAt: headingInsertIndex({
         lines: bodyLines,
+        headings,
         heading: targetHeading,
         position: resolvedPosition,
         statusRegistry,
@@ -1043,6 +1057,7 @@ const moveTaskBlock = ({
   const resolvedPosition = position ?? "top"
   const insertAt = headingInsertIndex({
     lines: linesWithoutBlock,
+    headings: headingsAfterRemoval,
     heading: headingAfterRemoval,
     position: resolvedPosition,
     statusRegistry,
@@ -1055,9 +1070,8 @@ const moveTaskBlock = ({
 
   // The insertion shifts headings below insertAt — re-parse so
   // positionOfTaskInLane sees the correct bodyEndLine.
-  const headingInResult = parseHeadings(resultLines).findLast(
-    (heading) => heading.startLine < insertAt,
-  )
+  const headingsInResult = parseHeadings(resultLines)
+  const headingInResult = headingsInResult.findLast((heading) => heading.startLine < insertAt)
 
   // insertAt lies in the target heading's body, so a heading always precedes it
   if (!headingInResult) {
@@ -1076,12 +1090,14 @@ const moveTaskBlock = ({
     // comparing beforePosition would report a real move as none.
     const currentSlot = positionOfTaskInLane({
       lines,
+      headings,
       heading: targetHeading,
       taskLineIndex,
       statusRegistry,
     })
     const slotAfterMove = positionOfTaskInLane({
       lines: resultLines,
+      headings: headingsInResult,
       heading: headingInResult,
       taskLineIndex: insertAt,
       statusRegistry,
@@ -1106,10 +1122,17 @@ const moveTaskBlock = ({
 
   const positionBefore = currentHeading
     ? (beforePosition ??
-      positionOfTaskInLane({ lines, heading: currentHeading, taskLineIndex, statusRegistry }))
+      positionOfTaskInLane({
+        lines,
+        headings,
+        heading: currentHeading,
+        taskLineIndex,
+        statusRegistry,
+      }))
     : null
   const positionAfter = positionOfTaskInLane({
     lines: resultLines,
+    headings: headingsInResult,
     heading: headingInResult,
     taskLineIndex: insertAt,
     statusRegistry,
@@ -1126,16 +1149,19 @@ const moveTaskBlock = ({
 /** 1-based position of a task among its lane's top-level cards (see findLaneCards). */
 const positionOfTaskInLane = ({
   lines,
+  headings,
   heading,
   taskLineIndex,
   statusRegistry,
 }: {
   lines: readonly string[]
+  /** The parse of `lines`, which `heading` is one of. */
+  headings: readonly HeadingInfo[]
   heading: HeadingInfo
   taskLineIndex: number
   statusRegistry: ReadonlyMap<string, StatusClassification>
 }): number => {
-  const { cardStartIndices } = findLaneCards({ lines, heading, statusRegistry })
+  const { cardStartIndices } = findLaneCards({ lines, headings, heading, statusRegistry })
   const cardIndex = cardStartIndices.indexOf(taskLineIndex)
 
   if (cardIndex === -1) {
@@ -2585,6 +2611,7 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
     const beforePositionInLane = preSpawnHeading
       ? positionOfTaskInLane({
           lines: linesWithEdits,
+          headings,
           heading: preSpawnHeading,
           taskLineIndex,
           statusRegistry,
