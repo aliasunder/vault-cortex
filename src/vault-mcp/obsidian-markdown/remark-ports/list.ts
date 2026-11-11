@@ -69,13 +69,16 @@ const TASK_ITEM_RE = /^\[(.)\][ \t]/
  *  the rest of the first line. */
 const BULLET_RE = /^([ \t]*)([*+-]|\d+[.)])( {1,4}(?! )| |\t|$|(?=\n))([^\n]*)/
 
-/** A later blank line can only have a non-whitespace suffix when the first one does. */
+/** Whether a list item is spread (loose): true when anything but whitespace
+ *  follows a blank line (`\n\n`) in its content, the test remark-parse makes
+ *  with `/\n\n(?!\s*$)/`. */
 const hasContentAfterBlankLine = (content: string): boolean => {
   const blankLineIndex = content.indexOf("\n\n")
 
   if (blankLineIndex === -1) return false
 
-  // The counter advances through the suffix without retrying at later blank lines.
+  // Only the first blank line needs checking: text after a later one also
+  // follows the first.
   for (let index = blankLineIndex + 2; index < content.length; index += 1) {
     if (!WHITESPACE_RE.test(content.charAt(index))) return true
   }
@@ -110,20 +113,18 @@ export const list = function (
   const tokenizers = this.blockTokenizers
   const interruptors = this.interruptList
   const length = value.length
-  // The whole tokenizer threads line-by-line scanning state (the index into
-  // `value`, the item being filled, pending blank lines), so these are
-  // mutable parser state, as in the upstream file.
-  let index = 0
+  // The end of the first line's indent, where its bullet marker starts.
+  let indentEnd = 0
 
-  while (index < length) {
-    const character = value.charAt(index)
+  while (indentEnd < length) {
+    const character = value.charAt(indentEnd)
 
     if (character !== TAB && character !== SPACE) break
 
-    index += 1
+    indentEnd += 1
   }
 
-  const bulletMarker = readBulletMarker(value, index, commonmark)
+  const bulletMarker = readBulletMarker(value, indentEnd, commonmark)
 
   if (!bulletMarker) return undefined
 
@@ -146,7 +147,10 @@ export const list = function (
 
   if (silent) return true
 
-  index = 0
+  // The loop below threads line-by-line scanning state (the index into
+  // `value`, the item being filled, pending blank lines), so these are
+  // mutable parser state, as in the upstream file.
+  let index = 0
   const items: ListItemLines[] = []
   let listLines: string[] = []
 
@@ -189,6 +193,8 @@ export const list = function (
     if (prefixed) {
       if (pendingBlankLines.length !== 0 && item) {
         spread = true
+        // The empty entry ends the previous item's text with the line break
+        // after its last line; the blank lines after it become its trail.
         item.value.push("")
         item.trail = [...pendingBlankLines]
       }
@@ -218,7 +224,9 @@ export const list = function (
     pendingBlankLines = []
   }
 
-  // reset records the parent span, then restores its text so each child can consume its own span.
+  // reset gives the list node the position of all its lines, then moves the
+  // parser back to their start, so each item below is eaten and positioned
+  // on its own.
   const node = eat(listLines.join(LINE_FEED)).reset({
     type: "list",
     ordered,
