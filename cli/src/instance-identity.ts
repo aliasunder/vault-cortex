@@ -2,6 +2,7 @@ import { basename, join } from "node:path"
 
 import { instanceVolumeNames, isVaultCortexImage, type DockerRunner, type Mode } from "./docker.js"
 import { envFile } from "./env-file.js"
+import { describeEnvFix, vaultCortexCommand } from "./messages.js"
 import {
   DEFAULT_INSTANCE_NAME,
   describeInvalidInstanceName,
@@ -141,7 +142,7 @@ const renameOnRerunMessage = (params: { carriedName: string; targetDir: string }
   const { carriedName, targetDir } = params
   return (
     `--instance-name: the install in ${targetDir} is named "${carriedName}", and init keeps that name.\n` +
-    `To rename it, stop it first (npx vault-cortex@latest down --dir "${targetDir}"), then change INSTANCE_NAME in its .env\n` +
+    `To rename it, stop it first (${vaultCortexCommand("down", targetDir)}), then change INSTANCE_NAME in its .env\n` +
     `to a name no other install uses: it starts on new, empty volumes under the new name.`
   )
 }
@@ -232,7 +233,7 @@ export const resolveInstanceIdentity = async (
     // An invalid kept name gets the error every other command gives it before
     // init asks anything more, since the re-run would carry it into the new .env.
     if (carriedNameError) {
-      prompts.error(`INSTANCE_NAME ${carriedNameError} Fix it in ${targetDir}/.env.`)
+      prompts.error(describeEnvFix({ problem: `INSTANCE_NAME ${carriedNameError}`, targetDir }))
       return { kind: "exit" }
     }
     // The same holds for a kept port, unless --port replaces it.
@@ -240,7 +241,7 @@ export const resolveInstanceIdentity = async (
       carried.PORT && !isValidPort(carried.PORT) ? describeInvalidEnvPort(carried.PORT) : undefined
 
     if (carriedPortError && !flags.port) {
-      prompts.error(`${carriedPortError} Fix it in ${targetDir}/.env.`)
+      prompts.error(describeEnvFix({ problem: carriedPortError, targetDir }))
       return { kind: "exit" }
     }
     // Renaming here would leave the old container running and could point

@@ -1,5 +1,7 @@
 import { styleText } from "node:util"
 
+import type { DaemonStatus } from "./docker.js"
+
 export type StartStatus = "running" | "starting" | "not-started"
 
 // Connect instructions are printed as plain text (not a clack note box) so the
@@ -74,19 +76,50 @@ export const buildDockerNotInstalledMessage = (params: {
   )
 }
 
-// targetDir is quoted: these lines are meant to be copy-pasted into a
-// shell, and an unquoted path breaks on spaces or special characters.
-const upgradeCommand = (targetDir: string): string =>
-  `npx vault-cortex@latest upgrade --dir "${targetDir}"`
+/**
+ * The guidance for a container runtime that is stopped or absent. With a
+ * start command, the message ends by telling the user to run it once the
+ * runtime is up; without one, it ends at the guidance.
+ */
+export const buildDaemonUnavailableMessage = (params: {
+  daemonStatus: Exclude<DaemonStatus, "running">
+  startCommand?: string
+}): string => {
+  const { daemonStatus, startCommand } = params
+
+  switch (daemonStatus) {
+    case "not-installed": {
+      const nextStep = startCommand ? `\nThen start the server with:\n  ${startCommand}` : ""
+      return buildDockerNotInstalledMessage({ nextStep })
+    }
+    case "not-running":
+      return buildDaemonNotRunningMessage(startCommand ? `, then run:\n  ${startCommand}` : ".")
+  }
+}
+
+type CliCommand = "init" | "start" | "restart" | "configure" | "upgrade" | "down" | "get-sync-token"
+
+/**
+ * The command line a message tells the user to run, pinned to the latest
+ * release. targetDir is quoted: these lines are meant to be copy-pasted into
+ * a shell, and an unquoted path breaks on spaces or special characters.
+ */
+export const vaultCortexCommand = (command: CliCommand, targetDir?: string): string => {
+  const dirOption = targetDir ? ` --dir "${targetDir}"` : ""
+  return `npx vault-cortex@latest ${command}${dirOption}`
+}
+
+/** A problem in a .env value, with where to fix it. */
+export const describeEnvFix = (params: { problem: string; targetDir: string }): string => {
+  return `${params.problem} Fix it in ${params.targetDir}/.env.`
+}
 
 // Start guidance prints `start`, not `upgrade` — telling a user who has never
 // started anything to run "upgrade" reads as updating something they don't
 // have. `start` runs the same re-create cycle and pulls the image on demand.
-export const startCommand = (targetDir: string): string =>
-  `npx vault-cortex@latest start --dir "${targetDir}"`
-
-const startServerLine = (targetDir: string): string =>
-  `Start the server:\n  ${startCommand(targetDir)}`
+const startServerLine = (targetDir: string): string => {
+  return `Start the server:\n  ${vaultCortexCommand("start", targetDir)}`
+}
 
 const startingInBackgroundLine = (instanceName: string): string =>
   `The server is starting in the background — check progress:\n  docker logs ${instanceName}`
@@ -195,7 +228,7 @@ const remoteHealthCheckBlock = (healthUrl: string, startStatus: StartStatus): st
 
 const updateGuidance = (targetDir: string): string =>
   `Update to the latest release:
-  ${upgradeCommand(targetDir)}`
+  ${vaultCortexCommand("upgrade", targetDir)}`
 
 /**
  * Local-mode "Connect" message. port comes from the .env on disk: a kept file
@@ -264,10 +297,10 @@ ${sectionRule("Settings")}
 
 Adjust optional settings (memory layer and folder, daily notes
 folder and format, file tools, semantic search, port, timezone):
-  npx vault-cortex@latest configure --dir "${targetDir}"
+  ${vaultCortexCommand("configure", targetDir)}
 
 Or edit ${targetDir}/.env directly — change a value (uncommenting it
-first if needed), then apply with "npx vault-cortex@latest restart" (plain
+first if needed), then apply with "${vaultCortexCommand("restart")}" (plain
 docker restart does not re-read .env).
 
 ${updateGuidance(targetDir)}
@@ -353,10 +386,10 @@ ${sectionRule("Settings")}
 Adjust optional settings (memory layer and folder, daily notes
 folder and format, file tools, semantic search, port, timezone,
 sync direction):
-  npx vault-cortex@latest configure --dir "${targetDir}"
+  ${vaultCortexCommand("configure", targetDir)}
 
 Or edit ${targetDir}/.env directly — change a value (uncommenting it
-first if needed), then apply with "npx vault-cortex@latest restart" (plain
+first if needed), then apply with "${vaultCortexCommand("restart")}" (plain
 docker restart does not re-read .env).
 
 ${updateGuidance(targetDir)}

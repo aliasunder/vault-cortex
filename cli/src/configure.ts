@@ -2,6 +2,7 @@ import { readFileSync, writeFileSync } from "node:fs"
 
 import { containerStart } from "./container-start.js"
 import { requireInitializedDir, resolveDeployment } from "./deployment.js"
+import { vaultCortexCommand } from "./messages.js"
 import {
   applyOptionalSettings,
   askOptionalSettings,
@@ -73,7 +74,8 @@ export const runConfigure = async (flags: ConfigureFlags, deps: ConfigureDeps): 
 
   if (publicUrlWarning) prompts.warn(publicUrlWarning)
 
-  const restartHint = `Apply the new settings with: npx vault-cortex@latest restart --dir "${targetDir}"`
+  const restartCommand = vaultCortexCommand("restart", targetDir)
+  const restartHint = `Apply the new settings with: ${restartCommand}`
   // Asked again: Docker may have stopped or started while the prompts were open.
   const restartDaemonStatus = docker.daemonStatus()
 
@@ -108,7 +110,7 @@ export const runConfigure = async (flags: ConfigureFlags, deps: ConfigureDeps): 
     // The edit already succeeded — don't let the failed restart read as a
     // failed configure.
     prompts.warn(
-      `The restart did not run — your settings are saved. Fix the issue above, then apply them with: npx vault-cortex@latest restart --dir "${targetDir}"`,
+      `The restart did not run — your settings are saved. Fix the issue above, then apply them with: ${restartCommand}`,
     )
     return 1
   }

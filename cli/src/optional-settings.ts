@@ -62,6 +62,15 @@ const MOMENT_BRACKET_ESCAPE = /\[([^\]]*)\]/g
  *  reads as the vault root. */
 const VAULT_ROOT_FOLDER_RE = /^[\\/]+$/
 
+/** Why a vault folder name is refused, or undefined when it is a vault-relative name. */
+const describeInvalidVaultFolder = (folderName: string): string | undefined => {
+  if (folderName.includes("..")) return "Path traversal (..) is not allowed in folder names."
+  if (folderName.startsWith("/")) {
+    return "Absolute paths are not allowed — use a vault-relative folder name."
+  }
+  return undefined
+}
+
 // The curated prompt set — settings users most often want without reading
 // .env comments. Everything else stays documented-only in the generated
 // optional block, deliberately: every extra prompt costs init flow length.
@@ -87,12 +96,9 @@ const OPTIONAL_SETTINGS: OptionalSetting[] = [
     question: "Vault folder for daily notes:",
     placeholder: "blank = use your vault's daily notes settings",
     validate: (value) => {
-      // "/" names the vault root, so the absolute-path check below must not catch it.
+      // "/" names the vault root, so the absolute-path check must not catch it.
       if (VAULT_ROOT_FOLDER_RE.test(value)) return undefined
-      if (value.includes("..")) return "Path traversal (..) is not allowed in folder names."
-      if (value.startsWith("/"))
-        return "Absolute paths are not allowed — use a vault-relative folder name."
-      return undefined
+      return describeInvalidVaultFolder(value)
     },
   },
   {
@@ -312,18 +318,11 @@ const askFolder = async (
     })
   ).trim()
 
-  if (answer !== "") {
-    if (answer.includes("..")) {
-      prompts.error("Path traversal (..) is not allowed in folder names.")
-      return askFolder(params, prompts)
-    }
-    if (answer.startsWith("/")) {
-      prompts.error("Absolute paths are not allowed — use a vault-relative folder name.")
-      return askFolder(params, prompts)
-    }
-    return answer
-  }
-  prompts.error("The folder name can't be empty.")
+  const folderError =
+    answer === "" ? "The folder name can't be empty." : describeInvalidVaultFolder(answer)
+
+  if (!folderError) return answer
+  prompts.error(folderError)
   return askFolder(params, prompts)
 }
 

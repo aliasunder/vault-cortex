@@ -1,18 +1,10 @@
 import { existsSync } from "node:fs"
 import { join, resolve } from "node:path"
 
-import { buildLocalEnv, buildRemoteEnv } from "./env.js"
-import { captureObsidianToken } from "./obsidian-sign-in.js"
-import {
-  buildDaemonNotRunningMessage,
-  buildDockerNotInstalledMessage,
-  buildLocalConnectMessage,
-  buildRemoteConnectMessage,
-  startCommand,
-  type StartStatus,
-} from "./messages.js"
 import { containerStart } from "./container-start.js"
+import { DEFAULT_TARGET_DIR, resolveDeployment, type Deployment } from "./deployment.js"
 import type { DockerRunner, Mode } from "./docker.js"
+import { buildLocalEnv, buildRemoteEnv } from "./env.js"
 import { envFile, type FileWriteResult } from "./env-file.js"
 import { detectMode, parseEnvValues, readEnvObsidianToken, type EnvValues } from "./env-values.js"
 import {
@@ -20,7 +12,14 @@ import {
   describeStrandedCarriedPublicUrl,
   resolveInstanceIdentity,
 } from "./instance-identity.js"
-import { DEFAULT_TARGET_DIR, resolveDeployment, type Deployment } from "./deployment.js"
+import {
+  buildDaemonUnavailableMessage,
+  buildLocalConnectMessage,
+  buildRemoteConnectMessage,
+  vaultCortexCommand,
+  type StartStatus,
+} from "./messages.js"
+import { captureObsidianToken } from "./obsidian-sign-in.js"
 import {
   applyOptionalSettings,
   askOptionalSettings,
@@ -262,7 +261,7 @@ const describeModeMismatch = (params: { targetDir: string; mode: Mode }): string
   if (!writtenByInit) return undefined
   return (
     `${targetDir} holds a ${existingMode} install, and this run sets up a ${mode} one.\n` +
-    `To start the existing install: ${startCommand(targetDir)}\n` +
+    `To start the existing install: ${vaultCortexCommand("start", targetDir)}\n` +
     `To set up a ${mode} install, run init again with another --dir.`
   )
 }
@@ -287,7 +286,7 @@ const confirmReinitOverExistingEnv = async (
   // No outro here: declining still exits 0, and the runInit wrapper owns the
   // closing outro (mirroring configure's declined-restart path).
   prompts.log(
-    `Nothing changed. To adjust settings instead: npx vault-cortex@latest configure --dir "${targetDir}"`,
+    `Nothing changed. To adjust settings instead: ${vaultCortexCommand("configure", targetDir)}`,
   )
   return false
 }
@@ -322,13 +321,11 @@ const offerDockerRun = async (deployment: Deployment, deps: InitDeps): Promise<S
   const daemonStatus = docker.daemonStatus()
 
   if (daemonStatus !== "running") {
-    const startHint = startCommand(targetDir)
     prompts.warn(
-      daemonStatus === "not-installed"
-        ? buildDockerNotInstalledMessage({
-            nextStep: `\nThen start the server with:\n  ${startHint}`,
-          })
-        : buildDaemonNotRunningMessage(`, then run:\n  ${startHint}`),
+      buildDaemonUnavailableMessage({
+        daemonStatus,
+        startCommand: vaultCortexCommand("start", targetDir),
+      }),
     )
     return "not-started"
   }
@@ -533,7 +530,7 @@ const runRemoteInit = async (flags: InitFlags, deps: InitDeps): Promise<number> 
   if (!hasSyncToken) {
     prompts.log(
       "No Sync token in .env — sign in on the server's sign-in page once it starts, or add a token with:\n" +
-        `  npx vault-cortex@latest get-sync-token --dir "${targetDir}"`,
+        `  ${vaultCortexCommand("get-sync-token", targetDir)}`,
     )
   }
 
@@ -589,7 +586,7 @@ const runRemoteInit = async (flags: InitFlags, deps: InitDeps): Promise<number> 
   if (capturedToken && !tokenWritten) {
     prompts.warn(
       `The Sync token from this sign-in wasn't saved, because ${targetDir}/.env was kept. To add it, run:\n` +
-        `  npx vault-cortex@latest get-sync-token --dir "${targetDir}"`,
+        `  ${vaultCortexCommand("get-sync-token", targetDir)}`,
     )
   }
   // Same on-disk checks as the local flow; the server reads only the file,

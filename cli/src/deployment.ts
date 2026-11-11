@@ -11,7 +11,7 @@ import {
   readEnvVaultPath,
   type EnvValues,
 } from "./env-values.js"
-import { buildDaemonNotRunningMessage, buildDockerNotInstalledMessage } from "./messages.js"
+import { buildDaemonUnavailableMessage, describeEnvFix, vaultCortexCommand } from "./messages.js"
 import type { Prompts } from "./prompts.js"
 import { expandTilde } from "./vault.js"
 
@@ -56,14 +56,14 @@ export const requireInitializedDir = (
 
   // Only a missing file stops here: an empty .env reads as a local install.
   if (envContent === undefined) {
-    prompts.error(`No .env found in ${targetDir} — run \`npx vault-cortex@latest init\` first.`)
+    prompts.error(`No .env found in ${targetDir} — run \`${vaultCortexCommand("init")}\` first.`)
     return undefined
   }
   const envValues = parseEnvValues(envContent)
   const instanceNameRead = readEnvInstanceName(envValues)
 
   if (instanceNameRead.kind === "invalid") {
-    prompts.error(`${instanceNameRead.message} Fix it in ${targetDir}/.env.`)
+    prompts.error(describeEnvFix({ problem: instanceNameRead.message, targetDir }))
     return undefined
   }
   return {
@@ -99,7 +99,7 @@ export const resolveDeployment = (
   const portRead = readEnvPort(envValues)
 
   if (portRead.kind === "invalid") {
-    prompts.error(`${portRead.message} Fix it in ${targetDir}/.env.`)
+    prompts.error(describeEnvFix({ problem: portRead.message, targetDir }))
     return undefined
   }
   const { port } = portRead
@@ -131,10 +131,6 @@ export const ensureDaemonRunning = (docker: DockerRunner, prompts: Prompts): boo
   const daemonStatus = docker.daemonStatus()
 
   if (daemonStatus === "running") return true
-  prompts.error(
-    daemonStatus === "not-installed"
-      ? buildDockerNotInstalledMessage({ nextStep: "" })
-      : buildDaemonNotRunningMessage("."),
-  )
+  prompts.error(buildDaemonUnavailableMessage({ daemonStatus }))
   return false
 }

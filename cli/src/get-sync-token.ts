@@ -1,6 +1,7 @@
 import { join, resolve } from "node:path"
 
 import { envFile } from "./env-file.js"
+import { vaultCortexCommand } from "./messages.js"
 import { captureObsidianToken } from "./obsidian-sign-in.js"
 import type { Prompts } from "./prompts.js"
 import { expandTilde } from "./vault.js"
@@ -53,7 +54,7 @@ export const runGetSyncToken = async (
   }
   prompts.log(
     `Token written to ${envFilePath}\n\n` +
-      `Start the server:\n  npx vault-cortex start --dir "${flags.dir}"`,
+      `Start the server:\n  ${vaultCortexCommand("start", flags.dir)}`,
   )
   prompts.outro("Done.")
   return 0

@@ -1,6 +1,7 @@
 import { containerStart } from "./container-start.js"
 import { ensureDaemonRunning, requireInitializedDir, resolveDeployment } from "./deployment.js"
 import type { DockerRunner } from "./docker.js"
+import { vaultCortexCommand } from "./messages.js"
 import type { Prompts } from "./prompts.js"
 
 export type DownFlags = {
@@ -72,7 +73,7 @@ export const runDown = async (flags: DownFlags, deps: DownDeps): Promise<number>
   prompts.log(
     "Container stopped and removed. Your vault data, search index, and settings are untouched.",
   )
-  prompts.outro(`Start again with: npx vault-cortex@latest start --dir "${targetDir}"`)
+  prompts.outro(`Start again with: ${vaultCortexCommand("start", targetDir)}`)
   return 0
 }
 
@@ -99,7 +100,7 @@ export const runLogs = async (flags: LogsFlags, deps: LogsDeps): Promise<number>
   if (instanceContainer === "foreign") return 1
   if (instanceContainer === "none") {
     prompts.error(
-      `No ${instanceName} container — start it with: npx vault-cortex@latest start --dir "${targetDir}"`,
+      `No ${instanceName} container — start it with: ${vaultCortexCommand("start", targetDir)}`,
     )
     return 1
   }
