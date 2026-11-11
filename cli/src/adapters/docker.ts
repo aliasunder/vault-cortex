@@ -6,6 +6,10 @@ export type Mode = "local" | "remote"
 export const LOCAL_IMAGE = "ghcr.io/aliasunder/vault-cortex:latest"
 export const REMOTE_IMAGE = "ghcr.io/aliasunder/vault-cortex:remote"
 
+export const imageForMode = (mode: Mode): string => {
+  return mode === "local" ? LOCAL_IMAGE : REMOTE_IMAGE
+}
+
 /** The image on GHCR and on its Docker Hub mirror, which Docker also reports without docker.io/. */
 const VAULT_CORTEX_IMAGE_REPOSITORIES = [
   "ghcr.io/aliasunder/vault-cortex",
@@ -137,7 +141,7 @@ const HEALTH_CMD = `node -e "fetch('http://127.0.0.1:${CONTAINER_PORT}/healthz')
  */
 export const buildDockerRunArgs = (params: DockerRunParams): string[] => {
   const { mode, instanceName, envFilePath, port, vaultPath } = params
-  const image = mode === "local" ? LOCAL_IMAGE : REMOTE_IMAGE
+  const image = imageForMode(mode)
 
   const args = [
     "run",
