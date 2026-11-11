@@ -244,8 +244,12 @@ export const parseContainerImage = (params: {
 
 /**
  * Go template that prints a container's name, then each host port it
- * publishes: "/work 8001". PortBindings is the container's run setting, so a
- * stopped container's ports print too.
+ * publishes: "/work 8001".
+ * - PortBindings is the container's run setting, so a stopped container's
+ *   ports print too.
+ * - The bind address is left out, so a port counts as taken whatever address
+ *   it is published on: a port published on every address also blocks it on
+ *   127.0.0.1, where a local install publishes.
  */
 const PUBLISHED_PORTS_FORMAT =
   "{{.Name}}{{range $containerPort, $bindings := .HostConfig.PortBindings}}{{range $bindings}} {{.HostPort}}{{end}}{{end}}"

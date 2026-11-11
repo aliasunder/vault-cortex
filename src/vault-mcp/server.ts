@@ -142,8 +142,8 @@ const startServer = async (): Promise<void> => {
     env.get("INDEX_DB_PATH").asString(),
   )
   const port = env.get("PORT").default("8000").asPortNumber()
-  // Loopback unless told otherwise, so a bare run serves only the machine it
-  // runs on; the Docker images, compose files and CLI set HOST=0.0.0.0.
+  // The loopback default keeps a run outside Docker reachable from this
+  // machine only. The Dockerfile sets HOST=0.0.0.0 for both images.
   const host = env.get("HOST").default("127.0.0.1").asString()
 
   logger.info("config loaded", {

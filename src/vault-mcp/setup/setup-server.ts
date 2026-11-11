@@ -32,8 +32,8 @@ const startSetupServer = (): void => {
   const config = loadConfig()
   const authToken = env.get("MCP_AUTH_TOKEN").required().asString().trim()
   const port = env.get("PORT").default("8000").asPortNumber()
-  // Loopback unless told otherwise, as in server.ts; the :remote image sets
-  // HOST=0.0.0.0.
+  // The loopback default keeps a run outside Docker reachable from this
+  // machine only. The Dockerfile sets HOST=0.0.0.0 for both images.
   const host = env.get("HOST").default("127.0.0.1").asString()
   // Optional here — a template deploy derives it, a plain `docker run` may
   // not have set it yet — where server.ts requires it.
