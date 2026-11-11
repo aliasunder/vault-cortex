@@ -338,7 +338,7 @@ Link queries use a `links` table populated during indexing:
   2. Path relative to the linking note (path from current file, including upward `../`)
   3. Basename (shortest-path-first for ambiguous basenames)
 - **Letter case:** Obsidian resolves a link whatever its letter case, so `[[real]]` and `[[folder/real]]` reach `Folder/Real.md`. Resolution walks the three tiers in the link's own letter case first, and walks them again with letter case folded only when every tier misses. A folded match returns the stored path, and backlinks, orphans and `vault_move_note` all follow it.
-  - Note links fold every letter (`toLowerCase`), so `[[éclair]]` reaches `Éclair.md`.
+  - Note links fold every letter (`toLowerCase`), so `[[éclair]]` reaches `Éclair.md`. Notes are tried before files, so `[[photo]]` reaches `Photo.md` rather than `photo.png`.
   - File links fold ASCII letters only, because the index resolves them in SQL (`COLLATE NOCASE`) and the in-memory twin must pick the same file; `![[éclair.png]]` stays broken beside `Éclair.png`.
   - Two files whose paths differ only in letter case, possible on Linux, each keep the links written in their own spelling; a third spelling goes to the shortest path, then byte order. This is a back-compat rule for links that resolved before the folded pass existed, not a statement of Obsidian's behaviour.
 - **Non-markdown files:** Targets that don't resolve to a note are checked against a `non_md_files` table (populated during rebuild, maintained by the file watcher). Both wikilinks and markdown-style links to `.canvas`, `.base`, images, PDFs, and other non-markdown files resolve as `kind: "file"` instead of being counted as broken.
