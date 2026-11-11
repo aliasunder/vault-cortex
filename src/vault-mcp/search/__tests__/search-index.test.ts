@@ -5969,7 +5969,7 @@ const createLinkRowsIndex = async () => {
       )
       .all()
   }
-  return { searchIndex, inspect, readLinkRows }
+  return { searchIndex, dbPath, inspect, readLinkRows }
 }
 
 const saveLinkTestNote = (search: SearchIndex, filePath: string, rawContent = "# Note\n"): void => {
@@ -6067,6 +6067,39 @@ describe("links table schema", () => {
     expect(readLinkRows()).toEqual([
       { source: "a.md", target: "b.md", link_text: "", link_kind: "link", link_name: "" },
       { source: "a.md", target: "c.md", link_text: "", link_kind: "link", link_name: "" },
+    ])
+  })
+
+  it("keeps a current links table's rows when the index opens it again", async () => {
+    const { searchIndex, dbPath, readLinkRows } = await createLinkRowsIndex()
+    saveLinkTestNote(searchIndex, "B.md")
+    saveLinkTestNote(searchIndex, "source.md", "# Source\n\n[[B]]\n")
+
+    createSearchIndex(dbPath)
+
+    expect(readLinkRows()).toEqual([
+      { source: "source.md", target: "B.md", link_text: "B", link_kind: "link", link_name: "b" },
+    ])
+  })
+
+  it("clears an earlier release's rows when the index opens again and rebuilds", async () => {
+    const { dbPath, inspect, readLinkRows } = await createLinkRowsIndex()
+    // A row an earlier release wrote after a downgrade, for a source the vault still holds.
+    inspect.exec("INSERT INTO links (source, target) VALUES ('source.md', 'old/B.md')")
+    const vaultPath = await mkdtemp(join(tmpdir(), "link-rows-vault-"))
+    onTestFinished(() => rm(vaultPath, { recursive: true, force: true }))
+    await writeFile(join(vaultPath, "source.md"), "# Source\n\n[[B]]\n")
+    await writeFile(join(vaultPath, "B.md"), "# B\n")
+
+    const reopened = createSearchIndex(dbPath)
+    const rebuilt = await reopened.rebuildFromVault(
+      { vaultPath, bodyTagParser: inProcessBodyTagParser },
+      logger,
+    )
+    await rebuilt.embedding
+
+    expect(readLinkRows()).toEqual([
+      { source: "source.md", target: "B.md", link_text: "B", link_kind: "link", link_name: "b" },
     ])
   })
 })
@@ -6552,6 +6585,38 @@ describe("links after a file is added or removed", () => {
     })
   })
 
+  it("re-resolves [[b/C]] from a/ and [[C]] from a/b/ to two notes", async () => {
+    // Joining each source's folder and link text gives both links "a/b/C",
+    // yet [[b/C]] reaches a/b/C.md and [[C]] reaches the root C.md.
+    const folderSource = { path: "a/one.md", content: "# One\n\n[[b/C]]\n" }
+    const subfolderSource = { path: "a/b/two.md", content: "# Two\n\n[[C]]\n" }
+    const search = createSearchIndex(":memory:")
+    saveLinkTestNote(search, "C.md")
+    saveLinkTestNote(search, "a/b/C.md")
+    saveLinkTestNote(search, folderSource.path, folderSource.content)
+    saveLinkTestNote(search, subfolderSource.path, subfolderSource.content)
+    // A new C.md re-resolves both links in one pass.
+    saveLinkTestNote(search, "z/C.md")
+
+    await expectViewAsRebuilt({
+      search,
+      files: [
+        folderSource,
+        subfolderSource,
+        { path: "C.md", content: NOTE },
+        { path: "a/b/C.md", content: NOTE },
+        { path: "z/C.md", content: NOTE },
+      ],
+      source: folderSource.path,
+      backlinksOf: ["C.md", "a/b/C.md"],
+      expected: {
+        outgoing: [{ path: "a/b/C.md", exists: true }],
+        backlinks: { "C.md": ["a/b/two.md"], "a/b/C.md": ["a/one.md"] },
+        orphans: ["a/b/two.md", "a/one.md", "z/C.md"],
+      },
+    })
+  })
+
   it("keeps a Plan.md file card on its missing path when Projects/Plan.md is edited", async () => {
     const search = createSearchIndex(":memory:")
     const planCard = [{ type: "file", file: "Plan.md" }]
@@ -6594,6 +6659,29 @@ describe("links after a file is added or removed", () => {
         link_text: "B",
         link_kind: "link",
         link_name: "b",
+      },
+    ])
+  })
+
+  it("re-resolves no link when an existing attachment changes", async () => {
+    const { searchIndex, inspect, readLinkRows } = await createLinkRowsIndex()
+    saveLinkTestNote(searchIndex, "source.md", "# Source\n\n![[B.png]]\n")
+    saveAttachment(searchIndex, "B.png")
+    // A decoy target that re-resolving ![[B.png]] would replace with B.png.
+    inspect.exec("UPDATE links SET target = 'decoy/B.png' WHERE source = 'source.md'")
+
+    searchIndex.upsertNonMdFile("B.png", 20)
+
+    expect(
+      inspect.prepare("SELECT path, base_path, basename, bytes FROM non_md_files").all(),
+    ).toEqual([{ path: "B.png", base_path: "B", basename: "B", bytes: 20 }])
+    expect(readLinkRows()).toEqual([
+      {
+        source: "source.md",
+        target: "decoy/B.png",
+        link_text: "B.png",
+        link_kind: "link",
+        link_name: "b.png",
       },
     ])
   })
