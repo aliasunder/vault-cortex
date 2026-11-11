@@ -1016,11 +1016,8 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
       .filter((check) => check.presence !== "missing")
       .map((check) => check.reservedPath)
 
-    // Removals run before reads. upsertNote re-resolves only links whose target
-    // is not indexed, so removing a renamed note's old path first lets the new
-    // path's read claim the links that pointed at the old path. Going live
-    // already removed an old path whose latest held event is a deletion; this
-    // loop removes one whose latest held event is a change.
+    // Going live already removed an old path whose latest held event is a
+    // deletion; this loop removes one whose latest held event is a change.
     for (const { filePath, reservation } of missingPaths) {
       // Skips a path a live event has taken since going live, so a live `add`
       // that indexed it is not removed. No await sits between this check and
