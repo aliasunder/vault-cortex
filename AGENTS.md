@@ -78,8 +78,8 @@ scripts/ # Dev and ops helpers in TypeScript (not shipped in Docker); most open 
   obsidian-tag-oracle.ts, generate-body-tag-vectors.ts, compare-body-tags-random.ts # Check body tags against Obsidian's own parser (see "Upgrading remark-parse")
 cli/src/ # npx vault-cortex CLI, run on the host: bin (entry) → main (wiring) → program (Commander), the only loose files; layers under "CLI layering"
   adapters/ # The outside world: docker, prompts, env-file (.env read and write), vault, token
-  rules/ # Decisions and text, with no file, Docker or prompt I/O: env-values (.env parse and typed getters), ports, messages, env-templates, node-version
-  steps/ # Shared workflow pieces: deployment, container-start, port-prompt, instance-identity, optional-settings, obsidian-sign-in
+  rules/ # Decisions and text, with no file, Docker or prompt I/O: env-values (.env parse and typed getters), env-edits (.env text edits), ports, messages, env-templates, node-version
+  steps/ # Workflow pieces commands compose: deployment, container-start, port-prompt, instance-identity, optional-settings, obsidian-sign-in
   commands/ # One module per command: init, configure, upgrade, get-sync-token; lifecycle holds start, restart, logs, and down
   __tests__/integration/ # Interactive flows through node-pty in a real PTY: pty-harness, the cli-pty tests, and a fake docker binary in fixtures/
 src/
