@@ -812,12 +812,16 @@ the description and each parameter's Zod `.describe()` text.
    (`prompt-helpers.ts`) so background embedding waits while the prompt
    runs. `tool-definitions.ts` wraps every tool handler centrally, but
    nothing wraps prompts for you: a prompt registered without the wrapper
-   runs untracked, and no test fails.
+   runs untracked, and only that prompt's own tracking test (step 3)
+   catches it.
 2. **Registration** — add the register call in
    `prompt-definitions.ts`. If the prompt depends on a specific tool,
    gate it on `context.isToolEnabled(TOOL_NAMES.*)`.
 3. **Tests** — co-located at `prompts/__tests__/`. Use the shared
    `prompt-test-harness.ts` in that folder for registration capture.
+   Add a foreground tracking test, like the existing prompts' ones, that
+   spies on `trackForegroundWork` and fails when the handler skips the
+   wrapper.
 4. **Availability keying** — use `whenToolEnabledText`,
    `isToolEnabled`, and `formatEnabledToolList` from the context for
    any tool references in the prompt text or fallback paths.
