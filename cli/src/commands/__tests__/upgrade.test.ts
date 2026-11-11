@@ -39,8 +39,9 @@ describe("runUpgrade", () => {
     )
 
     expect(exitCode).toBe(1)
-    expect(scripted.errors[0]).toContain("No .env found")
-    expect(scripted.errors[0]).toContain("npx vault-cortex@latest init")
+    expect(scripted.errors).toEqual([
+      `No .env found in ${targetDir} — run \`npx vault-cortex@latest init\` first.`,
+    ])
   })
 
   it("exits 1 when Docker daemon is not running", async () => {
@@ -54,7 +55,10 @@ describe("runUpgrade", () => {
     )
 
     expect(exitCode).toBe(1)
-    expect(scripted.errors[0]).toContain("Container runtime not running")
+    expect(scripted.errors).toEqual([
+      "Container runtime not running — start Docker Desktop, Colima,\n" +
+        "OrbStack, or another Docker-compatible runtime.",
+    ])
   })
 
   it("exits 1 when local .env has no VAULT_PATH", async () => {
@@ -68,7 +72,9 @@ describe("runUpgrade", () => {
     )
 
     expect(exitCode).toBe(1)
-    expect(scripted.errors[0]).toContain("VAULT_PATH is empty or missing")
+    expect(scripted.errors).toEqual([
+      `VAULT_PATH is empty or missing — the container cannot start without it. Fix it in ${targetDir}/.env.`,
+    ])
   })
 
   it("detects local mode and runs with the vault path from .env", async () => {
@@ -207,7 +213,10 @@ describe("runUpgrade", () => {
 
     // Exit 0 with the probe provably fired — informational, never a gate.
     expect(exitCode).toBe(0)
-    expect(fetchedUrls).toContain("https://vault.example.com/healthz")
+    expect(fetchedUrls).toEqual([
+      "http://127.0.0.1:8000/healthz",
+      "https://vault.example.com/healthz",
+    ])
     expect(scripted.warnings).toEqual([
       "The server is up, but its public URL didn't answer from this machine.\n" +
         "That's expected until HTTPS (or direct port) access is set up — and\n" +
@@ -264,7 +273,10 @@ describe("runUpgrade", () => {
     )
 
     expect(exitCode).toBe(1)
-    expect(scripted.spinnerMessages).toContain("stop: Image pull failed — see output above.")
+    expect(scripted.spinnerMessages).toEqual([
+      "start: Pulling ghcr.io/aliasunder/vault-cortex:latest",
+      "stop: Image pull failed — see output above.",
+    ])
   })
 
   it("exits 1 when docker run fails", async () => {
@@ -286,7 +298,7 @@ describe("runUpgrade", () => {
     )
 
     expect(exitCode).toBe(1)
-    expect(scripted.errors[0]).toContain("docker run failed")
+    expect(scripted.errors).toEqual(["docker run failed — see output above."])
   })
 
   it("reports success when the health check passes", async () => {
@@ -300,7 +312,12 @@ describe("runUpgrade", () => {
     )
 
     expect(exitCode).toBe(0)
-    expect(scripted.spinnerMessages).toContain("stop: Server is up — health check passed.")
+    expect(scripted.spinnerMessages).toEqual([
+      "start: Pulling ghcr.io/aliasunder/vault-cortex:latest",
+      "stop: Image pulled.",
+      "start: Waiting for the server to come up",
+      "stop: Server is up — health check passed.",
+    ])
   })
 
   it("reports failure when the health check times out", async () => {
@@ -322,9 +339,12 @@ describe("runUpgrade", () => {
     )
 
     expect(exitCode).toBe(1)
-    expect(scripted.spinnerMessages).toContain(
+    expect(scripted.spinnerMessages).toEqual([
+      "start: Pulling ghcr.io/aliasunder/vault-cortex:latest",
+      "stop: Image pulled.",
+      "start: Waiting for the server to come up",
       "stop: Server did not respond within 0 minutes — check: docker logs vault-cortex",
-    )
+    ])
   })
 
   it("uses the PORT from .env for health polling", async () => {

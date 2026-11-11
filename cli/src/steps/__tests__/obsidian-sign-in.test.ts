@@ -140,7 +140,7 @@ describe("captureObsidianToken", () => {
     })
 
     expect(token).toBeUndefined()
-    expect(scripted.warnings[0]).toBe("Could not sign in: 2FA code is incorrect")
+    expect(scripted.warnings).toEqual(["Could not sign in: 2FA code is incorrect"])
   })
 
   it("returns undefined with retry guidance when MFA retry fails", async () => {
@@ -157,9 +157,9 @@ describe("captureObsidianToken", () => {
 
     expect(token).toBeUndefined()
     expect(scripted.asked).toEqual(["Obsidian account email:", "Password:", "2FA code:"])
-    expect(scripted.warnings[0]).toBe(
+    expect(scripted.warnings).toEqual([
       "Could not sign in: 2FA code is incorrect\n" + "  Check your 2FA code and try again.",
-    )
+    ])
     expect(scripted.spinnerMessages).toEqual([
       "start: Signing in to Obsidian...",
       "stop: Two-factor authentication required.",
@@ -189,9 +189,9 @@ describe("captureObsidianToken", () => {
     })
 
     expect(token).toBeUndefined()
-    expect(scripted.warnings[0]).toBe(
+    expect(scripted.warnings).toEqual([
       "Request timed out — check your internet connection and try again.",
-    )
+    ])
   })
 
   it("omits 2FA hint when the MFA retry fails with a network error", async () => {
@@ -215,7 +215,7 @@ describe("captureObsidianToken", () => {
     })
 
     expect(token).toBeUndefined()
-    expect(scripted.warnings[0]).toBe("Could not sign in: fetch failed")
+    expect(scripted.warnings).toEqual(["Could not sign in: fetch failed"])
   })
 
   it("returns undefined on wrong password", async () => {
@@ -227,7 +227,7 @@ describe("captureObsidianToken", () => {
     })
 
     expect(token).toBeUndefined()
-    expect(scripted.warnings[0]).toBe("Could not sign in: Invalid email or password")
+    expect(scripted.warnings).toEqual(["Could not sign in: Invalid email or password"])
   })
 
   it("returns undefined on HTTP error", async () => {
@@ -239,7 +239,7 @@ describe("captureObsidianToken", () => {
     })
 
     expect(token).toBeUndefined()
-    expect(scripted.warnings[0]).toBe("Could not sign in: HTTP Error 500")
+    expect(scripted.warnings).toEqual(["Could not sign in: HTTP Error 500"])
   })
 
   it("returns undefined with a clear message on HTTP 429", async () => {
@@ -251,7 +251,7 @@ describe("captureObsidianToken", () => {
     })
 
     expect(token).toBeUndefined()
-    expect(scripted.warnings[0]).toBe("Could not sign in: HTTP Error 429")
+    expect(scripted.warnings).toEqual(["Could not sign in: HTTP Error 429"])
   })
 
   it("returns undefined on network error", async () => {
@@ -263,7 +263,7 @@ describe("captureObsidianToken", () => {
     })
 
     expect(token).toBeUndefined()
-    expect(scripted.warnings[0]).toBe("Could not sign in: fetch failed")
+    expect(scripted.warnings).toEqual(["Could not sign in: fetch failed"])
   })
 
   it("returns undefined with a timeout message when the request times out", async () => {
@@ -275,9 +275,9 @@ describe("captureObsidianToken", () => {
     })
 
     expect(token).toBeUndefined()
-    expect(scripted.warnings[0]).toBe(
+    expect(scripted.warnings).toEqual([
       "Request timed out — check your internet connection and try again.",
-    )
+    ])
   })
 
   it("returns undefined on non-JSON response", async () => {
@@ -289,9 +289,9 @@ describe("captureObsidianToken", () => {
     })
 
     expect(token).toBeUndefined()
-    expect(scripted.warnings[0]).toMatch(
-      /^Could not sign in: Unexpected response from Obsidian API \(/,
-    )
+    expect(scripted.warnings).toEqual([
+      expect.stringMatching(/^Could not sign in: Unexpected response from Obsidian API \(.+\)$/),
+    ])
   })
 
   it("returns undefined when the response is valid JSON but not an object", async () => {
@@ -303,9 +303,9 @@ describe("captureObsidianToken", () => {
     })
 
     expect(token).toBeUndefined()
-    expect(scripted.warnings[0]).toBe(
+    expect(scripted.warnings).toEqual([
       "Could not sign in: Unexpected response from Obsidian API (not a JSON object)",
-    )
+    ])
   })
 
   it("returns undefined when the response is missing the token field", async () => {
@@ -317,8 +317,8 @@ describe("captureObsidianToken", () => {
     })
 
     expect(token).toBeUndefined()
-    expect(scripted.warnings[0]).toBe(
+    expect(scripted.warnings).toEqual([
       "Could not sign in: Unexpected response from Obsidian API (no token field)",
-    )
+    ])
   })
 })

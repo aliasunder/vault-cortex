@@ -241,8 +241,11 @@ describe("runConfigure with picked settings", () => {
     ])
     expect(fetchedUrls).toEqual(["http://127.0.0.1:9100/healthz"])
     // The derived PUBLIC_URL follows the port and is reported as changed.
-    expect(readFileSync(envFilePath, "utf8").split("\n")).toContain(
-      "PUBLIC_URL=http://localhost:9100",
+    expect(readFileSync(envFilePath, "utf8")).toBe(
+      LOCAL_ENV_CONTENT.replace(
+        "PUBLIC_URL=http://localhost:8000",
+        "PUBLIC_URL=http://localhost:9100",
+      ).replace("PORT=8000", "PORT=9100"),
     )
     expect(scripted.logs).toEqual([
       `Updated PORT, PUBLIC_URL in ${targetDir}/.env.`,
@@ -442,10 +445,10 @@ describe("runConfigure with picked settings", () => {
     )
 
     expect(exitCode).toBe(0)
-    const envLines = readFileSync(envFilePath, "utf8").split("\n")
-    expect(envLines).toContain("PORT=9100")
     // A custom PUBLIC_URL is the user's own — never rewritten, only flagged.
-    expect(envLines).toContain("PUBLIC_URL=https://vault.example.com")
+    expect(readFileSync(envFilePath, "utf8")).toBe(
+      "MCP_AUTH_TOKEN=abc123\nVAULT_PATH=/home/user/MyVault\nPUBLIC_URL=https://vault.example.com\nPORT=9100\n",
+    )
     expect(scripted.warnings).toEqual([
       "PORT changed — make sure PUBLIC_URL (https://vault.example.com) still reaches the server.",
       `Container runtime not running — settings saved.\nApply the new settings with: npx vault-cortex@latest restart --dir "${targetDir}"`,
