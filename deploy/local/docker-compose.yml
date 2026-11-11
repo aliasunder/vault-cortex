@@ -72,9 +72,11 @@ services:
       - "${VAULT_PATH:?Set VAULT_PATH to your Obsidian vault folder}:/vault:rw"
       - mcp_data:/data
     ports:
-      # Published on this machine only. To reach the server from another
-      # device on your network, drop the "127.0.0.1:" prefix and set
-      # PUBLIC_URL in .env to the address that device uses.
+      # Published on this machine only. To reach the server from other
+      # computers on your network, drop the "127.0.0.1:" prefix and set
+      # PUBLIC_URL in .env to this computer's network address, such as
+      # http://192.168.1.20:8000. The local README's "Other computers on your
+      # network" section has the full steps.
       - "127.0.0.1:${PORT:-8000}:8000"
     healthcheck:
       test:

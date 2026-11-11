@@ -66,8 +66,8 @@ services:
       - ~/Vault:/vault:ro
       - mcp_local_data:/data
     ports:
-      # Published on this machine only: the token above is fixed and the
-      # mount is a real vault.
+      # Published on this machine only: the token above is public in this
+      # repository, and anyone who has it can read your ~/Vault.
       - "127.0.0.1:8000:8000"
 
 volumes:
