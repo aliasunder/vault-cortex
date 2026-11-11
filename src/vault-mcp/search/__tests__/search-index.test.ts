@@ -8566,20 +8566,26 @@ describe("background embedding waits for foreground work", () => {
     expect(embedder.embedBatch).toHaveBeenCalledTimes(1)
   })
 
-  it("a job superseded during the wait makes no model call", async () => {
-    const fixture = await createEmbeddingRaceIndex("note")
-    const firstVersion = fixture.upsert("First body text.")
-    const releaseCall = holdForegroundCall(fixture.searchIndex)
+  it.each([
+    { label: "note", sourceKind: "note" },
+    { label: "file", sourceKind: "file" },
+  ] as const)(
+    "a $label job superseded during the wait makes no model call",
+    async ({ sourceKind }) => {
+      const fixture = await createEmbeddingRaceIndex(sourceKind)
+      const firstVersion = fixture.upsert("First body text.")
+      const releaseCall = holdForegroundCall(fixture.searchIndex)
 
-    const firstEmbedding = fixture.embed("First body text.", firstVersion)
-    await letQueuedWorkRun()
-    fixture.upsert("Second body text.")
-    await releaseCall()
-    await firstEmbedding
+      const firstEmbedding = fixture.embed("First body text.", firstVersion)
+      await letQueuedWorkRun()
+      fixture.upsert("Second body text.")
+      await releaseCall()
+      await firstEmbedding
 
-    expect(fixture.embedder.embedText).not.toHaveBeenCalled()
-    expect(fixture.vectorCount()).toBe(0)
-  })
+      expect(fixture.embedder.embedText).not.toHaveBeenCalled()
+      expect(fixture.vectorCount()).toBe(0)
+    },
+  )
 })
 
 describe("canvas file content and links", () => {
