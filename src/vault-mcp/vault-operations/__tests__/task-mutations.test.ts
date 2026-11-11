@@ -1272,25 +1272,6 @@ kanban-plugin: board
       )
     })
 
-    it("rejects an empty assignBlockId on update instead of rewriting the note unchanged", async () => {
-      const vault = await createVault()
-      await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
-
-      await expect(
-        taskMutations.updateTask(
-          {
-            statusRegistry: DEFAULT_STATUS_REGISTRY,
-            vaultPath: vault,
-            path: "tasks.md",
-            blockId: "walk-dog",
-            assignBlockId: "",
-          },
-          logger,
-        ),
-      ).rejects.toThrow(new Error("assignBlockId cannot be empty (use null to remove the id)"))
-      expect(await readFile(join(vault, "tasks.md"), "utf8")).toBe(SIMPLE_NOTE)
-    })
-
     it("errors when heading is missing on a Kanban board", async () => {
       const vault = await createVault()
       await writeTestNote(vault, "board.md", KANBAN_BOARD)
@@ -2261,6 +2242,26 @@ kanban-plugin: board
       ).rejects.toThrow(new Error('blockId "dup" already exists in this note'))
       const content = await readTestNote(vault, "tasks.md")
       expect(content).toBe("- [ ] Task A ➕ 2026-01-01 ^dup  \n- [ ] Task B ➕ 2026-01-02 ^other\n")
+    })
+
+    it("rejects an empty assignBlockId instead of rewriting the note unchanged", async () => {
+      const vault = await createVault()
+      await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
+
+      await expect(
+        taskMutations.updateTask(
+          {
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
+            vaultPath: vault,
+            path: "tasks.md",
+            blockId: "walk-dog",
+            assignBlockId: "",
+          },
+          logger,
+        ),
+      ).rejects.toThrow(new Error("assignBlockId cannot be empty (use null to remove the id)"))
+      const content = await readTestNote(vault, "tasks.md")
+      expect(content).toBe(SIMPLE_NOTE)
     })
 
     it("replaces an existing block_id", async () => {
@@ -3590,6 +3591,36 @@ kanban-plugin: board
           `---\ntitle: Board\nkanban-plugin: board\n---\n\n## Active\n\n- [ ] Bravo ^bravo\n- [ ] Charlie ^charlie\n- [ ] Alpha ^alpha\n\n## Done\n`,
         )
         expect(result.changes).toEqual(["position: 1 → 3"])
+      })
+
+      it("same-lane reorder works in a lane whose heading has no text", async () => {
+        const vault = await createVault()
+        const board = `---\ntitle: Board\nkanban-plugin: board\n---\n\n## Active\n\n- [ ] Alpha ^alpha\n\n## \n\n- [ ] Bravo ^bravo\n- [ ] Charlie ^charlie\n\n## Done\n`
+        await writeTestNote(vault, "board.md", board)
+
+        const result = await taskMutations.updateTask(
+          {
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
+            vaultPath: vault,
+            path: "board.md",
+            blockId: "charlie",
+            position: 1,
+          },
+          logger,
+        )
+
+        expect(result).toEqual({
+          path: "board.md",
+          line: 12,
+          description: "Charlie",
+          block_id: "charlie",
+          heading: "",
+          changes: ["position: 2 → 1"],
+        })
+        const content = await readTestNote(vault, "board.md")
+        expect(content).toBe(
+          `---\ntitle: Board\nkanban-plugin: board\n---\n\n## Active\n\n- [ ] Alpha ^alpha\n\n## \n\n- [ ] Charlie ^charlie\n- [ ] Bravo ^bravo\n\n## Done\n`,
+        )
       })
 
       it("same-lane reorder skips NON_TASK checkboxes in position count", async () => {
