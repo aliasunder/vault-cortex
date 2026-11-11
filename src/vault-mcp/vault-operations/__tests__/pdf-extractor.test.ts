@@ -60,6 +60,7 @@ const captureChildLaunch = (child: ChildProcess) => {
       command,
       args,
       stdio: options?.stdio,
+      envNames: Object.keys(options?.env ?? {}).toSorted(),
       logDir: options?.env?.LOG_DIR,
       nodeOptions: options?.env?.NODE_OPTIONS,
       esbuildWorkerThreads: options?.env?.ESBUILD_WORKER_THREADS,
@@ -348,9 +349,11 @@ describe("PDF extraction ownership", () => {
     expect(await recovery).toEqual({ kind: "text", path: "second.pdf", text: "read text" })
     expect(child.send).not.toHaveBeenCalled()
   })
-  it("starts the source child directly on macOS with only its own heap and loader flags", async () => {
+  it("starts the source child directly on macOS with only its own flags and a minimal environment", async () => {
     vi.stubEnv("NODE_OPTIONS", "--inspect=127.0.0.1:0 --max-old-space-size=128")
     vi.stubEnv("ESBUILD_WORKER_THREADS", "1")
+    vi.stubEnv("MCP_AUTH_TOKEN", "test-token-that-must-not-reach-the-child")
+    vi.stubEnv("VAULT_PASSWORD", "test-password-that-must-not-reach-the-child")
     onTestFinished(() => {
       vi.unstubAllEnvs()
     })
@@ -369,6 +372,10 @@ describe("PDF extraction ownership", () => {
     await result
 
     expect(spawn).toHaveBeenCalledTimes(1)
+    // The child's environment is the process-level names the test host has set, plus LOG_DIR.
+    const inheritedNames = ["HOME", "LANG", "PATH", "TMPDIR", "TZ"].filter(
+      (name) => process.env[name] !== undefined,
+    )
     expect(launch).toHaveBeenCalledExactlyOnceWith({
       command: process.execPath,
       args: [
@@ -378,9 +385,10 @@ describe("PDF extraction ownership", () => {
         fileURLToPath(new URL("../pdf-extraction-child.ts", import.meta.url)),
       ],
       stdio: ["ignore", "ignore", "ignore", "ipc"],
+      envNames: [...inheritedNames, "LOG_DIR"].toSorted(),
       logDir: "none",
       nodeOptions: undefined,
-      esbuildWorkerThreads: "1",
+      esbuildWorkerThreads: undefined,
     })
   })
 
@@ -494,6 +502,7 @@ describe("PDF extraction ownership", () => {
         fileURLToPath(new URL("../pdf-extraction-child.ts", import.meta.url)),
       ],
       stdio: ["ignore", "ignore", "ignore", "ipc"],
+      envNames: expect.any(Array),
       logDir: "none",
       nodeOptions: undefined,
       esbuildWorkerThreads: "0",

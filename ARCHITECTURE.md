@@ -408,7 +408,7 @@ Search indexes file content in the `file_content` + `file_content_fts` tables, c
 
 - `server.ts` owns one lazy `vault-operations/pdf-extractor.ts` instance for
   tool reads, rebuilds and watcher updates. The child owns the safe file read,
-  validated IPC carries results to the parent, which owns index publication and request diagnostics. The child uses `LOG_DIR=none`, leaving the parent as the persistent log-file writer.
+  validated IPC carries results to the parent, which owns index publication and request diagnostics. The child uses `LOG_DIR=none`, leaving the parent as the persistent log-file writer, and receives only `PATH`, `HOME`, `TMPDIR`, `TZ` and `LANG` from the server's environment, so no token or vault setting enters the process that parses untrusted PDFs.
 - The child has a 512 MiB V8 heap limit, a Linux data limit of 512 MiB above its startup footprint and a 20 s
   active deadline. The parent applies the data limit with `prlimit` (util-linux, in the image)
   before the first request; when it cannot be applied, every PDF request fails as a reader

@@ -27,6 +27,18 @@ const execFileAsync = promisify(execFile)
 const CHILD_ENTRY = fileURLToPath(
   new URL(`./pdf-extraction-child${extname(fileURLToPath(import.meta.url))}`, import.meta.url),
 )
+// The child's paths and byte cap arrive over IPC, so it gets only what Node and tsx need to run;
+// the server's tokens and vault settings never enter the process that parses untrusted PDFs.
+const CHILD_ENVIRONMENT_NAMES = ["PATH", "HOME", "TMPDIR", "TZ", "LANG"] as const
+
+const childEnvironment = (): Record<string, string> => {
+  return Object.fromEntries(
+    CHILD_ENVIRONMENT_NAMES.flatMap((name) => {
+      const value = inheritedEnvironment[name]
+      return value === undefined ? [] : [[name, value]]
+    }),
+  )
+}
 
 export type PdfIndexExtraction =
   | { status: "extracted"; result: PdfTextResult }
@@ -137,10 +149,9 @@ export const createPdfExtractor = (params: {
       CHILD_ENTRY,
     ]
     const child = spawn(process.execPath, nodeArgs, {
-      // The child owns its Node flags; launcher/debug settings must not reach it.
+      // The child owns its Node flags, so NODE_OPTIONS stays out with everything else unlisted.
       env: {
-        ...inheritedEnvironment,
-        NODE_OPTIONS: undefined,
+        ...childEnvironment(),
         LOG_DIR: "none",
         // Avoid tsx's extra esbuild V8 isolate inflating the Linux startup footprint.
         ...(process.platform === "linux" && CHILD_ENTRY.endsWith(".ts")
