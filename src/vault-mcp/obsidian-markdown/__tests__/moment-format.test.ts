@@ -234,6 +234,22 @@ describe("dailyNoteFormatToNameFormat", () => {
   it("returns null when the file name holds an unsupported token", () => {
     expect(dailyNoteFormatToNameFormat("Do MMMM YYYY")).toBeNull()
   })
+
+  // Luxon throws on reading a name in either format, so a null keeps the
+  // forward-reference check from throwing on a date-shaped link.
+  it("returns null when the file name holds a week beside the date", () => {
+    expect(dailyNoteFormatToNameFormat("YYYY-MM-DD [W]WW")).toBeNull()
+  })
+
+  it("returns null when the file name holds a day of the year beside a month", () => {
+    expect(dailyNoteFormatToNameFormat("YYYY-MM-DDDD")).toBeNull()
+  })
+
+  it("accepts a W inside a [literal], which is not a week token", () => {
+    expect(dailyNoteFormatToNameFormat("YYYY-MM-DD [Week]")).toEqual({
+      luxonFormat: "yyyy-MM-dd 'Week'",
+    })
+  })
 })
 
 describe("matchesDailyNoteName", () => {

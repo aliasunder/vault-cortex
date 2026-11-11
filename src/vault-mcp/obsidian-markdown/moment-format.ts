@@ -134,17 +134,26 @@ const MONTH_TOKENS: ReadonlySet<string> = new Set(["MMMM", "MMM", "MM", "M"])
 const DAY_OF_MONTH_TOKENS: ReadonlySet<string> = new Set(["DD", "D"])
 const DAY_OF_YEAR_TOKENS: ReadonlySet<string> = new Set(["DDDD", "DDD"])
 
-/** Whether the format's tokens fix one calendar day: a year, plus a month
- *  and a day of the month, or a day of the year. Luxon fills a missing unit
- *  from today's date, so a format without one would match names such as
- *  "07" or "1984" that are not dates. */
+/** Whether the format's tokens fix one calendar day, one way: a year, plus a
+ *  month and a day of the month, or a day of the year.
+ *  - Luxon fills a missing unit from today's date, so a format without one
+ *    would match names such as "07" or "1984" that are not dates.
+ *  - Luxon throws, rather than returning an invalid date, on a name that
+ *    also holds a week, or a day of the year beside a month or day. */
 const namesCompleteDate = (momentFormat: string): boolean => {
-  const formatTokens = new Set(joinFormatSpans(momentFormat).match(MOMENT_TOKEN_RE) ?? [])
+  const joinedFormatSpans = joinFormatSpans(momentFormat)
+  const formatTokens = new Set(joinedFormatSpans.match(MOMENT_TOKEN_RE) ?? [])
   const hasTokenFrom = (tokenGroup: ReadonlySet<string>): boolean => {
     return [...tokenGroup].some((token) => formatTokens.has(token))
   }
   const hasMonthAndDay = hasTokenFrom(MONTH_TOKENS) && hasTokenFrom(DAY_OF_MONTH_TOKENS)
-  return hasTokenFrom(YEAR_TOKENS) && (hasMonthAndDay || hasTokenFrom(DAY_OF_YEAR_TOKENS))
+  const hasMonthOrDay = hasTokenFrom(MONTH_TOKENS) || hasTokenFrom(DAY_OF_MONTH_TOKENS)
+  const hasDayOfYear = hasTokenFrom(DAY_OF_YEAR_TOKENS)
+  // Every "W" outside a literal is Moment's ISO week token.
+  const fixesDayTwice = joinedFormatSpans.includes("W") || (hasDayOfYear && hasMonthOrDay)
+
+  if (fixesDayTwice) return false
+  return hasTokenFrom(YEAR_TOKENS) && (hasMonthAndDay || hasDayOfYear)
 }
 
 /** The file-name part of a daily-note format, as a Luxon format. The object
@@ -153,8 +162,8 @@ type DailyNoteNameFormat = { luxonFormat: string }
 
 /** Converts a daily-note format (Moment tokens) to the Luxon format of the
  *  note's file name, for matchesDailyNoteName. Null when that file name
- *  holds an unsupported token or does not fix one calendar day, since no
- *  name can then be read back as a date. The folder part is not checked,
+ *  holds an unsupported token or does not fix one calendar day one way, since
+ *  no name can then be read back as a date. The folder part is not checked,
  *  because the names matched here carry no folder. */
 export const dailyNoteFormatToNameFormat = (momentFormat: string): DailyNoteNameFormat | null => {
   // Obsidian trims the formatted date before naming the file, so a format
