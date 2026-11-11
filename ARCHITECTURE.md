@@ -1417,7 +1417,7 @@ Docker hardening, and durability seatbelts above.
   SQL written in the code, and the one interpolated number (the snippet size)
   passes through `Number()`.
 - **`sanitizeFtsQuery()`** (`fts-query.ts`): strips FTS5 metacharacters
-  (`*^():`), reserved words (`AND`/`OR`/`NOT`/`NEAR`), and
+  (`*^():`), the uppercase reserved words (`AND`/`OR`/`NOT`/`NEAR`), and
   compound-joiner punctuation so user input can never produce FTS5 syntax
   errors or operator injection.
 - **`escapeLikeWildcards()`** (`search-helpers.ts`): escapes `\`, `%`,
