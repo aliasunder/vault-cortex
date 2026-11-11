@@ -173,6 +173,13 @@ truth. Key points:
 
 ## Pull Request Process
 
+A new feature (a tool, a parameter, a change to what a tool does) starts as a
+[feature request](https://github.com/aliasunder/vault-cortex/issues/new?template=feature_request.yml),
+so its design is agreed before any code exists. A bug fix can go straight to
+a PR. A feature PR ships with its tests (the unit, integration and
+error-contract cases AGENTS.md asks for) and updates every surface listed
+under [Files that track feature surface](./AGENTS.md#files-that-track-feature-surface).
+
 1. **Branch from `main`** — use a descriptive prefix (`feat/`, `fix/`, `docs/`,
    `refactor/`, `chore/`)
 2. **Keep PRs focused** — one logical change per PR

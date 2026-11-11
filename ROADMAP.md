@@ -4,7 +4,7 @@ Where vault-cortex is heading over roughly the next year — and what it
 deliberately won't do. Priorities shift with real-world usage, and this
 document is updated when they do.
 
-_Last updated: 2026-09-02._
+_Last updated: 2026-11-11._
 
 ## Direction
 
@@ -40,13 +40,10 @@ The foundations the planned work builds on:
 ### Setup without a terminal
 
 One-click deploys (Render, Railway) and browser-based Obsidian Sync
-sign-in already remove most of the command line from remote setup. Next:
-
-- `vault-cortex init` starts the container into setup mode when no Sync
-  token is available, so the browser flow covers the CLI path too
-- Platform-aware hints on the setup page (where to find your token on
-  Render vs Railway)
-- Friction fixes as early adopters work through the guides
+sign-in remove most of the command line from remote setup, and
+`vault-cortex init` starts the server into that sign-in page when no Sync
+token is at hand. What remains is friction fixes as early adopters work
+through the guides.
 
 ### Guided vault onboarding
 
@@ -60,23 +57,27 @@ that is ready to serve through vault-cortex on day one.
 
 ### Deeper task management
 
-- Checklist progress on task listings, so filtered board reads show how
-  far along each card is
-- Safer structured edits — atomic markdown table row operations instead
-  of find-and-replace splices
+Safer structured edits — atomic markdown table row operations instead of
+find-and-replace splices.
 
 ### v1.0.0 — a stability contract
 
 A v1 release that MCP clients can build on:
 
-- A final naming sweep across tool inputs and outputs
-- Unknown input parameters rejected instead of silently ignored
+- Unknown input parameters rejected at every nesting level instead of
+  silently ignored
 - A written compatibility policy for what future versions may change
 
 ### Files beyond markdown
 
-Write support for canvas, base, and other text files, closing the gap
-where remote vaults can read but not edit them.
+The server reads canvas, Bases and other non-markdown files but cannot
+write them. Planned:
+
+- Write support for text files, with canvas and Bases files first, since
+  Obsidian itself edits them
+- One type rule for writes and deletes, decided by a file's content rather
+  than an extension list
+- Image and PDF attachments as a later input on the same write tool
 
 ### Supply-chain hardening
 
