@@ -601,7 +601,8 @@ Vector tables persist across restarts and rebuilds (only FTS, notes, links, task
 - Each successful source upsert returns a unique `sourceVersion`. Queued watcher jobs and background rebuild snapshots retain that version, so deletion or replacement invalidates earlier work even when content or modification time repeats.
 - Note, file-content and memory-entry writers check the captured version before model work and after each model await. Obsolete jobs skip derived writes, note/file tail pruning and later memory batches.
 - The watcher assigns an event token before reading each file and checks it before indexing. Unlink or a newer event invalidates earlier reads; embedding stays serialized per path to limit model concurrency.
-- Model inference runs synchronously on the server's one JavaScript thread, so background embedding yields to requests. Each background model call (a chunk, or a 16-entry memory batch) waits while a tool call or prompt is running, for at most 5 seconds (`BACKGROUND_EMBED_MAX_WAIT_MS`). The keyword index is written before embedding is queued, so only vector results lag.
+- Model inference runs synchronously on the server's one JavaScript thread, so background embedding yields to requests. Each background model call (a chunk, or a 16-entry memory batch) waits while a tool call or prompt is running, for at most 5 seconds (`BACKGROUND_EMBED_MAX_WAIT_MS`).
+- Notes and non-PDF files reach the keyword index before their embedding is queued, so a wait delays only their vector results. The PDF pass embeds each PDF before extracting the next, so a wait there also delays later PDFs' keyword results.
 
 **Embedding pipeline:** Controlled by `EMBEDDING_ENABLED` (default: `true`). Markdown syntax is stripped before embedding (`plaintext.ts`). Short notes (under 500 body tokens) stay a single title-prefixed chunk. Longer notes split into per-heading sections via `chunker.ts`:
 
