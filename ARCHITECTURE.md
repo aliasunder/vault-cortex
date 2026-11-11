@@ -410,15 +410,17 @@ Search indexes file content in the `file_content` + `file_content_fts` tables, c
   tool reads, rebuilds and watcher updates. The child owns the safe file read,
   validated IPC carries results to the parent, which owns index publication and request diagnostics. The child uses `LOG_DIR=none`, leaving the parent as the persistent log-file writer.
 - The child has a 512 MiB V8 heap limit, a Linux data limit of 512 MiB above its startup footprint and a 20 s
-  active deadline. Linux requests `oom_score_adj=1000` on a best-effort basis.
+  active deadline. The parent applies the data limit with `prlimit` (util-linux, in the image)
+  before the first request; when it cannot be applied, every PDF request fails as a reader
+  start failure and the log names the cause. Linux requests `oom_score_adj=1000` on a best-effort basis.
   These are not RSS ceilings; macOS development relies on heap/deadline because
   its data limit does not constrain mmap.
 - One child runs one job at a time. Tool reads precede queued indexing;
   queued watcher jobs coalesce by path. A failed child is reaped before its
   replacement starts, and shutdown kills it before requests drain.
 - The parent checks `MAX_FILE_BYTES` before requesting index extraction;
-  the child's bounded safe read checks again. A file that exceeds the cap
-  remains searchable by name. Equality is accepted.
+  the child's bounded safe read checks again. A file over the cap remains
+  searchable by name; a file exactly at the cap is read.
 - PDF names and current metadata publish first, with old text, chunks and
   vectors removed. Extraction starts after listen, including held and live
   watcher events. Successful text and its version-bound embedding publish
