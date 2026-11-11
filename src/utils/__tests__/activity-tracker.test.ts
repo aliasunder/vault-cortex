@@ -103,6 +103,27 @@ describe("createActivityTracker", () => {
     work.resolve(undefined)
   })
 
+  it("keeps a waiter's deadline fixed when new work starts during the wait", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
+    const tracker = createActivityTracker()
+    const firstWork = Promise.withResolvers<undefined>()
+    const laterWork = Promise.withResolvers<undefined>()
+
+    void tracker.track(() => firstWork.promise)
+    const isIdle = watchSettlement(tracker.whenIdle({ maxWaitMs: 5000 }))
+    await vi.advanceTimersByTimeAsync(3000)
+    void tracker.track(() => laterWork.promise)
+
+    await vi.advanceTimersByTimeAsync(1999)
+    expect(isIdle()).toBe(false)
+
+    await vi.advanceTimersByTimeAsync(1)
+    expect(isIdle()).toBe(true)
+
+    firstWork.resolve(undefined)
+    laterWork.resolve(undefined)
+  })
+
   it("lets a later waiter wait again after an earlier one timed out", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
     const tracker = createActivityTracker()
