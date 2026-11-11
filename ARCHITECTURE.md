@@ -207,7 +207,7 @@ To remove a single entry from a memory file, use `vault_delete_memory`.
 `vault_move_note` moves or renames a note and rewrites every link across the vault that resolves to it, mirroring Obsidian's built-in rename:
 
 - **Every link form:** wikilinks (including aliases, heading anchors, and embeds), markdown links, and frontmatter links, resolved with the same logic as the link-graph tools
-- **Canvas files:** links in text cards are rewritten like note links; the link index does not record them, so the move finds them with its own scan ([File I/O safety](#file-io-safety)). A file card that opens the moved note gets the note's new path, because Obsidian opens a file card by its exact path; an edited Canvas is saved in Obsidian's own `.canvas` layout
+- **Canvas files:** links in text cards are rewritten like note links. A file card that opens the moved note gets the note's new path, because Obsidian opens a file card by its exact path; the move's own scan also finds a file card that names the note by a shorter path, which the link index stores as written ([File I/O safety](#file-io-safety)). An edited Canvas is saved in Obsidian's own `.canvas` layout
 - **Minimal rewrites:** apart from Canvas file cards, a link is rewritten only when leaving it unchanged would break it, or would keep the old letter case after the note's file name changes
 - **Guardrails:** refuses to overwrite an existing destination, and blocks moves out of or into protected folders
 
@@ -335,8 +335,8 @@ whole files/sections, or date-scoped entries across them with `on_or_after`;
 
 Link queries use a `links` table populated during indexing:
 
-- **Sources:** `[[wikilink]]` and `[text](target)` / `![alt](target)` markdown links in the note body (fence-aware parsing skips code blocks), plus `[[wikilink]]`s in frontmatter property values (e.g. `related:`). Canvas `file`-type node references are also extracted as links — text-node `[[wikilink]]`s are not. Markdown links to any vault target — notes (`.md`), images, PDFs, extensionless paths — are recognized; external URLs are excluded by URI-scheme detection.
-- **Resolution:** Each target is resolved against all known note paths covering Obsidian's three "New link format" modes:
+- **Sources:** `[[wikilink]]` and `[text](target)` / `![alt](target)` markdown links in the note body (fence-aware parsing skips code blocks), plus `[[wikilink]]`s in frontmatter property values (e.g. `related:`). A Canvas contributes two kinds of link: each file card, stored as the exact vault path it names, and the links typed in its text cards, read with the note-body grammar and resolved like a note's links. Markdown links to any vault target — notes (`.md`), images, PDFs, extensionless paths — are recognized; external URLs are excluded by URI-scheme detection.
+- **Resolution:** Each target other than a Canvas file card is resolved against all known note paths covering Obsidian's three "New link format" modes:
   1. Exact vault-relative path (path from vault folder)
   2. Path relative to the linking note (path from current file, including upward `../`)
   3. Basename (shortest-path-first for ambiguous basenames)
@@ -362,7 +362,7 @@ Link queries use a `links` table populated during indexing:
 `vault_read_file` reads non-markdown vault files, dispatching on the file's kind to the most useful representation per type. `obsidian-markdown/file-kinds.ts` maps the lowercased extension to a kind, so `Report.PDF` is a PDF. Reads, indexing, the note mover and the link tools take every non-markdown file's kind from it:
 
 1. **Images** (`.png`/`.jpg`/`.jpeg`/`.gif`/`.webp`) return an MCP `image` content block plus a one-line metadata text block: the path, the delivered format, dimensions and bytes, and, when the image was recompressed, its original dimensions and bytes. A shared fit-to-byte-budget pipeline (`utils/fit-image-to-byte-budget.ts`, built on sharp) makes oversized images deliverable: EXIF auto-orient → resize long edge to ≤1568px → walk a fixed quality ladder (JPEG via mozjpeg for opaque images, WebP for alpha — PNG has no quality knob) → shrink dimensions by √(budget/actual) if the ladder floor still exceeds the budget. Deterministic and terminating (bounded attempts, 64px floor); sharp's default `limitInputPixels` stays active as the decompression-bomb guard. The budget (`MAX_IMAGE_OUTPUT_BYTES`, default 48 KiB binary) is sized for the tightest mainstream client cap.
-2. **Canvas** (`.canvas`) linearizes to markdown via the pure `obsidian-markdown/canvas.ts` parser ([JSON Canvas 1.0](https://jsoncanvas.org)): group membership by spatial rect containment within the [nesting limit](#note-content-parsers) (innermost group wins; equal rects tiebreak deterministically by id), nodes in reading order (y, then x), and an edge list with node ids resolved to display names. Lenient parsing — unknown properties ignored, malformed entries skipped. `raw: true` skips the linearizer and returns the JSON source verbatim for full structural fidelity. Canvas content is also FTS-indexed (linearized text in `file_content` + `file_content_fts` tables, gated behind `FILE_TOOLS_ENABLED`) so canvas files appear in `vault_search` results with `kind: "file"`. Canvas `file`-type node references are extracted unconditionally into the `links` table for graph queries regardless of the feature gate.
+2. **Canvas** (`.canvas`) linearizes to markdown via the pure `obsidian-markdown/canvas.ts` parser ([JSON Canvas 1.0](https://jsoncanvas.org)): group membership by spatial rect containment within the [nesting limit](#note-content-parsers) (innermost group wins; equal rects tiebreak deterministically by id), nodes in reading order (y, then x), and an edge list with node ids resolved to display names. Lenient parsing — unknown properties ignored, malformed entries skipped. `raw: true` skips the linearizer and returns the JSON source verbatim for full structural fidelity. Canvas content is also FTS-indexed (linearized text in `file_content` + `file_content_fts` tables, gated behind `FILE_TOOLS_ENABLED`) so canvas files appear in `vault_search` results with `kind: "file"`. Canvas file cards and the links typed in text cards are extracted unconditionally into the `links` table for graph queries regardless of the feature gate.
 3. **Text formats** (`.svg`/`.json`/`.txt`/`.csv`/`.xml`/`.log`/`.yaml`/`.yml`/`.base`) pass through as text, without a leading byte-order mark, capped at a fixed 100 KiB output size (explicit error over silent truncation). They skip the NUL-byte check in item 5, so a NUL-padded log still reads. `start_line`/`limit` page any text result — text files, canvas renditions, PDF-extracted text — as a 1-based line window preceded by a window-metadata block stating the range, total line count, and next `start_line`; the cap applies to the window, and an unpaged read is byte-exact apart from that mark.
 4. **PDFs** (`.pdf`) return structured markdown reconstructed from layout-aware extraction (`unpdf`, based on Mozilla's PDF.js):
    - A document metadata header (title, page count, link count)
@@ -390,7 +390,7 @@ Search indexes file content in the `file_content` + `file_content_fts` tables, c
 
 | Kind                         | Indexed text                                                                                                      | Embedded |
 | ---------------------------- | ----------------------------------------------------------------------------------------------------------------- | -------- |
-| Canvas                       | Linearized outline; file cards also go to the link graph (see Canvas above)                                       | Yes      |
+| Canvas                       | Linearized outline; file cards and text-card links also go to the link graph (see Canvas above)                   | Yes      |
 | PDF                          | Text extracted by `obsidian-markdown/pdf.ts`; a scanned or image-only PDF has none and is found by file name only | Yes      |
 | Text formats (item 3)        | The file's first 100 KiB, which is all indexing reads; bytes that are not UTF-8 are replaced rather than refused  | Yes      |
 | HTML (`.html`/`.htm`)        | The text a browser shows, from `obsidian-markdown/html.ts`; a page over 16 MiB is found by file name only         | Yes      |
@@ -1355,9 +1355,10 @@ Docker hardening, and durability seatbelts above.
     the user set to keep.
 - **Verify-then-preflight-then-commit move** (`note-mover.ts`): under the
   lock, `moveNote` first scans notes and Canvas files for backlinks the
-  search index missed (closing a lag race) or never records (links in
-  Canvas text cards). The scan skips a file it cannot read, or a Canvas
-  file whose JSON it cannot parse, with a warning, so such a file aborts
+  search index missed (closing a lag race) or stores unresolved (a Canvas
+  file card that names the note by a shorter path). The scan skips a file
+  it cannot read, or a Canvas file whose JSON it cannot parse, with a
+  warning, so such a file aborts
   the move only when the index lists it as a backlink. A note whose
   properties block is not valid YAML is scanned for its body links. When
   the scan finds new linking notes, the move releases the lock, adds them
