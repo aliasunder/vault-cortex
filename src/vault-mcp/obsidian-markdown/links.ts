@@ -21,27 +21,29 @@ const SCHEME_START = /[a-zA-Z]/
 /** RFC 3986 permits these characters after a URI scheme's first letter. */
 const SCHEME_CHARACTER = /[a-zA-Z0-9+.-]/
 
-/** A dot without the s flag stops at each of these line terminators. */
+/** JavaScript's line terminators: LF, CR, the line separator (U+2028) and
+ *  the paragraph separator (U+2029). */
 const LINE_TERMINATOR = /[\n\r\u2028\u2029]/
 
 /** Matches inline code spans so links inside backticks (e.g. `[[Note]]`) can be
  *  ignored. Global — use only with matchAll/replaceAll. */
 const INLINE_CODE_RE = /`+[^`\n]*`+/g
 
-/** Splits a matched wikilink into [, embed `!`, target, `#heading`, `|alias`].
- *  Anchored and non-global — safe for .exec(). scanWikilinks finds the links
- *  this parses, so the two must accept the same grammar. */
+/** Splits a matched wikilink into capture groups 1–4: embed `!`, target,
+ *  `#heading`, `|alias`. Anchored and non-global — safe for .exec().
+ *  scanWikilinks finds the links this parses, so the two must accept the same
+ *  grammar. */
 const WIKILINK_PARTS = /^(!?)\[\[([^\]#|]+)(#[^\]|]*)?(\|[^\]]+)?\]\]$/
 
-/** Splits a matched markdown link into [, `[text](`, path-without-ext,
- *  extension-with-dot, `#heading`, `)`]. Any extension is captured
+/** Splits a matched markdown link into capture groups 1–5: `[text](`,
+ *  path-without-ext, extension-with-dot, `#heading`, `)`. Any extension is captured
  *  ([text](Note.md), ![alt](image.png), [doc](file.pdf)); an extensionless
  *  target ([text](Extensionless%20Note)) parses with extension "". The
  *  extension group excludes "/" so a dot in a folder name is never misread
  *  as the extension. Anchored and non-global — safe for .exec().
  *  scanMarkdownLinks finds the links this parses: the two must agree on the
- *  target and `#heading` grammar, and the scanner alone skips URLs and
- *  heading-only targets. */
+ *  target and `#heading` grammar. The scanner alone skips URLs; neither
+ *  accepts a heading-only target (`[a](#Heading)`). */
 const MD_LINK_PARTS = /^(\[[^\]]*\]\()([^)#\s]+?)(\.[^/.#\s]+)?(#[^)\s]*)?(\))$/
 
 /** Safely decodes a URI component, falling back to the raw string if the
@@ -108,7 +110,8 @@ type MarkdownLinkParts = {
  *  must not be. */
 const scanWikilinks = (text: string, visit: (span: LinkSpan) => void): void => {
   // Each delimiter cursor outlives a failed opener and only moves forward: a
-  // later opener finds no delimiter before the one already found.
+  // later opener finds no delimiter before the one already found. This keeps
+  // the scan linear on a line where many `[[` never close.
   let targetEnd = 0
   let headingEnd = 0
   let closeBracket = 0
@@ -122,7 +125,6 @@ const scanWikilinks = (text: string, visit: (span: LinkSpan) => void): void => {
 
     while (targetEnd < text.length && !"]#|".includes(text.charAt(targetEnd))) targetEnd++
     if (targetEnd === targetStart) continue
-    // The grammar permits an empty heading, but requires a nonempty alias.
     let end = targetEnd
 
     if (text[end] === "#") {
@@ -177,8 +179,9 @@ const scanMarkdownLinks = (text: string, visit: (span: LinkSpan) => void): void 
       text[targetEnd] !== ")" &&
       text[targetEnd] !== "#" &&
       !WHITESPACE.test(text.charAt(targetEnd))
-    )
+    ) {
       targetEnd++
+    }
     if (targetEnd === targetStart) continue
     let end = targetEnd
 
@@ -188,8 +191,9 @@ const scanMarkdownLinks = (text: string, visit: (span: LinkSpan) => void): void 
         fragmentEnd < text.length &&
         text[fragmentEnd] !== ")" &&
         !WHITESPACE.test(text.charAt(fragmentEnd))
-      )
+      ) {
         fragmentEnd++
+      }
       end = fragmentEnd
     }
     if (text[end] !== ")") continue
@@ -203,11 +207,12 @@ const scanMarkdownLinks = (text: string, visit: (span: LinkSpan) => void): void 
  *  - Templater is an Obsidian plugin whose `<% … %>` (and `<%+ … %>`)
  *    expressions run when a template is applied; links in them are template
  *    code, not links in the note.
- *  - An expression must close on the line it opens on, even when `text`
- *    holds a whole note. */
+ *  - An expression must close before the next line terminator, so a CR or a
+ *    Unicode line separator inside `text` ends it too. */
 const maskTemplaterExpressions = (text: string): string => {
   const pieces: string[] = []
-  // The closer cursor outlives a failed opener: a later opener finds no `%>` before it.
+  // The closer cursor outlives a failed opener: a later opener finds no `%>`
+  // or line terminator before it.
   let close = 0
   let copiedThrough = 0
 
@@ -230,7 +235,9 @@ const maskTemplaterExpressions = (text: string): string => {
 }
 
 /** Finds wikilinks, then markdown links (not in text order), with the offsets a rewriter
- *  needs to splice replacements. Links in inline code are kept for each caller to exclude. */
+ *  needs to splice replacements. Links in inline code are kept for each caller to exclude.
+ *  The two kinds can overlap: in `[x](a[[b]])`, the wikilink sits inside the
+ *  markdown link's target. */
 const matchLinksInLine = (line: string): LinkMatch[] => {
   const matches: LinkMatch[] = []
   scanWikilinks(line, ({ start, end }) => {
@@ -345,8 +352,8 @@ const extractFromFrontmatter = (data: Record<string, unknown>): string[] => {
   const targets = new Set<string>()
 
   // Walks one frontmatter value, adding every [[wikilink]] target it finds to
-  // `targets`. A value is one of three shapes, so it recurses through the two
-  // container shapes down to the string leaves.
+  // `targets`. A string holds links, an array or object recurses into its
+  // values, and anything else (a number, a boolean, null) holds no link.
   const collectWikilinksFrom = (frontmatterValue: unknown): void => {
     // Leaf: a string may hold one or more wikilinks — pull out each target.
     if (typeof frontmatterValue === "string") {
@@ -512,8 +519,10 @@ const resolveAsset = (params: {
   }
 
   // A target with folder segments keeps them in the match (suffix on the
-  // stem); a bare name matches on the filename stem only. Either way this is
-  // the last tier: shortestOf returns null on no match — the unresolved case.
+  // stem, case folded like the other suffix tier); a bare name matches the
+  // filename stem exactly, as its SQL twin compares the basename with =.
+  // Either way this is the last tier: shortestOf returns null on no match —
+  // the unresolved case.
   if (target.includes("/")) {
     return shortestOf(
       allAssetPaths.filter((assetPath) =>
