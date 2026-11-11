@@ -182,7 +182,7 @@ type SectionSpan = Readonly<{
  *    (a table, a run of adjacent entries) that carry queries whose
  *    vocabulary spreads across child sections; heading-anchored chunks
  *    alone lose those queries. Child text therefore embeds twice — once
- *    here, once in its own chunk — a measured, deliberate overlap.
+ *    here, once in its own chunk — a deliberate overlap.
  *  - A deeper heading owns only the lines above the next heading of any
  *    level, so the leaf view stays disjoint and path-attributed.
  *
