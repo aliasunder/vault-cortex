@@ -52,7 +52,7 @@ export const registerSearchTools = ({
 
   // These parts read the same with or without embeddings, so both
   // vault_search description variants share them
-  const searchSyntaxText = `Unquoted terms use implicit AND with stemming ("running" also matches "run"); wrap in double quotes for exact phrases; punctuated terms (vault-cortex, deploy/local) are matched as exact adjacent-word phrases.`
+  const searchSyntaxText = `Unquoted terms use implicit AND with stemming ("running" also matches "run"); wrap in double quotes for exact phrases; punctuated terms (vault-cortex, deploy/local) are matched as exact adjacent-word phrases; *, ^, parentheses and colons instead split a term into separate words.`
 
   // File-content search applies only the folder filter, so hybrid search
   // drops file results whenever any other filter is set
