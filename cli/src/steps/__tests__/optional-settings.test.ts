@@ -543,6 +543,21 @@ describe("askOptionalSettings per-setting prompts", () => {
     expect(overrides).toEqual({ PORT: "8000" })
   })
 
+  it("offers the first free port when the PORT line is not a port and the default is taken", async () => {
+    const scripted = createScriptedPrompts([["PORT"], ""])
+
+    const overrides = await askOptionalSettings(
+      { portsInUse: new Map([[8000, "other-app"]]), mode: "local", envContent: "PORT=80a0\n" },
+      scripted.prompts,
+    )
+
+    expect(scripted.textCalls).toEqual([
+      { message: "Host port for the server:", defaultValue: "8001", placeholder: "8001" },
+    ])
+    expect(scripted.errors).toEqual([])
+    expect(overrides).toEqual({ PORT: "8001" })
+  })
+
   it("seeds the SYNC_MODE select with the current .env value", async () => {
     const scripted = createScriptedPrompts([["SYNC_MODE"], "bidirectional"])
 

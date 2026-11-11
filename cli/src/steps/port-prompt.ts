@@ -1,6 +1,5 @@
 import type { Prompts } from "../adapters/prompts.js"
 import {
-  DEFAULT_PORT,
   decidePort,
   isValidPort,
   portInUseMessage,
@@ -24,7 +23,7 @@ export const askFreePort = async (
   const { portsInUse } = params
   const suggestedPort = params.suggestedPort ?? suggestFreePort(portsInUse)
   // A value that isn't a port is never offered, since it would be rejected.
-  const offeredPort = isValidPort(suggestedPort) ? suggestedPort : String(DEFAULT_PORT)
+  const offeredPort = isValidPort(suggestedPort) ? suggestedPort : suggestFreePort(portsInUse)
   const answer = (
     await prompts.text("Host port for the server:", {
       defaultValue: offeredPort,
