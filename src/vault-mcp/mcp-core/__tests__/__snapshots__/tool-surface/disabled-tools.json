@@ -149,6 +149,40 @@
       }
     },
     {
+      "name": "vault_delete_file",
+      "title": "Delete File",
+      "description": "Delete an image or PDF attachment (.png, .jpg, .jpeg, .webp, .gif, .svg, .pdf) from the vault — the attachment companion to vault_delete_note.\n\nExample: vault_delete_file({ path: \"Reports/attachments/home.png\" })\nExample: vault_delete_file({ path: \"Scratch/tmp/shot.png\", prune_empty_folders: true })\n\nWhen to use: removing an attachment you wrote that is no longer embedded anywhere. Notes that embed it show a broken embed afterwards; check with vault_get_backlinks first.\n\nBehavior: Follows the vault's Deleted files setting like a note delete (under Obsidian Sync the file is deleted, and Sync's version history is the recovery path). Protected paths are refused.\n\nErrors:\n- \"unsupported attachment type\" — only .png, .jpg, .jpeg, .webp, .gif, .svg, .pdf files can be deleted with this tool\n- \"not a file: … is a markdown note\" — the path ends in .md; delete notes with vault_delete_note\n- \"file not found: …\" — no file exists at that path; discover paths with vault_list_files\n- \"cannot delete protected path\" — the path sits under a protected folder\n- \"absolute path blocked\" / \"path traversal blocked\" / \"hidden path blocked\" — pass a vault-relative path with no dot-prefixed part\n- \"concurrent write in progress\" — another write to this note is in flight; retry\n- \"ENAMETOOLONG: …\" or another filesystem error — the message says what to do\n\nReturns: a one-line confirmation, noting a trash location and pruned folders when any.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Vault-relative path of the file to delete, including its extension."
+          },
+          "prune_empty_folders": {
+            "default": false,
+            "description": "When true, also remove parent folders the delete leaves empty. Default false.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
       "name": "vault_delete_memory",
       "title": "Delete Memory Entry",
       "description": "Delete a single dated entry from a memory file in About Me/.\n\nExample: vault_delete_memory({ file: \"Opinions\", section: \"Tools and workflows (newest first)\", date: \"2026-05-01\", entry: \"Prefer X over Y\" })\nExample: vault_delete_memory({ file: \"Routines\", section: \"Daily/weekly rhythm (newest first)\", date: \"2026-03-10\", entry: \"Gym Tue/Thu at 7am\" }) — prune an expired entry from an entry-policy: living file\n\nWhen to use: Removing an entry that was wrong when it was written. Memory files are append-only by default, so do NOT delete to reflect a change: append the new state via vault_update_memory instead. The exception is a file whose properties declare `entry-policy: living` (check via vault_list_memory_files) — a current-state file where deleting an expired entry is the intended maintenance. Call vault_get_memory(file, section) first to see exact entry text for matching.\nPrefer vault_delete_note for deleting whole notes; it refuses protected paths, About Me/ among them.\n\nParameters:\n- date + entry together pick the bullet line within the given section; identical copies make the match ambiguous. The entry text matches the bullet's first line only.\n- section scopes the match — an identical entry under a different heading is not found.\n\nBehavior: The delete also removes the lines that continue the matched entry.\n\nErrors:\n- \"memory file not found\" — call vault_list_memory_files to discover valid names.\n- \"memory file must not start with a dot\" / \"… must be a bare name without path separators\" / \"… must be named without .md\" — each message names the part of the name to drop\n- \"date must be YYYY-MM-DD\" — pass the entry's date exactly as the file shows it, zero-padded.\n- \"section not found: …\" — no H2 heading matches; the message lists the file's sections\n- \"no entry matching …\" — verify the exact text with vault_get_memory(file, section).\n- \"ambiguous: N entries match …\" — remove the extra copy with vault_delete_span (first_match: true) or a manual edit, then retry.\n- \"refusing memory write: … would shrink content\" — the delete would remove more than half the file; re-read it with vault_get_memory, and remove an entry that really is that large with vault_delete_span or a manual edit.\n- \"cannot read memory file …\" — the file can't be read: check file against vault_list_memory_files and shorten an over-long name; otherwise ask the vault's owner to fix its permissions\n- \"ENAMETOOLONG: …\" or another filesystem error — the message says what to do\n- \"memory file …: the note would open with a properties block …\" — saving would turn the file's opening lines into a properties block the server can't keep; the error says how to avoid it\n\nReturns: \"Deleted entry from About Me/<file>.md → ## <section>\".",
@@ -1846,6 +1880,46 @@
         },
         "required": [
           "path"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "vault_write_file",
+      "title": "Write File",
+      "description": "Write an image or PDF attachment into the vault from base64 content — the binary companion to vault_write_note text note writes, so a note can embed screenshots, diagrams, or documents with ![[…]].\n\nExample: vault_write_file({ path: \"Reports/attachments/home.png\", content_base64: \"iVBORw0KGgo…\" })\nExample: vault_write_file({ path: \"Reports/attachments/home.png\", content_base64: \"…\", overwrite: true }) — replace an existing file\n\nWhen to use: saving a screenshot, chart, or PDF that a note should embed. Write the file first, then put the returned embed (e.g. ![[Reports/attachments/home.png]]) in the note. Read it back with vault_read_file. Remove it with vault_delete_file.\n\nBehavior: Creates missing parent folders. The save is atomic and syncs to the owner's devices like any other vault change. Allowed types: .png, .jpg, .jpeg, .webp, .gif, .svg, .pdf. The content must match the extension (a PNG signature for .png, and so on). A data: URL prefix, whitespace, and base64url are accepted.\n\nErrors:\n- \"unsupported attachment type\" — the extension isn't one of .png, .jpg, .jpeg, .webp, .gif, .svg, .pdf\n- \"not a file: … is a markdown note\" — the path ends in .md; write notes with vault_write_note\n- \"file already exists\" — pass overwrite: true to replace it, or pick another path\n- \"invalid base64\" / \"empty content\" — send the file's bytes base64-encoded\n- \"content does not match file type\" — the bytes aren't that file type; fix the extension or the content\n- \"file too large\" — the decoded file is over 10 MiB; shrink or split it\n- \"cannot write file … that path is not a file\" — a folder sits at that path\n- \"absolute path blocked\" / \"path traversal blocked\" / \"hidden path blocked\" — pass a vault-relative path with no dot-prefixed part\n- \"concurrent write in progress\" — another write to this note is in flight; retry\n- \"ENAMETOOLONG: …\" or another filesystem error — the message says what to do\n\nReturns: JSON with path (canonical vault-relative path), bytes (decoded size), replaced (true when an existing file was overwritten), and embed (the ![[path]] string to put in a note).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Vault-relative path for the file, including its extension (one of .png, .jpg, .jpeg, .webp, .gif, .svg, .pdf), e.g. \"Reports/attachments/home.png\"."
+          },
+          "content_base64": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The file's bytes, base64-encoded (max 10 MiB decoded)."
+          },
+          "overwrite": {
+            "default": false,
+            "description": "Replace the file if it already exists. Default false.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "path",
+          "content_base64"
         ],
         "$schema": "http://json-schema.org/draft-07/schema#",
         "additionalProperties": false

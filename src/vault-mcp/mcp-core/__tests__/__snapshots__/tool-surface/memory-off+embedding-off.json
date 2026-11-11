@@ -150,6 +150,40 @@
       }
     },
     {
+      "name": "vault_delete_file",
+      "title": "Delete File",
+      "description": "Delete an image or PDF attachment (.png, .jpg, .jpeg, .webp, .gif, .svg, .pdf) from the vault — the attachment companion to vault_delete_note.\n\nExample: vault_delete_file({ path: \"Reports/attachments/home.png\" })\nExample: vault_delete_file({ path: \"Scratch/tmp/shot.png\", prune_empty_folders: true })\n\nWhen to use: removing an attachment you wrote that is no longer embedded anywhere. Notes that embed it show a broken embed afterwards; check with vault_get_backlinks first.\n\nBehavior: Follows the vault's Deleted files setting like a note delete (under Obsidian Sync the file is deleted, and Sync's version history is the recovery path). Protected paths are refused.\n\nErrors:\n- \"unsupported attachment type\" — only .png, .jpg, .jpeg, .webp, .gif, .svg, .pdf files can be deleted with this tool\n- \"not a file: … is a markdown note\" — the path ends in .md; delete notes with vault_delete_note\n- \"file not found: …\" — no file exists at that path; discover paths with vault_list_files\n- \"cannot delete protected path\" — the path sits under a protected folder\n- \"absolute path blocked\" / \"path traversal blocked\" / \"hidden path blocked\" — pass a vault-relative path with no dot-prefixed part\n- \"concurrent write in progress\" — another write to this note is in flight; retry\n- \"ENAMETOOLONG: …\" or another filesystem error — the message says what to do\n\nReturns: a one-line confirmation, noting a trash location and pruned folders when any.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Vault-relative path of the file to delete, including its extension."
+          },
+          "prune_empty_folders": {
+            "default": false,
+            "description": "When true, also remove parent folders the delete leaves empty. Default false.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
       "name": "vault_delete_note",
       "title": "Delete Note",
       "description": "Delete a markdown note, moving it to the vault's .trash/ folder or removing it for good as the vault's Obsidian \"Deleted files\" setting directs.\n\nExample: vault_delete_note({ path: \"Scratch/temp.md\" })\nExample: vault_delete_note({ path: \"Archive/2024/old.md\", prune_empty_folders: true }) — also remove \"Archive/2024\" (and \"Archive\") if deleting the note empties them.\n\nWhen to use: Removing a note you no longer need.\nTo relocate a note, use vault_move_note instead.\nTo replace a note's content, use vault_write_note with overwrite: true instead.\n\nBehavior:\n- The \"Deleted files\" setting decides the outcome, which the caller can't choose or see in advance:\n  - \"Move to system trash\" moves the note to `.trash/`. Notes this server moved there are deleted after its retention period (TRASH_RETENTION_DAYS: 30 days by default, never when set to none).\n  - \"Move to Obsidian trash\" moves the note to `.trash/` and keeps it forever.\n  - \"Permanently delete\" removes the note for good.\n- Links to the note from other notes become broken; list them first with vault_get_backlinks. Protected paths are refused: About Me/ and the daily notes folder (Daily Notes/ by default; vault_get_daily_note's path shows the folder in use; not protected when Obsidian's Daily Notes folder setting is the vault root or blank).\n\nParameters:\n- prune_empty_folders keeps a folder that holds any file, even a hidden .DS_Store. Pruning is best-effort: a folder that can't be removed never fails the call.\n\nErrors:\n- \"cannot delete protected path\" — the path sits under a protected folder; ask the vault's owner to delete the note in Obsidian\n- \"path must end in …\" — add the .md extension\n- \"absolute path blocked\" / \"path traversal blocked\" / \"hidden path blocked\" — pass a vault-relative path with no dot-prefixed part\n- \"concurrent write in progress\" — another write to this note is in flight; retry\n- \"note not found: …\" — verify path with vault_list_notes\n- \"cannot move to trash … — 100 collisions in .trash/\" — .trash/ holds this name and 100 numbered copies; ask the vault's owner to clear old copies, then retry\n- \"cannot move to trash …\" without \"100 collisions\" — the note stays put; ask the vault's owner to fix .trash/ (e.g. a plain file blocks a needed folder), then retry\n- \"cannot delete …\" (other than a protected path) — the note stays put; ask the vault's owner to fix the cause (e.g. permissions), then retry\n- \"ENAMETOOLONG: …\" or another filesystem error — the message says what to do; the note stays put\n- \"cannot read trash config from .obsidian/app.json\" — ask the vault's owner to repair it, then retry\n- \"cannot read daily notes config from .obsidian/daily-notes.json\" — the file that names the protected daily notes folder can't be parsed; ask the vault's owner to repair it, or the server's operator to set DAILY_NOTES_FOLDER or PROTECTED_PATHS, then retry\n\nReturns: Confirmation message naming the outcome — \"Deleted <path>\" for permanent removal, \"Moved <path> to trash (<.trash/ path>)\" when the note landed in .trash/. Notes how many empty folders were pruned when any were.",
@@ -1703,6 +1737,46 @@
         },
         "required": [
           "path"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "vault_write_file",
+      "title": "Write File",
+      "description": "Write an image or PDF attachment into the vault from base64 content — the binary companion to vault_write_note text note writes, so a note can embed screenshots, diagrams, or documents with ![[…]].\n\nExample: vault_write_file({ path: \"Reports/attachments/home.png\", content_base64: \"iVBORw0KGgo…\" })\nExample: vault_write_file({ path: \"Reports/attachments/home.png\", content_base64: \"…\", overwrite: true }) — replace an existing file\n\nWhen to use: saving a screenshot, chart, or PDF that a note should embed. Write the file first, then put the returned embed (e.g. ![[Reports/attachments/home.png]]) in the note. Read it back with vault_read_file. Remove it with vault_delete_file.\n\nBehavior: Creates missing parent folders. The save is atomic and syncs to the owner's devices like any other vault change. Allowed types: .png, .jpg, .jpeg, .webp, .gif, .svg, .pdf. The content must match the extension (a PNG signature for .png, and so on). A data: URL prefix, whitespace, and base64url are accepted.\n\nErrors:\n- \"unsupported attachment type\" — the extension isn't one of .png, .jpg, .jpeg, .webp, .gif, .svg, .pdf\n- \"not a file: … is a markdown note\" — the path ends in .md; write notes with vault_write_note\n- \"file already exists\" — pass overwrite: true to replace it, or pick another path\n- \"invalid base64\" / \"empty content\" — send the file's bytes base64-encoded\n- \"content does not match file type\" — the bytes aren't that file type; fix the extension or the content\n- \"file too large\" — the decoded file is over 10 MiB; shrink or split it\n- \"cannot write file … that path is not a file\" — a folder sits at that path\n- \"absolute path blocked\" / \"path traversal blocked\" / \"hidden path blocked\" — pass a vault-relative path with no dot-prefixed part\n- \"concurrent write in progress\" — another write to this note is in flight; retry\n- \"ENAMETOOLONG: …\" or another filesystem error — the message says what to do\n\nReturns: JSON with path (canonical vault-relative path), bytes (decoded size), replaced (true when an existing file was overwritten), and embed (the ![[path]] string to put in a note).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Vault-relative path for the file, including its extension (one of .png, .jpg, .jpeg, .webp, .gif, .svg, .pdf), e.g. \"Reports/attachments/home.png\"."
+          },
+          "content_base64": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The file's bytes, base64-encoded (max 10 MiB decoded)."
+          },
+          "overwrite": {
+            "default": false,
+            "description": "Replace the file if it already exists. Default false.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "path",
+          "content_base64"
         ],
         "$schema": "http://json-schema.org/draft-07/schema#",
         "additionalProperties": false

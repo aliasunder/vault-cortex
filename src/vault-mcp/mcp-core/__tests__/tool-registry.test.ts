@@ -102,6 +102,11 @@ describe("TOOL_REGISTRY", () => {
       "vault_memory_recall",
       "vault_update_memory",
     ])
-    expect(assetTools.toSorted()).toEqual(["vault_list_files", "vault_read_file"])
+    expect(assetTools.toSorted()).toEqual([
+      "vault_delete_file",
+      "vault_list_files",
+      "vault_read_file",
+      "vault_write_file",
+    ])
   })
 })

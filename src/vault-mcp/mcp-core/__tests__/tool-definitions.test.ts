@@ -1815,7 +1815,12 @@ describe("MEMORY_ENABLED=false", () => {
 })
 
 describe("FILE_TOOLS_ENABLED=false", () => {
-  const FILE_TOOLS = [TOOL_NAMES.VAULT_READ_FILE, TOOL_NAMES.VAULT_LIST_FILES] as const
+  const FILE_TOOLS = [
+    TOOL_NAMES.VAULT_READ_FILE,
+    TOOL_NAMES.VAULT_LIST_FILES,
+    TOOL_NAMES.VAULT_WRITE_FILE,
+    TOOL_NAMES.VAULT_DELETE_FILE,
+  ] as const
 
   const FILE_TOOL_SET = new Set<string>(FILE_TOOLS)
   const EXPECTED_NON_FILE_TOOLS = ALL_TOOL_NAMES.filter((toolName) => !FILE_TOOL_SET.has(toolName))
