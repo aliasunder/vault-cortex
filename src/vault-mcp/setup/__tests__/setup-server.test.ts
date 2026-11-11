@@ -33,8 +33,12 @@ type SetupServerProcess = {
 
 /** Spawn the real entry point with only the given environment — the test
  *  controls every variable the server reads, so nothing from the runner's
- *  shell leaks in. */
-const spawnSetupServer = async (env: Record<string, string>): Promise<SetupServerProcess> => {
+ *  shell leaks in. A variable given as undefined is left out of the child's
+ *  environment (spawn skips undefined values), so a test can unset one of
+ *  the values this function sets. */
+const spawnSetupServer = async (
+  env: Record<string, string | undefined>,
+): Promise<SetupServerProcess> => {
   const port = await freePort()
   const vaultPath = await mkdtemp(join(tmpdir(), "setup-server-vault-"))
   onTestFinished(() => rm(vaultPath, { recursive: true, force: true }))
@@ -178,6 +182,35 @@ describe("setup-server entry point", () => {
       },
     ])
     expect(server.stderr()).toBe("")
+  })
+
+  // The default decides what a bare run exposes, so this boot removes the
+  // HOST the other tests pin and reads the address the server reports, which
+  // is the value listen() received.
+  it("listens on loopback only when HOST is unset", async () => {
+    const server = await spawnSetupServer({
+      HOME: tmpdir(),
+      MCP_AUTH_TOKEN: AUTH_TOKEN,
+      HOST: undefined,
+    })
+    await waitForStart(server)
+
+    const startedLine = server
+      .stdout()
+      .split("\n")
+      .find((line) => line.includes('"message":"setup server started"'))
+    const startedLog: unknown = JSON.parse(startedLine ?? "{}")
+
+    expect(startedLog).toEqual({
+      timestamp: expect.any(String),
+      level: "info",
+      name: "vault-cortex",
+      message: "setup server started",
+      source: expect.stringMatching(/^setup-server\.ts:\d+$/),
+      host: "127.0.0.1",
+      port: server.port,
+      setupUrl: "/setup",
+    })
   })
 
   it("writes the token under $HOME/.config when XDG_CONFIG_HOME is unset, then exits 0 for the restart", async () => {
