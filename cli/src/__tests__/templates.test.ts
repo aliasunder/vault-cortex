@@ -185,6 +185,16 @@ describe("instance naming in the compose templates", () => {
   )
 })
 
+describe("port publishing in the compose templates", () => {
+  it("local publishes the port on this machine's loopback address only", () => {
+    const composeFile: { services: { "vault-cortex": { ports: string[] } } } = parseYaml(
+      readRepoFile("deploy/local/docker-compose.yml"),
+    )
+
+    expect(composeFile.services["vault-cortex"].ports).toEqual(["127.0.0.1:${PORT:-8000}:8000"])
+  })
+})
+
 describe("hosted platform templates", () => {
   describe("render.yaml", () => {
     it("runs the image with the single-volume boot variables fixed", () => {
