@@ -4134,6 +4134,35 @@ kanban-plugin: board
         )
       })
 
+      it("moves a task from above the first heading to a heading whose text is the no-heading placeholder", async () => {
+        const vault = await createVault()
+        const note = `---\ntitle: Notes\n---\n- [ ] Loose ^loose\n\n## (before first heading)\n\n- [ ] Alpha ^alpha\n`
+        await writeTestNote(vault, "notes.md", note)
+
+        const result = await taskMutations.updateTask(
+          {
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
+            vaultPath: vault,
+            path: "notes.md",
+            blockId: "loose",
+            heading: "(before first heading)",
+          },
+          logger,
+        )
+
+        expect(result).toEqual({
+          path: "notes.md",
+          line: 6,
+          description: "Loose",
+          block_id: "loose",
+          heading: "(before first heading)",
+          changes: ["heading: (before first heading) → (before first heading)"],
+        })
+        expect(await readTestNote(vault, "notes.md")).toBe(
+          `---\ntitle: Notes\n---\n\n## (before first heading)\n- [ ] Loose ^loose\n\n- [ ] Alpha ^alpha\n`,
+        )
+      })
+
       it("status=done auto-move + position=bottom → bottom of done lane", async () => {
         const vault = await createVault()
         await writeTestNote(vault, "board.md", KANBAN_BOARD)

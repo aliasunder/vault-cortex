@@ -980,7 +980,9 @@ const moveTaskBlock = ({
 
   const currentHeading = headings.findLast((heading) => heading.startLine < taskLineIndex)
   const currentLane = currentHeading?.text ?? "(before first heading)"
-  const isSameLane = currentLane === targetLane
+  // A task above the first heading is in no lane. Comparing currentLane
+  // instead would match a heading whose text is the placeholder.
+  const isSameLane = currentHeading?.text === targetLane
 
   if (isSameLane && !position) return { lines, taskLineIndex, changes: [] }
 
@@ -2283,8 +2285,8 @@ const deleteTaskOnCompletion = async (
   }
 }
 
-/** The lane the update moves the task to, or undefined when the task stays
- *  where it is. Three paths resolve it:
+/** The lane to place the task in, or undefined when the call asks for no
+ *  move. Three paths resolve it:
  *   1. Explicit heading param — the caller picks the destination.
  *   2. Auto-done-lane — completing a top-level Kanban card with no
  *      explicit heading detects the board's done lane.
@@ -2334,11 +2336,11 @@ const resolveTargetLane = ({
  *     (deleteTaskOnCompletion), or move the task to its lane and append
  *     its checklist items, then write the note.
  *
- *  Line numbers shift twice. The spawn shifts every line below it, and the
- *  rewritten properties block can have a different number of lines. So
- *  the task is found and its prior values read on the note as read, and
- *  lines reported for tasks that survive the write are counted on the note
- *  as written. */
+ *  Line numbers shift in two ways. Each splice (the spawn, the lane move,
+ *  the checklist append) shifts the lines after it, and the rewritten
+ *  properties block can have a different number of lines. So the task is
+ *  found and its prior values read on the note as read, and lines reported
+ *  for tasks that survive the write are counted on the note as written. */
 const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<UpdateTaskResult> => {
   const {
     vaultPath,
