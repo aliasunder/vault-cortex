@@ -808,7 +808,10 @@ the description and each parameter's Zod `.describe()` text.
 
 1. **Group module** — create or extend a module in `prompts/`. Export
    `PROMPT_NAMES` and a `register*Prompt` function taking
-   `PromptRegistrationContext`.
+   `PromptRegistrationContext`. Pass the handler through
+   `trackedPromptHandler` (`prompt-helpers.ts`), so background embedding
+   waits while the prompt runs; tool handlers get this from
+   `tool-definitions.ts`, but prompts register one by one.
 2. **Registration** — add the register call in
    `prompt-definitions.ts`. If the prompt depends on a specific tool,
    gate it on `context.isToolEnabled(TOOL_NAMES.*)`.
