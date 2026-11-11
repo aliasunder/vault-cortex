@@ -321,11 +321,12 @@ export default defineConfig(
                 "CLI steps never import a command — move what both need into a step (AGENTS.md → CLI layering)",
             },
             {
-              // "../program.js", "../main.js" and "../bin.js" are the wiring, which imports every layer.
-              regex: "^\\.\\./(program|main|bin)(\\.js)?$",
+              // A loose file under cli/src is the wiring (program, main, bin), which imports every
+              // layer; the only other modules live in a layer folder.
+              regex: "^\\.\\./[^/]+$",
               allowTypeImports: true,
               message:
-                "CLI steps never import the wiring (program, main, bin) — the wiring imports the layers, never the reverse (AGENTS.md → CLI layering)",
+                "CLI steps never import the wiring (program, main, bin) or any loose file under cli/src — the wiring imports the layers, never the reverse (AGENTS.md → CLI layering)",
             },
             CLI_IO_OUTSIDE_ADAPTERS_RESTRICTION,
           ],
@@ -359,11 +360,12 @@ export default defineConfig(
                 "CLI commands never import another command — move what both need into a step (AGENTS.md → CLI layering)",
             },
             {
-              // "../program.js", "../main.js" and "../bin.js" are the wiring, which imports every layer.
-              regex: "^\\.\\./(program|main|bin)(\\.js)?$",
+              // A loose file under cli/src is the wiring (program, main, bin), which imports every
+              // layer; the only other modules live in a layer folder.
+              regex: "^\\.\\./[^/]+$",
               allowTypeImports: true,
               message:
-                "CLI commands never import the wiring (program, main, bin) — the wiring imports the layers, never the reverse (AGENTS.md → CLI layering)",
+                "CLI commands never import the wiring (program, main, bin) or any loose file under cli/src — the wiring imports the layers, never the reverse (AGENTS.md → CLI layering)",
             },
             CLI_IO_OUTSIDE_ADAPTERS_RESTRICTION,
           ],
