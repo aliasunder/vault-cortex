@@ -778,21 +778,17 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
    * search until an unrelated later event touches it. This rescan reconciles
    * the directory's actual contents against what chokidar tracks
    * (getWatched) and indexes anything chokidar missed.
-   *
-   * It returns the missed notes' embeddings unawaited, those found inside
-   * symlinked directories included, so rescanNewDirectory awaits them only
-   * after every missed file's keyword text is indexed.
    */
-  const reconcileNewDirectory = async (
+  const rescanNewDirectory = async (
     dirPath: string,
     visitedRealPaths: Set<string>,
-  ): Promise<ReadonlyArray<Promise<void>>> => {
+  ): Promise<void> => {
     // A rescan scheduled before close still fires, but a closed watcher has
     // nothing to reconcile, and close empties getWatched, so every entry would
     // look missed.
     if (watcherState.mode === "closed") {
       logger.debug("rescan skipped, watcher closed", { path: relative(vaultPath, dirPath) })
-      return []
+      return
     }
 
     // readdirOrNull lists every descendant recursively, or returns null when the
@@ -804,7 +800,7 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
       logger.debug("rescan skipped, directory vanished", {
         path: relative(vaultPath, dirPath),
       })
-      return []
+      return
     }
 
     // Symlinked directories recurse below; realpath identity breaks cycles
@@ -818,18 +814,14 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
       logger.debug("rescan skipped, directory vanished", {
         path: relative(vaultPath, dirPath),
       })
-      return []
+      return
     }
-    if (visitedRealPaths.has(realDirPath)) return []
+    if (visitedRealPaths.has(realDirPath)) return
     visitedRealPaths.add(realDirPath)
 
     // Map of watched directory (absolute) → tracked child basenames. Anything
     // on disk but absent here is an entry chokidar's new-directory scan missed.
     const watchedChildren = watcher.getWatched()
-
-    // An embedding waits while a tool call or prompt runs, so awaiting one
-    // inside this loop would hold back the next missed file's keyword text.
-    const missedNoteEmbeddings: Promise<void>[] = []
 
     for (const entry of entries) {
       const fullPath = join(entry.parentPath, entry.name)
@@ -864,8 +856,7 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
           // before registering: watcher.add() tracks its children without
           // emitting events, which would make a later pass skip them as
           // already tracked.
-          const symlinkedEmbeddings = await reconcileNewDirectory(fullPath, visitedRealPaths)
-          missedNoteEmbeddings.push(...symlinkedEmbeddings)
+          await rescanNewDirectory(fullPath, visitedRealPaths)
           watchPathUnlessClosed(fullPath)
           logger.debug("rescan registered missed symlinked directory", {
             path: relativePath,
@@ -891,8 +882,11 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
         // later deletion would emit no unlink, leaving a ghost index entry.
         watchPathUnlessClosed(fullPath)
         logger.debug("rescan indexing missed file", { path: relativePath })
-        const { embedding } = await indexChange(fullPath)
-        missedNoteEmbeddings.push(embedding)
+        // The rescan leaves a missed note's embedding running: the embedding
+        // waits while a tool call or prompt runs, and nothing reads the
+        // rescan's completion, so waiting would only hold back the next missed
+        // file's keyword text. The embedding logs its own failure.
+        await indexChange(fullPath)
       } catch (err) {
         logger.debug("rescan skipped unreadable entry", {
           path: relativePath,
@@ -900,15 +894,6 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
         })
       }
     }
-
-    return missedNoteEmbeddings
-  }
-
-  /** Indexes what chokidar missed in a new directory (see
-   *  reconcileNewDirectory), then waits for the missed notes' embeddings. */
-  const rescanNewDirectory = async (dirPath: string): Promise<void> => {
-    const missedNoteEmbeddings = await reconcileNewDirectory(dirPath, new Set())
-    await Promise.all(missedNoteEmbeddings)
   }
 
   /** Runs rescanNewDirectory once per new directory, delayed by
@@ -917,7 +902,7 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
   const scheduleNewDirectoryRescan = (dirPath: string): void => {
     const rescanTimer = setTimeout(() => {
       // A timer callback cannot await, so the rescan runs detached and logs its own failure.
-      rescanNewDirectory(dirPath).catch((err) => {
+      rescanNewDirectory(dirPath, new Set()).catch((err) => {
         logger.error("failed to rescan new directory", {
           path: relative(vaultPath, dirPath),
           error: describeError(err),
