@@ -28,6 +28,29 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
+describe("daily-review foreground tracking", () => {
+  it("runs date validation through the search index's trackForegroundWork", async () => {
+    const { search, calls } = await setupVault()
+    const trackForegroundWork = vi.spyOn(search, "trackForegroundWork")
+    const handler = findCall(calls, PROMPT_NAMES.DAILY_REVIEW)[2]
+
+    const result = await handler({ date: "2026-02-30" }, fakeExtra)
+
+    expect(trackForegroundWork).toHaveBeenCalledTimes(1)
+    expect(result).toEqual({
+      messages: [
+        {
+          role: "user",
+          content: {
+            type: "text",
+            text: '"2026-02-30" is not a calendar date. Pass a real date in YYYY-MM-DD format.',
+          },
+        },
+      ],
+    })
+  })
+})
+
 // ── Expected review text ─────────────────────────────────────────
 
 /** Matches the blank line that ends a review section, together with the next

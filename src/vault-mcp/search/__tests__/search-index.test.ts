@@ -8368,9 +8368,9 @@ describe("vectors reused by chunk text", () => {
       const newTexts = rowsAfter
         .map((row) => row.chunk_text)
         .filter((text) => !textsBefore.has(text))
-      const modelTexts = embedder.embedText.mock.calls.map(([text]) => text)
       expect(newTexts.length).toBeLessThan(rowsAfter.length - 1)
-      expect(modelTexts.toSorted()).toEqual(newTexts.toSorted())
+      expect(embedder.embedText).toHaveBeenCalledTimes(newTexts.length)
+      for (const text of newTexts) expect(embedder.embedText).toHaveBeenCalledWith(text)
       const { stored, expected } = vectorsAgainstText(rowsAfter)
       expect(stored).toEqual(expected)
     },
@@ -8394,9 +8394,9 @@ describe("vectors reused by chunk text", () => {
       const distinctNewTexts = [
         ...new Set(rowsAfter.map((row) => row.chunk_text).filter((text) => !textsBefore.has(text))),
       ]
-      const modelTexts = embedder.embedText.mock.calls.map(([text]) => text)
       expect(twinRows.map((row) => row.chunk_index)).toEqual([0, 1])
-      expect(modelTexts.toSorted()).toEqual(distinctNewTexts.toSorted())
+      expect(embedder.embedText).toHaveBeenCalledTimes(distinctNewTexts.length)
+      for (const text of distinctNewTexts) expect(embedder.embedText).toHaveBeenCalledWith(text)
       const { stored, expected } = vectorsAgainstText(rowsAfter)
       expect(stored).toEqual(expected)
     },

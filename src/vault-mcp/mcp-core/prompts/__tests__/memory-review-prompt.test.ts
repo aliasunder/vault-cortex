@@ -30,6 +30,29 @@ afterEach(() => {
 
 // ── memory-review handler ────────────────────────────────────────
 
+describe("memory-review foreground tracking", () => {
+  it("runs an empty-memory review through the search index's trackForegroundWork", async () => {
+    const { search, calls } = await setupVault({ memoryFiles: false })
+    const trackForegroundWork = vi.spyOn(search, "trackForegroundWork")
+    const handler = findCall(calls, PROMPT_NAMES.MEMORY_REVIEW)[2]
+
+    const result = await handler({}, fakeExtra)
+
+    expect(trackForegroundWork).toHaveBeenCalledTimes(1)
+    expect(result).toEqual({
+      messages: [
+        {
+          role: "user",
+          content: {
+            type: "text",
+            text: "The About Me/ memory layer is empty — there's nothing to review yet.\n\nMemory is built with vault_update_memory, which appends dated entries (newest-first) under H2 sections of files like Me, Principles, and Opinions. Once a few entries exist, run this prompt again to reflect on them.",
+          },
+        },
+      ],
+    })
+  })
+})
+
 describe("memory-review handler", () => {
   it("includes every memory file when no file is given", async () => {
     const { calls } = await setupVault()

@@ -4355,7 +4355,7 @@ describe("flag-combination matrix", () => {
 })
 
 describe("foreground tracking", () => {
-  it("runs each registered tool handler through the search index's trackForegroundWork", async () => {
+  it("runs a registered tool handler through the search index's trackForegroundWork", async () => {
     const search = stubSearchIndex()
     const trackForegroundWork = vi.spyOn(search, "trackForegroundWork")
     const registered = registerWithConfig({}, { search })
