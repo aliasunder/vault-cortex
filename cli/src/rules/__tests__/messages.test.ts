@@ -130,6 +130,14 @@ describe("buildLocalConnectMessage", () => {
     expect(message).toContain(`npx vault-cortex@latest upgrade --dir "${localDefaults.targetDir}"`)
   })
 
+  it("tells a .env editor to restart with the targetDir", () => {
+    const message = buildLocalConnectMessage(localDefaults)
+
+    expect(message).toContain(
+      `then apply it (plain docker restart does not re-read .env):\n  npx vault-cortex@latest restart --dir "${localDefaults.targetDir}"`,
+    )
+  })
+
   it("includes the OAuth connect walkthrough", () => {
     const message = buildLocalConnectMessage(localDefaults)
 
@@ -400,6 +408,14 @@ describe("buildRemoteConnectMessage", () => {
 
     expect(message).toContain("Update to the latest release:")
     expect(message).toContain(`npx vault-cortex@latest upgrade --dir "${remoteDefaults.targetDir}"`)
+  })
+
+  it("tells a .env editor to restart with the targetDir", () => {
+    const message = buildRemoteConnectMessage(remoteDefaults)
+
+    expect(message).toContain(
+      `then apply it (plain docker restart does not re-read .env):\n  npx vault-cortex@latest restart --dir "${remoteDefaults.targetDir}"`,
+    )
   })
 
   it("includes the remote docs link", () => {

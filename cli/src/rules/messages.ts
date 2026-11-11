@@ -244,6 +244,13 @@ const remoteHealthCheckBlock = (healthUrl: string, startStatus: StartStatus): st
   return smokeTest(healthUrl)
 }
 
+// The restart command goes on its own line: it quotes targetDir, so wrapping
+// it in quotes inside a sentence would break the copy-paste.
+const editEnvGuidance = (targetDir: string): string =>
+  `Or edit ${targetDir}/.env directly — change a value (uncommenting it
+first if needed), then apply it (plain docker restart does not re-read .env):
+  ${vaultCortexCommand("restart", targetDir)}`
+
 const updateGuidance = (targetDir: string): string =>
   `Update to the latest release:
   ${vaultCortexCommand("upgrade", targetDir)}`
@@ -315,9 +322,7 @@ Adjust optional settings (memory layer and folder, daily notes
 folder and format, file tools, semantic search, port, timezone):
   ${vaultCortexCommand("configure", targetDir)}
 
-Or edit ${targetDir}/.env directly — change a value (uncommenting it
-first if needed), then apply with "${vaultCortexCommand("restart")}" (plain
-docker restart does not re-read .env).
+${editEnvGuidance(targetDir)}
 
 ${updateGuidance(targetDir)}
 
@@ -404,9 +409,7 @@ folder and format, file tools, semantic search, port, timezone,
 sync direction):
   ${vaultCortexCommand("configure", targetDir)}
 
-Or edit ${targetDir}/.env directly — change a value (uncommenting it
-first if needed), then apply with "${vaultCortexCommand("restart")}" (plain
-docker restart does not re-read .env).
+${editEnvGuidance(targetDir)}
 
 ${updateGuidance(targetDir)}
 
