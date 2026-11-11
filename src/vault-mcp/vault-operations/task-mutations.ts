@@ -950,7 +950,7 @@ const isInsideFenceOrComment = (bodyLines: readonly string[], lineIndex: number)
 const moveTaskBlock = ({
   lines,
   taskLineIndex,
-  targetLane,
+  targetHeading,
   headings,
   position,
   beforePosition,
@@ -958,7 +958,9 @@ const moveTaskBlock = ({
 }: {
   lines: readonly string[]
   taskLineIndex: number
-  targetLane: string
+  /** One of `headings`: the lane is identified, not re-found by name, so a
+   *  board with repeated lane names moves the card to the lane chosen. */
+  targetHeading: HeadingInfo
   headings: readonly HeadingInfo[]
   position?: "top" | "bottom" | number
   beforePosition?: number | undefined
@@ -972,13 +974,7 @@ const moveTaskBlock = ({
    *  when the task already sat under the target heading and nothing moved. */
   movedBlockLength?: number
 } => {
-  const targetHeading = headings.find((heading) => heading.text === targetLane)
-
-  if (!targetHeading) {
-    const availableHeadings = headings.map((heading) => heading.text).join(", ")
-    throw new Error(`heading "${targetLane}" not found; available: ${availableHeadings}`)
-  }
-
+  const targetLane = targetHeading.text
   const currentHeading = headings.findLast((heading) => heading.startLine < taskLineIndex)
   const currentLane = currentHeading?.text ?? "(before first heading)"
   // A task above the first heading is in no lane. Comparing currentLane
@@ -993,17 +989,21 @@ const moveTaskBlock = ({
 
   // Heading positions shift once the block is gone — re-parse before placing
   const headingsAfterRemoval = parseHeadings(linesWithoutBlock)
-  const matchingHeadings = headingsAfterRemoval.filter((heading) => heading.text === targetLane)
+  const matchingHeadingCount = headingsAfterRemoval.filter((heading) => {
+    return heading.text === targetLane
+  }).length
 
-  if (matchingHeadings.length > 1 && (isSameLane || typeof position === "number")) {
+  if (matchingHeadingCount > 1 && (isSameLane || typeof position === "number")) {
     throw new Error(
       isSameLane
-        ? `cannot reorder within "${targetLane}" — the heading appears ${matchingHeadings.length} times; rename one section to make it unique`
-        : `cannot place at position ${String(position)} under "${targetLane}" — the heading appears ${matchingHeadings.length} times; rename one section to make it unique`,
+        ? `cannot reorder within "${targetLane}" — the heading appears ${matchingHeadingCount} times; rename one section to make it unique`
+        : `cannot place at position ${String(position)} under "${targetLane}" — the heading appears ${matchingHeadingCount} times; rename one section to make it unique`,
     )
   }
 
-  const headingAfterRemoval = matchingHeadings[0]
+  // Removing a task block removes no heading, so the target keeps its place
+  // in the heading order.
+  const headingAfterRemoval = headingsAfterRemoval[headings.indexOf(targetHeading)]
 
   if (!headingAfterRemoval) {
     throw new Error(`heading "${targetLane}" not found after line removal`)
@@ -1341,19 +1341,21 @@ const nextOccurrenceChange = (nextOccurrence: NextOccurrencePosition): string =>
 
 /** Detects the done lane for auto-completion: checks for **Complete**
  *  markers first, falls back to a heading named "Done". */
-const detectDoneLane = (bodyLines: readonly string[], headings: readonly HeadingInfo[]): string => {
-  const [doneLane, ...otherDoneLanes] = tasks.extractDoneLanes(bodyLines, headings)
+const detectDoneLane = (
+  bodyLines: readonly string[],
+  headings: readonly HeadingInfo[],
+): HeadingInfo => {
+  const [doneLane, ...otherDoneLanes] = tasks.extractDoneLaneHeadings(bodyLines, headings)
 
   if (otherDoneLanes.length > 0) {
     throw new Error("multiple done lanes detected")
   }
-  // The lane's name can be "" (a `## ` heading), so presence is the test.
-  if (doneLane !== undefined) return doneLane
+  if (doneLane) return doneLane
 
   // No **Complete** marker found — fall back to a heading named "Done"
   const doneHeading = headings.find((heading) => heading.text === "Done")
 
-  if (doneHeading) return "Done"
+  if (doneHeading) return doneHeading
 
   throw new Error("no done lane detected")
 }
@@ -2270,9 +2272,10 @@ const deleteTaskOnCompletion = async (
   }
 }
 
-/** The lane to place the task in, or undefined when the call asks for no
- *  move. Three paths resolve it:
- *   1. Explicit heading param — the caller picks the destination.
+/** The heading to place the task under, or undefined when the call asks for
+ *  no move. Three paths resolve it:
+ *   1. Explicit heading param — the first heading with that name; a
+ *      repeated name is caught later by the position guards.
  *   2. Auto-done-lane — completing a top-level Kanban card with no
  *      explicit heading detects the board's done lane.
  *   3. Same-lane reorder — position without a heading or auto-done
@@ -2295,8 +2298,15 @@ const resolveTargetLane = ({
   lines: readonly string[]
   headings: readonly HeadingInfo[]
   taskLineIndex: number
-}): string | undefined => {
-  if (targetHeadingParam !== undefined) return targetHeadingParam
+}): HeadingInfo | undefined => {
+  if (targetHeadingParam !== undefined) {
+    const namedHeading = headings.find((heading) => heading.text === targetHeadingParam)
+
+    if (namedHeading) return namedHeading
+
+    const availableHeadings = headings.map((heading) => heading.text).join(", ")
+    throw new Error(`heading "${targetHeadingParam}" not found; available: ${availableHeadings}`)
+  }
 
   const autoDoneLane = status === "done" && isKanbanBoard && !isSubtask
 
@@ -2310,7 +2320,7 @@ const resolveTargetLane = ({
   if (!currentHeading) {
     throw new Error("cannot reorder a task that sits above the first heading — pass a heading")
   }
-  return currentHeading.text
+  return currentHeading
 }
 
 /** Edits one task line and places the result. The stages, in order:
@@ -2543,7 +2553,7 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
       ...tagDedupAdvisories,
     ]
 
-    const targetLane = resolveTargetLane({
+    const targetHeading = resolveTargetLane({
       targetHeadingParam,
       position,
       status,
@@ -2571,25 +2581,22 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
         })
       : undefined
 
-    // Gate on presence, not truthiness — an empty-string heading text
-    // ("## ") is a valid lane name and must trigger the move.
-    const moved =
-      targetLane !== undefined
-        ? moveTaskBlock({
-            lines: linesWithSpawn,
-            taskLineIndex: completedIndexAfterSpawn,
-            targetLane,
-            headings: headingsAfterSpawn,
-            statusRegistry,
-            ...(position && { position }),
-            ...(beforePositionInLane !== undefined && { beforePosition: beforePositionInLane }),
-          })
-        : {
-            lines: linesWithSpawn,
-            taskLineIndex: completedIndexAfterSpawn,
-            changes: [],
-            movedBlockLength: undefined,
-          }
+    const moved = targetHeading
+      ? moveTaskBlock({
+          lines: linesWithSpawn,
+          taskLineIndex: completedIndexAfterSpawn,
+          targetHeading,
+          headings: headingsAfterSpawn,
+          statusRegistry,
+          ...(position && { position }),
+          ...(beforePositionInLane !== undefined && { beforePosition: beforePositionInLane }),
+        })
+      : {
+          lines: linesWithSpawn,
+          taskLineIndex: completedIndexAfterSpawn,
+          changes: [],
+          movedBlockLength: undefined,
+        }
 
     // Checklist items go after every parent-line edit and the move, so they
     // land under the card's final position.

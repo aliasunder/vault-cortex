@@ -687,6 +687,72 @@ describe("task-mutations", () => {
       )
     })
 
+    it("auto-completes to the **Complete** lane, not an earlier lane with the same empty name", async () => {
+      const vault = await createVault()
+      await writeTestNote(
+        vault,
+        "board.md",
+        "---\nkanban-plugin: board\n---\n\n## \n\n- [ ] Unnamed ➕ 2026-06-01 ^unnamed\n\n## Active\n\n- [ ] Task A ➕ 2026-07-01 ^task-a\n\n## \n\n**Complete**\n- [x] Old task ➕ 2026-06-01 ✅ 2026-06-10\n",
+      )
+
+      const result = await taskMutations.updateTask(
+        {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
+          vaultPath: vault,
+          path: "board.md",
+          blockId: "task-a",
+          status: "done",
+        },
+        logger,
+      )
+
+      expect(result).toEqual({
+        block_id: "task-a",
+        heading: "",
+        path: "board.md",
+        line: 15,
+        description: "Task A",
+        changes: ["status: todo → done", "heading: Active → "],
+      })
+      const content = await readTestNote(vault, "board.md")
+      expect(content).toBe(
+        `---\nkanban-plugin: board\n---\n\n## \n\n- [ ] Unnamed ➕ 2026-06-01 ^unnamed\n\n## Active\n\n\n## \n\n**Complete**\n- [x] Task A ➕ 2026-07-01 ✅ ${today()} ^task-a\n- [x] Old task ➕ 2026-06-01 ✅ 2026-06-10\n`,
+      )
+    })
+
+    it("auto-completes to the **Complete** lane, not an earlier lane with the same name", async () => {
+      const vault = await createVault()
+      await writeTestNote(
+        vault,
+        "board.md",
+        "---\nkanban-plugin: board\n---\n\n## Active\n\n- [ ] Task A ➕ 2026-07-01 ^task-a\n\n## Done\n\n- [ ] Not finished ➕ 2026-06-01 ^not-finished\n\n## Done\n\n**Complete**\n- [x] Old task ➕ 2026-06-01 ✅ 2026-06-10\n",
+      )
+
+      const result = await taskMutations.updateTask(
+        {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
+          vaultPath: vault,
+          path: "board.md",
+          blockId: "task-a",
+          status: "done",
+        },
+        logger,
+      )
+
+      expect(result).toEqual({
+        block_id: "task-a",
+        heading: "Done",
+        path: "board.md",
+        line: 15,
+        description: "Task A",
+        changes: ["status: todo → done", "heading: Active → Done"],
+      })
+      const content = await readTestNote(vault, "board.md")
+      expect(content).toBe(
+        `---\nkanban-plugin: board\n---\n\n## Active\n\n\n## Done\n\n- [ ] Not finished ➕ 2026-06-01 ^not-finished\n\n## Done\n\n**Complete**\n- [x] Task A ➕ 2026-07-01 ✅ ${today()} ^task-a\n- [x] Old task ➕ 2026-06-01 ✅ 2026-06-10\n`,
+      )
+    })
+
     it("auto-completes to 'Done' heading as fallback", async () => {
       const vault = await createVault()
       await writeTestNote(vault, "board.md", KANBAN_BOARD)
