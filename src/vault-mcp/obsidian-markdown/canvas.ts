@@ -106,15 +106,17 @@ const isContainedIn = (inner: CanvasNode, outer: CanvasNode): boolean =>
   inner.x + inner.width <= outer.x + outer.width &&
   inner.y + inner.height <= outer.y + outer.height
 
-/** The group that owns a node: the smallest-area group, other than one with
- *  the node's own id, whose rectangle contains it, edges included (groups
- *  nest, so the smallest container is the innermost). */
+/** The group that owns a node: the smallest-area group, other than the node
+ *  itself, whose rectangle contains it, edges included (groups nest, so the
+ *  smallest container is the innermost). */
 const smallestContainingGroup = (
   node: CanvasNode,
   groups: readonly CanvasNode[],
 ): CanvasNode | undefined => {
   const containing = groups.filter((group) => {
-    if (group.id === node.id || !isContainedIn(node, group)) return false
+    // The node is compared by object because IDs can repeat, and a card that
+    // shares its group's ID still belongs in that group.
+    if (group === node || !isContainedIn(node, group)) return false
     // Two groups with identical rectangles contain each other; without a
     // tiebreak each would claim the other as parent, neither would be
     // top-level, and both would drop out of the render entirely. Give the
