@@ -161,6 +161,31 @@ describe("runUpgrade", () => {
     ])
   })
 
+  it.each([
+    { label: "local", writeEnv: writeLocalEnv, image: "ghcr.io/aliasunder/vault-cortex:latest" },
+    { label: "remote", writeEnv: writeRemoteEnv, image: "ghcr.io/aliasunder/vault-cortex:remote" },
+  ])("pulls the image a $label install runs", async ({ writeEnv, image }) => {
+    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-upgrade-"))
+    writeEnv(targetDir)
+    const pulledImages: string[] = []
+    const docker: DockerRunner = {
+      ...dockerReady,
+      pullImage: (pulledImage) => {
+        pulledImages.push(pulledImage)
+        return true
+      },
+    }
+    const scripted = createScriptedPrompts()
+
+    const exitCode = await runUpgrade(
+      { dir: targetDir },
+      { prompts: scripted.prompts, docker, fetchFn: fetchOk },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(pulledImages).toEqual([image])
+  })
+
   it("probes the public URL after a remote upgrade", async () => {
     const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-upgrade-"))
     writeRemoteEnv(targetDir)

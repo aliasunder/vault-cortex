@@ -138,6 +138,24 @@ describe("runDown", () => {
     expect(removeCalls).toEqual(["called"])
   })
 
+  it("treats an empty .env as an init'd local install", async () => {
+    const targetDir = makeTempTargetDir("vault-cli-down-")
+    // Only a missing .env stops the init'd-folder check; an empty one is a
+    // local install with every setting at its default.
+    writeFileSync(join(targetDir, ".env"), "")
+    const recording = createRecordingDocker()
+    const scripted = createScriptedPrompts()
+
+    const exitCode = await runDown(
+      { dir: targetDir },
+      { prompts: scripted.prompts, docker: recording.docker },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(scripted.errors).toEqual([])
+    expect(recording.calls).toEqual(["inspect:vault-cortex", "rm:vault-cortex"])
+  })
+
   it("removes the container and reports data preservation", async () => {
     const targetDir = makeTempTargetDir("vault-cli-down-")
     writeLocalEnv(targetDir)

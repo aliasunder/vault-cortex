@@ -1,6 +1,48 @@
 import { describe, expect, it } from "vitest"
 
-import { decidePort, portsOfOtherContainers } from "../ports.js"
+import {
+  buildPortsInUse,
+  decidePort,
+  isValidPort,
+  portsOfOtherContainers,
+  suggestFreePort,
+} from "../ports.js"
+
+describe("isValidPort", () => {
+  it.each([
+    { label: "the lowest port", value: "1" },
+    { label: "the highest port", value: "65535" },
+  ])("accepts $label", ({ value }) => {
+    expect(isValidPort(value)).toBe(true)
+  })
+
+  it.each([
+    { label: "zero", value: "0" },
+    { label: "a number above 65535", value: "65536" },
+    { label: "exponent notation", value: "1e4" },
+    { label: "a hex number", value: "0x1F40" },
+    { label: "a signed number", value: "+9000" },
+    { label: "an empty value", value: "" },
+  ])("rejects $label", ({ value }) => {
+    expect(isValidPort(value)).toBe(false)
+  })
+})
+
+describe("suggestFreePort", () => {
+  it("suggests the default port while no container publishes it", () => {
+    expect(suggestFreePort(new Map([[9000, "other-app"]]))).toBe("8000")
+  })
+
+  it("counts past a wide range of consecutive taken ports without overflowing the stack", () => {
+    // One container can publish a whole host-port range, and 50,000 taken ports
+    // overflow the stack of a search that recurses once per port.
+    const takenPorts = Array.from({ length: 50_000 }, (_, offset) => {
+      return { hostPort: 8000 + offset, containerName: "ranged" }
+    })
+
+    expect(suggestFreePort(buildPortsInUse(takenPorts))).toBe("58000")
+  })
+})
 
 describe("portsOfOtherContainers", () => {
   it("leaves out the install's own ports", () => {

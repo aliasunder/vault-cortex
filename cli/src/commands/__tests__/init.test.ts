@@ -137,6 +137,70 @@ describe("runInit --yes (non-interactive local)", () => {
   })
 })
 
+describe("runInit .env write report", () => {
+  it("reports a new .env as created", async () => {
+    const vaultDir = makeVault()
+    const targetDir = makeTargetDir()
+    const scripted = createScriptedPrompts([])
+
+    const exitCode = await runInit(
+      { yes: true, vaultPath: vaultDir, dir: targetDir },
+      { prompts: scripted.prompts, docker: dockerDown, fetchFn: fetchNever },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(scripted.logs).toEqual([
+      `${targetDir}/.env — created`,
+      "Generated MCP auth token (saved to .env).",
+    ])
+  })
+
+  it("reports a differing .env that --yes keeps as not written", async () => {
+    const vaultDir = makeVault()
+    const targetDir = makeTargetDir()
+    mkdirSync(targetDir, { recursive: true })
+    writeFileSync(join(targetDir, ".env"), "MCP_AUTH_TOKEN=existing\n")
+    const scripted = createScriptedPrompts([])
+
+    const exitCode = await runInit(
+      { yes: true, vaultPath: vaultDir, dir: targetDir },
+      { prompts: scripted.prompts, docker: dockerDown, fetchFn: fetchNever },
+    )
+
+    expect(exitCode).toBe(1)
+    expect(scripted.logs).toEqual([
+      `${targetDir}/.env — kept existing file (new content NOT written)`,
+    ])
+  })
+
+  it("reports a differing .env the user agrees to replace as overwritten", async () => {
+    const vaultDir = makeVault()
+    const targetDir = makeTargetDir()
+    mkdirSync(targetDir, { recursive: true })
+    writeFileSync(join(targetDir, ".env"), "MCP_AUTH_TOKEN=existing\n")
+    const scripted = createScriptedPrompts([
+      "local",
+      vaultDir,
+      targetDir,
+      true, // existing deployment found — re-run setup anyway
+      [], // no optional settings
+      true, // .env differs — overwrite it
+    ])
+
+    const exitCode = await runInit(
+      {},
+      { prompts: scripted.prompts, docker: dockerDown, fetchFn: fetchNever },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(scripted.logs).toEqual([
+      `Found an existing deployment in ${targetDir}.`,
+      `${targetDir}/.env — overwritten`,
+      "Generated MCP auth token (saved to .env).",
+    ])
+  })
+})
+
 describe("local connect message client routing", () => {
   it("routes Claude Code to claude mcp add and Claude Desktop to the mcp-remote bridge", async () => {
     const vaultDir = makeVault()
