@@ -1320,7 +1320,6 @@ export const createSearchIndex = (
     return basenameMatch?.path ?? null
   }
 
-
   /** The second, folded-case walk: the exact, relative and stem comparisons
    *  with ASCII letter case folded. The suffix tiers already fold, so their
    *  miss in the case-sensitive walk stands and they are not repeated. */
@@ -1429,9 +1428,7 @@ export const createSearchIndex = (
     const foldedBaseFilename = baseFilename.toLowerCase()
     const matchesNewFile = (link: { source: string; target: string }): boolean => {
       const foldedTarget = link.target.toLowerCase()
-      const foldedRelativeTarget = posix
-        .join(posix.dirname(link.source), link.target)
-        .toLowerCase()
+      const foldedRelativeTarget = posix.join(posix.dirname(link.source), link.target).toLowerCase()
       const targetSuffix = `/${foldedTarget}`
 
       // toLowerCase folds every letter, while the resolver's LIKE and NOCASE

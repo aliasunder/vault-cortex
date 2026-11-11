@@ -432,6 +432,10 @@ const resolveNoteInLetterCase = (params: {
   // one link, so every tier picks with shortestOf rather than taking the
   // first hit.
   const findPathsEqualTo = (comparablePath: string): string[] => {
+    // Vault paths are unique, so the exact pass has at most one match, and
+    // the native includes finds it without a call per path.
+    if (letterCase === "exact") return allPaths.includes(comparablePath) ? [comparablePath] : []
+
     return allPaths.filter(
       (candidatePath) => notePathInLetterCase(candidatePath, letterCase) === comparablePath,
     )

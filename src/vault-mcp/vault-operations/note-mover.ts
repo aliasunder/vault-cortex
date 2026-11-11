@@ -253,10 +253,12 @@ const rewriteTarget = (
 
   // The replacement keeps the original link's extension state — the
   // extension is kept only when the original carried the resolved file's
-  // real extension (markdown links always keep theirs; a wikilink to a note
-  // never carries ".md"; a stem-form asset link stays extensionless).
+  // real extension, in any letter case, since ![[Photo.PNG]] resolves to
+  // photo.png (markdown links always keep theirs; a wikilink to a note never
+  // carries ".md"; a stem-form asset link stays extensionless).
   const grammarWritesExtension = targetKind === "asset" || grammar === "markdown"
-  const carriesResolvedExtension = originalExtension === posix.extname(desiredTarget)
+  const carriesResolvedExtension =
+    originalExtension.toLowerCase() === posix.extname(desiredTarget).toLowerCase()
   const keepExtension = grammarWritesExtension && carriesResolvedExtension
 
   return buildReplacementTarget({

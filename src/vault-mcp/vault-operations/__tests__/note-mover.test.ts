@@ -664,6 +664,25 @@ describe("moveNote — asset link rewriting", () => {
     expect(result.links_updated).toBe(1)
   })
 
+  it("keeps the extension of an asset link whose extension differs in letter case", async () => {
+    const { writeFixture, moveNote, readNote } = setupVault()
+    await writeFixture("assets/photo.png", "img")
+    await writeFixture(
+      "Notes/Note.md",
+      "![img](../assets/Photo.PNG) and ![[../assets/Photo.PNG]]\n",
+    )
+
+    const result = await moveNote({
+      oldPath: "Notes/Note.md",
+      newPath: "Notes/Sub/Note.md",
+    })
+
+    expect(await readNote("Notes/Sub/Note.md")).toBe(
+      "![img](../../assets/photo.png) and ![[../../assets/photo.png]]\n",
+    )
+    expect(result.links_updated).toBe(2)
+  })
+
   it("leaves a basename-form asset embed untouched — it still resolves after the move", async () => {
     const { writeFixture, moveNote, readNote, noteExists } = setupVault()
     await writeFixture("assets/photo.png", "img")
