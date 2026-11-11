@@ -953,11 +953,15 @@ describe("createMcpRouter — failed sign-in limiter", () => {
     })
   }
 
-  const statusesOf = async (
-    harness: Harness,
-    headers: Record<string, string>,
-    count: number,
-  ): Promise<number[]> => {
+  const statusesOf = async ({
+    harness,
+    headers,
+    count,
+  }: {
+    harness: Harness
+    headers: Record<string, string>
+    count: number
+  }): Promise<number[]> => {
     const statuses: number[] = []
 
     // Sequential, so each request's count is settled before the next.
@@ -977,7 +981,7 @@ describe("createMcpRouter — failed sign-in limiter", () => {
     })
     const wrong = { authorization: "Bearer wrong-token" }
 
-    expect(await statusesOf(harness, wrong, 30)).toEqual(Array(30).fill(401))
+    expect(await statusesOf({ harness, headers: wrong, count: 30 })).toEqual(Array(30).fill(401))
     const refused = await initialize(harness, wrong)
 
     expect({
@@ -1033,11 +1037,11 @@ describe("createMcpRouter — failed sign-in limiter", () => {
       config: TRUSTED_PROXY_CONFIG,
       failedAuthLimiterEnabled: true,
     })
-    await statusesOf(
+    await statusesOf({
       harness,
-      { authorization: "Bearer wrong-token", "x-forwarded-for": "2001:db8:0:1::1" },
-      30,
-    )
+      headers: { authorization: "Bearer wrong-token", "x-forwarded-for": "2001:db8:0:1::1" },
+      count: 30,
+    })
 
     // 2001:db8:0:ff:: shares the first 56 bits with 2001:db8:0:1::;
     // 2001:db8:0:100:: does not.
@@ -1064,7 +1068,7 @@ describe("createMcpRouter — failed sign-in limiter", () => {
       config: TRUSTED_PROXY_CONFIG,
       failedAuthLimiterEnabled: true,
     })
-    await statusesOf(harness, { authorization: "Bearer wrong-token" }, 30)
+    await statusesOf({ harness, headers: { authorization: "Bearer wrong-token" }, count: 30 })
 
     const sameIpValid = await initialize(harness, { authorization: RIGHT_TOKEN })
     await sameIpValid.arrayBuffer()
@@ -1088,7 +1092,9 @@ describe("createMcpRouter — failed sign-in limiter", () => {
     })
     const unknownSession = { authorization: RIGHT_TOKEN, "mcp-session-id": randomUUID() }
 
-    expect(await statusesOf(harness, unknownSession, 31)).toEqual(Array(31).fill(404))
+    expect(await statusesOf({ harness, headers: unknownSession, count: 31 })).toEqual(
+      Array(31).fill(404),
+    )
     const valid = await initialize(harness, { authorization: RIGHT_TOKEN })
     await valid.arrayBuffer()
 
@@ -1102,9 +1108,9 @@ describe("createMcpRouter — failed sign-in limiter", () => {
       failedAuthLimiterEnabled: false,
     })
 
-    expect(await statusesOf(harness, { authorization: "Bearer wrong-token" }, 40)).toEqual(
-      Array(40).fill(401),
-    )
+    expect(
+      await statusesOf({ harness, headers: { authorization: "Bearer wrong-token" }, count: 40 }),
+    ).toEqual(Array(40).fill(401))
   })
 })
 

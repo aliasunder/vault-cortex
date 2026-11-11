@@ -133,7 +133,8 @@ Render's edge and is checked by the server before any vault data moves:
 - **Always HTTPS.** Render provisions and renews the certificate and
   terminates TLS at its edge; the container is never reachable directly.
 - **Nothing without the token.** `/mcp` answers `401` to any request that
-  lacks a valid token. OAuth clients get one through the consent page (full
+  lacks a valid token, and `403` to a browser page on another site before the
+  token is checked. OAuth clients get one through the consent page (full
   OAuth 2.1 with PKCE and refresh-token rotation); scripts send
   `MCP_AUTH_TOKEN` as a bearer header. The login, registration, and token
   endpoints are rate-limited per visitor address.
