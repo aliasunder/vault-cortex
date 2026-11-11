@@ -214,7 +214,7 @@ of a Cloudflare Tunnel that keeps every port closed):
 | Option                                                      | Cost                          | Domain needed       | Ports open on your server |
 | ----------------------------------------------------------- | ----------------------------- | ------------------- | ------------------------- |
 | [Cloudflare Tunnel](#cloudflare-tunnel-no-open-ports--free) | Free                          | Yes (on Cloudflare) | None                      |
-| [API Gateway](#api-gateway-aws--no-domain-needed)           | Free tier covers personal use | No                  | 8000                      |
+| [API Gateway](#api-gateway-aws--no-domain-needed)           | Free tier covers personal use | No                  | 8000 (see the recipe)     |
 | [Reverse proxy](#reverse-proxy-requires-a-domain)           | Free (Caddy/nginx)            | Yes                 | 443                       |
 | [Direct access](#direct-access-testing-only)                | Free                          | No                  | 8000 (testing only)       |
 
@@ -237,9 +237,14 @@ point it at `http://localhost:8000`. Set `PUBLIC_URL` to the tunnel URL
 with a proxy in front, that's what lets OAuth rate limiting tell clients
 apart (otherwise they all share the tunnel's budget).
 
-Once the tunnel is working, close port 8000 on your server's firewall — all
-traffic flows through the tunnel, so the direct port is no longer needed.
-See [Hardening](#hardening-recommended) below.
+Once the tunnel is working, stop publishing port 8000 to the internet: in
+`docker-compose.yml`, change the `ports` line to
+`"127.0.0.1:${PORT:-8000}:8000"` and restart. The tunnel runs on the same
+machine and reaches `localhost:8000`, so nothing else needs the port, and a
+firewall rule alone is not enough, because Docker publishes ports past the
+host firewall. While the port stays open, anyone reaching it directly can
+write their own `X-Forwarded-For` header and pick their own rate-limit
+budget. See [Hardening](#hardening-recommended) below.
 
 ### API Gateway (AWS — no domain needed)
 
@@ -256,12 +261,17 @@ requests/month for 12 months — effectively free for personal use.
 
 Create an HTTP API in API Gateway with a route that proxies to
 `http://<your-server-ip>:8000/{proxy+}`. Set `PUBLIC_URL` to the API Gateway
-URL, `TRUST_FORWARDED_HOPS=1`, and `TRUST_PROXY_HOPS=1` in `.env` — the
-gateway reports clients through the
-[RFC 7239](https://www.rfc-editor.org/rfc/rfc7239) `Forwarded` header, and
-this tells the server to read it for OAuth rate limiting and request logs.
-See the project's [full cloud deployment](../../DEPLOY.md) for the SST IaC
-approach, which adds a Lambda authorizer for an extra auth layer.
+URL and `TRUST_PROXY_HOPS=1` in `.env`, and leave `TRUST_FORWARDED_HOPS` at
+its default of `0` while port 8000 is reachable from the internet. The
+gateway reports each visitor through the
+[RFC 7239](https://www.rfc-editor.org/rfc/rfc7239) `Forwarded` header, but
+anyone reaching port 8000 directly can write that header too and pick their
+own OAuth rate-limit budget, so the server reads it only once the gateway is
+the only way in. Until then every visitor shares one budget, the gateway's
+address, and one client's burst of sign-ins can block another's for a
+minute. The project's [full cloud deployment](../../DEPLOY.md) closes port
+8000 behind a locked tunnel and then sets `TRUST_FORWARDED_HOPS=1`; it also
+adds a Lambda authorizer for an extra auth layer.
 
 > **Need a VPS?** Any provider works — [AWS Lightsail](https://aws.amazon.com/lightsail/),
 > DigitalOcean, Hetzner, etc. A 2 GiB instance handles semantic search fine for
@@ -287,6 +297,14 @@ vault.yourdomain.com {
 Set `PUBLIC_URL` to `https://vault.yourdomain.com` and `TRUST_PROXY_HOPS=1`
 in `.env` — with a proxy in front, that's what lets OAuth rate limiting tell
 clients apart (otherwise they all share the proxy's budget).
+
+The proxy runs on the same machine and reaches `localhost:8000`, so stop
+publishing port 8000 to the internet: in `docker-compose.yml`, change the
+`ports` line to `"127.0.0.1:${PORT:-8000}:8000"` and restart. A firewall
+rule alone is not enough, because Docker publishes ports past the host
+firewall, and while the port stays open anyone reaching it directly can
+write their own `X-Forwarded-For` header and pick their own rate-limit
+budget.
 
 ### Direct access (testing only)
 
@@ -764,10 +782,16 @@ All settings are documented in `.env.example` and in the
 MCP requests require your token or an OAuth session; health checks and the
 sign-in pages are public. These optional measures add defense-in-depth:
 
-- **Close port 8000** — once a tunnel or reverse proxy handles HTTPS, close
-  direct access to port 8000, and to each other install's `PORT`, wherever you manage your server's firewall
-  (provider panel, AWS security groups, infrastructure-as-code). All traffic
-  then flows through the encrypted path.
+- **Close port 8000** — once a tunnel or reverse proxy on the same machine
+  handles HTTPS, publish the port on that machine only: change the `ports`
+  line in `docker-compose.yml` to `"127.0.0.1:${PORT:-8000}:8000"`, for
+  each install's `PORT`, and restart. A rule in your provider's firewall
+  (provider panel, AWS security groups, infrastructure-as-code) still
+  protects the rest of the server, but on its own it does not close a
+  published port, because Docker publishes ports past the host firewall.
+  All traffic then flows through the encrypted path, and only the proxy you
+  chose can set the client IP that `TRUST_PROXY_HOPS` and
+  `TRUST_FORWARDED_HOPS` read.
 
 - **Restrict SSH access** — limit SSH to a VPN or trusted IPs instead of the
   open internet. [Tailscale](https://tailscale.com/) (free for personal use)
