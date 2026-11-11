@@ -59,6 +59,11 @@ describe("sanitizeFtsQuery", () => {
       expected: "near miss",
     },
     {
+      name: "uppercase reserved word inside a quoted phrase kept as a term",
+      input: '"rock AND roll"',
+      expected: '"rock AND roll"',
+    },
+    {
       name: "empty string: empty result",
       input: "",
       expected: '""',
@@ -189,6 +194,23 @@ describe("sanitizeFtsQuery", () => {
     const result = sanitizeFtsQuery(input)
     expect(result).toBe(expected)
   })
+
+  // The joiners are all ASCII punctuation except underscore, which FTS5 reads
+  // as part of a word, and the six FTS5 metacharacters below
+  const compoundJoiners = [..."!#$%&'+,-./;<=>?@[\\]`{|}~"]
+
+  it.each(compoundJoiners)("%s between two words joins them into one phrase", (joiner) => {
+    expect(sanitizeFtsQuery(`alpha${joiner}beta`)).toBe('"alpha beta"')
+  })
+
+  const fts5Metacharacters = [...'"*^():']
+
+  it.each(fts5Metacharacters)(
+    "%s between two words splits them into bare terms",
+    (metacharacter) => {
+      expect(sanitizeFtsQuery(`alpha${metacharacter}beta`)).toBe("alpha beta")
+    },
+  )
 })
 
 describe("sanitizeFtsQueryAnyTerm", () => {
@@ -227,6 +249,11 @@ describe("sanitizeFtsQueryAnyTerm", () => {
       name: "reserved word dropped from mixed input, remainder OR-joined",
       input: '"testing" AND notes',
       expected: '"testing" OR notes',
+    },
+    {
+      name: "lowercase near kept as a term, OR-joined",
+      input: "near miss",
+      expected: "near OR miss",
     },
     {
       name: "all stopwords: empty result — nothing can anchor a rescue",

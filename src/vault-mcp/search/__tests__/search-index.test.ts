@@ -1889,6 +1889,27 @@ describe("fullTextSearch", () => {
     expect(results[0]?.path).toBe("directories.md")
   })
 
+  it("lowercase near in a query is matched as a search term, not dropped", () => {
+    index.upsertNote(
+      withBodyTags({
+        filePath: "incident.md",
+        rawContent: "A near miss on the loading dock\n",
+        fileStat: testStat(6003),
+      }),
+      logger,
+    )
+    index.upsertNote(
+      withBodyTags({
+        filePath: "commute.md",
+        rawContent: "Tried to miss the rush hour bus\n",
+        fileStat: testStat(6004),
+      }),
+      logger,
+    )
+    const results = index.fullTextSearch({ query: "near miss" }, logger)
+    expect(results.map((result) => result.path)).toEqual(["incident.md"])
+  })
+
   it("query with stray punctuation does not throw", () => {
     expect(() => {
       index.fullTextSearch({ query: "what's new in deploy/local, server.json & .env?" }, logger)
