@@ -9,9 +9,12 @@ const WHITESPACE = /\s/
 /** Multiline anchors also recognize these separators beside LF and CR. */
 const LINE_TERMINATOR = /[\n\r\u2028\u2029]/
 
+/** Replaces each aliased wikilink `[[target|alias]]` with its alias. A
+ *  wikilink with no alias, an empty target or an empty alias stays as it is. */
 const stripWikilinkAliases = (text: string): string => {
   const pieces: string[] = []
-  // The first | or ] still decides every overlapping opener before it; no earlier delimiter exists.
+  // Both cursors outlive a failed opener and only move forward: a later
+  // opener finds no `|` or `]` before the ones already found.
   let targetEnd = 0
   let close = 0
   let copiedThrough = 0
@@ -36,9 +39,10 @@ const stripWikilinkAliases = (text: string): string => {
   return pieces.join("")
 }
 
+/** Replaces each wikilink `[[inner]]` with its inner text. An empty `[[]]` stays. */
 const stripWikilinks = (text: string): string => {
   const pieces: string[] = []
-  // A failed opener never restarts the search for the next closing bracket.
+  // The closer cursor outlives a failed opener: a later opener finds no `]` before it.
   let close = 0
   let copiedThrough = 0
 
@@ -57,9 +61,13 @@ const stripWikilinks = (text: string): string => {
   return pieces.join("")
 }
 
+/** Replaces each markdown link `[label](target)` with its label. The target
+ *  runs to the next `)`, spaces and line breaks included. A link with an empty
+ *  label or target stays. */
 const stripMarkdownLinks = (text: string): string => {
   const pieces: string[] = []
-  // Labels may overlap; the closing delimiters are still visited only once.
+  // Both cursors outlive a failed opener and only move forward: a later
+  // opener finds no `]` or `)` before the ones already found.
   let labelEnd = 0
   let close = 0
   let copiedThrough = 0
@@ -82,9 +90,13 @@ const stripMarkdownLinks = (text: string): string => {
   return pieces.join("")
 }
 
+/** Removes each callout marker, which is a `>` that starts a line, any whitespace, `[!`,
+ *  the text up to the next `]`, and the whitespace after it. Each whitespace
+ *  run, like the marker text, may cross line breaks. */
 const stripCalloutMarkers = (text: string): string => {
   const pieces: string[] = []
-  // Whitespace can cross physical lines; both cursors keep that legacy grammar.
+  // Both cursors outlive a failed opener and only move forward: the
+  // whitespace run and the `]` found for one opener also serve the next.
   let markerStart = 0
   let close = 0
   let copiedThrough = 0
@@ -114,7 +126,10 @@ const stripCalloutMarkers = (text: string): string => {
 
 /** Strips markdown and Obsidian syntax, keeping only the semantic text content.
  *  Wikilinks become their display text, comments are removed, formatting
- *  markers (bold, italic, headings, callouts, block quotes) are stripped. */
+ *  markers (bold, italic, headings, callouts, block quotes) are stripped.
+ *  Each step reads the previous step's output, so the order matters: aliases
+ *  go first because stripWikilinks keeps a wikilink's whole inner text and
+ *  would leave `target|alias`. */
 export const stripMarkdownSyntax = (text: string): string => {
   const withoutAliases = stripWikilinkAliases(text)
   const withoutWikilinks = stripWikilinks(withoutAliases)
