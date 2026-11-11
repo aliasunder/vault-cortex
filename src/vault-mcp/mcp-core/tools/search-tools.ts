@@ -819,17 +819,18 @@ ${INDEX_ENGINE_ERROR_ENTRY}`,
   const orphanDefaultsText = config.orphanExcludeFoldersOverride
     ? {
         folders: JSON.stringify(config.orphanExcludeFoldersOverride),
-        dailyFolderLine: "",
+        dailyFolderClause: "",
       }
     : {
         folders: `the daily notes folder (none when Obsidian's Daily Notes folder setting is the vault root or blank), "Templates", ${JSON.stringify(config.memoryDir)}`,
-        dailyFolderLine: isToolEnabled("vault_get_daily_note")
+        dailyFolderClause: isToolEnabled("vault_get_daily_note")
           ? " (when the vault has a daily notes folder, vault_get_daily_note's path starts with it)"
           : "",
       }
 
   // SQLite's expression depth limit (1000) caps how many folders the orphan
-  // query can exclude
+  // query can exclude. Each folder adds one level, and the rest of the query
+  // takes the other 6.
   const maxOrphanExcludeFolders = 994
 
   const findOrphansAlternativesLine = formatServedSentencesLine([
@@ -851,7 +852,7 @@ Example: vault_find_orphans({ exclude_folders: ["Templates", "Archive"], limit: 
 When to use: Vault maintenance — surfacing notes to integrate into the graph.${whenToolEnabledText("vault_patch_note", " Link an orphan by mentioning it from a relevant note with vault_patch_note.")}${findOrphansAlternativesLine}
 
 Parameters:
-- exclude_folders replaces the defaults — list a default yourself to keep it${orphanDefaultsText.dailyFolderLine}. Pass [] for no exclusions. Each entry names ${INDEX_FOLDER_SCOPE_CLAUSE}. Excluded notes are left out of the results; links from them still count as incoming links.
+- exclude_folders replaces the defaults — list a default yourself to keep it${orphanDefaultsText.dailyFolderClause}. Pass [] for no exclusions. Each entry names ${INDEX_FOLDER_SCOPE_CLAUSE}. Excluded notes are left out of the results; links from them still count as incoming links.
 - limit applies after exclusions and sorting; ${LIMIT_TRUNCATION_CLAUSE}.
 
 Behavior: ${INDEX_LAG_LEAD}. An empty array means no orphans were found (after exclusions), not an error.

@@ -116,10 +116,10 @@ const formatBrokenLinkSegment = (result: { count: number; excludedCount: number 
   const { count, excludedCount } = result
   const excludedNote = formatExcludedForwardRefs(excludedCount)
 
-  if (count === 0 && excludedNote.length === 0) return ""
+  if (count === 0 && excludedCount === 0) return ""
 
   const linkCount = `${count} broken link${count === 1 ? "" : "s"}`
-  const parenthetical = excludedNote.length > 0 ? ` (${excludedNote})` : ""
+  const parenthetical = excludedCount > 0 ? ` (${excludedNote})` : ""
   return `${linkCount}${parenthetical}.`
 }
 
@@ -167,8 +167,9 @@ export const registerVaultOrientationPrompt = ({
         const memoryFiles = memoryStore
           ? await memoryStore.listMemoryFiles({ vaultPath }, reqLogger)
           : []
-        // Read once rather than through readEffectiveOrphanExcludeFolders,
-        // because the broken-link count below needs the same daily-notes settings.
+        // Read the daily-notes settings here rather than through
+        // readEffectiveOrphanExcludeFolders, which reads them itself, because
+        // the broken-link count below needs the same settings.
         const dailyNotesConfig = await readDailyNotesConfig(
           {
             vaultPath,
