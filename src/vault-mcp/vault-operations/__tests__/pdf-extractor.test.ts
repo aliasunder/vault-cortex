@@ -502,7 +502,13 @@ describe("PDF extraction ownership", () => {
         fileURLToPath(new URL("../pdf-extraction-child.ts", import.meta.url)),
       ],
       stdio: ["ignore", "ignore", "ignore", "ipc"],
-      envNames: expect.any(Array),
+      envNames: [
+        ...["HOME", "LANG", "PATH", "TMPDIR", "TZ"].filter(
+          (name) => process.env[name] !== undefined,
+        ),
+        "ESBUILD_WORKER_THREADS",
+        "LOG_DIR",
+      ].toSorted(),
       logDir: "none",
       nodeOptions: undefined,
       esbuildWorkerThreads: "0",
