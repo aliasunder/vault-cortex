@@ -137,10 +137,12 @@ export const createAuthorizeGuard = ({
       const { status, body } = redirectedErrorFromUrl(redirectUrl)
       const clientIp = extractClientIp(req, trustForwardedHops)
 
+      // The provider has already logged why it refused (its reason and
+      // client ID); this line records what the visitor was answered.
       if (body.error === SERVER_ERROR_CODE) {
         logger.error("oauth_authorize_failed", { clientIp, error: body.error_description })
       } else {
-        logger.warn("oauth_authorize_rejected", { clientIp, reason: body.error })
+        logger.warn("oauth_authorize_error_answered", { clientIp, error: body.error })
       }
       res.status(status).set("Cache-Control", "no-store").json(body)
     }

@@ -158,8 +158,9 @@ The server, and the `:remote` image's setup mode, set these headers:
 - **Content type and referrer** — every response carries
   `X-Content-Type-Options: nosniff` and `Referrer-Policy: same-origin`, and
   none carries `X-Powered-By`
-- **Caching** — the consent page, its decisions, the server's `/setup` page
-  and every setup-mode response send `Cache-Control: no-store`
+- **Caching** — the consent page, its decisions, the `/authorize` error
+  answers and unknown-client page, the server's `/setup` page and every
+  setup-mode response send `Cache-Control: no-store`
 
 ### Data corruption prevention
 

@@ -381,16 +381,19 @@ in the main README.
 ## Troubleshooting
 
 **"This sign-in can't continue" in the browser instead of the consent page.**
-Your MCP client saved login details the server no longer has. Recreating the
-server (`docker compose down -v`, or scaffolding a fresh instance) resets
-`oauth.db`, so the cached `client_id` no longer exists. The same happens when a
-sign-in was started more than an hour ago and never approved. That page lists
-these steps too. Clear the client's stored authorization for this server and
-reconnect so it registers fresh:
+Your MCP client saved login details the server no longer has. Deleting the
+server's data (`docker compose down -v`, or a fresh install under a new name)
+resets the server's record of connected clients, so the client's saved login
+no longer matches. The same happens when a sign-in was started more than an
+hour ago and never approved. That page lists these steps too. Clear the
+client's stored authorization for this server and reconnect so it registers
+fresh:
 
-- **Claude Code:** `claude mcp remove <name>`, then
-  `claude mcp add --scope user --transport http <name> http://localhost:<port>/mcp`.
-- **Claude Desktop / mcp-remote:** delete `~/.mcp-auth` and restart the client.
+- **Claude Code:** `claude mcp remove vault-cortex`, then
+  `claude mcp add --scope user --transport http vault-cortex http://localhost:8000/mcp`
+  (use your own name and port if you changed them).
+- **mcp-remote without a `--header`:** delete the `.mcp-auth` folder in your
+  home folder (`%USERPROFILE%\.mcp-auth` on Windows) and restart the client.
 - **Other clients:** remove and re-add the server.
 
 **"Invalid token" on the consent page even with the correct token.** The

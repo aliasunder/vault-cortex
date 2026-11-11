@@ -72,7 +72,7 @@ export const createOAuthRoutes = ({
       options: { statusCode: number; message: unknown },
     ) => {
       const requestPath =
-        URL.parse(req.originalUrl, "http://localhost")?.pathname ?? req.originalUrl
+        URL.parse(req.originalUrl, "http://localhost")?.pathname ?? "(unparseable path)"
       routeLogger.warn("oauth_rate_limited", {
         clientIp: extractClientIp(req, trustForwardedHops),
         path: requestPath,
@@ -134,7 +134,7 @@ export const createOAuthRoutes = ({
       rateLimitOptions: oauthRateLimitOptions,
       clientsStore: provider.clientsStore,
       trustForwardedHops,
-      logger,
+      logger: routeLogger,
     }),
   )
 

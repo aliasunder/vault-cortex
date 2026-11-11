@@ -11,7 +11,7 @@ export const renderUnknownClientPage = (): string => {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Sign-in can't continue — Vault Cortex</title>
+<title>${UNKNOWN_CLIENT_TITLE} — Vault Cortex</title>
 <style>
   *{box-sizing:border-box;margin:0;padding:0}
   body{font-family:system-ui,-apple-system,sans-serif;background:#0f1117;color:#e4e4e7;display:flex;justify-content:center;align-items:center;min-height:100vh;padding:1rem}

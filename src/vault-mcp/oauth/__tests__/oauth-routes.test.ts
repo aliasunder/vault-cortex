@@ -1578,11 +1578,13 @@ describe("OAuth refresh over HTTP", () => {
         "203.0.113.44",
       )
 
-      expect(logs.filter((log) => log.message === "oauth_authorize_rejected")).toEqual([
+      // The provider logs its own oauth_resource_rejected first; the guard
+      // records what the visitor was answered.
+      expect(logs.filter((log) => log.message === "oauth_authorize_error_answered")).toEqual([
         {
           level: "warn",
-          message: "oauth_authorize_rejected",
-          data: { clientIp: "203.0.113.44", reason: "invalid_target" },
+          message: "oauth_authorize_error_answered",
+          data: { component: "oauth-routes", clientIp: "203.0.113.44", error: "invalid_target" },
         },
       ])
     })
@@ -1609,7 +1611,11 @@ describe("OAuth refresh over HTTP", () => {
         {
           level: "error",
           message: "oauth_authorize_failed",
-          data: { clientIp: "203.0.113.45", error: "Internal Server Error" },
+          data: {
+            component: "oauth-routes",
+            clientIp: "203.0.113.45",
+            error: "Internal Server Error",
+          },
         },
       ])
     })
@@ -1654,7 +1660,7 @@ describe("OAuth refresh over HTTP", () => {
           {
             level: "warn",
             message: "oauth_authorize_rejected",
-            data: { clientIp: "203.0.113.47", reason: "unknown_client" },
+            data: { component: "oauth-routes", clientIp: "203.0.113.47", reason: "unknown_client" },
           },
         ])
       },
