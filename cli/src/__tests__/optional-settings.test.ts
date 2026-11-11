@@ -4,7 +4,6 @@ import {
   applyOptionalSettings,
   askOptionalSettings,
   describeStrandedPublicUrl,
-  portsOfOtherContainers,
   withPublicUrlOverride,
 } from "../optional-settings.js"
 import { createScriptedPrompts } from "./command-stubs.js"
@@ -141,36 +140,6 @@ describe("withPublicUrlOverride", () => {
     })
     expect(overrides).toEqual({ PORT: "9000" })
   })
-})
-
-describe("portsOfOtherContainers", () => {
-  it("leaves out the install's own ports", () => {
-    const portsInUse = portsOfOtherContainers(
-      [
-        { hostPort: 8000, containerName: "vault-cortex" },
-        { hostPort: 9100, containerName: "other-app" },
-      ],
-      "vault-cortex",
-    )
-
-    expect(portsInUse).toEqual(new Map([[9100, "other-app"]]))
-  })
-
-  it.each([
-    { label: "after", containerNames: ["vault-cortex", "stopped-test"] },
-    { label: "before", containerNames: ["stopped-test", "vault-cortex"] },
-  ])(
-    "keeps a port another container also publishes, listed $label the install's own",
-    ({ containerNames }) => {
-      const publishedPorts = containerNames.map((containerName) => {
-        return { hostPort: 8000, containerName }
-      })
-
-      expect(portsOfOtherContainers(publishedPorts, "vault-cortex")).toEqual(
-        new Map([[8000, "stopped-test"]]),
-      )
-    },
-  )
 })
 
 describe("describeStrandedPublicUrl", () => {

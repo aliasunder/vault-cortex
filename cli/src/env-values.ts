@@ -1,4 +1,5 @@
 import type { Mode } from "./docker.js"
+import { DEFAULT_PORT, describeInvalidEnvPort, isValidPort } from "./ports.js"
 
 /**
  * The value of each variable's last active (uncommented) line in a .env
@@ -12,9 +13,6 @@ const ENV_ASSIGNMENT_LINES = /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/gm
 
 /** Matches a value wrapped in one pair of matching quotes, capturing the inside. */
 const SURROUNDING_QUOTES = /^(["'])(.*)\1$/
-
-/** Default host port — matches the container's internal port. */
-export const DEFAULT_PORT = 8000
 
 /**
  * Used when .env sets no INSTANCE_NAME: the container name and volume prefix
@@ -53,21 +51,6 @@ const stripSurroundingQuotes = (value: string): string => {
 export const readEnvValue = (envValues: EnvValues, name: string): string | undefined => {
   const rawValue = envValues.get(name)
   return rawValue && stripSurroundingQuotes(rawValue)
-}
-
-/**
- * Plain digits in the TCP port range. Number() coercion is not enough: it
- * accepts "1e4", "0x1F40" and "+9000".
- */
-export const isValidPort = (value: string): boolean => {
-  if (!/^\d+$/.test(value)) return false
-  const port = Number(value)
-  return port >= 1 && port <= 65535
-}
-
-/** The error for a .env PORT value that isn't a port; callers add where to fix it. */
-export const describeInvalidEnvPort = (portValue: string): string => {
-  return `PORT "${portValue}" is not a valid port — use a whole number between 1 and 65535.`
 }
 
 export type PortRead = { kind: "ok"; port: number } | { kind: "invalid"; message: string }

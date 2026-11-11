@@ -6,9 +6,9 @@ import {
   applyOptionalSettings,
   askOptionalSettings,
   describeStrandedPublicUrl,
-  portsOfOtherContainers,
   withPublicUrlOverride,
 } from "./optional-settings.js"
+import { portsOfOtherContainers } from "./ports.js"
 import type { DockerRunner } from "./docker.js"
 import type { Prompts } from "./prompts.js"
 

@@ -1,5 +1,7 @@
-import { DEFAULT_PORT, isValidPort, parseEnvValues, readEnvValue } from "./env-values.js"
-import type { Mode, PublishedPort } from "./docker.js"
+import type { Mode } from "./docker.js"
+import { parseEnvValues, readEnvValue } from "./env-values.js"
+import { askFreePort } from "./port-prompt.js"
+import { DEFAULT_PORT, isValidPort, type PortsInUse } from "./ports.js"
 import type { Prompts, SelectOption } from "./prompts.js"
 
 type OptionalSettingBase = {
@@ -276,68 +278,6 @@ const isValidTimezone = (value: string): boolean => {
   }
 }
 
-/** Host ports that containers on this machine publish, mapped to each container's name. */
-export type PortsInUse = ReadonlyMap<number, string>
-
-export const portInUseMessage = (params: { port: string; containerName: string }): string => {
-  return `Port ${params.port} is already used by the "${params.containerName}" container on this machine.`
-}
-
-/** The first port, counting up from the default, that no container publishes. */
-export const suggestFreePort = (portsInUse: PortsInUse): string => {
-  const findFreePort = (candidatePort: number): number => {
-    return portsInUse.has(candidatePort) ? findFreePort(candidatePort + 1) : candidatePort
-  }
-  return String(findFreePort(DEFAULT_PORT))
-}
-
-/** Re-prompts until the answer is a valid port no other container on the machine publishes. */
-export const askFreePort = async (
-  params: { suggestedPort: string | undefined; portsInUse: PortsInUse },
-  prompts: Prompts,
-): Promise<string> => {
-  const { suggestedPort, portsInUse } = params
-  // An empty PORT= line leaves the default port in effect, as readEnvPort reads
-  // it; a value that isn't a port is never offered, since it would be rejected.
-  const offeredPort =
-    suggestedPort && isValidPort(suggestedPort) ? suggestedPort : String(DEFAULT_PORT)
-  const answer = (
-    await prompts.text("Host port for the server:", {
-      defaultValue: offeredPort,
-      placeholder: offeredPort,
-    })
-  ).trim()
-
-  if (!isValidPort(answer)) {
-    prompts.error("PORT must be a whole number between 1 and 65535.")
-    return askFreePort(params, prompts)
-  }
-  const portUser = portsInUse.get(Number(answer))
-
-  if (!portUser) return answer
-  prompts.error(`${portInUseMessage({ port: answer, containerName: portUser })} Pick another port.`)
-  // Suggest a free port, so pressing Enter can't pick the taken one again.
-  return askFreePort({ ...params, suggestedPort: suggestFreePort(portsInUse) }, prompts)
-}
-
-export const buildPortsInUse = (publishedPorts: ReadonlyArray<PublishedPort>): PortsInUse => {
-  return new Map(publishedPorts.map(({ hostPort, containerName }) => [hostPort, containerName]))
-}
-
-/**
- * Start and restart replace the install's own container, so only other
- * containers' ports are taken. A port another container also publishes stays taken.
- */
-export const portsOfOtherContainers = (
-  publishedPorts: ReadonlyArray<PublishedPort>,
-  containerName: string,
-): PortsInUse => {
-  const otherContainersPorts = publishedPorts.filter((publishedPort) => {
-    return publishedPort.containerName !== containerName
-  })
-  return buildPortsInUse(otherContainersPorts)
-}
-
 /** Re-prompts until the answer is a zone the runtime recognizes. */
 const askTimezone = async (currentValue: string | undefined, prompts: Prompts): Promise<string> => {
   const answer = (
@@ -443,7 +383,11 @@ const askSettingValue = async (
       return String(enabled)
     }
     case "port":
-      return askFreePort({ suggestedPort: currentValue, portsInUse }, prompts)
+      // An empty PORT= line leaves the default port in effect, as readEnvPort reads it.
+      return askFreePort(
+        { suggestedPort: currentValue || String(DEFAULT_PORT), portsInUse },
+        prompts,
+      )
     case "timezone":
       return askTimezone(currentValue, prompts)
     case "folder":
