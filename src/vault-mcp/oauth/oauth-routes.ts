@@ -123,20 +123,11 @@ export const createOAuthRoutes = ({
     }),
   )
 
-  // Ahead of the SDK's /authorize handler: it carries that endpoint's rate
-  // limit (the SDK's own is off below, so a request is counted once), shows
-  // a person whose client registration is gone how to reconnect, and
-  // answers every error the SDK would otherwise redirect to the client's
-  // registered address.
-  router.use(
-    "/authorize",
-    createAuthorizeGuard({
-      rateLimitOptions: oauthRateLimitOptions,
-      clientsStore: provider.clientsStore,
-      trustForwardedHops,
-      logger: routeLogger,
-    }),
-  )
+  // Ahead of the SDK's /authorize handler: it rewrites the SDK's unknown-client
+  // answer into a page that says how to reconnect, and every error the SDK
+  // would otherwise redirect to the client's registered address into a direct
+  // response. The SDK's own limiter and checks run unchanged.
+  router.use("/authorize", createAuthorizeGuard({ trustForwardedHops, logger: routeLogger }))
 
   // Ahead of the SDK's /register handler, whose own JSON parser accepts 100 KB
   // and whose metadata schema caps no field. The SDK's parser finds the body
@@ -151,7 +142,7 @@ export const createOAuthRoutes = ({
       issuerUrl: serverUrl,
       serviceDocumentationUrl: new URL(serviceDocumentationUrl),
       scopesSupported,
-      authorizationOptions: { rateLimit: false },
+      authorizationOptions: { rateLimit: oauthRateLimitOptions },
       clientRegistrationOptions: { rateLimit: oauthRateLimitOptions },
       revocationOptions: { rateLimit: oauthRateLimitOptions },
       tokenOptions: { rateLimit: oauthRateLimitOptions },

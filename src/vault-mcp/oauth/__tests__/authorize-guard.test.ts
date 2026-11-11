@@ -1,37 +1,21 @@
 import { describe, it, expect, afterEach, onTestFinished, vi } from "vitest"
 import type { Server } from "node:http"
 import express from "express"
-import type { OAuthClientInformationFull } from "@modelcontextprotocol/sdk/shared/auth.js"
 import { createAuthorizeGuard } from "../authorize-guard.js"
+import { renderUnknownClientPage } from "../unknown-client-page.js"
 import { logger } from "../../../logger.js"
 
-const KNOWN_CLIENT: OAuthClientInformationFull = {
-  client_id: "known-client",
-  redirect_uris: ["https://client.example/callback"],
-}
-
-/** Serves /authorize through the guard, then through `redirectWith`, which
- *  stands in for the SDK's handler and calls res.redirect as it is given.
- *  The returned URL names a stored client, so the guard passes the request
- *  on to `redirectWith`. */
+/** Serves /authorize through the guard, then through `answerWith`, which
+ *  stands in for the SDK's handler and answers as it is told to. */
 const startGuardedAuthorize = async (
-  redirectWith: (res: express.Response) => void,
+  answerWith: (res: express.Response) => void,
 ): Promise<{ authorizeUrl: string }> => {
   const app = express()
   app.use(
     "/authorize",
-    createAuthorizeGuard({
-      rateLimitOptions: { windowMs: 60_000, max: 100 },
-      clientsStore: {
-        getClient: async (clientId: string) => {
-          return clientId === KNOWN_CLIENT.client_id ? KNOWN_CLIENT : undefined
-        },
-      },
-      trustForwardedHops: 0,
-      logger,
-    }),
+    createAuthorizeGuard({ trustForwardedHops: 0, logger }),
     (_req: express.Request, res: express.Response) => {
-      redirectWith(res)
+      answerWith(res)
     },
   )
   const server = await new Promise<Server>((resolve) => {
@@ -45,9 +29,7 @@ const startGuardedAuthorize = async (
   if (!serverAddress || typeof serverAddress === "string") {
     throw new Error("expected a TCP address from a listening server")
   }
-  return {
-    authorizeUrl: `http://127.0.0.1:${serverAddress.port}/authorize?client_id=${KNOWN_CLIENT.client_id}`,
-  }
+  return { authorizeUrl: `http://127.0.0.1:${serverAddress.port}/authorize?client_id=some-client` }
 }
 
 /** The status, JSON body, redirect target and cache directive of the
@@ -141,26 +123,45 @@ describe("createAuthorizeGuard — redirects answered directly", () => {
       cache: "no-store",
     })
   })
+})
 
-  it("carries the redirect's error_uri into the answer", async () => {
-    vi.spyOn(logger, "warn").mockImplementation(() => {})
-    const errorRedirect = new URL("https://client.example/callback")
-    errorRedirect.search = new URLSearchParams({
-      error: "invalid_scope",
-      error_description: "Unknown scope",
-      error_uri: "https://docs.example/scopes",
-    }).toString()
+describe("createAuthorizeGuard — JSON answers", () => {
+  it("rewrites the SDK's unknown-client answer into the recovery page", async () => {
+    const warn = vi.spyOn(logger, "warn").mockImplementation(() => {})
     const { authorizeUrl } = await startGuardedAuthorize((res) => {
-      res.redirect(302, errorRedirect.href)
+      res.status(400).json({ error: "invalid_client", error_description: "Invalid client_id" })
+    })
+
+    const response = await fetch(authorizeUrl)
+
+    expect({
+      status: response.status,
+      contentType: response.headers.get("content-type"),
+      cache: response.headers.get("cache-control"),
+      html: await response.text(),
+    }).toEqual({
+      status: 400,
+      contentType: "text/html; charset=utf-8",
+      cache: "no-store",
+      html: renderUnknownClientPage(),
+    })
+    expect(warn).toHaveBeenCalledTimes(1)
+    expect(warn).toHaveBeenCalledWith("oauth_authorize_rejected", {
+      clientIp: "127.0.0.1",
+      reason: "unknown_client",
+    })
+  })
+
+  it("passes every other JSON answer through unchanged", async () => {
+    const { authorizeUrl } = await startGuardedAuthorize((res) => {
+      res
+        .status(400)
+        .json({ error: "invalid_request", error_description: "Unregistered redirect_uri" })
     })
 
     expect(await fetchAnswer(authorizeUrl)).toEqual({
       status: 400,
-      body: {
-        error: "invalid_scope",
-        error_description: "Unknown scope",
-        error_uri: "https://docs.example/scopes",
-      },
+      body: { error: "invalid_request", error_description: "Unregistered redirect_uri" },
       location: null,
       cache: "no-store",
     })
