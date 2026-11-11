@@ -4714,17 +4714,29 @@ describe("rebuildFromVault", () => {
       logger,
     )
 
-    const outgoing = index.getOutgoingLinks(
-      { path: "source.md", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
-      logger,
-    )
-    expect(outgoing).toHaveLength(2)
-    const asset = outgoing.find((link) => link.path === "Trip Route.canvas")
-    expect(asset?.exists).toBe(true)
-    expect(asset?.kind).toBe("file")
-    const broken = outgoing.find((link) => link.path === "missing-note")
-    expect(broken?.exists).toBe(false)
-    expect(broken?.kind).toBe("note")
+    expect(
+      index.getOutgoingLinks(
+        { path: "source.md", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
+        logger,
+      ),
+    ).toEqual([
+      {
+        path: "Trip Route.canvas",
+        title: null,
+        exists: true,
+        kind: "file",
+        bytes: 2,
+        daily_note_forward_ref: false,
+      },
+      {
+        path: "missing-note",
+        title: null,
+        exists: false,
+        kind: "note",
+        bytes: null,
+        daily_note_forward_ref: false,
+      },
+    ])
     expect(
       index.brokenLinkCount({ dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT }, logger).count,
     ).toBe(1)
@@ -4784,17 +4796,29 @@ describe("rebuildFromVault", () => {
       logger,
     )
 
-    const outgoing = index.getOutgoingLinks(
-      { path: "source.md", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
-      logger,
-    )
-    expect(outgoing).toHaveLength(2)
-    const asset = outgoing.find((link) => link.path === "canvases/Dashboard.canvas")
-    expect(asset?.exists).toBe(true)
-    expect(asset?.kind).toBe("file")
-    const broken = outgoing.find((link) => link.path === "genuinely-missing")
-    expect(broken?.exists).toBe(false)
-    expect(broken?.kind).toBe("note")
+    expect(
+      index.getOutgoingLinks(
+        { path: "source.md", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
+        logger,
+      ),
+    ).toEqual([
+      {
+        path: "canvases/Dashboard.canvas",
+        title: null,
+        exists: true,
+        kind: "file",
+        bytes: 2,
+        daily_note_forward_ref: false,
+      },
+      {
+        path: "genuinely-missing",
+        title: null,
+        exists: false,
+        kind: "note",
+        bytes: null,
+        daily_note_forward_ref: false,
+      },
+    ])
     expect(
       index.brokenLinkCount({ dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT }, logger).count,
     ).toBe(1)
@@ -4813,17 +4837,29 @@ describe("rebuildFromVault", () => {
       logger,
     )
 
-    const outgoing = index.getOutgoingLinks(
-      { path: "source.md", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
-      logger,
-    )
-    expect(outgoing).toHaveLength(2)
-    const asset = outgoing.find((link) => link.path === "views/Inventory.base")
-    expect(asset?.exists).toBe(true)
-    expect(asset?.kind).toBe("file")
-    const broken = outgoing.find((link) => link.path === "genuinely-missing")
-    expect(broken?.exists).toBe(false)
-    expect(broken?.kind).toBe("note")
+    expect(
+      index.getOutgoingLinks(
+        { path: "source.md", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
+        logger,
+      ),
+    ).toEqual([
+      {
+        path: "genuinely-missing",
+        title: null,
+        exists: false,
+        kind: "note",
+        bytes: null,
+        daily_note_forward_ref: false,
+      },
+      {
+        path: "views/Inventory.base",
+        title: null,
+        exists: true,
+        kind: "file",
+        bytes: 12,
+        daily_note_forward_ref: false,
+      },
+    ])
     expect(
       index.brokenLinkCount({ dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT }, logger).count,
     ).toBe(1)
@@ -4875,17 +4911,29 @@ describe("rebuildFromVault", () => {
       logger,
     )
 
-    const outgoing = index.getOutgoingLinks(
-      { path: "sub/source.md", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
-      logger,
-    )
-    expect(outgoing).toHaveLength(2)
-    const asset = outgoing.find((link) => link.path === "Route.canvas")
-    expect(asset?.exists).toBe(true)
-    expect(asset?.kind).toBe("file")
-    const broken = outgoing.find((link) => link.path === "genuinely-missing")
-    expect(broken?.exists).toBe(false)
-    expect(broken?.kind).toBe("note")
+    expect(
+      index.getOutgoingLinks(
+        { path: "sub/source.md", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
+        logger,
+      ),
+    ).toEqual([
+      {
+        path: "Route.canvas",
+        title: null,
+        exists: true,
+        kind: "file",
+        bytes: 2,
+        daily_note_forward_ref: false,
+      },
+      {
+        path: "genuinely-missing",
+        title: null,
+        exists: false,
+        kind: "note",
+        bytes: null,
+        daily_note_forward_ref: false,
+      },
+    ])
     expect(
       index.brokenLinkCount({ dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT }, logger).count,
     ).toBe(1)
@@ -4916,16 +4964,29 @@ describe("rebuildFromVault", () => {
       logger,
     )
 
-    const outgoing = index.getOutgoingLinks(
-      { path: "source.md", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
-      logger,
-    )
-    expect(outgoing).toHaveLength(2)
-    const asset = outgoing.find((link) => link.path === "photo.png")
-    expect(asset?.exists).toBe(true)
-    expect(asset?.kind).toBe("file")
-    const broken = outgoing.find((link) => link.path === "genuinely-missing")
-    expect(broken?.exists).toBe(false)
+    expect(
+      index.getOutgoingLinks(
+        { path: "source.md", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
+        logger,
+      ),
+    ).toEqual([
+      {
+        path: "genuinely-missing",
+        title: null,
+        exists: false,
+        kind: "note",
+        bytes: null,
+        daily_note_forward_ref: false,
+      },
+      {
+        path: "photo.png",
+        title: null,
+        exists: true,
+        kind: "file",
+        bytes: 6,
+        daily_note_forward_ref: false,
+      },
+    ])
     expect(
       index.brokenLinkCount({ dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT }, logger).count,
     ).toBe(1)
@@ -4940,13 +5001,21 @@ describe("rebuildFromVault", () => {
       logger,
     )
 
-    const outgoing = index.getOutgoingLinks(
-      { path: "source.md", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
-      logger,
-    )
-    expect(outgoing.map((link) => link.path)).toEqual(["Report.md"])
-    expect(outgoing[0]?.kind).toBe("note")
-    expect(outgoing[0]?.exists).toBe(true)
+    expect(
+      index.getOutgoingLinks(
+        { path: "source.md", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
+        logger,
+      ),
+    ).toEqual([
+      {
+        path: "Report.md",
+        title: "Report",
+        exists: true,
+        kind: "note",
+        bytes: 24,
+        daily_note_forward_ref: false,
+      },
+    ])
     expect(
       index.brokenLinkCount({ dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT }, logger).count,
     ).toBe(0)
@@ -4964,13 +5033,21 @@ describe("rebuildFromVault", () => {
       logger,
     )
 
-    const outgoing = index.getOutgoingLinks(
-      { path: "source.md", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
-      logger,
-    )
-    expect(outgoing.map((link) => link.path)).toEqual(["photos/Sunset.png"])
-    expect(outgoing[0]?.kind).toBe("file")
-    expect(outgoing[0]?.exists).toBe(true)
+    expect(
+      index.getOutgoingLinks(
+        { path: "source.md", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
+        logger,
+      ),
+    ).toEqual([
+      {
+        path: "photos/Sunset.png",
+        title: null,
+        exists: true,
+        kind: "file",
+        bytes: 6,
+        daily_note_forward_ref: false,
+      },
+    ])
     expect(
       index.brokenLinkCount({ dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT }, logger).count,
     ).toBe(0)
@@ -6222,13 +6299,21 @@ describe("brokenLinkCount", () => {
       }),
       logger,
     )
-    const outgoing = index.getOutgoingLinks(
-      { path: "dashboard.md", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
-      logger,
-    )
-    expect(outgoing.map((link) => link.path)).toEqual(["sessions/log-a.md"])
-    expect(outgoing[0]?.exists).toBe(true)
-    expect(outgoing[0]?.kind).toBe("note")
+    expect(
+      index.getOutgoingLinks(
+        { path: "dashboard.md", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
+        logger,
+      ),
+    ).toEqual([
+      {
+        path: "sessions/log-a.md",
+        title: "log-a",
+        exists: true,
+        kind: "note",
+        bytes: 100,
+        daily_note_forward_ref: false,
+      },
+    ])
     expect(
       index.brokenLinkCount({ dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT }, logger).count,
     ).toBe(0)
@@ -6245,20 +6330,37 @@ describe("brokenLinkCount", () => {
       }),
       logger,
     )
-    const outgoing = index.getOutgoingLinks(
-      { path: "source.md", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
-      logger,
-    )
-    expect(outgoing).toHaveLength(3)
-    const photo = outgoing.find((link) => link.path === "photo.png")
-    expect(photo?.exists).toBe(true)
-    expect(photo?.kind).toBe("file")
-    const pdf = outgoing.find((link) => link.path === "report.pdf")
-    expect(pdf?.exists).toBe(true)
-    expect(pdf?.kind).toBe("file")
-    const broken = outgoing.find((link) => link.path === "real-note")
-    expect(broken?.exists).toBe(false)
-    expect(broken?.kind).toBe("note")
+    expect(
+      index.getOutgoingLinks(
+        { path: "source.md", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
+        logger,
+      ),
+    ).toEqual([
+      {
+        path: "photo.png",
+        title: null,
+        exists: true,
+        kind: "file",
+        bytes: 100,
+        daily_note_forward_ref: false,
+      },
+      {
+        path: "real-note",
+        title: null,
+        exists: false,
+        kind: "note",
+        bytes: null,
+        daily_note_forward_ref: false,
+      },
+      {
+        path: "report.pdf",
+        title: null,
+        exists: true,
+        kind: "file",
+        bytes: 100,
+        daily_note_forward_ref: false,
+      },
+    ])
     expect(
       index.brokenLinkCount({ dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT }, logger).count,
     ).toBe(1)
@@ -6274,17 +6376,29 @@ describe("brokenLinkCount", () => {
       }),
       logger,
     )
-    const outgoing = index.getOutgoingLinks(
-      { path: "source.md", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
-      logger,
-    )
-    expect(outgoing).toHaveLength(2)
-    const asset = outgoing.find((link) => link.path === "Trip Route.canvas")
-    expect(asset?.exists).toBe(true)
-    expect(asset?.kind).toBe("file")
-    const broken = outgoing.find((link) => link.path === "missing")
-    expect(broken?.exists).toBe(false)
-    expect(broken?.kind).toBe("note")
+    expect(
+      index.getOutgoingLinks(
+        { path: "source.md", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
+        logger,
+      ),
+    ).toEqual([
+      {
+        path: "Trip Route.canvas",
+        title: null,
+        exists: true,
+        kind: "file",
+        bytes: 100,
+        daily_note_forward_ref: false,
+      },
+      {
+        path: "missing",
+        title: null,
+        exists: false,
+        kind: "note",
+        bytes: null,
+        daily_note_forward_ref: false,
+      },
+    ])
     expect(
       index.brokenLinkCount({ dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT }, logger).count,
     ).toBe(1)
@@ -6307,13 +6421,21 @@ describe("brokenLinkCount", () => {
     expect(
       index.brokenLinkCount({ dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT }, logger).count,
     ).toBe(0)
-    const outgoing = index.getOutgoingLinks(
-      { path: "source.md", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
-      logger,
-    )
-    expect(outgoing.map((link) => link.path)).toEqual(["Route.canvas"])
-    expect(outgoing[0]?.exists).toBe(true)
-    expect(outgoing[0]?.kind).toBe("file")
+    expect(
+      index.getOutgoingLinks(
+        { path: "source.md", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
+        logger,
+      ),
+    ).toEqual([
+      {
+        path: "Route.canvas",
+        title: null,
+        exists: true,
+        kind: "file",
+        bytes: 100,
+        daily_note_forward_ref: false,
+      },
+    ])
   })
 
   it("removeNonMdFile makes previously resolved file links broken again", () => {
