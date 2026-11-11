@@ -27,6 +27,10 @@ type OAuthRoutesOptions = {
   logger: Logger
 }
 
+// The largest registration a real client has stored is under 500 bytes; the
+// consent-request cap (MAX_PENDING_REQUEST_PARAMS_BYTES) uses the same figure.
+const REGISTRATION_BODY_LIMIT = "8kb"
+
 export const createOAuthRoutes = ({
   authToken,
   serverUrl,
@@ -134,6 +138,12 @@ export const createOAuthRoutes = ({
       logger,
     }),
   )
+
+  // Ahead of the SDK's /register handler, whose own JSON parser accepts 100 KB
+  // and whose metadata schema caps no field. The SDK's parser finds the body
+  // already read and keeps it. /register needs no sign-in, so without the cap
+  // anyone could store 100 KB per registration until the sweep ran.
+  router.post("/register", express.json({ limit: REGISTRATION_BODY_LIMIT }))
 
   // SDK-managed OAuth routes — /.well-known/*, /authorize, /token, /register, /revoke
   router.use(

@@ -1065,6 +1065,96 @@ describe("OAuth rate limiting when the Forwarded header is not trusted (default)
   })
 })
 
+describe("OAuth registration body cap", () => {
+  const createRegistrationTest = async (): Promise<{ baseUrl: string }> => {
+    const dir = await mkdtemp(join(tmpdir(), "oauth-registration-cap-"))
+    const oauth = createOAuthProvider({
+      ...TEST_URLS,
+      authToken: AUTH_TOKEN,
+      dbPath: join(dir, "oauth.db"),
+      logger,
+    })
+    const router = createOAuthRoutes({
+      authToken: AUTH_TOKEN,
+      serverUrl: new URL("http://localhost:8000"),
+      oauthProvider: oauth,
+      serviceDocumentationUrl: "https://example.com",
+      trustForwardedHops: 0,
+      logger,
+    })
+    const app = express()
+    app.use(router)
+    // The server's own error middleware answers the parser's refusal; here a
+    // plain handler stands in for it so the test sees the parser's status.
+    app.use(
+      (
+        error: { status?: number },
+        _req: express.Request,
+        res: express.Response,
+        _next: express.NextFunction,
+      ) => {
+        res.status(error.status ?? 500).json({ error: "request body rejected" })
+      },
+    )
+    const server = await new Promise<Server>((resolve) => {
+      const listening = app.listen(0, () => resolve(listening))
+    })
+    onTestFinished(async () => {
+      await new Promise<void>((resolve) => server.close(() => resolve()))
+      await rm(dir, { recursive: true, force: true })
+    })
+    return { baseUrl: `http://localhost:${getListeningPort(server)}` }
+  }
+
+  const register = (baseUrl: string, body: string): Promise<Response> => {
+    return fetch(`${baseUrl}/register`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body,
+    })
+  }
+
+  /** A registration whose JSON is exactly `totalBytes` long. */
+  const registrationOfBytes = (totalBytes: number): string => {
+    const withoutPadding = JSON.stringify({
+      client_name: "",
+      redirect_uris: [REDIRECT_URI],
+      grant_types: ["authorization_code", "refresh_token"],
+      response_types: ["code"],
+      token_endpoint_auth_method: "none",
+    })
+    return JSON.stringify({
+      client_name: "n".repeat(totalBytes - Buffer.byteLength(withoutPadding)),
+      redirect_uris: [REDIRECT_URI],
+      grant_types: ["authorization_code", "refresh_token"],
+      response_types: ["code"],
+      token_endpoint_auth_method: "none",
+    })
+  }
+
+  it("refuses a registration one byte over 8 KB before the SDK sees it", async () => {
+    const { baseUrl } = await createRegistrationTest()
+
+    const response = await register(baseUrl, registrationOfBytes(8 * 1024 + 1))
+
+    expect({ status: response.status, body: await response.json() }).toEqual({
+      status: 413,
+      body: { error: "request body rejected" },
+    })
+  })
+
+  it("registers a client from a body of exactly 8 KB, and the SDK reads the parsed body", async () => {
+    const { baseUrl } = await createRegistrationTest()
+    const body = registrationOfBytes(8 * 1024)
+
+    const response = await register(baseUrl, body)
+
+    expect(response.status).toBe(201)
+    const registered = OAuthClientInformationFullSchema.parse(await response.json())
+    expect(registered.client_name).toBe(JSON.parse(body).client_name)
+  })
+})
+
 describe("OAuth protected resource metadata", () => {
   let dir: string
   let server: Server

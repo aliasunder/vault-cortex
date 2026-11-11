@@ -927,13 +927,16 @@ before returning the 429.
 **Registrations that never signed in:** every MCP client registers itself
 through `/register` on first connect, and some register more than once per
 connect, so the `clients` table would grow with rows no client ever uses.
-A registration older than a week that never signed in is deleted at boot
+A registration older than an hour that never signed in is deleted at boot
 and before each new registration, logged as `oauth_clients_swept`:
 
 - A registration has signed in once the server has saved a refresh token
   for it, which sets its `signed_in_at` column
-- Signing in follows registration within minutes, so a row not signed in
-  after a week never finished consent
+- A consent request and an authorization code each live ten minutes, so a
+  row not signed in after an hour never finished consent
+- `/register` needs no sign-in and its JSON body is capped at 8 KB, so the
+  rate limit, the cap and the hour together bound how much disk anyone can
+  fill through it
 - A client that has signed in is never swept, even after its grant is
   revoked or its last refresh token expires
 - Such a client cannot recover from a sweep on its own: it keeps presenting
