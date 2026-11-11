@@ -64,6 +64,8 @@ const stubPdfDocument = (params: {
 const createIndexProbe = async (params: {
   pdfData: Uint8Array
   pageTexts?: readonly string[]
+  /** Replaces every text item's reading direction, to feed a value pdfjs never emits. */
+  itemDirection?: string
   textFailure?: { page: number; error: Error }
 }) => {
   const proxy = await createPdfDocumentProxy(params.pdfData)
@@ -86,14 +88,19 @@ const createIndexProbe = async (params: {
       if (params.textFailure?.page === pageNumber) throw params.textFailure.error
       const content = await getTextContent()
       const replacementText = params.pageTexts?.[pageNumber - 1]
+      const replacementDirection = params.itemDirection
 
-      if (replacementText === undefined) return content
+      if (replacementText === undefined && replacementDirection === undefined) return content
 
       return {
         ...content,
         items: content.items.map((item) => {
           if (!("str" in item)) return item
-          return { ...item, str: replacementText }
+          return {
+            ...item,
+            str: replacementText ?? item.str,
+            dir: replacementDirection ?? item.dir,
+          }
         }),
       }
     })
@@ -238,6 +245,17 @@ describe("extractPdfIndexText", () => {
       expect(probe.destroy).toHaveBeenCalledExactlyOnceWith()
     },
   )
+
+  it("rejects a text direction pdfjs never emits and still cleans the page and document", async () => {
+    const pdfData = toPdfData(buildMinimalPdf())
+    const probe = await createIndexProbe({ pdfData, itemDirection: "btt" })
+
+    await expect(extractPdfIndexText(pdfData)).rejects.toThrow(
+      new Error("PDF text has an invalid direction"),
+    )
+    expect(probe.events).toEqual(["page 1", "text 1", "cleanup 1"])
+    expect(probe.destroy).toHaveBeenCalledExactlyOnceWith()
+  })
 
   it("cleans the page and document when page text extraction fails, without visiting later pages", async () => {
     const pdfData = toPdfData(
