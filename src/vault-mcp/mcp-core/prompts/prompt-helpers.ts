@@ -41,6 +41,15 @@ export const formatNoteLine = (note: { path: string; title: string }): string =>
   return note.title.length > 0 ? `- ${note.path} — ${note.title}` : `- ${note.path}`
 }
 
+/** Runs a prompt handler as tracked foreground work, so background embedding
+ *  waits while the prompt gathers vault data on the one JavaScript thread. */
+export const trackedPromptHandler = <HandlerArgs extends unknown[], HandlerResult>(
+  search: Pick<SearchIndex, "trackForegroundWork">,
+  handler: (...handlerArgs: HandlerArgs) => Promise<HandlerResult>,
+): ((...handlerArgs: HandlerArgs) => Promise<HandlerResult>) => {
+  return (...handlerArgs) => search.trackForegroundWork(() => handler(...handlerArgs))
+}
+
 /** Wraps assembled text as a single user-role prompt message. */
 export const textResult = (text: string): GetPromptResult => ({
   messages: [{ role: "user", content: { type: "text", text } }],

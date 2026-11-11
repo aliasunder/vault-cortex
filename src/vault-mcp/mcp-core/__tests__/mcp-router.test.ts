@@ -7,6 +7,7 @@ import type { AddressInfo } from "node:net"
 import { createMcpRouter } from "../mcp-router.js"
 import { loadConfig } from "../../config.js"
 import type { SearchIndex } from "../../search/search-index.js"
+import { stubSearchIndex } from "./helpers/stub-search-index.js"
 import type { OAuthServerProvider } from "@modelcontextprotocol/sdk/server/auth/provider.js"
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js"
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
@@ -156,7 +157,7 @@ const setupHarness = async (
     (opts.authMiddleware ?? allowAuth) as unknown as ReturnType<typeof requireBearerAuth>,
   )
 
-  const search = {} as SearchIndex
+  const search = stubSearchIndex()
   const provider = {} as OAuthServerProvider
   const config = opts.config ?? DEFAULT_CONFIG
 

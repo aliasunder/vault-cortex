@@ -46,10 +46,13 @@ export const computeEnabledToolNames = (config: VaultConfig): ReadonlySet<ToolNa
 
 /** Binds the SDK server and the enabled set into the gate every group module
  *  registers through. See RegisterGatedTool for the contract. */
-const createGatedRegisterTool = (
-  server: McpServer,
-  enabledToolNames: ReadonlySet<ToolName>,
-): RegisterGatedTool => {
+const createGatedRegisterTool = (params: {
+  server: McpServer
+  enabledToolNames: ReadonlySet<ToolName>
+  trackForegroundWork: SearchIndex["trackForegroundWork"]
+}): RegisterGatedTool => {
+  const { server, enabledToolNames, trackForegroundWork } = params
+
   return (name, config, handler) => {
     const entry = TOOL_REGISTRY_BY_NAME.get(name)
 
@@ -57,6 +60,12 @@ const createGatedRegisterTool = (
       throw new Error(`tool is not in the registry: ${name}`)
     }
     if (!enabledToolNames.has(name)) return
+
+    // Background embedding waits while a handler runs, because model
+    // inference shares the one JavaScript thread with the call
+    const trackedHandler: typeof handler = (args, extra) => {
+      return trackForegroundWork(async () => handler(args, extra))
+    }
     // Inference picks the raw shape for InputArgs; no tool has an output schema
     server.registerTool<ZodRawShapeCompat, ToolInputObject<typeof config.inputSchema>>(
       name,
@@ -65,7 +74,7 @@ const createGatedRegisterTool = (
         inputSchema: createStrictInputObject(config.inputSchema),
         annotations: entry.annotations,
       },
-      handler,
+      trackedHandler,
     )
   }
 }
@@ -101,7 +110,11 @@ export const registerTools = (params: {
       isToolEnabled: availability.isToolEnabled,
       vaultPath: params.vaultPath,
     }),
-    registerTool: createGatedRegisterTool(params.server, enabledToolNames),
+    registerTool: createGatedRegisterTool({
+      server: params.server,
+      enabledToolNames,
+      trackForegroundWork: params.search.trackForegroundWork,
+    }),
     vaultPath: params.vaultPath,
     search: params.search,
     pdfExtractor: params.pdfExtractor,

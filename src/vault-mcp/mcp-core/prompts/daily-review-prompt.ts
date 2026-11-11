@@ -24,6 +24,7 @@ import {
   wrapWithDataMarkers,
   exceedsCharCap,
   maxCharsArg,
+  trackedPromptHandler,
 } from "./prompt-helpers.js"
 
 const PROMPT_NAMES = {
@@ -164,7 +165,7 @@ export const registerDailyReviewPrompt = ({
         max_chars: maxCharsArg,
       },
     },
-    async (args, extra) => {
+    trackedPromptHandler(search, async (args, extra) => {
       const reqLogger = sessionLogger.child({
         requestId: extra.requestId,
         prompt: PROMPT_NAMES.DAILY_REVIEW,
@@ -450,6 +451,6 @@ export const registerDailyReviewPrompt = ({
           `Could not assemble the daily review (${clientMessage}).${dailyFallbackHint}`,
         )
       }
-    },
+    }),
   )
 }

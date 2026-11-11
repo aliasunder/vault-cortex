@@ -18,7 +18,7 @@ import {
   PROMPT_NAMES,
   loadConfig,
   createSearchIndex,
-  type SearchIndex,
+  stubSearchIndex,
   logger,
 } from "./prompt-test-harness.js"
 
@@ -128,7 +128,7 @@ describe("memory-review handler", () => {
     onTestFinished(async () => {
       await rm(vault, { recursive: true, force: true })
     })
-    const search = {} as SearchIndex
+    const search = stubSearchIndex()
     const config = loadConfig({})
     await mkdir(join(vault, config.memoryDir), { recursive: true })
     await writeFile(
@@ -233,7 +233,7 @@ describe("memory-review error degradation", () => {
     // Make the memory dir a file so readdir fails with ENOTDIR (not ENOENT),
     // which listMemoryFiles re-throws — exercising the handler's catch path.
     await writeFile(join(vault, "About Me"), "not a directory", "utf8")
-    const calls = registerWithSearch(vault, {} as SearchIndex)
+    const calls = registerWithSearch(vault, stubSearchIndex())
     const handler = findCall(calls, PROMPT_NAMES.MEMORY_REVIEW)[2]
 
     const text = textOf(await handler({}, fakeExtra))
@@ -263,7 +263,7 @@ describe("memory-review error degradation", () => {
       },
     }))
     onTestFinished(() => vi.mocked(createMemoryStore).mockRestore())
-    const calls = registerWithSearch(vault, {} as SearchIndex)
+    const calls = registerWithSearch(vault, stubSearchIndex())
     const handler = findCall(calls, PROMPT_NAMES.MEMORY_REVIEW)[2]
 
     const text = textOf(await handler({}, fakeExtra))
@@ -278,7 +278,7 @@ describe("memory-review error degradation", () => {
       await rm(vault, { recursive: true, force: true })
     })
     await writeFile(join(vault, "About Me"), "not a directory", "utf8")
-    const calls = registerWithSearch(vault, {} as SearchIndex)
+    const calls = registerWithSearch(vault, stubSearchIndex())
     const argsSchema = findCall(calls, PROMPT_NAMES.MEMORY_REVIEW)[1].argsSchema as {
       file: unknown
     }
@@ -382,7 +382,7 @@ describe("memory-review logging", () => {
       await rm(vault, { recursive: true, force: true })
     })
     await writeFile(join(vault, "About Me"), "not a directory", "utf8")
-    const calls = registerWithSearch(vault, {} as SearchIndex, recordingLogger(logs))
+    const calls = registerWithSearch(vault, stubSearchIndex(), recordingLogger(logs))
     const argsSchema = findCall(calls, PROMPT_NAMES.MEMORY_REVIEW)[1].argsSchema as {
       file: unknown
     }
@@ -411,7 +411,7 @@ describe("memory-review full prompt output", () => {
     })
     await mkdir(join(vault, "About Me"), { recursive: true })
     await writeFile(join(vault, "About Me", "Mem.md"), MEM_MD, "utf8")
-    const calls = registerWithSearch(vault, {} as SearchIndex)
+    const calls = registerWithSearch(vault, stubSearchIndex())
     const handler = findCall(calls, PROMPT_NAMES.MEMORY_REVIEW)[2]
 
     const text = textOf(await handler({ file: "Mem" }, fakeExtra))
@@ -462,7 +462,7 @@ describe("memory-review full prompt output", () => {
       "---\ntitle: Routines\ntype: profile\nentry-policy: living\n---\n\n# Routines\n\n## Upcoming (newest first)\n- **2026-07-11**: a plan\n",
       "utf8",
     )
-    const calls = registerWithSearch(vault, {} as SearchIndex)
+    const calls = registerWithSearch(vault, stubSearchIndex())
     const handler = findCall(calls, PROMPT_NAMES.MEMORY_REVIEW)[2]
 
     const text = textOf(await handler({ file: "Routines" }, fakeExtra))
