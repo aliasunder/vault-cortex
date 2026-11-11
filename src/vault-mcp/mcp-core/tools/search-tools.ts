@@ -38,6 +38,18 @@ export const registerSearchTools = ({
   logger: sessionLogger,
   config,
 }: ToolRegistrationContext): void => {
+  // Different tools edit the two tag fields, so every description that
+  // returns notes says which field is which
+  const tagsPropertyEditorClause = whenToolEnabledText(
+    "vault_update_properties",
+    "; vault_update_properties edits it",
+  )
+  const bodyTagsEditorClause = whenToolEnabledText(
+    "vault_replace_in_note",
+    "; vault_replace_in_note edits them",
+  )
+  const tagsFieldsText = `tags (the tags property${tagsPropertyEditorClause}), body_tags (#tags in the note's text, one per spelling${bodyTagsEditorClause}; absent when none)`
+
   // These parts read the same with or without embeddings, so both
   // vault_search description variants share them
   const searchSyntaxText = `Unquoted terms use implicit AND with stemming ("running" also matches "run"); wrap in double quotes for exact phrases; punctuated terms (vault-cortex, deploy/local) are matched as exact adjacent-word phrases.`
@@ -54,18 +66,6 @@ export const registerSearchTools = ({
 - related: every listed link must appear in the related property, written as it is there, brackets and alias included
 - properties: keys and text values match exactly, letter case included; values compare by exact type — pass a number as a number, not "4". Exception: true and false compare as 1 and 0, so true or 1 matches a checked checkbox and the number 1. A list property matches when any element equals the value.
 - created / modified: bounds compare whole calendar days in the server's time zone (returned created and modified values show its UTC offset). A note whose created property is missing or not an ISO date never matches a created filter`
-
-  // Different tools edit the two tag fields, so every description that
-  // returns notes says which field is which
-  const tagsPropertyEditorClause = whenToolEnabledText(
-    "vault_update_properties",
-    "; vault_update_properties edits it",
-  )
-  const bodyTagsEditorClause = whenToolEnabledText(
-    "vault_replace_in_note",
-    "; vault_replace_in_note edits them",
-  )
-  const tagsFieldsText = `tags (the tags property${tagsPropertyEditorClause}), body_tags (#tags in the note's text, one per spelling${bodyTagsEditorClause}; absent when none)`
 
   const searchSharedExamples = `Example: vault_search({ query: "kubernetes networking", filters: { tags: ["reference"] } })
 Example: vault_search({ query: "meeting notes", filters: { type: "meeting", folder: "Work" } })
@@ -109,24 +109,22 @@ Example: vault_search({ query: "decision", filters: { modified: { after: "2026-0
     : `kind is always "note".`
   const searchResultDetailsText = `${searchResultKindText} created is omitted, not null, when a result has none; type is null when the result has no type property; bytes is the on-disk size. With include_leading_callout, each result also carries leading_callout (the opening callout, { type, title, body }) when present.`
 
+  const droppedQuerySyntaxText =
+    "the uppercase words AND, OR, NOT and NEAR (searched as terms in other spellings or inside double quotes), and punctuation such as *, ^, parentheses and colons, are dropped"
+
   // The vector leg embeds the raw query, so an all-operator query still
   // returns semantic neighbours while embeddings are on — unless the query
   // embedding fails, when only the keyword leg runs and finds nothing
-  const emptiedQueryText = config.embeddingEnabled
-    ? {
-        stage: "keyword matching",
-        outcome:
-          'a query left with no terms is matched by meaning only, or finds nothing when search_mode is "fts"',
-      }
-    : {
-        stage: "matching",
-        outcome: "a query left with no terms returns no results",
-      }
+  const malformedQueryLine = config.embeddingEnabled
+    ? `- Malformed query syntax never throws: ${droppedQuerySyntaxText} before keyword matching; a query left with no terms is matched by meaning only, or finds nothing when search_mode is "fts".`
+    : `- Malformed query syntax never throws: ${droppedQuerySyntaxText} before matching; a query left with no terms returns no results.`
 
   // Each kind has a keyword leg, and with embeddings a semantic leg too, so a
   // fused result holds at most twice the per-leg cap of each kind
-  const describeCapExtent = (perKind: number): string => {
-    return config.fileToolsEnabled ? `${perKind} notes and ${perKind} files` : `${perKind} notes`
+  const describeCapExtent = (perKindCap: number): string => {
+    return config.fileToolsEnabled
+      ? `${perKindCap} notes and ${perKindCap} files`
+      : `${perKindCap} notes`
   }
   const keywordCapExtent = describeCapExtent(SEARCH_LEG_ROW_CAP)
   const hybridCapExtent = describeCapExtent(SEARCH_LEG_ROW_CAP * 2)
@@ -134,7 +132,7 @@ Example: vault_search({ query: "decision", filters: { modified: { after: "2026-0
     ? `With search_mode "fts", at most ${keywordCapExtent} come back; with "hybrid", at most ${hybridCapExtent}.`
     : `At most ${keywordCapExtent} come back.`
   const searchBehaviorLine = `Behavior: ${INDEX_LAG_LEAD}. No matches returns an empty results array with total 0, not an error. ${resultCapSentence}${fileContentLimitsSentence}
-- Malformed query syntax never throws: the uppercase words AND, OR, NOT and NEAR (their other spellings are searched as terms), and punctuation such as *, ^, parentheses and colons, are dropped before ${emptiedQueryText.stage}; ${emptiedQueryText.outcome}.`
+${malformedQueryLine}`
   const searchErrorsSection = `Errors:
 - "invalid created.on date: …" or "… is not a calendar date" (any created/modified bound) — pass a real calendar date in YYYY-MM-DD form
 - "tag must not be empty …" — a tags entry is only "#"; pass the tag name
@@ -426,6 +424,8 @@ Returns: ${describeNoteMetadataResult(tagsFieldsText)} Newest first by the sort_
       : "",
   ])
 
+  // With the memory layer off the server never creates the memory folder, so
+  // the examples name a generic folder instead
   registerTool(
     TOOL_NAMES.VAULT_SEARCH_BY_FOLDER,
     {
@@ -784,6 +784,8 @@ ${INDEX_ENGINE_ERROR_ENTRY}`,
       return safeHandler(
         reqLogger,
         async () => {
+          // Read on every call, so a Daily Notes folder changed in Obsidian
+          // applies without a restart
           const dailyNotesConfig = await readDailyNotesConfig(
             {
               vaultPath,
@@ -822,6 +824,10 @@ ${INDEX_ENGINE_ERROR_ENTRY}`,
           : "",
       }
 
+  // SQLite's expression depth limit (1000) caps how many folders the orphan
+  // query can exclude
+  const maxOrphanExcludeFolders = 994
+
   const findOrphansAlternativesLine = formatServedSentencesLine([
     whenToolEnabledText(
       "vault_get_backlinks",
@@ -847,7 +853,7 @@ Parameters:
 Behavior: ${INDEX_LAG_LEAD}. An empty array means no orphans were found (after exclusions), not an error.
 
 Errors:
-- "too many excluded folders" — pass at most 994 exclude_folders entries, then retry.
+- "too many excluded folders" — pass at most ${maxOrphanExcludeFolders} exclude_folders entries, then retry.
 ${INDEX_ERROR_ENTRY}
 
 Returns: ${describeNoteMetadataResult(tagsFieldsText)} Sorted by most recently modified.`,
