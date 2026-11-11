@@ -1,8 +1,7 @@
 import { describe, expect, it } from "vitest"
 
 import {
-  buildDaemonNotRunningMessage,
-  buildDockerNotInstalledMessage,
+  buildDaemonUnavailableMessage,
   buildLocalConnectMessage,
   buildRemoteConnectMessage,
 } from "../messages.js"
@@ -592,51 +591,64 @@ ${expectedBottomRule()}`)
   })
 })
 
-describe("buildDaemonNotRunningMessage", () => {
-  it("appends the caller's next step verbatim to the start guidance", () => {
-    expect(buildDaemonNotRunningMessage(" and try again.")).toBe(
+describe("buildDaemonUnavailableMessage", () => {
+  const NOT_INSTALLED_LEAD =
+    "No container runtime found — the server runs in Docker, so you need\n" +
+    "Docker or a Docker-compatible runtime (OrbStack, Colima, Podman).\n"
+
+  it("tells the user to start a stopped runtime and ends at the guidance without a start command", () => {
+    expect(buildDaemonUnavailableMessage({ daemonStatus: "not-running" })).toBe(
       "Container runtime not running — start Docker Desktop, Colima,\n" +
-        "OrbStack, or another Docker-compatible runtime and try again.",
-    )
-  })
-})
-
-describe("buildDockerNotInstalledMessage", () => {
-  it("points macOS at the Docker Desktop docs", () => {
-    expect(buildDockerNotInstalledMessage({ nextStep: "", platform: "darwin" })).toBe(
-      "No container runtime found — the server runs in Docker, so you need\n" +
-        "Docker or a Docker-compatible runtime (OrbStack, Colima, Podman).\n" +
-        "Install Docker Desktop: https://docs.docker.com/get-docker/",
+        "OrbStack, or another Docker-compatible runtime.",
     )
   })
 
-  it("points Linux at the Docker Engine install docs", () => {
-    expect(buildDockerNotInstalledMessage({ nextStep: "", platform: "linux" })).toBe(
-      "No container runtime found — the server runs in Docker, so you need\n" +
-        "Docker or a Docker-compatible runtime (OrbStack, Colima, Podman).\n" +
-        "Install Docker Engine: https://docs.docker.com/engine/install/",
-    )
-  })
-
-  it("points Windows at the Docker Desktop docs", () => {
-    expect(buildDockerNotInstalledMessage({ nextStep: "", platform: "win32" })).toBe(
-      "No container runtime found — the server runs in Docker, so you need\n" +
-        "Docker or a Docker-compatible runtime (OrbStack, Colima, Podman).\n" +
-        "Install Docker Desktop: https://docs.docker.com/get-docker/",
-    )
-  })
-
-  it("appends the caller's next step verbatim after the install line", () => {
+  it("ends a stopped runtime's guidance with the start command", () => {
     expect(
-      buildDockerNotInstalledMessage({
-        nextStep: "\nThen try again.",
+      buildDaemonUnavailableMessage({
+        daemonStatus: "not-running",
+        startCommand: 'npx vault-cortex@latest start --dir "/srv/vault"',
+      }),
+    ).toBe(
+      "Container runtime not running — start Docker Desktop, Colima,\n" +
+        "OrbStack, or another Docker-compatible runtime, then run:\n" +
+        '  npx vault-cortex@latest start --dir "/srv/vault"',
+    )
+  })
+
+  it.each([
+    {
+      label: "macOS at the Docker Desktop docs",
+      platform: "darwin" as const,
+      installLine: "Install Docker Desktop: https://docs.docker.com/get-docker/",
+    },
+    {
+      label: "Linux at the Docker Engine install docs",
+      platform: "linux" as const,
+      installLine: "Install Docker Engine: https://docs.docker.com/engine/install/",
+    },
+    {
+      label: "Windows at the Docker Desktop docs",
+      platform: "win32" as const,
+      installLine: "Install Docker Desktop: https://docs.docker.com/get-docker/",
+    },
+  ])("points $label when no runtime is installed", ({ platform, installLine }) => {
+    expect(buildDaemonUnavailableMessage({ daemonStatus: "not-installed", platform })).toBe(
+      `${NOT_INSTALLED_LEAD}${installLine}`,
+    )
+  })
+
+  it("ends the install guidance with the start command", () => {
+    expect(
+      buildDaemonUnavailableMessage({
+        daemonStatus: "not-installed",
+        startCommand: 'npx vault-cortex@latest start --dir "/srv/vault"',
         platform: "linux",
       }),
     ).toBe(
-      "No container runtime found — the server runs in Docker, so you need\n" +
-        "Docker or a Docker-compatible runtime (OrbStack, Colima, Podman).\n" +
-        "Install Docker Engine: https://docs.docker.com/engine/install/\n" +
-        "Then try again.",
+      `${NOT_INSTALLED_LEAD}Install Docker Engine: https://docs.docker.com/engine/install/\n` +
+        "Then start the server with:\n" +
+        '  npx vault-cortex@latest start --dir "/srv/vault"',
     )
   })
 })

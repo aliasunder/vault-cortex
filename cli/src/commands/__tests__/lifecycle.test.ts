@@ -5,7 +5,6 @@ import { describe, expect, it, onTestFinished, vi } from "vitest"
 
 import type { DockerLogsParams, DockerRunner } from "../../adapters/docker.js"
 import { runDown, runLogs, runRestart, runStart } from "../lifecycle.js"
-import { buildDockerNotInstalledMessage } from "../../rules/messages.js"
 import {
   createRecordingDocker,
   createScriptedPrompts,
@@ -14,6 +13,7 @@ import {
   dockerReady,
   fetchNever,
   fetchOk,
+  NO_RUNTIME_GUIDANCE,
 } from "../../__tests__/command-stubs.js"
 
 // Creates a temp target dir and registers its removal at creation time, so
@@ -73,8 +73,7 @@ describe("runDown", () => {
     ])
   })
 
-  // Message content per platform is pinned test-owned in messages.test.ts —
-  // this asserts the not-installed state routes to the install guidance.
+  // Each platform's install line is pinned in messages.test.ts.
   it("exits 1 with install guidance when no container runtime is installed", async () => {
     const targetDir = makeTempTargetDir("vault-cli-down-")
     writeLocalEnv(targetDir)
@@ -86,7 +85,7 @@ describe("runDown", () => {
     )
 
     expect(exitCode).toBe(1)
-    expect(scripted.errors).toEqual([buildDockerNotInstalledMessage({ nextStep: "" })])
+    expect(scripted.errors).toEqual([NO_RUNTIME_GUIDANCE])
   })
 
   it("succeeds without removing anything when no container exists", async () => {

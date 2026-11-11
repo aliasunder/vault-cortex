@@ -39,15 +39,6 @@ const sectionRule = (label: string): string => {
 }
 
 /**
- * Daemon-stopped guidance shared by every command that needs the container
- * runtime. `nextStep` finishes the message per command — appended verbatim
- * (".", " and try again.", or a ", then run:" continuation).
- */
-export const buildDaemonNotRunningMessage = (nextStep: string): string =>
-  "Container runtime not running — start Docker Desktop, Colima,\n" +
-  `OrbStack, or another Docker-compatible runtime${nextStep}`
-
-/**
  * Per-platform install pointer — a docs link only, no install method
  * suggestions: the CLI doesn't install anything, so the official docs (which
  * cover every method) are the hand-off. Peers are named in the message above
@@ -61,42 +52,36 @@ const dockerInstallLine = (platform: NodeJS.Platform): string => {
 }
 
 /**
- * "No runtime at all" guidance — distinct from the daemon-stopped message so
- * the user isn't told to start something that isn't installed. platform is a
- * defaulted param so each branch stays
- * testable; `nextStep` is appended verbatim, as in
- * buildDaemonNotRunningMessage.
- */
-export const buildDockerNotInstalledMessage = (params: {
-  nextStep: string
-  platform?: NodeJS.Platform
-}): string => {
-  const { nextStep, platform = process.platform } = params
-  return (
-    "No container runtime found — the server runs in Docker, so you need\n" +
-    "Docker or a Docker-compatible runtime (OrbStack, Colima, Podman).\n" +
-    `${dockerInstallLine(platform)}${nextStep}`
-  )
-}
-
-/**
- * The guidance for a container runtime that is stopped or absent. With a
- * start command, the message ends by telling the user to run it once the
- * runtime is up; without one, it ends at the guidance.
+ * The guidance for a container runtime that is stopped or absent:
+ * - a missing runtime gets install guidance rather than an instruction to
+ *   start something that isn't installed;
+ * - with a start command, the message ends by telling the user to run it once
+ *   the runtime is up; without one, it ends at the guidance;
+ * - platform is a defaulted param so each platform's install line is testable.
  */
 export const buildDaemonUnavailableMessage = (params: {
   daemonStatus: Exclude<DaemonStatus, "running">
   startCommand?: string
+  platform?: NodeJS.Platform
 }): string => {
-  const { daemonStatus, startCommand } = params
+  const { daemonStatus, startCommand, platform = process.platform } = params
 
   switch (daemonStatus) {
     case "not-installed": {
       const nextStep = startCommand ? `\nThen start the server with:\n  ${startCommand}` : ""
-      return buildDockerNotInstalledMessage({ nextStep })
+      return (
+        "No container runtime found — the server runs in Docker, so you need\n" +
+        "Docker or a Docker-compatible runtime (OrbStack, Colima, Podman).\n" +
+        `${dockerInstallLine(platform)}${nextStep}`
+      )
     }
-    case "not-running":
-      return buildDaemonNotRunningMessage(startCommand ? `, then run:\n  ${startCommand}` : ".")
+    case "not-running": {
+      const nextStep = startCommand ? `, then run:\n  ${startCommand}` : "."
+      return (
+        "Container runtime not running — start Docker Desktop, Colima,\n" +
+        `OrbStack, or another Docker-compatible runtime${nextStep}`
+      )
+    }
   }
 }
 

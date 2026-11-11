@@ -5,10 +5,6 @@ import { describe, expect, it, onTestFinished, vi } from "vitest"
 
 import { runInit } from "../init.js"
 import { LOCAL_IMAGE, pollHealth, type DockerRunner } from "../../adapters/docker.js"
-import {
-  buildDaemonNotRunningMessage,
-  buildDockerNotInstalledMessage,
-} from "../../rules/messages.js"
 import { parseEnvValues, readEnvInstanceName } from "../../rules/env-values.js"
 
 vi.mock("../../adapters/docker.js", { spy: true })
@@ -21,6 +17,7 @@ import {
   dockerReadyEmptyHost,
   fetchNever,
   fetchOk,
+  NO_RUNTIME_GUIDANCE,
 } from "../../__tests__/command-stubs.js"
 
 const makeVault = (): string => {
@@ -517,14 +514,13 @@ describe("runInit interactive local flow", () => {
     expect(scripted.asked).not.toContain("Start the server now?")
     expect(scripted.warnings).toEqual([
       nameCheckSkippedWarning("vault-cortex"),
-      buildDaemonNotRunningMessage(
-        `, then run:\n  npx vault-cortex@latest start --dir "${targetDir}"`,
-      ),
+      "Container runtime not running — start Docker Desktop, Colima,\n" +
+        "OrbStack, or another Docker-compatible runtime, then run:\n" +
+        `  npx vault-cortex@latest start --dir "${targetDir}"`,
     ])
   })
 
-  // Message content per platform is pinned test-owned in messages.test.ts —
-  // this asserts the not-installed state routes to the install guidance.
+  // Each platform's install line is pinned in messages.test.ts.
   it("warns with install guidance and skips the start offer when Docker is not installed", async () => {
     const vaultDir = makeVault()
     const targetDir = makeTargetDir()
@@ -547,9 +543,8 @@ describe("runInit interactive local flow", () => {
     expect(scripted.asked).not.toContain("Start the server now?")
     expect(scripted.warnings).toEqual([
       nameCheckSkippedWarning("vault-cortex"),
-      buildDockerNotInstalledMessage({
-        nextStep: `\nThen start the server with:\n  npx vault-cortex@latest start --dir "${targetDir}"`,
-      }),
+      `${NO_RUNTIME_GUIDANCE}\nThen start the server with:\n` +
+        `  npx vault-cortex@latest start --dir "${targetDir}"`,
     ])
   })
 
@@ -877,9 +872,9 @@ describe("runInit remote flow", () => {
     expect(scripted.asked).not.toContain("Start the server now?")
     expect(scripted.warnings).toEqual([
       nameCheckSkippedWarning("vault-cortex"),
-      buildDaemonNotRunningMessage(
-        `, then run:\n  npx vault-cortex@latest start --dir "${targetDir}"`,
-      ),
+      "Container runtime not running — start Docker Desktop, Colima,\n" +
+        "OrbStack, or another Docker-compatible runtime, then run:\n" +
+        `  npx vault-cortex@latest start --dir "${targetDir}"`,
     ])
   })
 
