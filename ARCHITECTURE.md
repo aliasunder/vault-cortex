@@ -601,6 +601,7 @@ Vector tables persist across restarts and rebuilds (only FTS, notes, links, task
 - Each successful source upsert returns a unique `sourceVersion`. Queued watcher jobs and background rebuild snapshots retain that version, so deletion or replacement invalidates earlier work even when content or modification time repeats.
 - Note, file-content and memory-entry writers check the captured version before model work and after each model await. Obsolete jobs skip derived writes, note/file tail pruning and later memory batches.
 - The watcher assigns an event token before reading each file and checks it before indexing. Unlink or a newer event invalidates earlier reads; embedding stays serialized per path to limit model concurrency.
+- Model inference runs synchronously on the server's one JavaScript thread, so background embedding yields to requests. Each background model call (a chunk, or a 16-entry memory batch) waits while a tool call or prompt is running, for at most 5 seconds (`BACKGROUND_EMBED_MAX_WAIT_MS`). The keyword index is written before embedding is queued, so only vector results lag.
 
 **Embedding pipeline:** Controlled by `EMBEDDING_ENABLED` (default: `true`). Markdown syntax is stripped before embedding (`plaintext.ts`). Short notes (under 500 body tokens) stay a single title-prefixed chunk. Longer notes split into per-heading sections via `chunker.ts`:
 
@@ -612,7 +613,7 @@ Vector tables persist across restarts and rebuilds (only FTS, notes, links, task
 - **Table-of-contents chunk:** each split note with named headings emits one short chunk with its folder path and title on the first line, followed by heading names in document order within the chunk budget. This gives a broad query a compact view of the note's topics without requiring one section to represent the whole note
 - **Sub-splitting:** oversized sections split at paragraph boundaries (MAX_CHUNK_TOKENS = 450, minus each chunk's prefix cost), with a sub-minimum trailing fragment merged backward
 
-Content-hash gating (SHA-256 per chunk) skips re-embedding unchanged content on both incremental file-watcher updates and full rebuilds.
+Content-hash gating (SHA-256 per chunk) skips re-embedding unchanged content on both incremental file-watcher updates and full rebuilds. A chunk whose text already has a stored vector elsewhere in the same note or file gets that vector copied, so an edit near the top of a long note re-embeds only the chunks whose text changed.
 
 **Vector schema:** Four tables in the same SQLite database as FTS5 (which also holds the `tasks` table — see [Tasks](#tasks)):
 
