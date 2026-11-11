@@ -272,8 +272,8 @@ Every tag input (`tag` on `vault_search_by_tag` and `vault_list_tasks`, the `tag
 - **Missing file:** takes the fallbacks
 - **Unparseable file:** takes the fallbacks and logs a `warn`
 - **Forward references:** a broken link to a daily note not yet created is flagged `daily_note_forward_ref` by `vault_get_outgoing_links` and left out of `vault-orientation`'s broken-link count. Two rules find one:
-  - **Into the daily folder:** the target starts with the daily folder
-  - **Bare date:** the target has no folder, and its name (a markdown link's `.md` dropped) is a date written exactly as the format's file-name part writes it, ignoring letter case; that part must hold a year plus a month and day, or a day of the year
+  - **Into the daily folder:** the target starts with the daily folder, in the same letter case
+  - **Bare date:** the target has no folder, and its name, less a trailing `.md`, is a date written exactly as the format's file-name part writes it, ignoring letter case; that part must hold a year plus a month and day, or a day of the year
 - **Shared folder:** a vault-root or blank folder setting puts daily notes beside other notes, so it adds no folder to the delete and move guard, the orphan exclusion, or the forward-reference folder rule; the bare-date rule still applies
 
 ### Memory
