@@ -6552,6 +6552,29 @@ describe("links after a file is added or removed", () => {
     })
   })
 
+  it("keeps a Plan.md file card on its missing path when Projects/Plan.md is edited", async () => {
+    const search = createSearchIndex(":memory:")
+    const planCard = [{ type: "file", file: "Plan.md" }]
+    saveLinkTestNote(search, "Projects/Plan.md")
+    saveLinkTestCanvas(search, "board.canvas", planCard)
+    saveLinkTestNote(search, "Projects/Plan.md", "# Plan edited\n")
+
+    await expectViewAsRebuilt({
+      search,
+      files: [
+        { path: "board.canvas", content: linkTestCanvasJson(planCard) },
+        { path: "Projects/Plan.md", content: "# Plan edited\n" },
+      ],
+      source: "board.canvas",
+      backlinksOf: ["Projects/Plan.md"],
+      expected: {
+        outgoing: [{ path: "Plan.md", exists: false }],
+        backlinks: { "Projects/Plan.md": [] },
+        orphans: ["Projects/Plan.md"],
+      },
+    })
+  })
+
   it("re-resolves no link when an existing note is edited", async () => {
     const { searchIndex, inspect, readLinkRows } = await createLinkRowsIndex()
     saveLinkTestNote(searchIndex, "source.md", "# Source\n\n[[B]]\n")
