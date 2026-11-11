@@ -918,7 +918,7 @@ const rejectNonTaskCheckbox = ({
 
 /** The indices of the body lines that sit in a fenced code block or a `%%`
  *  comment, from one pass over the note:
- *  - a fence line counts as code;
+ *  - a line in a fenced code block, its fence lines included, counts as code;
  *  - a line counts as comment when a comment is already open at its start,
  *    the line that closes it included;
  *  - a line outside an open comment counts as content, whatever comment it opens. */

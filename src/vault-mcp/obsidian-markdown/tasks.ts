@@ -231,7 +231,7 @@ const dataviewField = ({
       const closer = line[close]
 
       if (closer !== "]" && closer !== ")") return null
-      // The field opens at the nearest opener left of the closer, of the matching kind.
+      // The field opens at the nearest `[` or `(` before the closer, and must pair with it.
       let open = close - 1
 
       while (open >= 0 && line[open] !== "[" && line[open] !== "(") open -= 1
@@ -1404,7 +1404,7 @@ const updateTaskLineDependsOn = ({
       return removeAllMetadataMatches(metadata, DEPENDS_ON_INLINE_RE)
     }
     const metadataWithoutDependsOn = removeLastMetadataMatch(metadata, DEPENDS_ON_INLINE_RE)
-    // Depends-on is the last field in the plugin's field order, so its place is the end.
+    // Depends-on is the last field buildTaskLine writes, so its place is the end.
     return appendMetadataField({
       metadata: metadataWithoutDependsOn,
       fieldText: formatDependsOn(dependsOn, config.taskFormat),
@@ -2230,7 +2230,7 @@ const buildNextOccurrenceLine = ({
  *  Dataview). Strips both formats; writes in the configured format.
  *
  *  A new priority leads the metadata tail, right after the description and
- *  before any other field, which is its place in the plugin's field order. */
+ *  before any other field, where buildTaskLine writes it. */
 const updateTaskLinePriority = ({
   taskLine,
   newPriority,

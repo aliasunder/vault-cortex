@@ -203,8 +203,8 @@ const scanMarkdownLinks = (text: string, visit: (span: LinkSpan) => void): void 
  *  - Templater is an Obsidian plugin whose `<% … %>` (and `<%+ … %>`)
  *    expressions run when a template is applied; links in them are template
  *    code, not links in the note.
- *  - An expression must close on its own line, even when `text` holds a
- *    whole note. */
+ *  - An expression must close on the line it opens on, even when `text`
+ *    holds a whole note. */
 const maskTemplaterExpressions = (text: string): string => {
   const pieces: string[] = []
   // The closer cursor outlives a failed opener: a later opener finds no `%>` before it.
