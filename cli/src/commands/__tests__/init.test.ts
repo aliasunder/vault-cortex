@@ -2209,6 +2209,27 @@ describe("runInit when the instance name is already in use", () => {
     ])
   })
 
+  it("logs no --instance-name reuse line when the user picks reuse at the prompt", async () => {
+    const vaultDir = makeVault()
+    const targetDir = makeTargetDir()
+    const scripted = createScriptedPrompts(["reuse", "8000", [], false])
+
+    const exitCode = await runInit(
+      { mode: "local", vaultPath: vaultDir, dir: targetDir },
+      {
+        prompts: scripted.prompts,
+        docker: dockerWithExisting(["vault-cortex"]),
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(scripted.logs).toEqual([
+      `${targetDir}/.env — created`,
+      "Generated MCP auth token (saved to .env).",
+    ])
+  })
+
   it("asks the port when --instance-name reuses an install without --yes or --port", async () => {
     const vaultDir = makeVault()
     const targetDir = makeTargetDir()
