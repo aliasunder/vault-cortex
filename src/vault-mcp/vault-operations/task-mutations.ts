@@ -1336,10 +1336,11 @@ const detectDoneLane = (bodyLines: readonly string[], headings: readonly Heading
     throw new Error("multiple done lanes detected")
   }
 
+  // The one lane's name can be "" (a `## ` heading), so only an absent entry is an error.
   if (doneLanes.length === 1) {
     const lane = doneLanes[0]
 
-    if (!lane) {
+    if (lane === undefined) {
       throw new Error("unexpected empty done lanes")
     }
     return lane
