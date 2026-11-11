@@ -433,7 +433,7 @@ describe("registerTools", () => {
     expect(behaviorSection).toBe(
       [
         "Behavior:",
-        "- A link is only rewritten when leaving it unchanged would break it, so a short [[Note]] that stays unambiguous after a folder move is left alone.",
+        "- A link is only rewritten when leaving it unchanged would break it, or would keep the old letter case after a rename, so a short [[Note]] that stays unambiguous after a folder move is left alone.",
         "- Protected paths can be neither moved nor moved into: About Me/ and the daily notes folder (Daily Notes/ by default; vault_get_daily_note's path shows the folder in use; not protected when Obsidian's Daily Notes folder setting is the vault root or blank).",
       ].join("\n"),
     )
