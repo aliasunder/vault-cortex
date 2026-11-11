@@ -36,8 +36,6 @@ export type RecreateDeps = {
   prompts: Prompts
   docker: DockerRunner
   fetchFn: typeof fetch
-  /** Override the health-check timeout for testing. */
-  healthTimeoutMs?: number
 }
 
 /**
@@ -123,10 +121,7 @@ const runRecreateFromEnv = async (
   if (!deployment) return 1
   if (!requireDaemonRunning(docker, prompts)) return 1
 
-  const exitCode = await containerStart.recreate(
-    { deployment, healthTimeoutMs: deps.healthTimeoutMs },
-    { prompts, docker, fetchFn },
-  )
+  const exitCode = await containerStart.recreate({ deployment }, { prompts, docker, fetchFn })
 
   if (exitCode !== 0) return exitCode
 

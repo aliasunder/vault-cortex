@@ -20,8 +20,6 @@ export type ConfigureDeps = {
   prompts: Prompts
   docker: DockerRunner
   fetchFn: typeof fetch
-  /** Override the health-check timeout for testing. */
-  healthTimeoutMs?: number
 }
 
 /**
@@ -108,10 +106,7 @@ export const runConfigure = async (flags: ConfigureFlags, deps: ConfigureDeps): 
     )
     return 1
   }
-  const exitCode = await containerStart.recreate(
-    { deployment, healthTimeoutMs: deps.healthTimeoutMs },
-    { prompts, docker, fetchFn },
-  )
+  const exitCode = await containerStart.recreate({ deployment }, { prompts, docker, fetchFn })
 
   if (exitCode !== 0) return exitCode
 

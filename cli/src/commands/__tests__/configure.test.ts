@@ -4,7 +4,10 @@ import { join } from "node:path"
 import { describe, expect, it, onTestFinished, vi } from "vitest"
 
 import { runConfigure } from "../configure.js"
-import type { DockerRunner } from "../../adapters/docker.js"
+import { pollHealth, type DockerRunner } from "../../adapters/docker.js"
+
+// Spy mode keeps the real adapter, so a test can make one health wait time out.
+vi.mock("../../adapters/docker.js", { spy: true })
 import {
   createRecordingDocker,
   createScriptedPrompts,
@@ -456,10 +459,10 @@ describe("runConfigure with picked settings", () => {
   })
 
   it("exits 1 when the restarted container never becomes healthy", async () => {
+    vi.mocked(pollHealth).mockResolvedValueOnce(false)
     const targetDir = makeTempTargetDir()
     writeLocalEnv(targetDir)
     const { docker } = createRecordingDocker()
-    const fetchFail: typeof fetch = async () => new Response(null, { status: 500 })
     const scripted = createScriptedPrompts([
       ["MEMORY_ENABLED"],
       false, // disable the memory layer
@@ -468,12 +471,7 @@ describe("runConfigure with picked settings", () => {
 
     const exitCode = await runConfigure(
       { dir: targetDir },
-      {
-        prompts: scripted.prompts,
-        docker,
-        fetchFn: fetchFail,
-        healthTimeoutMs: 0,
-      },
+      { prompts: scripted.prompts, docker, fetchFn: fetchNever },
     )
 
     expect(exitCode).toBe(1)
@@ -481,7 +479,7 @@ describe("runConfigure with picked settings", () => {
     // container started (spinner ran) and the poll timed out.
     expect(scripted.spinnerMessages).toEqual([
       "start: Waiting for the server to come up",
-      "stop: Server did not respond within 0 minutes — check: docker logs vault-cortex",
+      "stop: Server did not respond within 2 minutes — check: docker logs vault-cortex",
     ])
   })
 

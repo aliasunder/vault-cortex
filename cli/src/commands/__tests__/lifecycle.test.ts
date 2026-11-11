@@ -3,8 +3,11 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { describe, expect, it, onTestFinished, vi } from "vitest"
 
-import type { DockerLogsParams, DockerRunner } from "../../adapters/docker.js"
+import { pollHealth, type DockerLogsParams, type DockerRunner } from "../../adapters/docker.js"
 import { runDown, runLogs, runRestart, runStart } from "../lifecycle.js"
+
+// Spy mode keeps the real adapter, so a test can make one health wait time out.
+vi.mock("../../adapters/docker.js", { spy: true })
 import {
   createRecordingDocker,
   createScriptedPrompts,
@@ -767,27 +770,20 @@ describe("runRestart", () => {
   })
 
   it("reports failure when the health check times out", async () => {
+    vi.mocked(pollHealth).mockResolvedValueOnce(false)
     const targetDir = makeTempTargetDir("vault-cli-restart-")
     writeLocalEnv(targetDir)
-    const fetchFail: typeof fetch = async () => {
-      throw new Error("ECONNREFUSED")
-    }
     const scripted = createScriptedPrompts()
 
     const exitCode = await runRestart(
       { dir: targetDir },
-      {
-        prompts: scripted.prompts,
-        docker: dockerReady,
-        fetchFn: fetchFail,
-        healthTimeoutMs: 0,
-      },
+      { prompts: scripted.prompts, docker: dockerReady, fetchFn: fetchNever },
     )
 
     expect(exitCode).toBe(1)
     expect(scripted.spinnerMessages).toEqual([
       "start: Waiting for the server to come up",
-      "stop: Server did not respond within 0 minutes — check: docker logs vault-cortex",
+      "stop: Server did not respond within 2 minutes — check: docker logs vault-cortex",
     ])
   })
 
@@ -959,19 +955,20 @@ describe("commands on an install with a custom INSTANCE_NAME", () => {
   })
 
   it("restart names the instance in the logs hint when the health check times out", async () => {
+    vi.mocked(pollHealth).mockResolvedValueOnce(false)
     const targetDir = makeTempTargetDir("vault-cli-named-")
     writeNamedLocalEnv(targetDir)
     const scripted = createScriptedPrompts()
 
     const exitCode = await runRestart(
       { dir: targetDir },
-      { prompts: scripted.prompts, docker: dockerReady, fetchFn: fetchNever, healthTimeoutMs: 0 },
+      { prompts: scripted.prompts, docker: dockerReady, fetchFn: fetchNever },
     )
 
     expect(exitCode).toBe(1)
     expect(scripted.spinnerMessages).toEqual([
       "start: Waiting for the server to come up",
-      "stop: Server did not respond within 0 minutes — check: docker logs work",
+      "stop: Server did not respond within 2 minutes — check: docker logs work",
     ])
   })
 

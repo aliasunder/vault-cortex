@@ -11,8 +11,6 @@ export type UpgradeDeps = {
   prompts: Prompts
   docker: DockerRunner
   fetchFn: typeof fetch
-  /** Override the health-check timeout for testing. */
-  healthTimeoutMs?: number
 }
 
 /**
@@ -51,10 +49,7 @@ export const runUpgrade = async (flags: UpgradeFlags, deps: UpgradeDeps): Promis
   }
   spinner.stop("Image pulled.")
 
-  const exitCode = await containerStart.recreate(
-    { deployment, healthTimeoutMs: deps.healthTimeoutMs },
-    { prompts, docker, fetchFn },
-  )
+  const exitCode = await containerStart.recreate({ deployment }, { prompts, docker, fetchFn })
 
   if (exitCode !== 0) return exitCode
 

@@ -1,10 +1,13 @@
 import { mkdtempSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
-import type { DockerRunner } from "../../adapters/docker.js"
+import { pollHealth, type DockerRunner } from "../../adapters/docker.js"
 import { runUpgrade } from "../upgrade.js"
+
+// Spy mode keeps the real adapter, so a test can make one health wait time out.
+vi.mock("../../adapters/docker.js", { spy: true })
 import {
   createRecordingDocker,
   createScriptedPrompts,
@@ -346,21 +349,14 @@ describe("runUpgrade", () => {
   })
 
   it("reports failure when the health check times out", async () => {
+    vi.mocked(pollHealth).mockResolvedValueOnce(false)
     const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-upgrade-"))
     writeLocalEnv(targetDir)
-    const fetchFail: typeof fetch = async () => {
-      throw new Error("ECONNREFUSED")
-    }
     const scripted = createScriptedPrompts()
 
     const exitCode = await runUpgrade(
       { dir: targetDir },
-      {
-        prompts: scripted.prompts,
-        docker: dockerReady,
-        fetchFn: fetchFail,
-        healthTimeoutMs: 0,
-      },
+      { prompts: scripted.prompts, docker: dockerReady, fetchFn: fetchNever },
     )
 
     expect(exitCode).toBe(1)
@@ -368,7 +364,7 @@ describe("runUpgrade", () => {
       "start: Pulling ghcr.io/aliasunder/vault-cortex:latest",
       "stop: Image pulled.",
       "start: Waiting for the server to come up",
-      "stop: Server did not respond within 0 minutes — check: docker logs vault-cortex",
+      "stop: Server did not respond within 2 minutes — check: docker logs vault-cortex",
     ])
   })
 

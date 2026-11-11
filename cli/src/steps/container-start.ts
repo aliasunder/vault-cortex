@@ -90,17 +90,11 @@ const start = async (
   params: {
     deployment: Deployment
     instanceContainer: Exclude<InstanceContainer, "foreign">
-    healthTimeoutMs?: number
     healthWaitLabel?: string
   },
   deps: ContainerStartDeps,
 ): Promise<StartStatus> => {
-  const {
-    deployment,
-    instanceContainer,
-    healthTimeoutMs,
-    healthWaitLabel = DEFAULT_HEALTH_WAIT_LABEL,
-  } = params
+  const { deployment, instanceContainer, healthWaitLabel = DEFAULT_HEALTH_WAIT_LABEL } = params
   const { prompts, docker, fetchFn } = deps
   const { mode, instanceName, envFilePath, port } = deployment
 
@@ -133,7 +127,7 @@ const start = async (
 
   const spinner = prompts.spinner()
   spinner.start(healthWaitLabel)
-  const timeoutMs = healthTimeoutMs ?? healthPollTimeoutMs(mode)
+  const timeoutMs = healthPollTimeoutMs(mode)
   const healthy = await pollHealth({ url: `http://127.0.0.1:${port}/healthz`, timeoutMs }, fetchFn)
 
   if (!healthy) {
@@ -156,17 +150,17 @@ const start = async (
  * image-pull step.
  */
 const recreate = async (
-  params: { deployment: Deployment; healthTimeoutMs?: number },
+  params: { deployment: Deployment },
   deps: ContainerStartDeps,
 ): Promise<number> => {
-  const { deployment, healthTimeoutMs } = params
+  const { deployment } = params
   const instanceContainer = classifyInstanceContainer(
     { instanceName: deployment.instanceName, envFilePath: deployment.envFilePath },
     deps,
   )
 
   if (instanceContainer === "foreign") return 1
-  const startStatus = await start({ deployment, instanceContainer, healthTimeoutMs }, deps)
+  const startStatus = await start({ deployment, instanceContainer }, deps)
   return startStatus === "running" ? 0 : 1
 }
 
