@@ -126,7 +126,7 @@ describe("buildDockerRunArgs", () => {
   })
 
   it.each([
-    { mode: "local" as const, vaultPath: "/vault", published: "127.0.0.1:9000:8000" },
+    { mode: "local" as const, vaultPath: "/home/user/MyVault", published: "127.0.0.1:9000:8000" },
     { mode: "remote" as const, vaultPath: undefined, published: "9000:8000" },
   ])("publishes a custom port on $published in $mode mode", ({ mode, vaultPath, published }) => {
     const args = buildDockerRunArgs({

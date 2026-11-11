@@ -28,7 +28,8 @@ type ServerHandle = {
 }
 
 /** An override set to undefined leaves that variable out of the child's
- *  environment, so a test can boot the server with a setting unset. */
+ *  environment (spawn skips undefined values), so a test can boot the server
+ *  with a setting unset. */
 type ServerEnvOverrides = Record<string, string | undefined>
 
 type SpawnedServer = {
@@ -90,6 +91,8 @@ const buildServerEnv = (
   INDEX_DB_PATH: join(dataDir, "search.db"),
   EMBEDDING_ENABLED: "false",
   PORT: String(port),
+  // Pinned rather than left to the server's default, so test servers stay on
+  // loopback even if that default changes.
   HOST: "127.0.0.1",
   PATH: process.env.PATH ?? "",
   HOME: process.env.HOME ?? "",
@@ -246,7 +249,6 @@ export const startServer = async (
 
   try {
     await Promise.race([started, earlyExit.promise, startTimeout.promise])
-    clearTimeout(startTimeoutTimer)
     // "server started" proves this child bound the port; /healthz confirms
     // it also answers HTTP requests.
     await Promise.race([pollHealthz(port, bootStepTimeoutMs), earlyExit.promise])
