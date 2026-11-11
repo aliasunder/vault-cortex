@@ -38,6 +38,26 @@ const ENABLED_SET_OVER_READONLY_FLAG_RESTRICTIONS = [
   },
 ]
 
+/**
+ * The CLI's outside world (files, child processes, the terminal prompts) is
+ * reached only through cli/src/adapters/, so rules, steps and commands ban
+ * these imports at runtime.
+ */
+const CLI_IO_OUTSIDE_ADAPTERS_RESTRICTION = {
+  group: [
+    "node:fs",
+    "node:fs/**",
+    "fs",
+    "fs/**",
+    "node:child_process",
+    "child_process",
+    "@clack/prompts",
+  ],
+  allowTypeImports: true,
+  message:
+    "Only CLI adapters do file, process or prompt I/O — call an adapter instead (AGENTS.md → CLI layering)",
+}
+
 export default defineConfig(
   js.configs.recommended,
   tseslint.configs.strict,
@@ -261,8 +281,8 @@ export default defineConfig(
     },
   },
   {
-    // Rules are pure decisions and text: other rules at runtime, adapters for
-    // their types only, and no I/O or prompt library.
+    // Rules are pure decisions and text: other rules at runtime, and adapters
+    // for their types only.
     files: ["cli/src/rules/**/*.ts"],
     ignores: ["**/__tests__/**", "**/*.test.ts"],
     rules: {
@@ -277,20 +297,7 @@ export default defineConfig(
               message:
                 "CLI rules are pure — import other rules, and adapters for types only (AGENTS.md → CLI layering)",
             },
-            {
-              group: [
-                "node:fs",
-                "node:fs/**",
-                "fs",
-                "fs/**",
-                "node:child_process",
-                "child_process",
-                "@clack/prompts",
-              ],
-              allowTypeImports: true,
-              message:
-                "CLI rules do no I/O and ask no questions — that belongs in an adapter or a step (AGENTS.md → CLI layering)",
-            },
+            CLI_IO_OUTSIDE_ADAPTERS_RESTRICTION,
           ],
         },
       ],
@@ -298,7 +305,7 @@ export default defineConfig(
   },
   {
     // Steps are the shared workflow pieces commands compose; they never
-    // reach up into a command.
+    // reach up into a command, and they reach the outside world through adapters.
     files: ["cli/src/steps/**/*.ts"],
     ignores: ["**/__tests__/**", "**/*.test.ts"],
     rules: {
@@ -320,6 +327,7 @@ export default defineConfig(
               message:
                 "CLI steps never import the wiring (program, main, bin) — the wiring imports the layers, never the reverse (AGENTS.md → CLI layering)",
             },
+            CLI_IO_OUTSIDE_ADAPTERS_RESTRICTION,
           ],
         },
       ],
@@ -327,7 +335,8 @@ export default defineConfig(
   },
   {
     // A command never imports another command: shared logic moves down into
-    // a step, so a fix lands in one place.
+    // a step, so a fix lands in one place. Commands reach the outside world
+    // through adapters.
     files: ["cli/src/commands/**/*.ts"],
     ignores: ["**/__tests__/**", "**/*.test.ts"],
     rules: {
@@ -356,6 +365,7 @@ export default defineConfig(
               message:
                 "CLI commands never import the wiring (program, main, bin) — the wiring imports the layers, never the reverse (AGENTS.md → CLI layering)",
             },
+            CLI_IO_OUTSIDE_ADAPTERS_RESTRICTION,
           ],
         },
       ],

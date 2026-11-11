@@ -1,4 +1,3 @@
-import { existsSync } from "node:fs"
 import { join, resolve } from "node:path"
 
 import type { DockerRunner, Mode } from "../adapters/docker.js"
@@ -208,7 +207,7 @@ const confirmReinitOverExistingEnv = async (
   targetDir: string,
   prompts: Prompts,
 ): Promise<boolean> => {
-  if (!existsSync(join(targetDir, ".env"))) return true
+  if (envFile.read(join(targetDir, ".env")) === undefined) return true
   prompts.log(`Found an existing deployment in ${targetDir}.`)
   const reinitAnyway = await prompts.confirm("Re-run setup for this directory anyway?", false)
 

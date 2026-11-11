@@ -334,8 +334,9 @@ only loose files.
   rules included, exports named functions.
 
 Lint enforces the direction: `eslint.config.ts` has one
-`no-restricted-imports` block per CLI folder, and `rules/` also bans `node:fs`,
-`node:child_process` and `@clack/prompts`. Tests are exempt.
+`no-restricted-imports` block per CLI folder, and every folder but `adapters/`
+also bans `node:fs`, `node:child_process` and `@clack/prompts`. Tests are
+exempt.
 
 ## Logging
 
