@@ -269,13 +269,22 @@ export default defineConfig(
         {
           patterns: [
             {
-              group: ["**/adapters/**", "**/steps/**", "**/commands/**"],
+              // Any "../" path leaves rules/, so this pattern also catches the wiring, such as "../program.js".
+              regex: "^\\.\\./",
               allowTypeImports: true,
               message:
                 "CLI rules are pure — import other rules, and adapters for types only (AGENTS.md → CLI layering)",
             },
             {
-              group: ["node:fs", "node:fs/**", "node:child_process", "@clack/prompts"],
+              group: [
+                "node:fs",
+                "node:fs/**",
+                "fs",
+                "fs/**",
+                "node:child_process",
+                "child_process",
+                "@clack/prompts",
+              ],
               allowTypeImports: true,
               message:
                 "CLI rules do no I/O and ask no questions — that belongs in an adapter or a step (AGENTS.md → CLI layering)",
