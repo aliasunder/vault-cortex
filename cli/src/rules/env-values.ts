@@ -112,9 +112,9 @@ export const readEnvPublicUrl = (envValues: EnvValues): string | undefined => {
   // A whitespace-only value, quoted or not, counts as empty, as it does in
   // the server's check of the required variable.
   const unquotedValue = readEnvValue(envValues, "PUBLIC_URL")?.trim()
-  // Strip trailing slashes (mirroring validatePublicUrl's normalization
-  // in init): consumers append paths to this base, and a hand-edited
-  // `https://host/` would otherwise print broken `//mcp` connect URLs.
+  // Strip trailing slashes, as validatePublicUrl does: consumers append paths
+  // to this base, and a hand-edited `https://host/` would otherwise print
+  // broken `//mcp` connect URLs.
   const normalizedPublicUrl = unquotedValue?.replace(/\/+$/, "")
   return normalizedPublicUrl || undefined
 }
