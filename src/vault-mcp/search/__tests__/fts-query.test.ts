@@ -49,9 +49,14 @@ describe("sanitizeFtsQuery", () => {
       expected: '""',
     },
     {
-      name: "reserved words dropped in any letter case",
+      name: "lowercase and mixed-case reserved words kept as terms",
       input: "meeting and notes Or fence near Not",
-      expected: "meeting notes fence",
+      expected: "meeting and notes Or fence near Not",
+    },
+    {
+      name: "lowercase near stays a search term",
+      input: "near miss",
+      expected: "near miss",
     },
     {
       name: "empty string: empty result",
