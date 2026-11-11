@@ -8,7 +8,11 @@ import { createRequire } from "node:module"
 import { setTimeout as delay } from "node:timers/promises"
 import { fileURLToPath } from "node:url"
 import { describe, expect, it, onTestFinished, vi } from "vitest"
-import { buildMinimalPdf, buildPdf } from "../../obsidian-markdown/__tests__/pdf-fixture.js"
+import {
+  buildMinimalPdf,
+  buildPasswordProtectedPdf,
+  buildPdf,
+} from "../../obsidian-markdown/__tests__/pdf-fixture.js"
 import type { PdfRequest } from "../pdf-extraction-protocol.js"
 
 const CHILD_ENTRY = fileURLToPath(new URL("../pdf-extraction-child.ts", import.meta.url))
@@ -116,7 +120,7 @@ describe("PDF extraction child admission", () => {
         {
           kind: "failure",
           requestId: 0,
-          code: "read",
+          name: "Error",
           message,
         },
       )
@@ -148,7 +152,7 @@ describe("PDF extraction child admission", () => {
     ).toEqual({
       kind: "failure",
       requestId: 1,
-      code: "size",
+      name: "Error",
       message: `file too large: "good.pdf" is ${pdf.length} bytes (cap ${pdf.length - 1} bytes — raise MAX_FILE_BYTES to read larger files)`,
     })
   }, 15_000)
@@ -163,9 +167,49 @@ describe("PDF extraction child admission", () => {
     ).toEqual({
       kind: "failure",
       requestId: 0,
-      code: "read",
+      name: "Error",
       message: `PDF is damaged or not a PDF: "damaged.pdf" exists (${content.length} bytes) but cannot be parsed`,
       cause: "[InvalidPDFException]: Invalid PDF structure.",
+    })
+  }, 15_000)
+
+  it("names the password refusal and keeps the parser's own exception as the cause", async () => {
+    const { vaultPath, request } = await startPdfChild()
+    const pdf = buildPasswordProtectedPdf()
+    await writeFile(join(vaultPath, "locked.pdf"), pdf)
+
+    expect(
+      await request({ kind: "read", requestId: 0, path: "locked.pdf", maxFileBytes: 1_000_000 }),
+    ).toEqual({
+      kind: "failure",
+      requestId: 0,
+      name: "Error",
+      message: `PDF is password-protected: "locked.pdf" exists (${pdf.length} bytes) but cannot be opened without its password`,
+      cause: "[PasswordException]: No password given",
+    })
+  }, 15_000)
+
+  it("cuts index text at the byte budget on a whole code point", async () => {
+    const { vaultPath, request } = await startPdfChild()
+    // The 30-byte header plus 99 lines of 1,024 bytes leaves 994 bytes of the budget for line
+    // 100, whose three-byte bullet begins at byte 994 and so falls outside the cut.
+    const fullLine = "x".repeat(1023)
+    const straddlingLine = `${"x".repeat(993)}•${"x".repeat(30)}`
+    const lines = [...Array.from({ length: 99 }, () => fullLine), straddlingLine, fullLine]
+    await writeFile(
+      join(vaultPath, "wide.pdf"),
+      buildPdf(lines.map((text, index) => ({ text, x: 0, y: 780 - index * 2, fontSize: 0.5 }))),
+    )
+
+    expect(
+      await request({ kind: "index", requestId: 0, path: "wide.pdf", maxFileBytes: 1_000_000 }),
+    ).toEqual({
+      kind: "index-result",
+      requestId: 0,
+      result: {
+        text: `Title: (untitled) | Pages: 1\n\n${lines.slice(0, 99).join("\n")}\n${"x".repeat(993)}`,
+        totalPages: 1,
+      },
     })
   }, 15_000)
 
@@ -201,7 +245,7 @@ describe("PDF extraction child admission", () => {
     ).toEqual({
       kind: "failure",
       requestId: 0,
-      code: "read",
+      name: "Error",
       message: `text output too large: "long.pdf" renders to ${Buffer.byteLength(expectedFullText)} bytes (cap 102400 bytes)`,
     })
     const selectedWindow = await request({

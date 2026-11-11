@@ -10,6 +10,7 @@ import { createPdfExtractor } from "../pdf-extractor.js"
 import { createSafeHandlers } from "../../mcp-core/tools/tool-helpers.js"
 
 vi.mock("node:child_process", { spy: true })
+vi.mock("node:fs/promises", { spy: true })
 
 afterEach(() => {
   vi.restoreAllMocks()
@@ -19,6 +20,8 @@ afterEach(() => {
 const createControlledChild = (pid = 1234) => {
   return Object.assign(new ChildProcess(), {
     pid,
+    // A spawned IPC child reports an open channel until it disconnects or exits.
+    connected: true,
     send: vi.fn(() => true),
     kill: vi.fn(() => true),
   })
@@ -229,8 +232,8 @@ describe("PDF extraction child", () => {
     })
     expect(await extractor.readText({ path: "good.pdf" }, logger)).toEqual(expected)
     expect(await extractor.extractForIndex({ path: "good.pdf" }, logger)).toEqual({
-      text: "Title: (untitled) | Pages: 1\n\nHello PDF",
-      totalPages: 1,
+      status: "extracted",
+      result: { text: "Title: (untitled) | Pages: 1\n\nHello PDF", totalPages: 1 },
     })
     expect(spawn).toHaveBeenCalledTimes(1)
   }, 15_000)
@@ -268,36 +271,82 @@ describe("PDF extraction ownership", () => {
     child.emit("message", {
       kind: "failure",
       requestId: 0,
-      code: "read",
+      name: "Error",
       message: "permission denied",
       systemError: { code: "EACCES", syscall: "open" },
     })
     await rejected
     expect(child.kill).not.toHaveBeenCalled()
   })
-  it("uses the controlled size code without interpreting the failure message", async () => {
+  it("rebuilds a library failure under its own name, then reuses the reader", async () => {
     const { extractor, child } = startControlledExtractor()
     const request = extractor.extractForIndex({ path: "one.pdf" }, logger)
     const rejected = expect(request.catch(errorRecord)).resolves.toEqual({
-      name: "Error",
-      message: "controlled byte refusal",
-      pdfFailure: "pdf-size",
-      cause: undefined,
+      name: "UnknownErrorException",
+      message: "controlled parser failure",
+      cause: "[Error]: inner reason",
     })
     ready(child)
     child.emit("message", {
       kind: "failure",
       requestId: 0,
-      code: "size",
-      message: "controlled byte refusal",
+      name: "UnknownErrorException",
+      message: "controlled parser failure",
+      cause: "[Error]: inner reason",
     })
     await rejected
     expect(child.kill).not.toHaveBeenCalled()
     const recovery = extractor.extractForIndex({ path: "next.pdf" }, logger)
     await vi.waitFor(() => expect(child.send).toHaveBeenCalledTimes(2))
     finishIndex(child, 1)
-    expect(await recovery).toEqual({ text: "indexed", totalPages: 1 })
+    expect(await recovery).toEqual({
+      status: "extracted",
+      result: { text: "indexed", totalPages: 1 },
+    })
     expect(spawn).toHaveBeenCalledTimes(1)
+  })
+  it("starts a fresh child when the idle reader's IPC channel has closed", async () => {
+    const { extractor, child, children } = startControlledExtractor()
+    const first = extractor.readText({ path: "first.pdf" }, logger)
+    ready(child)
+    finishRead(child, 0, "first.pdf")
+    expect(await first).toEqual({ kind: "text", path: "first.pdf", text: "read text" })
+    // The channel closed between jobs; the exit event that marks the reader ended is still to come.
+    Object.assign(child, { connected: false })
+    const replacement = createControlledChild(5678)
+    children.push(replacement)
+    vi.mocked(spawn).mockReturnValueOnce(replacement)
+    const second = extractor.readText({ path: "second.pdf" }, logger)
+    await vi.waitFor(() => expect(spawn).toHaveBeenCalledTimes(2))
+    ready(replacement)
+    finishRead(replacement, 1, "second.pdf")
+    expect(await second).toEqual({ kind: "text", path: "second.pdf", text: "read text" })
+    expect(child.send).toHaveBeenCalledTimes(1)
+  })
+  it("rejects the job and logs the cause when spawn itself throws", async () => {
+    const { extractor, child, children } = startControlledExtractor()
+    const spawnError = Object.assign(new Error("spawn ENOMEM"), { code: "ENOMEM" })
+    vi.mocked(spawn).mockImplementationOnce(() => {
+      throw spawnError
+    })
+    const callerLogger = { ...logger, error: vi.fn() }
+
+    await expect(extractor.readText({ path: "first.pdf" }, callerLogger)).rejects.toThrow(
+      pdfFailureError('PDF reader could not start: "first.pdf"; retry later', "pdf-start"),
+    )
+    expect(callerLogger.error).toHaveBeenCalledExactlyOnceWith(
+      "PDF extraction child could not be spawned",
+      { path: "first.pdf", error: "[Error]: spawn ENOMEM" },
+    )
+    const replacement = createControlledChild(5678)
+    children.push(replacement)
+    vi.mocked(spawn).mockReturnValueOnce(replacement)
+    const recovery = extractor.readText({ path: "second.pdf" }, callerLogger)
+    await vi.waitFor(() => expect(spawn).toHaveBeenCalledTimes(2))
+    ready(replacement)
+    finishRead(replacement, 1, "second.pdf")
+    expect(await recovery).toEqual({ kind: "text", path: "second.pdf", text: "read text" })
+    expect(child.send).not.toHaveBeenCalled()
   })
   it("starts the source child directly on macOS with only its own heap and loader flags", async () => {
     vi.stubEnv("NODE_OPTIONS", "--inspect=127.0.0.1:0 --max-old-space-size=128")
@@ -340,7 +389,11 @@ describe("PDF extraction ownership", () => {
     const requestLogger = { ...logger, warn: vi.fn() }
     const callerLogger = { ...logger, child: vi.fn(() => requestLogger) }
     const first = extractor.readText({ path: "first.pdf" }, callerLogger)
-    child.emit("message", { kind: "ready", oomPreference: "unavailable" })
+    child.emit("message", {
+      kind: "ready",
+      oomPreference: "unavailable",
+      oomPreferenceError: "[Error]: EACCES: permission denied, open '/proc/self/oom_score_adj'",
+    })
     finishRead(child, 0, "first.pdf")
     expect(await first).toEqual({ kind: "text", path: "first.pdf", text: "read text" })
     const second = extractor.readText({ path: "second.pdf" }, callerLogger)
@@ -349,7 +402,10 @@ describe("PDF extraction ownership", () => {
     expect(await second).toEqual({ kind: "text", path: "second.pdf", text: "read text" })
     expect(requestLogger.warn).toHaveBeenCalledExactlyOnceWith(
       "PDF child OOM preference unavailable",
-      { childPid: 1234 },
+      {
+        childPid: 1234,
+        error: "[Error]: EACCES: permission denied, open '/proc/self/oom_score_adj'",
+      },
     )
     expect(spawn).toHaveBeenCalledTimes(1)
   })
@@ -374,32 +430,42 @@ describe("PDF extraction ownership", () => {
     { signal: "SIGABRT" as const },
     { signal: "SIGTRAP" as const },
     { signal: "SIGKILL" as const },
-  ])("records $signal without diagnosing its cause and replaces the child", async ({ signal }) => {
-    const { extractor, child, children } = startControlledExtractor()
-    const replacement = createControlledChild(1235)
-    children.push(replacement)
-    const requestLogger = { ...logger, warn: vi.fn() }
-    const callerLogger = { ...logger, child: vi.fn(() => requestLogger) }
-    const request = extractor.readText({ path: "failed.pdf" }, callerLogger)
-    vi.mocked(spawn).mockReturnValueOnce(replacement)
-    const rejected = expect(request).rejects.toThrow(
-      pdfFailureError(stoppedMessage("failed.pdf"), "pdf-resource"),
-    )
-    ready(child)
-    Object.assign(child, { signalCode: signal })
-    child.emit("exit", null, signal)
-    await rejected
-    expect(requestLogger.warn).toHaveBeenCalledWith("PDF extraction child exited", {
-      path: "failed.pdf",
-      exitCode: null,
-      signal,
-    })
-    const recovery = extractor.readText({ path: "recovered.pdf" }, callerLogger)
-    await vi.waitFor(() => expect(spawn).toHaveBeenCalledTimes(2))
-    ready(replacement)
-    finishRead(replacement, 1, "recovered.pdf")
-    expect(await recovery).toEqual({ kind: "text", path: "recovered.pdf", text: "read text" })
-  })
+  ])(
+    "records $signal in two log lines without diagnosing its cause and replaces the child",
+    async ({ signal }) => {
+      const { extractor, child, children } = startControlledExtractor()
+      const replacement = createControlledChild(1235)
+      children.push(replacement)
+      const requestLogger = { ...logger, warn: vi.fn() }
+      const callerLogger = { ...logger, child: vi.fn(() => requestLogger) }
+      const request = extractor.readText({ path: "failed.pdf" }, callerLogger)
+      vi.mocked(spawn).mockReturnValueOnce(replacement)
+      const rejected = expect(request).rejects.toThrow(
+        pdfFailureError(stoppedMessage("failed.pdf"), "pdf-resource"),
+      )
+      ready(child)
+      Object.assign(child, { signalCode: signal })
+      child.emit("exit", null, signal)
+      await rejected
+      await vi.waitFor(() => expect(requestLogger.warn).toHaveBeenCalledTimes(2))
+      expect(requestLogger.warn).toHaveBeenNthCalledWith(1, "PDF extraction child failed", {
+        path: "failed.pdf",
+        reason: "exit",
+        exitCode: null,
+        signal,
+      })
+      expect(requestLogger.warn).toHaveBeenNthCalledWith(2, "PDF extraction reader discarded", {
+        path: "failed.pdf",
+        exitCode: null,
+        signal,
+      })
+      const recovery = extractor.readText({ path: "recovered.pdf" }, callerLogger)
+      await vi.waitFor(() => expect(spawn).toHaveBeenCalledTimes(2))
+      ready(replacement)
+      finishRead(replacement, 1, "recovered.pdf")
+      expect(await recovery).toEqual({ kind: "text", path: "recovered.pdf", text: "read text" })
+    },
+  )
 
   it("starts the Linux source child directly and suppresses child file logging", async () => {
     vi.stubEnv("ESBUILD_WORKER_THREADS", "1")
@@ -416,12 +482,7 @@ describe("PDF extraction ownership", () => {
     })
     const launch = captureChildLaunch(child)
     const result = extractor.extractForIndex({ path: "one.pdf" }, logger)
-    const rejection = expect(result).rejects.toThrow(
-      pdfFailureError(
-        'PDF text extraction stopped: "one.pdf" could not be completed; retry later',
-        "pdf-closed",
-      ),
-    )
+    const cancellation = expect(result).resolves.toEqual({ status: "cancelled" })
 
     expect(spawn).toHaveBeenCalledTimes(1)
     expect(launch).toHaveBeenCalledExactlyOnceWith({
@@ -441,7 +502,44 @@ describe("PDF extraction ownership", () => {
     const closing = extractor.close()
     child.emit("exit", null, "SIGKILL")
     await closing
+    await cancellation
+  })
+
+  it("rejects the job but logs no limit error when close() lands during the Linux limit step", async () => {
+    const descriptor = Object.getOwnPropertyDescriptor(process, "platform")
+
+    if (!descriptor) throw new Error("process.platform has no descriptor")
+    const { extractor, child } = startControlledExtractor()
+    Object.defineProperty(process, "platform", { value: "linux" })
+    onTestFinished(() => {
+      Object.defineProperty(process, "platform", descriptor)
+    })
+    const requestLogger = { ...logger, error: vi.fn(), warn: vi.fn() }
+    const callerLogger = { ...logger, child: vi.fn(() => requestLogger) }
+    const procStatusRead = Promise.withResolvers<string>()
+    vi.mocked(readFile).mockReturnValueOnce(procStatusRead.promise)
+    const request = extractor.readText({ path: "one.pdf" }, callerLogger)
+    const rejection = expect(request).rejects.toThrow(
+      pdfFailureError(
+        'PDF text extraction stopped: "one.pdf" could not be completed; retry later',
+        "pdf-closed",
+      ),
+    )
+    ready(child)
+    await vi.waitFor(() => expect(readFile).toHaveBeenCalledWith("/proc/1234/status", "utf8"))
+    const closing = extractor.close()
+    child.emit("exit", null, "SIGKILL")
+    await closing
     await rejection
+    procStatusRead.reject(Object.assign(new Error("ENOENT: no such file"), { code: "ENOENT" }))
+    await vi.waitFor(() => expect(requestLogger.warn).toHaveBeenCalledTimes(1))
+    expect(requestLogger.warn).toHaveBeenCalledExactlyOnceWith("PDF extraction reader discarded", {
+      path: "one.pdf",
+      exitCode: null,
+      signal: null,
+    })
+    expect(requestLogger.error).not.toHaveBeenCalled()
+    expect(child.send).not.toHaveBeenCalled()
   })
 
   it("runs a queued read before queued indexing after the current extraction", async () => {
@@ -470,7 +568,47 @@ describe("PDF extraction ownership", () => {
     expect(await read).toEqual({ kind: "text", path: "read.pdf", text: "read text" })
     await vi.waitFor(() => expect(child.send).toHaveBeenCalledTimes(3))
     finishIndex(child, 1, "queued")
-    expect(await queued).toEqual({ text: "queued", totalPages: 1 })
+    expect(await queued).toEqual({ status: "extracted", result: { text: "queued", totalPages: 1 } })
+  })
+
+  it("keeps a queued index job past sixty seconds behind reads", async () => {
+    vi.useFakeTimers()
+    const { extractor, child } = startControlledExtractor()
+    const active = extractor.readText({ path: "active.pdf" }, logger)
+    const queued = extractor.extractForIndex({ path: "queued.pdf" }, logger)
+    const first = extractor.readText({ path: "first.pdf" }, logger)
+    const second = extractor.readText({ path: "second.pdf" }, logger)
+    const third = extractor.readText({ path: "third.pdf" }, logger)
+    ready(child)
+    await vi.advanceTimersByTimeAsync(19_000)
+    finishRead(child, 0, "active.pdf")
+    await active
+    await vi.advanceTimersByTimeAsync(19_000)
+    finishRead(child, 2, "first.pdf")
+    await first
+    await vi.advanceTimersByTimeAsync(19_000)
+    finishRead(child, 3, "second.pdf")
+    await second
+    await vi.advanceTimersByTimeAsync(19_000)
+    finishRead(child, 4, "third.pdf")
+    await third
+    await vi.advanceTimersByTimeAsync(0)
+    expect(child.send).toHaveBeenCalledTimes(5)
+    expect(child.send).toHaveBeenLastCalledWith(
+      {
+        kind: "index",
+        path: "queued.pdf",
+        vaultPath: "/vault",
+        maxFileBytes: 1_000_000,
+        requestId: 1,
+      },
+      expect.any(Function),
+    )
+    finishIndex(child, 1, "late index")
+    expect(await queued).toEqual({
+      status: "extracted",
+      result: { text: "late index", totalPages: 1 },
+    })
   })
 
   it("coalesces only the queued index update for the same PDF", async () => {
@@ -479,19 +617,14 @@ describe("PDF extraction ownership", () => {
     const otherPath = extractor.extractForIndex({ path: "other.pdf" }, logger)
     const samePathRead = extractor.readText({ path: "same.pdf" }, logger)
     const oldUpdate = extractor.extractForIndex({ path: "same.pdf", coalesce: true }, logger)
-    const oldRejection = expect(oldUpdate.catch(errorRecord)).resolves.toEqual({
-      name: "Error",
-      message: 'PDF text extraction stopped: "same.pdf" could not be completed; retry later',
-      pdfFailure: "pdf-superseded",
-      cause: undefined,
-    })
+    const oldCancellation = expect(oldUpdate).resolves.toEqual({ status: "cancelled" })
     const latestUpdate = extractor.extractForIndex({ path: "same.pdf", coalesce: true }, logger)
     // Observe rejected decoys immediately if a regression settles the wrong queued job.
     const queuedResults = Promise.allSettled([otherPath, samePathRead, latestUpdate])
-    await oldRejection
+    await oldCancellation
     ready(child)
     finishIndex(child, 0, "active")
-    expect(await active).toEqual({ text: "active", totalPages: 1 })
+    expect(await active).toEqual({ status: "extracted", result: { text: "active", totalPages: 1 } })
     await vi.waitFor(() => expect(child.send).toHaveBeenCalledTimes(2))
     expect(child.send).toHaveBeenLastCalledWith(
       {
@@ -519,7 +652,10 @@ describe("PDF extraction ownership", () => {
       expect.any(Function),
     )
     finishIndex(child, 1, "other path")
-    expect(await otherPath).toEqual({ text: "other path", totalPages: 1 })
+    expect(await otherPath).toEqual({
+      status: "extracted",
+      result: { text: "other path", totalPages: 1 },
+    })
     await vi.waitFor(() => expect(child.send).toHaveBeenCalledTimes(4))
     expect(child.send).toHaveBeenLastCalledWith(
       {
@@ -532,7 +668,10 @@ describe("PDF extraction ownership", () => {
       expect.any(Function),
     )
     finishIndex(child, 4, "latest")
-    expect(await latestUpdate).toEqual({ text: "latest", totalPages: 1 })
+    expect(await latestUpdate).toEqual({
+      status: "extracted",
+      result: { text: "latest", totalPages: 1 },
+    })
     await queuedResults
   })
 

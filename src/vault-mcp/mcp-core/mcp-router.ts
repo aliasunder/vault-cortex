@@ -1,9 +1,9 @@
 /** MCP session routes — transport lifecycle, session creation, request routing. */
 
-import type { PdfExtractor } from "../vault-operations/pdf-extractor.js"
 import express, { Router } from "express"
 import type { Request, Response } from "express"
 import { randomUUID } from "node:crypto"
+import type { PdfExtractor } from "../vault-operations/pdf-extractor.js"
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js"
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js"

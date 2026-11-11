@@ -1,9 +1,9 @@
 /** Shared types and helpers for tool group modules. */
 
-import type { PdfExtractor } from "../../vault-operations/pdf-extractor.js"
 import { z } from "zod"
 import type { ToolCallback } from "@modelcontextprotocol/sdk/server/mcp.js"
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js"
+import type { PdfExtractor } from "../../vault-operations/pdf-extractor.js"
 import type { SearchIndex } from "../../search/search-index.js"
 import type { VaultConfig } from "../../config.js"
 import type { Logger } from "../../../logger.js"

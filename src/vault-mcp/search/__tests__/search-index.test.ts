@@ -17,28 +17,17 @@ import type { StatusClassification } from "../../obsidian-markdown/tasks.js"
 import { logger } from "../../../logger.js"
 import { readFileTextPrefix, statOrNull } from "../../../utils/fs.js"
 import { decodeTextBuffer } from "../../../utils/decode-text-buffer.js"
-import { extractPdfText } from "../../obsidian-markdown/pdf.js"
+import { extractPdfText, type PdfTextResult } from "../../obsidian-markdown/pdf.js"
 import { buildPdf } from "../../obsidian-markdown/__tests__/pdf-fixture.js"
 import type { BodyTagParser, BodyTagParseResult } from "../body-tag-parser.js"
 import type { PdfExtractor } from "../../vault-operations/pdf-extractor.js"
+import { createInProcessPdfExtractor } from "../../../__tests__/helpers/pdf-extractor.js"
 import { inProcessBodyTagParser, withBodyTags } from "./body-tag-test-helpers.js"
 
 vi.mock("node:fs/promises", { spy: true })
 vi.mock("../../../utils/fs.js", { spy: true })
 vi.mock("../../../utils/decode-text-buffer.js", { spy: true })
 vi.mock("../../obsidian-markdown/pdf.js", { spy: true })
-
-/** Runs the parser in process only in tests that inspect the index rather than process isolation. */
-const createInProcessPdfExtractor = (vaultPath: string): PdfExtractor => ({
-  extractForIndex: async ({ path }) => {
-    const bytes = await readFile(join(vaultPath, path))
-    return extractPdfText(new Uint8Array(bytes))
-  },
-  readText: async () => {
-    throw new Error("index test must not read a PDF asset")
-  },
-  close: async () => {},
-})
 
 const realSqliteVec = await vi.importActual<typeof sqliteVec>("sqlite-vec")
 
@@ -3921,7 +3910,10 @@ describe("rebuildFromVault deferred PDF content", () => {
     `)
     const warnSpy = vi.spyOn(logger, "warn")
     onTestFinished(() => warnSpy.mockRestore())
-    fixture.extractForIndex.mockResolvedValue({ text: "New newcobalt", totalPages: 1 })
+    fixture.extractForIndex.mockResolvedValue({
+      status: "extracted",
+      result: { text: "New newcobalt", totalPages: 1 },
+    })
 
     const rebuilt = await fixture.rebuild()
     await rebuilt.embedding
@@ -3953,7 +3945,10 @@ describe("rebuildFromVault deferred PDF content", () => {
     `)
     const warnSpy = vi.spyOn(logger, "warn")
     onTestFinished(() => warnSpy.mockRestore())
-    fixture.extractForIndex.mockResolvedValue({ text: "New newcobalt", totalPages: 1 })
+    fixture.extractForIndex.mockResolvedValue({
+      status: "extracted",
+      result: { text: "New newcobalt", totalPages: 1 },
+    })
     const rebuilt = await fixture.rebuild()
     await rebuilt.embedding
 
@@ -3987,7 +3982,7 @@ describe("rebuildFromVault deferred PDF content", () => {
 
   it("clears persisted old text and vectors before extraction and awaits the fresh PDF embedding", async () => {
     const fixture = await createPdfRebuildFixture()
-    const extraction = Promise.withResolvers<{ text: string; totalPages: number }>()
+    const extraction = Promise.withResolvers<PdfTextResult>()
     const extractionStarted = Promise.withResolvers<undefined>()
     const embedding = Promise.withResolvers<Float32Array>()
     const embeddingStarted = Promise.withResolvers<undefined>()
@@ -3999,7 +3994,7 @@ describe("rebuildFromVault deferred PDF content", () => {
     })
     fixture.extractForIndex.mockImplementation(async () => {
       extractionStarted.resolve(undefined)
-      return extraction.promise
+      return { status: "extracted", result: await extraction.promise }
     })
     const rebuilt = await fixture.rebuild()
     await rebuilt.embedding
@@ -4061,7 +4056,10 @@ describe("rebuildFromVault deferred PDF content", () => {
     "keeps current filename metadata for a PDF $label the input byte limit",
     async ({ maxFileBytes, extracted }) => {
       const fixture = await createPdfRebuildFixture()
-      fixture.extractForIndex.mockResolvedValue({ text: "New newcobalt", totalPages: 1 })
+      fixture.extractForIndex.mockResolvedValue({
+        status: "extracted",
+        result: { text: "New newcobalt", totalPages: 1 },
+      })
       const rebuilt = await fixture.rebuild(maxFileBytes)
       await rebuilt.embedding
       expect(fixture.extractForIndex).not.toHaveBeenCalled()
@@ -4080,31 +4078,23 @@ describe("rebuildFromVault deferred PDF content", () => {
     },
   )
 
-  it.each([{ code: "pdf-superseded" }, { code: "pdf-closed" }])(
-    "keeps a $code rebuild PDF filename-only without warning",
-    async ({ code }) => {
-      const fixture = await createPdfRebuildFixture()
-      const warnSpy = vi.spyOn(logger, "warn")
-      onTestFinished(() => warnSpy.mockRestore())
-      fixture.extractForIndex.mockRejectedValue(
-        Object.assign(new Error("cancelled extraction"), { pdfFailure: code }),
-      )
-      const rebuilt = await fixture.rebuild()
-      await rebuilt.embedding
-      await rebuilt.startPdfPass()
+  it("keeps a rebuild PDF whose extraction was cancelled filename-only without warning", async () => {
+    const fixture = await createPdfRebuildFixture()
+    const warnSpy = vi.spyOn(logger, "warn")
+    onTestFinished(() => warnSpy.mockRestore())
+    fixture.extractForIndex.mockResolvedValue({ status: "cancelled" })
+    const rebuilt = await fixture.rebuild()
+    await rebuilt.embedding
+    await rebuilt.startPdfPass()
 
-      expect(fixture.extractForIndex).toHaveBeenCalledExactlyOnceWith(
-        { path: fixture.path },
-        logger,
-      )
-      expect(warnSpy).not.toHaveBeenCalled()
-      expect(fixture.fileRows()).toEqual([
-        { path: fixture.path, content: "", bytes: 18 },
-        { path: "decoy.txt", content: "Decoy controlsun", bytes: 16 },
-      ])
-      expect(fixture.targetChunks()).toEqual([])
-    },
-  )
+    expect(fixture.extractForIndex).toHaveBeenCalledExactlyOnceWith({ path: fixture.path }, logger)
+    expect(warnSpy).not.toHaveBeenCalled()
+    expect(fixture.fileRows()).toEqual([
+      { path: fixture.path, content: "", bytes: 18 },
+      { path: "decoy.txt", content: "Decoy controlsun", bytes: 16 },
+    ])
+    expect(fixture.targetChunks()).toEqual([])
+  })
 
   it("leaves a resource-budget failure filename-only without restoring persisted text or vectors", async () => {
     const fixture = await createPdfRebuildFixture()
@@ -4113,7 +4103,7 @@ describe("rebuildFromVault deferred PDF content", () => {
     const failure = Object.assign(new Error("controlled extraction budget"), {
       pdfFailure: "pdf-resource",
     })
-    const extraction = Promise.withResolvers<{ text: string; totalPages: number }>()
+    const extraction = Promise.withResolvers<PdfTextResult>()
     const started = Promise.withResolvers<undefined>()
     const pendingPasses: Promise<unknown>[] = []
     onTestFinished(async () => {
@@ -4122,7 +4112,7 @@ describe("rebuildFromVault deferred PDF content", () => {
     })
     fixture.extractForIndex.mockImplementation(async () => {
       started.resolve(undefined)
-      return extraction.promise
+      return { status: "extracted", result: await extraction.promise }
     })
     const rebuilt = await fixture.rebuild()
     await rebuilt.embedding
@@ -4156,7 +4146,10 @@ describe("rebuildFromVault deferred PDF content", () => {
     "skips scheduled PDF extraction after a $outcome before the pass starts",
     async ({ outcome }) => {
       const fixture = await createPdfRebuildFixture()
-      fixture.extractForIndex.mockResolvedValue({ text: "Stale delayedamber", totalPages: 1 })
+      fixture.extractForIndex.mockResolvedValue({
+        status: "extracted",
+        result: { text: "Stale delayedamber", totalPages: 1 },
+      })
       const rebuilt = await fixture.rebuild()
       await rebuilt.embedding
       fixture.search.removeFileContent({ filePath: fixture.path }, logger)
@@ -4195,7 +4188,7 @@ describe("rebuildFromVault deferred PDF content", () => {
     "rejects delayed PDF publication after a $outcome",
     async ({ outcome }) => {
       const fixture = await createPdfRebuildFixture()
-      const extraction = Promise.withResolvers<{ text: string; totalPages: number }>()
+      const extraction = Promise.withResolvers<PdfTextResult>()
       const started = Promise.withResolvers<undefined>()
       const pendingPasses: Promise<unknown>[] = []
       onTestFinished(async () => {
@@ -4204,7 +4197,7 @@ describe("rebuildFromVault deferred PDF content", () => {
       })
       fixture.extractForIndex.mockImplementation(async () => {
         started.resolve(undefined)
-        return extraction.promise
+        return { status: "extracted", result: await extraction.promise }
       })
       const rebuilt = await fixture.rebuild()
       await rebuilt.embedding
@@ -4254,8 +4247,8 @@ describe("rebuildFromVault deferred PDF content", () => {
         await Promise.allSettled(pendingPasses)
       })
       fixture.extractForIndex.mockResolvedValue({
-        text: "Intermediate delayedamber",
-        totalPages: 1,
+        status: "extracted",
+        result: { text: "Intermediate delayedamber", totalPages: 1 },
       })
       const rebuilt = await fixture.rebuild()
       await rebuilt.embedding
@@ -4317,9 +4310,12 @@ describe("rebuildFromVault PDF embedding completion", () => {
     }
     const search = createSearchIndex(":memory:", embedder, undefined, { fileToolsEnabled: true })
     const pdfExtractor: PdfExtractor = {
-      extractForIndex: vi.fn(async ({ path }) => ({
-        text: path === "report.pdf" ? "New newcobalt" : "Healthy healthycontinuation",
-        totalPages: 1,
+      extractForIndex: vi.fn<PdfExtractor["extractForIndex"]>(async ({ path }) => ({
+        status: "extracted",
+        result: {
+          text: path === "report.pdf" ? "New newcobalt" : "Healthy healthycontinuation",
+          totalPages: 1,
+        },
       })),
       readText: async () => {
         throw new Error("index test must not read a PDF asset")
@@ -4351,6 +4347,59 @@ describe("rebuildFromVault PDF embedding completion", () => {
     expect(embedder.embedText).toHaveBeenCalledWith("survivor\n\nHealthy healthycontinuation")
     const { results } = await search.hybridSearch({ query: "healthycontinuation" }, logger)
     expect(results.map((result) => result.path)).toEqual(["survivor.pdf"])
+  })
+
+  it("logs the pass's failure before any caller awaits it and still rejects its promise", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "pdf-rebuild-unawaited-error-"))
+    onTestFinished(() => rm(directory, { recursive: true, force: true }))
+    await writeFile(join(directory, "report.pdf"), "controlled bytes")
+    const embeddingError = new Error("controlled PDF embedding failure")
+    const embedder = {
+      embedText: vi.fn(async (): Promise<Float32Array> => {
+        throw embeddingError
+      }),
+      embedBatch: vi.fn(async (): Promise<Float32Array[]> => {
+        throw new Error("unexpected batch")
+      }),
+    }
+    const search = createSearchIndex(":memory:", embedder, undefined, { fileToolsEnabled: true })
+    const pdfExtractor: PdfExtractor = {
+      extractForIndex: vi.fn<PdfExtractor["extractForIndex"]>(async () => ({
+        status: "extracted",
+        result: { text: "New newcobalt", totalPages: 1 },
+      })),
+      readText: async () => {
+        throw new Error("index test must not read a PDF asset")
+      },
+      close: async () => {},
+    }
+    const rebuildLogger = { ...logger, error: vi.fn() }
+    const rebuilt = await search.rebuildFromVault(
+      {
+        vaultPath: directory,
+        bodyTagParser: inProcessBodyTagParser,
+        pdfExtractor,
+        maxFileBytes: 1000,
+      },
+      rebuildLogger,
+    )
+    await rebuilt.embedding
+
+    const pass = rebuilt.startPdfPass()
+    await vi.waitFor(() => {
+      expect(rebuildLogger.error).toHaveBeenCalledWith("PDF content pass failed", {
+        error: "[AggregateError]: PDF embedding pass failed",
+      })
+    })
+
+    expect(rebuildLogger.error).toHaveBeenCalledTimes(2)
+    expect(rebuildLogger.error).toHaveBeenNthCalledWith(1, "PDF embedding failed", {
+      path: "report.pdf",
+      error: "[Error]: controlled PDF embedding failure",
+    })
+    await expect(pass).rejects.toThrow(
+      new AggregateError([embeddingError], "PDF embedding pass failed"),
+    )
   })
 })
 

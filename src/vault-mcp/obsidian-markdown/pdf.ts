@@ -1,17 +1,19 @@
 import { getMeta, extractTextItems, extractLinks } from "unpdf"
 import type { StructuredTextItem } from "unpdf"
 import type { PDFPageProxy } from "unpdf/pdfjs"
-// eslint-disable-next-line @typescript-eslint/no-restricted-imports -- Pure UTF-8 truncation is shared with indexing.
-import { getUtf8BytePrefix } from "../../utils/get-utf8-byte-prefix.js"
 import { createPdfDocumentProxy } from "./pdf-engine.js"
 
-// Bound useful indexing work while the extraction process contains individual-page expansion.
+// Pages read for the index when the text stays under the byte budget (sparse or image-heavy
+// pages), so index time stays bounded for any page count.
 export const MAX_INDEXED_PDF_PAGES = 500
-// Match the searchable-content budget, including metadata, separators and links.
-const MAX_INDEXED_PDF_BYTES = 102_400
+// The search index keeps a file's first 100 KiB of text, so reading past that formatted size is
+// wasted work. The value matches the index's own cap; a test pins the two together.
+export const MAX_INDEXED_PDF_BYTES = 102_400
 
 type PageTextContent = Awaited<ReturnType<PDFPageProxy["getTextContent"]>>
 
+/** unpdf's own item mapping reads every page at once, so this per-page copy of it lets index
+ *  extraction stop at its budget. */
 const structuredPageItems = (content: PageTextContent): StructuredTextItem[] => {
   const toStructuredItem = (
     textItem: Extract<PageTextContent["items"][number], { str: string }>,
@@ -522,7 +524,9 @@ export type PdfTextResult = Readonly<{
   totalPages: number
 }>
 
-/** Reads pages sequentially until the formatted indexing prefix reaches its byte or page budget. */
+/** Reads pages in order until the formatted rendition reaches the byte budget or the page
+ *  budget. The returned text can run past the byte budget by the last page read; the caller
+ *  cuts it. */
 export const extractPdfIndexText = async (pdfData: Uint8Array): Promise<PdfTextResult> => {
   const proxy = await createPdfDocumentProxy(pdfData)
   try {
@@ -531,8 +535,8 @@ export const extractPdfIndexText = async (pdfData: Uint8Array): Promise<PdfTextR
     const pageLimit = Math.min(totalPages, MAX_INDEXED_PDF_PAGES)
     const itemsByPage: StructuredTextItem[][] = []
     const pdfLinks: string[] = []
-    // Each visited page changes the heading inputs and links of the current prefix.
-    let text = ""
+    // Holds the rendition of the pages read so far, for the loop's normal exit.
+    let rendition = ""
     for (let pageNumber = 1; pageNumber <= pageLimit; pageNumber += 1) {
       const page = await proxy.getPage(pageNumber)
       try {
@@ -552,27 +556,20 @@ export const extractPdfIndexText = async (pdfData: Uint8Array): Promise<PdfTextR
         page.cleanup()
       }
 
-      const hasContent = itemsByPage.some((pageItems) => pageItems.some(hasVisibleText))
-      const rendition = reconstructPdfMarkdown({
+      // Every page read so far is rendered again, because headings are ranked across all pages
+      // read and the links footer grows; the rendition is the measured budget.
+      rendition = reconstructPdfMarkdown({
         title: meta.info.Title,
         totalPages,
         itemsByPage,
         pdfLinks,
       })
-      text = hasContent ? rendition : ""
-      const renditionBytes = Buffer.byteLength(rendition, "utf8")
 
-      if (renditionBytes >= MAX_INDEXED_PDF_BYTES) {
-        return {
-          text:
-            renditionBytes > MAX_INDEXED_PDF_BYTES
-              ? getUtf8BytePrefix(text, MAX_INDEXED_PDF_BYTES)
-              : text,
-          totalPages,
-        }
-      }
+      if (Buffer.byteLength(rendition, "utf8") >= MAX_INDEXED_PDF_BYTES) break
     }
-    return { text, totalPages }
+    // The title and link footer render without visible text, so the check is on the items.
+    const hasContent = itemsByPage.some((pageItems) => pageItems.some(hasVisibleText))
+    return { text: hasContent ? rendition : "", totalPages }
   } finally {
     await proxy.loadingTask.destroy()
   }
