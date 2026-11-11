@@ -1644,8 +1644,17 @@ describe("fullTextSearch", () => {
   })
 
   it("finds notes by title", () => {
-    const results = index.fullTextSearch({ query: "Principles" }, logger)
-    expect(results).toHaveLength(1)
+    // The title comes from the file name, so the word appears in no other column
+    index.upsertNote(
+      withBodyTags({
+        filePath: "Recipes/Albacore.md",
+        rawContent: "Grill the fish for four minutes a side.\n",
+        fileStat: testStat(4000),
+      }),
+      logger,
+    )
+    const results = index.fullTextSearch({ query: "Albacore" }, logger)
+    expect(results.map((result) => result.path)).toEqual(["Recipes/Albacore.md"])
   })
 
   it("returns snippets without HTML markup", () => {
