@@ -1,6 +1,6 @@
 import { join, resolve } from "node:path"
 
-import type { DockerRunner, Mode } from "../adapters/docker.js"
+import { isVaultCortexImage, type DockerRunner, type Mode } from "../adapters/docker.js"
 import { envFile } from "../adapters/env-file.js"
 import type { Prompts } from "../adapters/prompts.js"
 import { expandTilde } from "../adapters/vault.js"
@@ -18,7 +18,6 @@ import {
   describeEnvFix,
   vaultCortexCommand,
 } from "../rules/messages.js"
-import { containerStart } from "./container-start.js"
 
 /** An init'd deployment on disk, reconstructed from its .env file. */
 export type Deployment = {
@@ -157,6 +156,31 @@ export const requireDaemonRunning = (docker: DockerRunner, prompts: Prompts): bo
   return false
 }
 
+/** Who holds the install's container name: nobody, a Vault Cortex container, or another app. */
+export type InstanceContainer = "none" | "own" | "foreign"
+
+/**
+ * Looks up the container that holds the install's name. One running another
+ * image is someone else's, so no command may stop, remove or stream it: this
+ * reports the refusal, and callers stop on "foreign".
+ */
+export const classifyInstanceContainer = (
+  params: { instanceName: string; envFilePath: string },
+  deps: { prompts: Prompts; docker: DockerRunner },
+): InstanceContainer => {
+  const { instanceName, envFilePath } = params
+  const image = deps.docker.containerImage(instanceName)
+
+  if (!image) return "none"
+  if (isVaultCortexImage(image)) return "own"
+  deps.prompts.error(
+    `A container named "${instanceName}" runs ${image}, not Vault Cortex, so this command leaves it alone.\n` +
+      `To keep this install's data, rename that container: docker rename ${instanceName} <new-name>\n` +
+      `Or change INSTANCE_NAME in ${envFilePath}: the install then starts on new, empty volumes.`,
+  )
+  return "foreign"
+}
+
 /**
  * The gates for a command that acts on an existing container without
  * starting one: an init'd .env, a running daemon, and a container name that
@@ -172,10 +196,7 @@ export const resolveInstanceContainer = (
   if (!initialized) return undefined
   if (!requireDaemonRunning(docker, prompts)) return undefined
   const { instanceName, envFilePath } = initialized
-  const instanceContainer = containerStart.classifyInstanceContainer(
-    { instanceName, envFilePath },
-    deps,
-  )
+  const instanceContainer = classifyInstanceContainer({ instanceName, envFilePath }, deps)
 
   if (instanceContainer === "foreign") return undefined
   return { initialized, instanceContainer }

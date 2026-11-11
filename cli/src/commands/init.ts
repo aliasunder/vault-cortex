@@ -29,6 +29,7 @@ import {
 } from "../rules/messages.js"
 import { containerStart } from "../steps/container-start.js"
 import {
+  classifyInstanceContainer,
   DEFAULT_TARGET_DIR,
   resolveDeployment,
   resolveTargetDir,
@@ -266,7 +267,7 @@ const offerDockerRun = async (deployment: Deployment, deps: InitDeps): Promise<S
     )
     return "not-started"
   }
-  const instanceContainer = containerStart.classifyInstanceContainer(
+  const instanceContainer = classifyInstanceContainer(
     { instanceName, envFilePath: deployment.envFilePath },
     { prompts, docker },
   )

@@ -1,9 +1,4 @@
-import {
-  isVaultCortexImage,
-  pollHealth,
-  probeHealth,
-  type DockerRunner,
-} from "../adapters/docker.js"
+import { pollHealth, probeHealth, type DockerRunner } from "../adapters/docker.js"
 import { envFile } from "../adapters/env-file.js"
 import type { Prompts } from "../adapters/prompts.js"
 import {
@@ -12,36 +7,11 @@ import {
   healthTimeoutMessage,
   type StartStatus,
 } from "../rules/messages.js"
-import type { Deployment } from "./deployment.js"
-
-/** Who holds the install's container name: nobody, a Vault Cortex container, or another app. */
-type InstanceContainer = "none" | "own" | "foreign"
+import { classifyInstanceContainer, type Deployment, type InstanceContainer } from "./deployment.js"
 
 type ContainerStartDeps = { prompts: Prompts; docker: DockerRunner; fetchFn: typeof fetch }
 
 const DEFAULT_HEALTH_WAIT_LABEL = "Waiting for the server to come up"
-
-/**
- * Looks up the container that holds the install's name. One running another
- * image is someone else's, so no command may stop, remove or stream it: this
- * reports the refusal, and callers stop on "foreign".
- */
-const classifyInstanceContainer = (
-  params: { instanceName: string; envFilePath: string },
-  deps: { prompts: Prompts; docker: DockerRunner },
-): InstanceContainer => {
-  const { instanceName, envFilePath } = params
-  const image = deps.docker.containerImage(instanceName)
-
-  if (!image) return "none"
-  if (isVaultCortexImage(image)) return "own"
-  deps.prompts.error(
-    `A container named "${instanceName}" runs ${image}, not Vault Cortex, so this command leaves it alone.\n` +
-      `To keep this install's data, rename that container: docker rename ${instanceName} <new-name>\n` +
-      `Or change INSTANCE_NAME in ${envFilePath}: the install then starts on new, empty volumes.`,
-  )
-  return "foreign"
-}
 
 /**
  * One-shot informational probe of the public /healthz after a confirmed
@@ -164,4 +134,4 @@ const recreate = async (
   return startStatus === "running" ? 0 : 1
 }
 
-export const containerStart = { classifyInstanceContainer, start, recreate }
+export const containerStart = { start, recreate }
