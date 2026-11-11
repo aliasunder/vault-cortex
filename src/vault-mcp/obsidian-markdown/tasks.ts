@@ -2438,6 +2438,7 @@ export const tasks = {
   parseKanbanCardInsertionMethod,
   deduplicateDescriptionTags,
   BLOCK_LINK_RE,
+  COMPLETE_MARKER,
 }
 
 export type { DateFieldKey }

@@ -428,7 +428,8 @@ const taskInsertIndexUnderHeading = ({
 }): number => {
   const sectionLines = lines.slice(heading.bodyStartLine, heading.bodyEndLine)
   const firstContentOffset = sectionLines.findIndex((line) => line.trim() !== "")
-  const startsWithCompleteMarker = sectionLines[firstContentOffset]?.trim() === "**Complete**"
+  const startsWithCompleteMarker =
+    sectionLines[firstContentOffset]?.trim() === tasks.COMPLETE_MARKER
 
   if (startsWithCompleteMarker) return heading.bodyStartLine + firstContentOffset + 1
   return heading.bodyStartLine
