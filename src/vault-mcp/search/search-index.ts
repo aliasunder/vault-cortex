@@ -1913,7 +1913,8 @@ export const createSearchIndex = (
 
   /** One background model call for a chunk's text, made once no tool call or
    *  prompt is running. Null when a newer write to the source superseded the
-   *  job during the wait or the model call. */
+   *  job during the wait. The caller checks the version again before it
+   *  writes the vector. */
   const embedChunkWhenIdle = async (
     params: { text: string; sourcePath: string; sourceVersion: symbol },
     logger: Logger,
@@ -1929,7 +1930,6 @@ export const createSearchIndex = (
 
     const embedding = await embedder.embedText(text)
 
-    if (!isCurrentSourceVersion({ sourcePath, sourceVersion }, logger)) return null
     return Buffer.from(embedding.buffer, embedding.byteOffset, embedding.byteLength)
   }
 
@@ -2000,9 +2000,6 @@ export const createSearchIndex = (
       // Skip if content hasn't changed
       if (existingHashes.get(chunk.index) === hash) continue
 
-      // A stored vector gets no version check of its own. The last check ran
-      // at the start of this function, or inside embedChunkWhenIdle after the
-      // previous model call.
       const storedVector = storedVectors.find(hash)
       const vectorBytes =
         storedVector ??
@@ -2012,6 +2009,14 @@ export const createSearchIndex = (
         ))
 
       if (!vectorBytes) return embeddedCount
+      // No await separates this check from the write below, so a job
+      // superseded while it waited or while the model ran writes nothing
+      const isCurrentJob = isCurrentSourceVersion(
+        { sourcePath: notePath, sourceVersion: params.sourceVersion },
+        logger,
+      )
+
+      if (!isCurrentJob) return embeddedCount
       if (!storedVector) storedVectors.remember(hash, vectorBytes)
 
       // Wrap the DB writes in a transaction so the content hash is never
@@ -2230,9 +2235,6 @@ export const createSearchIndex = (
 
       if (existingHashes.get(chunk.index) === hash) continue
 
-      // A stored vector gets no version check of its own. The last check ran
-      // at the start of this function, or inside embedChunkWhenIdle after the
-      // previous model call.
       const storedVector = storedVectors.find(hash)
       const vectorBytes =
         storedVector ??
@@ -2242,6 +2244,14 @@ export const createSearchIndex = (
         ))
 
       if (!vectorBytes) return embeddedCount
+      // No await separates this check from the write below, so a job
+      // superseded while it waited or while the model ran writes nothing
+      const isCurrentJob = isCurrentSourceVersion(
+        { sourcePath: params.filePath, sourceVersion: params.sourceVersion },
+        logger,
+      )
+
+      if (!isCurrentJob) return embeddedCount
       if (!storedVector) storedVectors.remember(hash, vectorBytes)
 
       db.transaction(() => {
