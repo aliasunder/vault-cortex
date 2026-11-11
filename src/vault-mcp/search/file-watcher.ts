@@ -564,29 +564,42 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
     })
   }
 
-  /** chokidar's add and change listener. While the watcher holds, it records
-   *  the path for applyHeldChanges instead of indexing it. chokidar ignores
-   *  the returned promise, so each step logs its own failure and the listener
-   *  never rejects. */
-  const handleChange = async (filePath: string): Promise<void> => {
-    if (watcherState.mode === "closed") return
+  /** Indexes one changed file, or records it for applyHeldChanges while the
+   *  watcher holds. A note's embedding comes back unawaited and never
+   *  rejects, so a caller indexing several files can publish each file's
+   *  keyword text without waiting for the model. */
+  const indexChange = async (filePath: string): Promise<{ embedding: Promise<void> }> => {
+    const noEmbedding = { embedding: Promise.resolve() }
+
+    if (watcherState.mode === "closed") return noEmbedding
     if (watcherState.mode === "holding") {
       watcherState.heldPaths.set(filePath, "change")
       logger.debug("held a change until startup indexing ends", {
         path: relative(vaultPath, filePath),
       })
-      return
+      return noEmbedding
     }
 
     const indexResult = await indexChangedFile(filePath)
 
-    if (indexResult.status !== "note-indexed") return
+    if (indexResult.status !== "note-indexed") return noEmbedding
 
-    try {
-      await indexResult.embedding
-    } catch (error) {
-      reportEmbeddingFailure(filePath, error)
+    const reportedEmbedding = async (): Promise<void> => {
+      try {
+        await indexResult.embedding
+      } catch (error) {
+        reportEmbeddingFailure(filePath, error)
+      }
     }
+    return { embedding: reportedEmbedding() }
+  }
+
+  /** chokidar's add and change listener. chokidar ignores the returned
+   *  promise, so each step logs its own failure and the listener never
+   *  rejects. */
+  const handleChange = async (filePath: string): Promise<void> => {
+    const { embedding } = await indexChange(filePath)
+    await embedding
   }
 
   /** Removes a deleted file from the index — the asset table for non-md
@@ -805,6 +818,10 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
     // Map of watched directory (absolute) → tracked child basenames. Anything
     // on disk but absent here is an entry chokidar's new-directory scan missed.
     const watchedChildren = watcher.getWatched()
+    // A missed note's embedding waits while a tool call runs. The rescan
+    // awaits every embedding after the loop, so one note's wait never holds
+    // back the next missed file's keyword text.
+    const missedNoteEmbeddings: Promise<void>[] = []
 
     for (const entry of entries) {
       const fullPath = join(entry.parentPath, entry.name)
@@ -865,7 +882,8 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
         // later deletion would emit no unlink, leaving a ghost index entry.
         watchPathUnlessClosed(fullPath)
         logger.debug("rescan indexing missed file", { path: relativePath })
-        await handleChange(fullPath)
+        const { embedding } = await indexChange(fullPath)
+        missedNoteEmbeddings.push(embedding)
       } catch (err) {
         logger.debug("rescan skipped unreadable entry", {
           path: relativePath,
@@ -873,6 +891,7 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
         })
       }
     }
+    await Promise.all(missedNoteEmbeddings)
   }
 
   /** Runs rescanNewDirectory once per new directory, delayed by

@@ -3883,6 +3883,40 @@ describe("file watcher — new-directory rescan", () => {
     },
   )
 
+  it(
+    "indexes every missed note's keywords while an earlier note's embedding is still running",
+    { timeout: 15000 },
+    async () => {
+      const newDirectory = join(vault, "new-folder")
+      await mkdir(newDirectory)
+      for (const missedNote of [
+        { name: "first.md", text: "first missedalpha note\n" },
+        { name: "second.md", text: "second missedbeta note\n" },
+      ]) {
+        const missedPath = join(newDirectory, missedNote.name)
+        await writeFile(missedPath, missedNote.text, "utf8")
+        await backdateMtime(missedPath)
+      }
+      const heldEmbedding = Promise.withResolvers<undefined>()
+      const embedNoteSpy = vi
+        .spyOn(index, "embedNote")
+        .mockImplementationOnce(async () => heldEmbedding.promise)
+      onTestFinished(() => heldEmbedding.resolve(undefined))
+
+      const { fireAddDir } = await startWatcherWithFakeChokidar({}, RESCAN_TEST_OPTIONS)
+      fireAddDir(newDirectory)
+
+      await waitFor(() => index.fullTextSearch({ query: "missedbeta" }, logger).length > 0)
+      expect(index.fullTextSearch({ query: "missedalpha" }, logger).map((hit) => hit.path)).toEqual(
+        ["new-folder/first.md"],
+      )
+      expect(index.fullTextSearch({ query: "missedbeta" }, logger).map((hit) => hit.path)).toEqual([
+        "new-folder/second.md",
+      ])
+      expect(embedNoteSpy).toHaveBeenCalledTimes(2)
+    },
+  )
+
   it("does not re-index a file chokidar already tracks", { timeout: 15000 }, async () => {
     const newDirectory = join(vault, "new-folder")
     await mkdir(newDirectory)
