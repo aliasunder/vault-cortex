@@ -693,7 +693,7 @@ Returns: ${describeNoteMetadataResult(tagsFieldsText)} Sorted by most recently m
     TOOL_NAMES.VAULT_GET_BACKLINKS,
     {
       title: "Get Backlinks",
-      description: `Find all notes and canvases that link to a given note or canvas — captures [[wikilinks]], [markdown](links), ![[embeds]], wikilinks inside properties (e.g. related:), and canvas cards that embed the file. Heading anchors ([[note#heading]]) and aliases ([[note|alias]]) resolve as backlinks to the base note. Links inside code blocks are ignored; a note linking to itself appears in its own backlinks.
+      description: `Find all notes and canvases that link to a given note or canvas — captures [[wikilinks]], [markdown](links), ![[embeds]], wikilinks inside properties (e.g. related:), and canvas cards: a link typed in a text card, or a file card showing the file. Heading anchors ([[note#heading]]) and aliases ([[note|alias]]) resolve as backlinks to the base note. Links inside code blocks are ignored; a note linking to itself appears in its own backlinks.
 
 Example: vault_get_backlinks({ path: "Projects/vault-cortex.md" })
 Example: vault_get_backlinks({ path: "Diagrams/architecture.canvas" })
@@ -752,7 +752,7 @@ ${INDEX_ENGINE_ERROR_ENTRY}`,
     TOOL_NAMES.VAULT_GET_OUTGOING_LINKS,
     {
       title: "Get Outgoing Links",
-      description: `Find all notes and files a given note or canvas links to. For notes: [[wikilinks]], [markdown](links), ![[embeds]], and wikilinks inside properties (e.g. related:). For canvas files: file nodes, not links inside text cards. Links inside code blocks are ignored; self-links are included. Each target is listed once, however often the note links to it.
+      description: `Find all notes and files a given note or canvas links to. For notes: [[wikilinks]], [markdown](links), ![[embeds]], and wikilinks inside properties (e.g. related:). For canvas files: links typed in text cards, and file cards by their exact path. Links inside code blocks are ignored; self-links are included. Each target is listed once, however often the note links to it.
 
 Example: vault_get_outgoing_links({ path: "Projects/vault-cortex.md" })
 Example: vault_get_outgoing_links({ path: "Diagrams/architecture.canvas" })
