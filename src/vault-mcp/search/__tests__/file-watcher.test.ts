@@ -4101,6 +4101,34 @@ describe("file watcher — new-directory rescan", () => {
   })
 
   it(
+    "logs a missed note's failed embedding instead of leaving the rejection unhandled",
+    { timeout: 15000 },
+    async () => {
+      const newDirectory = join(vault, "new-folder")
+      await mkdir(newDirectory)
+      const missedPath = join(newDirectory, "missed.md")
+      await writeFile(missedPath, "missed failingzeta note\n", "utf8")
+      await backdateMtime(missedPath)
+      vi.spyOn(index, "embedNote").mockRejectedValueOnce(new Error("model unavailable"))
+      const errorSpy = vi.spyOn(logger, "error")
+      onTestFinished(() => errorSpy.mockRestore())
+
+      const { fireAddDir } = await startWatcherWithFakeChokidar({}, RESCAN_TEST_OPTIONS)
+      fireAddDir(newDirectory)
+
+      await vi.waitFor(() => {
+        expect(errorSpy).toHaveBeenCalledWith("failed to process file change", {
+          path: "new-folder/missed.md",
+          error: "[Error]: model unavailable",
+        })
+      })
+      expect(index.fullTextSearch({ query: "failingzeta" }, logger).map((hit) => hit.path)).toEqual(
+        ["new-folder/missed.md"],
+      )
+    },
+  )
+
+  it(
     "indexes a missed note after a symlinked directory while that directory's note is still embedding",
     { timeout: 15000 },
     async () => {

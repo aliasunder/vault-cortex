@@ -8531,6 +8531,33 @@ describe("background embedding waits for foreground work", () => {
     },
   )
 
+  it("a chunk's model call runs after 5 seconds while a tool call is still running", async () => {
+    const fixture = await createEmbeddingRaceIndex("note")
+    const content = "Body text that the background job embeds."
+    const sourceVersion = fixture.upsert(content)
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
+    onTestFinished(() => {
+      vi.useRealTimers()
+    })
+    const call = Promise.withResolvers<undefined>()
+    const trackedCall = fixture.searchIndex.trackForegroundWork(() => call.promise)
+    onTestFinished(async () => {
+      call.resolve(undefined)
+      await trackedCall
+    })
+
+    const embedding = fixture.embed(content, sourceVersion)
+    await vi.advanceTimersByTimeAsync(4999)
+
+    expect(fixture.embedder.embedText).not.toHaveBeenCalled()
+
+    await vi.advanceTimersByTimeAsync(1)
+    await embedding
+
+    expect(fixture.embedder.embedText).toHaveBeenCalledTimes(1)
+    expect(fixture.vectorCount()).toBe(1)
+  })
+
   it("memory-entry batches wait while a tool call runs and embed after it returns", async () => {
     const embedder = createSameVectorEmbedder()
     const searchIndex = createSearchIndex(":memory:", embedder, undefined, {
