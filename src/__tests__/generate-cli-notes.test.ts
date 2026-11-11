@@ -26,7 +26,7 @@ const cliManifest = ({ version, zod }: { version: string; zod: string }): string
   return `${JSON.stringify(manifest, null, 2)}\n`
 }
 
-/** Shaped like cli/src/env.ts: .env template text inside a template literal,
+/** Shaped like cli/src/rules/env-templates.ts: .env template text inside a template literal,
  *  where a line starting with # is a comment. */
 const envTemplateModule = ({ comment, setting }: { comment: string; setting: string }): string => {
   return `export const TEMPLATE = \`\n${comment}\n${setting}\n\`\n`
