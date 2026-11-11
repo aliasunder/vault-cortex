@@ -108,6 +108,14 @@ const seedEmbeddingSource = (
   )
 }
 
+/** Lets every already-queued callback run. A background model call starts
+ *  after the job's wait for foreground work, so a test that holds a model
+ *  call lets the job reach it first. */
+const letQueuedWorkRun = async (): Promise<void> => {
+  await setImmediateAsync()
+  await setImmediateAsync()
+}
+
 /** A fake embedder whose calls the test can read back */
 type RecordingEmbedder = {
   embedText: Mock<(text: string) => Promise<Float32Array>>
@@ -8403,6 +8411,94 @@ describe("vectors reused by chunk text", () => {
   )
 })
 
+describe("background embedding waits for foreground work", () => {
+  /** Holds a tracked call open until the returned release runs */
+  const holdForegroundCall = (searchIndex: SearchIndex) => {
+    const call = Promise.withResolvers<undefined>()
+    const tracked = searchIndex.trackForegroundWork(() => call.promise)
+    return async (): Promise<void> => {
+      call.resolve(undefined)
+      await tracked
+    }
+  }
+
+  const MEMORY_FILE_CONTENT = "## Practices\n\n- **2026-07-01**: Keep current entries."
+
+  it.each([
+    { label: "note chunks", sourceKind: "note" },
+    { label: "file chunks", sourceKind: "file" },
+  ] as const)(
+    "$label wait while a tool call runs and embed after it returns",
+    async ({ sourceKind }) => {
+      const fixture = await createEmbeddingRaceIndex(sourceKind)
+      const content = "Body text that the background job embeds."
+      const sourceVersion = fixture.upsert(content)
+      const releaseCall = holdForegroundCall(fixture.searchIndex)
+
+      const embedding = fixture.embed(content, sourceVersion)
+      await letQueuedWorkRun()
+
+      expect(fixture.embedder.embedText).not.toHaveBeenCalled()
+
+      await releaseCall()
+      await embedding
+
+      expect(fixture.embedder.embedText).toHaveBeenCalledTimes(1)
+      expect(fixture.vectorCount()).toBe(1)
+    },
+  )
+
+  it("memory-entry batches wait while a tool call runs and embed after it returns", async () => {
+    const embedder = createSameVectorEmbedder()
+    const searchIndex = createSearchIndex(":memory:", embedder, undefined, {
+      memoryDir: "About Me",
+    })
+    const notePath = "About Me/Practices.md"
+    const sourceVersion = seedEmbeddingSource(searchIndex, {
+      notePath,
+      rawContent: MEMORY_FILE_CONTENT,
+    })
+    // The first pass stores the note's chunks but no entry vectors, so the
+    // second pass has work for the memory loop alone
+    embedder.embedBatch.mockRejectedValueOnce(new Error("model unavailable"))
+    await expect(
+      searchIndex.embedNote({ notePath, rawContent: MEMORY_FILE_CONTENT, sourceVersion }, logger),
+    ).rejects.toThrow(new Error("model unavailable"))
+    embedder.embedText.mockClear()
+    embedder.embedBatch.mockClear()
+    const releaseCall = holdForegroundCall(searchIndex)
+
+    const embedding = searchIndex.embedNote(
+      { notePath, rawContent: MEMORY_FILE_CONTENT, sourceVersion },
+      logger,
+    )
+    await letQueuedWorkRun()
+
+    expect(embedder.embedText).not.toHaveBeenCalled()
+    expect(embedder.embedBatch).not.toHaveBeenCalled()
+
+    await releaseCall()
+    await embedding
+
+    expect(embedder.embedBatch).toHaveBeenCalledTimes(1)
+  })
+
+  it("a job superseded during the wait makes no model call", async () => {
+    const fixture = await createEmbeddingRaceIndex("note")
+    const firstVersion = fixture.upsert("First body text.")
+    const releaseCall = holdForegroundCall(fixture.searchIndex)
+
+    const firstEmbedding = fixture.embed("First body text.", firstVersion)
+    await letQueuedWorkRun()
+    fixture.upsert("Second body text.")
+    await releaseCall()
+    await firstEmbedding
+
+    expect(fixture.embedder.embedText).not.toHaveBeenCalled()
+    expect(fixture.vectorCount()).toBe(0)
+  })
+})
+
 describe("canvas file content and links", () => {
   it.each([{ fileToolsEnabled: true }, { fileToolsEnabled: false }])(
     "resolves canvas links to existing notes and assets with file tools $fileToolsEnabled",
@@ -9579,6 +9675,7 @@ describe("committed embedding source versions", () => {
       onTestFinished(() => debugSpy.mockRestore())
       const sourceVersion = fixture.upsert("Old oldquartz")
       const job = fixture.embed("Old oldquartz", sourceVersion)
+      await letQueuedWorkRun()
       expect(fixture.embedder.embedText).toHaveBeenCalledTimes(1)
 
       fixture.remove()
@@ -9607,9 +9704,11 @@ describe("committed embedding source versions", () => {
       const replacementTitle = sourceKind === "note" ? "New" : "reuse"
       const originalVersion = fixture.upsert(originalContent)
       const oldJob = fixture.embed(originalContent, originalVersion)
+      await letQueuedWorkRun()
       fixture.remove()
       const replacementVersion = fixture.upsert(replacementContent)
       const replacementJob = fixture.embed(replacementContent, replacementVersion)
+      await letQueuedWorkRun()
       expect(fixture.embedder.embedText).toHaveBeenCalledTimes(2)
 
       oldModel.resolve(new Float32Array(384).fill(0.1))
@@ -9654,6 +9753,7 @@ describe("committed embedding source versions", () => {
       const shortVersion = fixture.upsert("Short obsolete body.")
       fixture.embedder.embedText.mockImplementationOnce(() => staleModel.promise)
       const staleJob = fixture.embed("Short obsolete body.", shortVersion)
+      await letQueuedWorkRun()
       const longContent = Array.from({ length: 8 }, (_, paragraphIndex) => {
         return `## Section ${String(paragraphIndex)}\n\n${"Current content about cobalt systems. ".repeat(25)}`
       }).join("\n\n")

@@ -35,6 +35,7 @@ import { readFileTextPrefix, statOrNull } from "../../utils/fs.js"
 import { hasHiddenPathSegment } from "../../utils/has-hidden-path-segment.js"
 import { getUtf8BytePrefix } from "../../utils/get-utf8-byte-prefix.js"
 import { mapWithConcurrency } from "../../utils/map-with-concurrency.js"
+import { createActivityTracker } from "../../utils/activity-tracker.js"
 import {
   isString,
   coerceToArray,
@@ -421,6 +422,14 @@ const readStoredBodyTags = (
 }
 
 // ── Background embedding ────────────────────────────────────────
+
+/** How long a background embedding unit (a chunk, or a batch of memory
+ *  entries) waits for running tool calls and prompts to finish.
+ *  - Inference runs on the one JavaScript thread, so a unit that runs during
+ *    a call delays that call.
+ *  - The cap keeps a stream of overlapping calls from stalling the index for
+ *    good. Each job then runs one unit per wait, about six per 30-second call. */
+const BACKGROUND_EMBED_MAX_WAIT_MS = 5000
 
 /** A stored chunk's content hash and the raw bytes of its vector. */
 type StoredVectorRow = { content_hash: string; embedding: Buffer }
@@ -1889,8 +1898,13 @@ export const createSearchIndex = (
 
   // ── Embedding pipeline ─────────────────────────────────────────
 
-  /** One background model call for a chunk's text. Null when a newer write to
-   *  the source superseded the job before or during the model call. */
+  /** Tool calls and prompts in flight. Background model calls wait on it, and
+   *  the MCP layer runs each call through trackForegroundWork. */
+  const foregroundWork = createActivityTracker()
+
+  /** One background model call for a chunk's text, made once no tool call or
+   *  prompt is running. Null when a newer write to the source superseded the
+   *  job during the wait or the model call. */
   const embedInBackground = async (
     params: { text: string; sourcePath: string; sourceVersion: symbol },
     logger: Logger,
@@ -1898,6 +1912,9 @@ export const createSearchIndex = (
     const { text, ...source } = params
 
     if (!embedder) throw new Error("background embedding ran without an embedder")
+
+    await foregroundWork.whenIdle({ maxWaitMs: BACKGROUND_EMBED_MAX_WAIT_MS })
+
     if (!isCurrentSourceVersion(source, logger)) return null
 
     const embedding = await embedder.embedText(text)
@@ -2075,6 +2092,8 @@ export const createSearchIndex = (
       batchStart < unembeddedRows.length;
       batchStart += MEMORY_EMBED_BATCH_SIZE
     ) {
+      await foregroundWork.whenIdle({ maxWaitMs: BACKGROUND_EMBED_MAX_WAIT_MS })
+
       if (!isCurrentSourceVersion({ sourcePath: notePath, sourceVersion }, logger))
         return embeddedCount
 
@@ -3262,6 +3281,7 @@ export const createSearchIndex = (
     vaultStats: bindQueryContext(queries.vaultStats),
     fileContentIndexingEnabled: fileToolsEnabled,
     statusRegistry,
+    trackForegroundWork: foregroundWork.track,
   }
 }
 
