@@ -1568,7 +1568,15 @@ describe("HOST unset", () => {
       .find((line) => line.includes('"message":"server started"'))
     const startedLog: unknown = JSON.parse(startedLine ?? "{}")
 
-    expect(startedLog).toMatchObject({ host: "127.0.0.1", port })
+    expect(startedLog).toEqual({
+      timestamp: expect.any(String),
+      level: "info",
+      name: "vault-cortex",
+      message: "server started",
+      source: expect.stringMatching(/^server\.ts:\d+$/),
+      host: "127.0.0.1",
+      port,
+    })
   }, 30_000)
 })
 
@@ -2083,6 +2091,26 @@ describe("boot rejection", () => {
     })
     expect(exitCode).toBe(1)
     expect(stderr).toContain("PUBLIC_URL must not contain credentials (user:password@)")
+  }, 15_000)
+
+  // The harness pins HOST to the server's default address, so the HOST unset
+  // test proves the default only while an undefined override removes the
+  // harness's value. This boot fails only when it does.
+  it("exits with error when PUBLIC_URL is unset", async () => {
+    const { exitCode, stderr } = await startServerExpectingFailure(await freePort(), {
+      PUBLIC_URL: undefined,
+    })
+    const errorLog: unknown = JSON.parse(stderr.trim().split("\n").at(-1) ?? "{}")
+
+    expect(exitCode).toBe(1)
+    expect(errorLog).toEqual({
+      timestamp: expect.any(String),
+      level: "error",
+      name: "vault-cortex",
+      message: "failed to start server",
+      source: expect.stringMatching(/^server\.ts:\d+$/),
+      error: '[EnvVarError]: env-var: "PUBLIC_URL" is a required variable, but it was not set',
+    })
   }, 15_000)
 
   // Express 5 hands bind failures to the listen callback instead of
