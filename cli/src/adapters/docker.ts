@@ -89,7 +89,10 @@ export type DockerRunner = {
   dockerRun: (params: DockerRunParams) => boolean
   /** Pulls the latest image from the registry. */
   pullImage: (image: string) => boolean
-  /** Stops and removes the named container (idempotent). */
+  /**
+   * Stops and removes the named container. False when that fails, which
+   * engines older than 23 also report when no container has the name.
+   */
   stopAndRemoveContainer: (instanceName: string) => boolean
   /**
    * The image the container with this exact name was created from, running
@@ -110,6 +113,9 @@ export type DockerRunner = {
   streamLogs: (params: DockerLogsParams) => Promise<number>
 }
 
+/** The port the server listens on inside the container; the host port maps to it. */
+const CONTAINER_PORT = 8000
+
 /**
  * Container-internal env vars that must override the user's .env values.
  * VAULT_PATH in .env is the host path (for the -v mount); the container
@@ -117,14 +123,13 @@ export type DockerRunner = {
  */
 const CONTAINER_ENV_OVERRIDES = [
   "VAULT_PATH=/vault",
-  "PORT=8000",
+  `PORT=${CONTAINER_PORT}`,
   "HOST=0.0.0.0",
   "INDEX_DB_PATH=/data/index.db",
 ]
 
 /** Node one-liner matching the compose healthcheck — exits 0 on HTTP 200. */
-const HEALTH_CMD =
-  "node -e \"fetch('http://127.0.0.1:8000/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""
+const HEALTH_CMD = `node -e "fetch('http://127.0.0.1:${CONTAINER_PORT}/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"`
 
 /**
  * Builds the `docker run` args array. Pure function — no I/O — so it's
@@ -145,7 +150,7 @@ export const buildDockerRunArgs = (params: DockerRunParams): string[] => {
     envFilePath,
     ...CONTAINER_ENV_OVERRIDES.flatMap((override) => ["-e", override]),
     "-p",
-    `${port}:8000`,
+    `${port}:${CONTAINER_PORT}`,
   ]
 
   if (mode === "local") {
@@ -413,17 +418,16 @@ export const healthTimeoutMessage = (params: {
 
 /**
  * Polls the health endpoint until it responds OK or the timeout elapses.
- * The first `docker run` pulls the image, so the default window is generous.
  *
  * Native Date.now() rather than the server's Luxon convention: the published
  * CLI deliberately keeps its dependency set to two packages, and this is an
  * elapsed-time deadline, not date manipulation.
  */
 export const pollHealth = async (
-  params: { url: string; timeoutMs?: number; intervalMs?: number },
+  params: { url: string; timeoutMs: number; intervalMs?: number },
   fetchFn: typeof fetch,
 ): Promise<boolean> => {
-  const { url, timeoutMs = 120_000, intervalMs = 2_000 } = params
+  const { url, timeoutMs, intervalMs = 2_000 } = params
   const deadline = Date.now() + timeoutMs
 
   // Each attempt is bounded by the per-request cap AND the remaining budget

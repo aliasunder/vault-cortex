@@ -3,7 +3,7 @@ import { Command } from "commander"
 import type { ConfigureFlags } from "./commands/configure.js"
 import type { GetSyncTokenFlags } from "./commands/get-sync-token.js"
 import type { InitFlags } from "./commands/init.js"
-import type { DownFlags, LogsFlags, RestartFlags } from "./commands/lifecycle.js"
+import type { DownFlags, LogsFlags, RecreateFlags } from "./commands/lifecycle.js"
 import type { UpgradeFlags } from "./commands/upgrade.js"
 
 export type ProgramOptions = {
@@ -11,8 +11,8 @@ export type ProgramOptions = {
   runInit: (flags: InitFlags) => Promise<number>
   runConfigure: (flags: ConfigureFlags) => Promise<number>
   runUpgrade: (flags: UpgradeFlags) => Promise<number>
-  runStart: (flags: RestartFlags) => Promise<number>
-  runRestart: (flags: RestartFlags) => Promise<number>
+  runStart: (flags: RecreateFlags) => Promise<number>
+  runRestart: (flags: RecreateFlags) => Promise<number>
   runLogs: (flags: LogsFlags) => Promise<number>
   runDown: (flags: DownFlags) => Promise<number>
   runGetSyncToken: (flags: GetSyncTokenFlags) => Promise<number>
@@ -66,7 +66,7 @@ export const buildProgram = (options: ProgramOptions): Command => {
       "Start the server with the saved settings and verify health (same cycle as restart)",
     )
     .option("--dir <path>", "directory containing .env (default: ./vault-cortex)")
-    .action(async (flags: RestartFlags) => {
+    .action(async (flags: RecreateFlags) => {
       process.exitCode = await options.runStart(flags)
     })
 
@@ -76,7 +76,7 @@ export const buildProgram = (options: ProgramOptions): Command => {
       "Re-create the container from .env and verify health (applies .env edits; no image pull)",
     )
     .option("--dir <path>", "directory containing .env (default: ./vault-cortex)")
-    .action(async (flags: RestartFlags) => {
+    .action(async (flags: RecreateFlags) => {
       process.exitCode = await options.runRestart(flags)
     })
 

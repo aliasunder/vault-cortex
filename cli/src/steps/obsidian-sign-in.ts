@@ -1,5 +1,6 @@
 import type { Prompts } from "../adapters/prompts.js"
 
+// The env override lets the PTY tests point sign-in at a local stub server.
 const OBSIDIAN_SIGNIN_URL = process.env.OBSIDIAN_SIGNIN_URL ?? "https://api.obsidian.md/user/signin"
 const SIGNIN_TIMEOUT_MS = 30_000
 
@@ -19,7 +20,7 @@ const isJsonObject = (value: unknown): value is Record<string, unknown> => {
 }
 
 /**
- * Calls the Obsidian Sync signin API. Returns the parsed JSON on success,
+ * Calls the Obsidian Sync signin API. Returns the session token on success,
  * or throws on HTTP/network errors. The API returns { error: string } for
  * auth failures (200 with an error field), and non-200 for server errors.
  */
@@ -63,7 +64,12 @@ const callSigninApi = async (
  * Warns the user about a signin failure with a message tailored to the
  * error type. Called by both the initial signin and MFA retry paths.
  */
-const warnSigninError = (error: unknown, prompts: Prompts, isMfaRetry: boolean): void => {
+const warnSigninError = (
+  params: { error: unknown; isMfaRetry: boolean },
+  prompts: Prompts,
+): void => {
+  const { error, isMfaRetry } = params
+
   if (error instanceof Error && error.name === "TimeoutError") {
     prompts.warn("Request timed out — check your internet connection and try again.")
     return
@@ -109,7 +115,7 @@ export const captureObsidianToken = async (deps: {
 
     if (!needsMfa) {
       spinner.stop("Sign-in failed.")
-      warnSigninError(error, prompts, false)
+      warnSigninError({ error, isMfaRetry: false }, prompts)
       return undefined
     }
 
@@ -123,7 +129,7 @@ export const captureObsidianToken = async (deps: {
       return token
     } catch (retryError) {
       spinner.stop("Sign-in failed.")
-      warnSigninError(retryError, prompts, true)
+      warnSigninError({ error: retryError, isMfaRetry: true }, prompts)
       return undefined
     }
   }

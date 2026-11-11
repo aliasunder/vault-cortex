@@ -312,6 +312,12 @@ const reportWrites = (
   }
 }
 
+/** Whether this run's .env landed on disk, carrying its generated token. */
+const isEnvWritten = (results: ReadonlyArray<FileWriteResult>): boolean => {
+  const envResult = results.find((result) => result.name === ".env")
+  return envResult?.status === "created" || envResult?.status === "overwritten"
+}
+
 /**
  * Offers to start the container, walking a gate ladder where each failed
  * gate degrades to instructions instead of an error: daemon running → no
@@ -435,6 +441,8 @@ const runLocalInit = async (flags: InitFlags, deps: InitDeps): Promise<number> =
     envContent: generatedEnvContent,
   })
   const envContent = applyOptionalSettings(generatedEnvContent, appliedOverrides)
+  // Both checks give the same warning, so it prints once. Only a local re-run
+  // carries its PUBLIC_URL, so the remote flow has no carried check.
   const publicUrlWarning =
     describeStrandedPublicUrl({
       envContent: generatedEnvContent,
@@ -462,8 +470,7 @@ const runLocalInit = async (flags: InitFlags, deps: InitDeps): Promise<number> =
   // When an existing .env was kept, this run's generated token was never
   // saved — the connect message must point at the token (and PORT) actually
   // on disk, or a pasted token fails auth with no hint why.
-  const envResult = results.find((result) => result.name === ".env")
-  const tokenWritten = envResult?.status === "created" || envResult?.status === "overwritten"
+  const tokenWritten = isEnvWritten(results)
 
   if (tokenWritten) prompts.log("Generated MCP auth token (saved to .env).")
   // Only a written .env carries the picked port, so a kept one needs no warning.
@@ -583,8 +590,7 @@ const runRemoteInit = async (flags: InitFlags, deps: InitDeps): Promise<number> 
   // from the .env on disk, so when an existing file was kept, this run's
   // generated token was never saved (printing it would fail auth) and PORT
   // may differ from the default.
-  const envResult = results.find((result) => result.name === ".env")
-  const tokenWritten = envResult?.status === "created" || envResult?.status === "overwritten"
+  const tokenWritten = isEnvWritten(results)
 
   if (tokenWritten) prompts.log("Generated MCP auth token (saved to .env).")
   if (tokenWritten && publicUrlWarning) prompts.warn(publicUrlWarning)

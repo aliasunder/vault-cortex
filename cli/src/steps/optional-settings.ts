@@ -17,8 +17,6 @@ type OptionalSettingBase = {
   requiresToggle?: string
   /** Only offered in remote-mode flows (absent = offered in both modes). */
   remoteOnly?: true
-  /** Rejects a user-entered value — returns an error message, or undefined to accept. */
-  validate?: (value: string) => string | undefined
 }
 
 /**
@@ -47,6 +45,8 @@ type OptionalSetting =
       question: string
       /** Ghost text while unset — no defaultValue because pre-filling would silently shadow the vault's own config. */
       placeholder: string
+      /** Rejects a user-entered value — returns an error message, or undefined to accept. */
+      validate?: (value: string) => string | undefined
     })
   | (OptionalSettingBase & {
       kind: "choice"
@@ -113,6 +113,8 @@ const OPTIONAL_SETTINGS: OptionalSetting[] = [
       if (value.endsWith("/")) return "Date format must not end with a path separator."
       // Moment format tokens are all letters — digits outside of [...]
       // bracket escapes are almost always a mistake.
+      // A split on a capturing regex puts each bracket's content at an odd
+      // index, so the even indexes hold the format text outside brackets.
       const formatSegments = value.split(MOMENT_BRACKET_ESCAPE)
       const hasDigitsInFormat = formatSegments.some(
         (segment, index) => index % 2 === 0 && /\d/.test(segment),
@@ -224,8 +226,9 @@ export const withPublicUrlOverride = (params: {
   // An empty PORT= line leaves the default port in effect, as readEnvPort reads it.
   const currentPort = readEnvValue(envValues, "PORT") || String(DEFAULT_PORT)
   const currentPublicUrl = readEnvValue(envValues, "PUBLIC_URL")
-  // A generated .env starts with PUBLIC_URL on the default port, so beside a
-  // PORT edited into a value that isn't a port, that URL follows too.
+  // A generated .env starts with PUBLIC_URL=http://localhost:8000, the default
+  // port. When PORT was edited into a value that isn't a port, such as
+  // PORT=abc, a URL that still names the default port follows the new port too.
   const followedPorts = isValidPort(currentPort)
     ? [currentPort]
     : [currentPort, String(DEFAULT_PORT)]
@@ -254,10 +257,11 @@ export const describeStrandedPublicUrl = (params: {
   // Picking PORT and accepting its pre-filled current value changes nothing.
   const currentPort = readEnvValue(envValues, "PORT") || String(DEFAULT_PORT)
   const portChanged = Boolean(pickedOverrides.PORT) && pickedOverrides.PORT !== currentPort
+
+  if (!portChanged || appliedOverrides.PUBLIC_URL || !currentPublicUrl) return undefined
   // A localhost URL that already names the new port still reaches the server.
   const publicUrlNamesNewPort = currentPublicUrl === `http://localhost:${pickedOverrides.PORT}`
 
-  if (!portChanged || appliedOverrides.PUBLIC_URL || !currentPublicUrl) return undefined
   if (publicUrlNamesNewPort) return undefined
   return `PORT changed — make sure PUBLIC_URL (${currentPublicUrl}) still reaches the server.`
 }

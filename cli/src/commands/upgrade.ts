@@ -32,7 +32,8 @@ export const runUpgrade = async (flags: UpgradeFlags, deps: UpgradeDeps): Promis
   const image = deployment.mode === "local" ? LOCAL_IMAGE : REMOTE_IMAGE
 
   if (!requireDaemonRunning(docker, prompts)) return 1
-  // Checked before the download, which containerStart.recreate's own check follows.
+  // Checked here so another app's container stops the run before the pull;
+  // containerStart.recreate checks again after it.
   const instanceContainer = containerStart.classifyInstanceContainer(
     { instanceName: deployment.instanceName, envFilePath: deployment.envFilePath },
     { prompts, docker },

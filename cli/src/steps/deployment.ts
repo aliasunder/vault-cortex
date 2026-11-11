@@ -29,6 +29,7 @@ export type Deployment = {
   port: number
   /** Present only in local mode. */
   vaultPath?: string
+  /** PUBLIC_URL without trailing slashes, so a path appends to it directly. */
   publicUrl: string
 }
 
@@ -51,10 +52,10 @@ type InitializedDir = {
  * Full start-readiness validation lives in resolveDeployment.
  */
 export const requireInitializedDir = (
-  dirFlag: string | undefined,
+  requestedDir: string | undefined,
   prompts: Prompts,
 ): InitializedDir | undefined => {
-  const targetDir = resolve(expandTilde(dirFlag ?? DEFAULT_TARGET_DIR))
+  const targetDir = resolve(expandTilde(requestedDir ?? DEFAULT_TARGET_DIR))
   const envFilePath = join(targetDir, ".env")
   const envContent = envFile.read(envFilePath)
 
@@ -92,10 +93,10 @@ const missingPublicUrlFix = (mode: Mode, port: number): string => {
  * Shared by init, start, restart, upgrade and configure so their precondition checks can't drift.
  */
 export const resolveDeployment = (
-  dirFlag: string | undefined,
+  requestedDir: string | undefined,
   prompts: Prompts,
 ): Deployment | undefined => {
-  const initialized = requireInitializedDir(dirFlag, prompts)
+  const initialized = requireInitializedDir(requestedDir, prompts)
 
   if (!initialized) return undefined
   const { targetDir, envFilePath, envValues, mode, instanceName } = initialized

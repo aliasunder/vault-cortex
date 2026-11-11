@@ -64,8 +64,6 @@ const stripQuotedValues = (envFilePath: string): boolean => {
   const content = read(envFilePath)
 
   if (!content) return false
-  // Reset lastIndex — the /g flag makes the regex stateful.
-  QUOTED_ENV_VALUE.lastIndex = 0
   const sanitized = content.replace(QUOTED_ENV_VALUE, "$1$3$4")
 
   if (sanitized === content) return false

@@ -2,8 +2,8 @@
  *  it: sign in (the `ob login` request), list the account's vaults, and
  *  check a vault key (the two `ob sync-setup` calls). The pinned CLI in
  *  obsidian-headless/ is the contract — re-verify every call on every bump
- *  (AGENTS.md → Upgrading obsidian-headless). The npm CLI's get-sync-token
- *  command (cli/src/steps/obsidian-sign-in.ts) carries its own copy of the sign-in
+ *  (AGENTS.md → Upgrading obsidian-headless). The npm CLI's sign-in step
+ *  (cli/src/steps/obsidian-sign-in.ts) carries its own copy of the sign-in
  *  call; the two packages share no code. */
 
 import { NEWEST_SUPPORTED_ENCRYPTION_VERSION, isSupportedEncryptionVersion } from "./vault-key.js"
@@ -151,7 +151,9 @@ const remoteVaultsOf = (entries: unknown): RemoteVault[] => {
     if (typeof entry.name !== "string") return []
     // Same test as `ob sync-setup`: the API sends `password: ""` (not an
     // absent field) for an end-to-end encrypted vault.
-    if (entry.password) return [{ name: entry.name, encrypted: false }]
+    const endToEndEncrypted = !entry.password
+
+    if (!endToEndEncrypted) return [{ name: entry.name, encrypted: false }]
     return [{ name: entry.name, encrypted: true, key: keyStatusOf(entry) }]
   })
 }

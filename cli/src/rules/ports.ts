@@ -6,7 +6,10 @@ export const DEFAULT_PORT = 8000
 /** Host ports that containers on this machine publish, mapped to each container's name. */
 export type PortsInUse = ReadonlyMap<number, string>
 
-/** The port an install asks for: one given by --port, the default, or none known yet. */
+/**
+ * The port an install asks for: one given by --port, the default, or none
+ * known yet, as for a reused install whose .env is in another folder.
+ */
 export type PortRequest = { kind: "flag"; port: string } | { kind: "default" } | { kind: "unknown" }
 
 /**
@@ -55,12 +58,14 @@ export const buildPortsInUse = (publishedPorts: ReadonlyArray<PublishedPort>): P
 
 /**
  * Start and restart replace the install's own container, so only other
- * containers' ports are taken. A port another container also publishes stays taken.
+ * containers' ports are taken.
  */
 export const portsOfOtherContainers = (
   publishedPorts: ReadonlyArray<PublishedPort>,
   containerName: string,
 ): PortsInUse => {
+  // buildPortsInUse keeps one container per port, so filtering first keeps a
+  // port taken when this container and another one both publish it.
   const otherContainersPorts = publishedPorts.filter((publishedPort) => {
     return publishedPort.containerName !== containerName
   })

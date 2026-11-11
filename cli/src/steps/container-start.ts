@@ -43,17 +43,15 @@ const classifyInstanceContainer = (
  * container start. Never a gate: a failure warns and the command still
  * succeeds — before HTTPS/ingress access is set up an unreachable public URL
  * is the expected state, and this machine's result doesn't prove the same
- * for other devices (a VPS may not reach its own public address). Returning
- * void keeps the informational contract structural.
+ * for other devices (a VPS may not reach its own public address). It returns
+ * void, so no caller can let the result change the command's outcome.
  */
 const reportPublicUrlProbe = async (
   publicUrl: string,
   deps: { prompts: Prompts; fetchFn: typeof fetch },
 ): Promise<void> => {
   const { prompts, fetchFn } = deps
-  // A hand-edited .env value may carry a trailing slash; strip it so the
-  // probe URL is `${base}/healthz`, never `${base}//healthz`.
-  const healthUrl = `${publicUrl.replace(/\/+$/, "")}/healthz`
+  const healthUrl = `${publicUrl}/healthz`
   const spinner = prompts.spinner()
   spinner.start(`Checking the public URL (${healthUrl})`)
   const publicUrlResponded = await probeHealth({ url: healthUrl }, fetchFn)
@@ -104,6 +102,8 @@ const start = async (
     return "not-started"
   }
 
+  // docker run --env-file keeps quotes as part of a value, so the .env's
+  // quoted values are unquoted in place first.
   envFile.stripQuotedValues(envFilePath)
   prompts.log("Starting container...")
   const containerStarted = docker.dockerRun({

@@ -50,7 +50,9 @@ const stripSurroundingQuotes = (value: string): string => {
  */
 export const readEnvValue = (envValues: EnvValues, name: string): string | undefined => {
   const rawValue = envValues.get(name)
-  return rawValue && stripSurroundingQuotes(rawValue)
+
+  if (rawValue === undefined) return undefined
+  return stripSurroundingQuotes(rawValue)
 }
 
 export type PortRead = { kind: "ok"; port: number } | { kind: "invalid"; message: string }
@@ -110,8 +112,8 @@ export const readEnvPublicUrl = (envValues: EnvValues): string | undefined => {
   // A whitespace-only value, quoted or not, counts as empty, as it does in
   // the server's check of the required variable.
   const unquotedValue = readEnvValue(envValues, "PUBLIC_URL")?.trim()
-  // Strip trailing slashes (mirroring askPublicUrl's prompt-side
-  // normalization): consumers append paths to this base, and a hand-edited
+  // Strip trailing slashes (mirroring validatePublicUrl's normalization
+  // in init): consumers append paths to this base, and a hand-edited
   // `https://host/` would otherwise print broken `//mcp` connect URLs.
   const normalizedPublicUrl = unquotedValue?.replace(/\/+$/, "")
   return normalizedPublicUrl || undefined
@@ -129,8 +131,7 @@ export const detectMode = (envValues: EnvValues): Mode => {
  * because init writes it back into the regenerated .env.
  */
 export const readEnvObsidianToken = (envValues: EnvValues): string | undefined => {
-  const rawValue = envValues.get("OBSIDIAN_AUTH_TOKEN")
-  const unquotedValue = rawValue ? stripSurroundingQuotes(rawValue).trim() : ""
+  const unquotedValue = readEnvValue(envValues, "OBSIDIAN_AUTH_TOKEN")?.trim()
 
-  return unquotedValue ? rawValue : undefined
+  return unquotedValue ? envValues.get("OBSIDIAN_AUTH_TOKEN") : undefined
 }

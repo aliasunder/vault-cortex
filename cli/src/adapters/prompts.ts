@@ -12,7 +12,7 @@ type Spinner = {
 }
 
 /**
- * The prompt surface init.ts depends on. The real implementation wraps
+ * The prompt surface every command depends on. The real implementation wraps
  * @clack/prompts; tests inject a scripted stub, so this is the only module
  * that touches stdin.
  */
@@ -62,7 +62,7 @@ const exitOnCancel = <T>(value: T | typeof clack.CANCEL_SYMBOL): T => {
  * every interactive prompt exits the process on ctrl-C (via exitOnCancel),
  * so flow code never sees a cancel symbol and answers are always plain
  * values; and select/text/confirm adapt clack's options-object signatures to
- * the flatter Prompts signatures that init.ts and the test stub share.
+ * the flatter Prompts signatures that the commands and the test stub share.
  */
 export const createPrompts = (): Prompts => ({
   intro: (message) => clack.intro(message),

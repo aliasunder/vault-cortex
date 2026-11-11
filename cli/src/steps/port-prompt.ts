@@ -9,6 +9,7 @@ import {
   type PortsInUse,
 } from "../rules/ports.js"
 
+/** "ok" carries the .env settings to write for the port; an empty record keeps the default port. */
 type PortSettingResult = { kind: "ok"; settings: Record<string, string> } | { kind: "exit" }
 
 /**
@@ -19,7 +20,8 @@ export const askFreePort = async (
   params: { suggestedPort?: string; portsInUse: PortsInUse },
   prompts: Prompts,
 ): Promise<string> => {
-  const { suggestedPort = suggestFreePort(params.portsInUse), portsInUse } = params
+  const { portsInUse } = params
+  const suggestedPort = params.suggestedPort ?? suggestFreePort(portsInUse)
   // A value that isn't a port is never offered, since it would be rejected.
   const offeredPort = isValidPort(suggestedPort) ? suggestedPort : String(DEFAULT_PORT)
   const answer = (

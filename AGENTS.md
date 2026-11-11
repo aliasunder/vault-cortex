@@ -78,7 +78,7 @@ scripts/ # Dev and ops helpers in TypeScript (not shipped in Docker); most open 
   obsidian-tag-oracle.ts, generate-body-tag-vectors.ts, compare-body-tags-random.ts # Check body tags against Obsidian's own parser (see "Upgrading remark-parse")
 cli/src/ # npx vault-cortex CLI, run on the host: bin (entry) → main (wiring) → program (Commander), the only loose files; layers under "CLI layering"
   adapters/ # The outside world: docker, prompts, env-file (.env read and write), vault, token
-  rules/ # Pure decisions and text: env-values (.env parse and typed getters), ports, messages, env-templates, node-version
+  rules/ # Decisions and text, with no file, Docker or prompt I/O: env-values (.env parse and typed getters), ports, messages, env-templates, node-version
   steps/ # Shared workflow pieces: deployment, container-start, port-prompt, instance-identity, optional-settings, obsidian-sign-in
   commands/ # One module per command: init, configure, upgrade, get-sync-token; lifecycle holds start, restart, logs, and down
   __tests__/integration/ # Interactive flows through node-pty in a real PTY: pty-harness, the cli-pty tests, and a fake docker binary in fixtures/
@@ -314,7 +314,7 @@ only loose files.
 | Layer       | Holds                                                                                                                                             | May import at runtime        |
 | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------- |
 | `adapters/` | The outside world: Docker, the terminal prompts, `.env` file I/O, vault path, token                                                               | nothing internal             |
-| `rules/`    | Pure decisions and text: `.env` parsing and typed getters, ports, messages, templates                                                             | other rules                  |
+| `rules/`    | Decisions and text, with no file, Docker or prompt I/O: `.env` parsing and typed getters, ports, messages, templates                              | other rules                  |
 | `steps/`    | Shared workflow pieces: deployment checks, the container start, the free-port question, instance identity, the settings chooser, Obsidian sign-in | rules, adapters, other steps |
 | `commands/` | One module per command (`lifecycle` holds start, restart, logs and down)                                                                          | steps, rules, adapters       |
 
@@ -329,7 +329,9 @@ only loose files.
   `Mode`, `DaemonStatus` and `PublishedPort` types from `adapters/docker.ts`.
 - **Export style** follows the server's: the `.env` file adapter and the
   container start step export one namespace object (`envFile`,
-  `containerStart`); rules export named functions.
+  `containerStart`), the Docker and prompt adapters export a factory that
+  returns one (`createDockerRunner`, `createPrompts`), and every other module,
+  rules included, exports named functions.
 
 Lint enforces the direction: `eslint.config.ts` has one
 `no-restricted-imports` block per CLI folder, and `rules/` also bans `node:fs`,

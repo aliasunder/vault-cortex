@@ -4,15 +4,15 @@ import { buildProgram } from "../program.js"
 import type { ConfigureFlags } from "../commands/configure.js"
 import type { GetSyncTokenFlags } from "../commands/get-sync-token.js"
 import type { InitFlags } from "../commands/init.js"
-import type { DownFlags, LogsFlags, RestartFlags } from "../commands/lifecycle.js"
+import type { DownFlags, LogsFlags, RecreateFlags } from "../commands/lifecycle.js"
 import type { UpgradeFlags } from "../commands/upgrade.js"
 
 const buildCapturingProgram = () => {
   const initCalls: InitFlags[] = []
   const configureCalls: ConfigureFlags[] = []
   const upgradeCalls: UpgradeFlags[] = []
-  const startCalls: RestartFlags[] = []
-  const restartCalls: RestartFlags[] = []
+  const startCalls: RecreateFlags[] = []
+  const restartCalls: RecreateFlags[] = []
   const logsCalls: LogsFlags[] = []
   const downCalls: DownFlags[] = []
   const getSyncTokenCalls: GetSyncTokenFlags[] = []

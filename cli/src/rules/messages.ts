@@ -19,6 +19,9 @@ type TextStyle = Parameters<typeof styleText>[0]
 const paint = (style: TextStyle, text: string): string =>
   process.stdout.isTTY && !("NO_COLOR" in process.env) ? styleText(style, text) : text
 
+// The connect message is framed by a top and a bottom rule only. With no side
+// border, every line between them still copies clean. 56 columns keeps a rule
+// inside an 80-column terminal.
 const RULE_WIDTH = 56
 
 const topRule = (label: string): string => {
@@ -102,7 +105,7 @@ type CliCommand = "init" | "start" | "restart" | "configure" | "upgrade" | "down
 /**
  * The command line a message tells the user to run, pinned to the latest
  * release. targetDir is quoted: these lines are meant to be copy-pasted into
- * a shell, and an unquoted path breaks on spaces or special characters.
+ * a shell, and an unquoted path breaks on spaces or on characters such as `&` and `*`.
  */
 export const vaultCortexCommand = (command: CliCommand, targetDir?: string): string => {
   const dirOption = targetDir ? ` --dir "${targetDir}"` : ""
@@ -123,6 +126,23 @@ const startServerLine = (targetDir: string): string => {
 
 const startingInBackgroundLine = (instanceName: string): string =>
   `The server is starting in the background — check progress:\n  docker logs ${instanceName}`
+
+const startStatusLine = (params: {
+  startStatus: StartStatus
+  instanceName: string
+  targetDir: string
+}): string => {
+  const { startStatus, instanceName, targetDir } = params
+
+  switch (startStatus) {
+    case "running":
+      return "The server is running."
+    case "starting":
+      return startingInBackgroundLine(instanceName)
+    case "not-started":
+      return startServerLine(targetDir)
+  }
+}
 
 const isHttpsUrl = (url: string): boolean => url.toLowerCase().startsWith("https://")
 
@@ -150,9 +170,7 @@ const remoteStartLine = (params: {
   obsidianTokenMissing: boolean
 }): string => {
   const { targetDir, instanceName, publicUrl, startStatus, obsidianTokenMissing } = params
-  const notRunningLine =
-    startStatus === "starting" ? startingInBackgroundLine(instanceName) : startServerLine(targetDir)
-  const statusLine = startStatus === "running" ? "The server is running." : notRunningLine
+  const statusLine = startStatusLine({ startStatus, instanceName, targetDir })
 
   if (!obsidianTokenMissing) return statusLine
   return `${statusLine}\n${syncSignInLines(publicUrl)}`
@@ -247,9 +265,7 @@ export const buildLocalConnectMessage = (params: {
 
   const baseUrl = `http://localhost:${port}`
 
-  const nonRunningLine =
-    startStatus === "starting" ? startingInBackgroundLine(instanceName) : startServerLine(targetDir)
-  const startLine = startStatus === "running" ? "The server is running." : nonRunningLine
+  const startLine = startStatusLine({ startStatus, instanceName, targetDir })
 
   const tokenLine = tokenBlock({ targetDir, token, tokenWritten })
 

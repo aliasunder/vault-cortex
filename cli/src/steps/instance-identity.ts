@@ -279,6 +279,8 @@ export const resolveInstanceIdentity = async (
   // Without Docker the check can't see another install's container or
   // volumes, and a shared name would only surface when start replaces them.
   if (!daemonRunning) prompts.warn(nameCheckSkippedMessage(requestedName))
+  // This repeats isInstanceNameInUse inline because the other-app check below
+  // needs the same image, and Docker is asked for it only once.
   const requestedNameImage = daemonRunning ? docker.containerImage(requestedName) : undefined
   const requestedNameInUse =
     daemonRunning &&
@@ -371,7 +373,7 @@ export const resolveInstanceIdentity = async (
     )
 
     if (reusedPort.kind === "exit") return { kind: "exit" }
-    const chosen = { ...flagOverrides, ...reusedPort.settings }
+    const chosen = { ...flagSettings, ...reusedPort.settings }
     return { kind: "ok", identity: { carried: {}, chosen }, portsInUse: portsOutsideReusedInstall }
   }
   const suggestedName = suggestInstanceName({ mode, targetDir }, docker)

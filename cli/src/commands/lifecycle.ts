@@ -18,7 +18,7 @@ export type LogsFlags = {
   since?: string
 }
 
-export type RestartFlags = {
+export type RecreateFlags = {
   dir?: string
 }
 
@@ -32,7 +32,7 @@ export type LogsDeps = {
   docker: DockerRunner
 }
 
-export type RestartDeps = {
+export type RecreateDeps = {
   prompts: Prompts
   docker: DockerRunner
   fetchFn: typeof fetch
@@ -122,8 +122,8 @@ export const runLogs = async (flags: LogsFlags, deps: LogsDeps): Promise<number>
  * the only divergence, phrased for the intent each name serves.
  */
 const runRecreateFromEnv = async (
-  flags: RestartFlags,
-  deps: RestartDeps,
+  flags: RecreateFlags,
+  deps: RecreateDeps,
   labels: { introTitle: string; successLog: string; outroMessage: string },
 ): Promise<number> => {
   const { prompts, docker, fetchFn } = deps
@@ -153,7 +153,7 @@ const runRecreateFromEnv = async (
  * start offer). Same cycle as restart: if a container is already running it
  * is safely replaced, and `docker run` pulls the image when it's missing.
  */
-export const runStart = async (flags: RestartFlags, deps: RestartDeps): Promise<number> => {
+export const runStart = async (flags: RecreateFlags, deps: RecreateDeps): Promise<number> => {
   return runRecreateFromEnv(flags, deps, {
     introTitle: "vault-cortex start",
     successLog: "Started with the settings from .env.",
@@ -167,7 +167,7 @@ export const runStart = async (flags: RestartFlags, deps: RestartDeps): Promise<
  * read at container creation); unlike upgrade, it never replaces an image
  * you already have (`docker run` still pulls when none exists locally).
  */
-export const runRestart = async (flags: RestartFlags, deps: RestartDeps): Promise<number> => {
+export const runRestart = async (flags: RecreateFlags, deps: RecreateDeps): Promise<number> => {
   return runRecreateFromEnv(flags, deps, {
     introTitle: "vault-cortex restart",
     successLog: "Applied the current .env settings.",
