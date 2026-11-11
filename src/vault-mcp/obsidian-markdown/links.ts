@@ -357,56 +357,21 @@ const extractFromFrontmatter = (data: Record<string, unknown>): string[] => {
 
 // ── Resolution ──────────────────────────────────────────────────
 
-/** Resolves a link target to a vault-relative path using all known paths,
- *  covering Obsidian's three "New link format" modes: path from vault folder
- *  (exact), shortest path / basename, and — when the linking note's `sourcePath`
- *  is supplied — path from current file, including upward "../" segments.
- *  Returns null if unresolvable. */
-const resolve = (params: {
-  target: string
-  allPaths: readonly string[]
-  sourcePath?: string
-}): string | null => {
-  const { target, allPaths, sourcePath } = params
-  const targetWithExtension = target.endsWith(".md") ? target : `${target}.md`
-
-  // Exact path match ("path from vault folder"): "folder/Note.md" or "Note.md"
-  if (allPaths.includes(targetWithExtension)) return targetWithExtension
-
-  // Relative-to-source match ("path from current file"): resolve the target
-  // against the linking note's directory so "../C/target" and "sub/target"
-  // land on the right note. posix.join collapses ".."/"."; a target that
-  // escapes the vault keeps a leading ".." and simply won't be in allPaths.
-  if (sourcePath) {
-    const targetRelativeToSource = posix.join(posix.dirname(sourcePath), targetWithExtension)
-
-    if (allPaths.includes(targetRelativeToSource)) return targetRelativeToSource
-  }
-
-  // Basename match: find all paths that end with the target filename
-  const basenameMatches = allPaths.filter(
-    (candidatePath) =>
-      candidatePath === targetWithExtension || candidatePath.endsWith(`/${targetWithExtension}`),
-  )
-  const onlyMatch = basenameMatches.length === 1 ? basenameMatches[0] : undefined
-
-  if (onlyMatch) return onlyMatch
-  // With multiple matches, Obsidian's heuristic prefers the shortest path;
-  // shortestOf also breaks equal-length ties lexicographically, so the
-  // winner never depends on allPaths order (callers feed it from unordered
-  // SQL scans that change across index rebuilds).
-  return shortestOf(basenameMatches)
-}
-
 /** Code-point count of a path — SQLite's length() metric, not the UTF-16
  *  code-unit count that String.length reports (they differ on paths with
  *  emoji or other non-BMP characters). */
 const codePointLength = (path: string): number => [...path].length
 
-/** Asset suffix matching must use ASCII folding so the in-memory and SQL
- *  resolvers agree with SQLite LIKE. */
-const foldAsciiCase = (path: string): string =>
-  path.replace(/[A-Z]/g, (letter) => letter.toLowerCase())
+/** Lowercases ASCII letters only, the fold SQLite applies in LIKE and in
+ *  COLLATE NOCASE.
+ *  - Asset resolution folds with it, because every asset comparison has an
+ *    SQL twin in the index (search/search-index.ts), and a wider fold would
+ *    let the two resolvers pick different files for one link.
+ *  - Note resolution folds every letter with toLowerCase, because it runs
+ *    only in memory, so nothing narrows it to ASCII. */
+const foldAsciiCase = (path: string): string => {
+  return path.replace(/[A-Z]/g, (letter) => letter.toLowerCase())
+}
 
 /** Picks the winner among same-tier resolution matches: the shortest path,
  *  with a byte-order tiebreak for determinism — the same total order as the
@@ -429,6 +394,184 @@ const shortestOf = (paths: string[]): string | null => {
   })
 }
 
+/** How one resolution pass compares paths: in their own letter case, or with
+ *  letter case folded. The folded pass runs only after the exact pass finds
+ *  nothing, so a link that resolves with its own letter case keeps its target. */
+type LetterCase = "exact" | "folded"
+
+const notePathInLetterCase = (path: string, letterCase: LetterCase): string => {
+  switch (letterCase) {
+    case "exact":
+      return path
+    case "folded":
+      return path.toLowerCase()
+  }
+}
+
+const assetPathInLetterCase = (path: string, letterCase: LetterCase): string => {
+  switch (letterCase) {
+    case "exact":
+      return path
+    case "folded":
+      return foldAsciiCase(path)
+  }
+}
+
+/** One pass over the three note tiers, comparing paths in `letterCase`. A
+ *  match returns the stored path, never the link's spelling. */
+const resolveNoteInLetterCase = (params: {
+  targetWithExtension: string
+  allPaths: readonly string[]
+  sourcePath: string | undefined
+  letterCase: LetterCase
+}): string | null => {
+  const { targetWithExtension, allPaths, sourcePath, letterCase } = params
+  const comparableTarget = notePathInLetterCase(targetWithExtension, letterCase)
+
+  // In the folded pass, two notes that differ only in letter case both match
+  // one link, so every tier picks with shortestOf rather than taking the
+  // first hit.
+  const findPathsEqualTo = (comparablePath: string): string[] => {
+    return allPaths.filter(
+      (candidatePath) => notePathInLetterCase(candidatePath, letterCase) === comparablePath,
+    )
+  }
+
+  // Exact path match ("path from vault folder"): "folder/Note.md" or "Note.md"
+  const exactMatch = shortestOf(findPathsEqualTo(comparableTarget))
+
+  if (exactMatch) return exactMatch
+
+  // Relative-to-source match ("path from current file"): resolve the target
+  // against the linking note's directory so "../C/target" and "sub/target"
+  // land on the right note. posix.join collapses ".."/"."; a target that
+  // escapes the vault keeps a leading ".." and simply won't be in allPaths.
+  if (sourcePath) {
+    const targetRelativeToSource = posix.join(posix.dirname(sourcePath), targetWithExtension)
+    const relativeMatch = shortestOf(
+      findPathsEqualTo(notePathInLetterCase(targetRelativeToSource, letterCase)),
+    )
+
+    if (relativeMatch) return relativeMatch
+  }
+
+  // A basename match is any path that ends with the target's filename.
+  const basenameMatches = allPaths.filter((candidatePath) => {
+    const comparableCandidate = notePathInLetterCase(candidatePath, letterCase)
+    return (
+      comparableCandidate === comparableTarget ||
+      comparableCandidate.endsWith(`/${comparableTarget}`)
+    )
+  })
+
+  // With multiple matches, Obsidian's heuristic prefers the shortest path;
+  // shortestOf also breaks equal-length ties lexicographically, so the
+  // winner never depends on allPaths order (callers feed it from unordered
+  // SQL scans that change across index rebuilds).
+  return shortestOf(basenameMatches)
+}
+
+/** Resolves a link target to a vault-relative path using all known paths,
+ *  covering Obsidian's three "New link format" modes: path from vault folder
+ *  (exact), shortest path / basename, and — when the linking note's `sourcePath`
+ *  is supplied — path from current file, including upward "../" segments.
+ *  All three tiers run with exact letter case first, then again with letter
+ *  case folded, so `[[real]]` reaches `Folder/Real.md` only when no note
+ *  matches it exactly. Returns null if unresolvable. */
+const resolve = (params: {
+  target: string
+  allPaths: readonly string[]
+  sourcePath?: string
+}): string | null => {
+  const { target, allPaths, sourcePath } = params
+  const targetWithExtension = target.endsWith(".md") ? target : `${target}.md`
+
+  return (
+    resolveNoteInLetterCase({ targetWithExtension, allPaths, sourcePath, letterCase: "exact" }) ??
+    resolveNoteInLetterCase({ targetWithExtension, allPaths, sourcePath, letterCase: "folded" })
+  )
+}
+
+/** One pass over the asset tiers, with the exact, relative, stem exact, stem
+ *  relative and bare-stem comparisons in `letterCase`. The two suffix tiers
+ *  fold ASCII case in both passes, so in the folded pass they repeat the
+ *  exact pass's miss. */
+const resolveAssetInLetterCase = (params: {
+  target: string
+  allAssetPaths: readonly string[]
+  sourcePath: string | undefined
+  letterCase: LetterCase
+}): string | null => {
+  const { target, allAssetPaths, sourcePath, letterCase } = params
+  const relativeTarget = sourcePath ? posix.join(posix.dirname(sourcePath), target) : null
+  const comparableTarget = assetPathInLetterCase(target, letterCase)
+  const comparableRelativeTarget =
+    relativeTarget === null ? null : assetPathInLetterCase(relativeTarget, letterCase)
+
+  // In the folded pass, two files that differ only in letter case both match
+  // one link, so the exact tiers pick with shortestOf as the stem tiers do.
+  const findPathsWhere = (comparablePathMatches: (comparablePath: string) => boolean): string[] => {
+    return allAssetPaths.filter((assetPath) => {
+      return comparablePathMatches(assetPathInLetterCase(assetPath, letterCase))
+    })
+  }
+
+  // ── Full-filename family: exact → relative → path suffix ──
+
+  const exactMatch = shortestOf(findPathsWhere((assetPath) => assetPath === comparableTarget))
+
+  if (exactMatch) return exactMatch
+
+  if (comparableRelativeTarget !== null) {
+    const relativeMatch = shortestOf(
+      findPathsWhere((assetPath) => assetPath === comparableRelativeTarget),
+    )
+
+    if (relativeMatch) return relativeMatch
+  }
+
+  // The suffix tiers fold ASCII case because their SQL twins compare with
+  // LIKE, which is ASCII-case-insensitive; the other tiers compare in the
+  // pass's letter case because their twins compare with =, plain in the
+  // exact pass and COLLATE NOCASE in the folded one.
+  const foldedTargetSuffix = foldAsciiCase(`/${target}`)
+  const fullPathSuffixMatch = shortestOf(
+    allAssetPaths.filter((assetPath) => foldAsciiCase(assetPath).endsWith(foldedTargetSuffix)),
+  )
+
+  if (fullPathSuffixMatch) return fullPathSuffixMatch
+
+  // ── Stem family: exact → relative → suffix/basename ──
+
+  const exactStemMatch = shortestOf(
+    findPathsWhere((assetPath) => stripExtension(assetPath) === comparableTarget),
+  )
+
+  if (exactStemMatch) return exactStemMatch
+
+  if (comparableRelativeTarget !== null) {
+    const relativeStemMatch = shortestOf(
+      findPathsWhere((assetPath) => stripExtension(assetPath) === comparableRelativeTarget),
+    )
+
+    if (relativeStemMatch) return relativeStemMatch
+  }
+
+  // A target with folder segments keeps them in the match (suffix on the
+  // stem); a bare name matches on the filename stem only. Either way this is
+  // the last tier: shortestOf returns null on no match — the unresolved case.
+  if (target.includes("/")) {
+    return shortestOf(
+      allAssetPaths.filter((assetPath) => {
+        return foldAsciiCase(stripExtension(assetPath)).endsWith(foldedTargetSuffix)
+      }),
+    )
+  }
+  return shortestOf(
+    findPathsWhere((assetPath) => stripExtension(posix.basename(assetPath)) === comparableTarget),
+  )
+}
+
 /** Resolves a link target to a known non-markdown vault file, or null when no
  *  match exists. Pure array-based twin of the indexer's SQL-backed
  *  resolveNonMarkdownFile (search/search-index.ts) — same tiers, same family
@@ -447,61 +590,21 @@ const shortestOf = (paths: string[]): string | null => {
  *  mirroring Obsidian's stem matching. An extensionless target can match in
  *  both families: the full-filename tiers hit an extensionless file
  *  (LICENSE, Dockerfile) by exact path or path suffix, and the stem tiers
- *  hit any file whose extension-stripped name matches. */
+ *  hit any file whose extension-stripped name matches.
+ *
+ *  All tiers run with exact letter case first, then again with ASCII letter
+ *  case folded, so `![[Photo.PNG]]` reaches `photo.png` only when no file
+ *  matches it exactly. */
 const resolveAsset = (params: {
   target: string
   allAssetPaths: readonly string[]
   sourcePath?: string
 }): string | null => {
   const { target, allAssetPaths, sourcePath } = params
-  const relativeTarget = sourcePath ? posix.join(posix.dirname(sourcePath), target) : null
 
-  // ── Full-filename family: exact → relative → path suffix ──
-
-  if (allAssetPaths.includes(target)) return target
-
-  if (relativeTarget && allAssetPaths.includes(relativeTarget)) {
-    return relativeTarget
-  }
-
-  // The suffix tiers fold ASCII case because their SQL twins compare with
-  // LIKE, which is ASCII-case-insensitive; the exact tiers stay
-  // case-sensitive because their twins compare with =.
-  const foldedTargetSuffix = foldAsciiCase(`/${target}`)
-  const fullPathSuffixMatch = shortestOf(
-    allAssetPaths.filter((assetPath) => foldAsciiCase(assetPath).endsWith(foldedTargetSuffix)),
-  )
-
-  if (fullPathSuffixMatch) return fullPathSuffixMatch
-
-  // ── Stem family: exact → relative → suffix/basename ──
-
-  const exactStemMatch = shortestOf(
-    allAssetPaths.filter((assetPath) => stripExtension(assetPath) === target),
-  )
-
-  if (exactStemMatch) return exactStemMatch
-
-  if (relativeTarget) {
-    const relativeStemMatch = shortestOf(
-      allAssetPaths.filter((assetPath) => stripExtension(assetPath) === relativeTarget),
-    )
-
-    if (relativeStemMatch) return relativeStemMatch
-  }
-
-  // A target with folder segments keeps them in the match (suffix on the
-  // stem); a bare name matches on the filename stem only. Either way this is
-  // the last tier: shortestOf returns null on no match — the unresolved case.
-  if (target.includes("/")) {
-    return shortestOf(
-      allAssetPaths.filter((assetPath) =>
-        foldAsciiCase(stripExtension(assetPath)).endsWith(foldedTargetSuffix),
-      ),
-    )
-  }
-  return shortestOf(
-    allAssetPaths.filter((assetPath) => stripExtension(posix.basename(assetPath)) === target),
+  return (
+    resolveAssetInLetterCase({ target, allAssetPaths, sourcePath, letterCase: "exact" }) ??
+    resolveAssetInLetterCase({ target, allAssetPaths, sourcePath, letterCase: "folded" })
   )
 }
 
