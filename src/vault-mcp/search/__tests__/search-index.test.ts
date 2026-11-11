@@ -5847,9 +5847,12 @@ describe("links that differ from their file only in letter case", () => {
     indexNote("Folder/Real.md", "# Real\n")
     indexNote("source.md", CASE_DIFFERENT_LINKS)
 
-    expect(index.getOutgoingLinks({ path: "source.md" }, logger)).toEqual([
-      resolvedNoteLink("Folder/Real.md", "Real"),
-    ])
+    expect(
+      index.getOutgoingLinks(
+        { path: "source.md", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
+        logger,
+      ),
+    ).toEqual([resolvedNoteLink("Folder/Real.md", "Real")])
   })
 
   it("lists a note linked in another letter case among the target's backlinks", () => {
@@ -5880,7 +5883,12 @@ describe("links that differ from their file only in letter case", () => {
       logger,
     )
 
-    expect(index.getOutgoingLinks({ path: "source.md" }, logger)).toEqual([
+    expect(
+      index.getOutgoingLinks(
+        { path: "source.md", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
+        logger,
+      ),
+    ).toEqual([
       { ...resolvedNoteLink("Folder/Real.md", "Real"), bytes: Buffer.byteLength("# Real\n") },
     ])
   })
@@ -5889,9 +5897,12 @@ describe("links that differ from their file only in letter case", () => {
     indexNote("source.md", "[[folder/real]].\n")
     indexNote("Folder/Real.md", "# Real\n")
 
-    expect(index.getOutgoingLinks({ path: "source.md" }, logger)).toEqual([
-      resolvedNoteLink("Folder/Real.md", "Real"),
-    ])
+    expect(
+      index.getOutgoingLinks(
+        { path: "source.md", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
+        logger,
+      ),
+    ).toEqual([resolvedNoteLink("Folder/Real.md", "Real")])
   })
 
   it("prefers a note that matches only with case folded over a file that matches in exact case", () => {
@@ -5899,9 +5910,12 @@ describe("links that differ from their file only in letter case", () => {
     indexNote("Photo.md", "# Photo\n")
     indexNote("source.md", "[[photo]]\n")
 
-    expect(index.getOutgoingLinks({ path: "source.md" }, logger)).toEqual([
-      resolvedNoteLink("Photo.md", "Photo"),
-    ])
+    expect(
+      index.getOutgoingLinks(
+        { path: "source.md", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
+        logger,
+      ),
+    ).toEqual([resolvedNoteLink("Photo.md", "Photo")])
   })
 
   it("moves incoming links to the new spelling when a case-only rename removes the old note first", () => {
@@ -5911,9 +5925,12 @@ describe("links that differ from their file only in letter case", () => {
     index.removeNote("note.md")
     indexNote("Note.md", "# Note\n")
 
-    expect(index.getOutgoingLinks({ path: "source.md" }, logger)).toEqual([
-      resolvedNoteLink("Note.md", "Note"),
-    ])
+    expect(
+      index.getOutgoingLinks(
+        { path: "source.md", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
+        logger,
+      ),
+    ).toEqual([resolvedNoteLink("Note.md", "Note")])
   })
 
   it("moves incoming links to the new spelling when the linking note is re-indexed after an add-first case-only rename", () => {
@@ -5924,7 +5941,12 @@ describe("links that differ from their file only in letter case", () => {
 
     // Adding Note.md while note.md still existed left the link on note.md,
     // so it reads as broken until the linking note is indexed again.
-    expect(index.getOutgoingLinks({ path: "source.md" }, logger)).toEqual([
+    expect(
+      index.getOutgoingLinks(
+        { path: "source.md", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
+        logger,
+      ),
+    ).toEqual([
       {
         path: "note.md",
         title: null,
@@ -5937,9 +5959,12 @@ describe("links that differ from their file only in letter case", () => {
 
     indexNote("source.md", "[[note]].\n")
 
-    expect(index.getOutgoingLinks({ path: "source.md" }, logger)).toEqual([
-      resolvedNoteLink("Note.md", "Note"),
-    ])
+    expect(
+      index.getOutgoingLinks(
+        { path: "source.md", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
+        logger,
+      ),
+    ).toEqual([resolvedNoteLink("Note.md", "Note")])
   })
 
   it.each([
@@ -6004,9 +6029,12 @@ describe("links that differ from their file only in letter case", () => {
       for (const assetPath of assetPaths) index.upsertNonMdFile(assetPath, 100)
       indexNote(sourcePath, `[[${target}]]\n`)
 
-      expect(index.getOutgoingLinks({ path: sourcePath }, logger)).toEqual([
-        resolvedFileLink(expected),
-      ])
+      expect(
+        index.getOutgoingLinks(
+          { path: sourcePath, dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
+          logger,
+        ),
+      ).toEqual([resolvedFileLink(expected)])
       expect(links.resolveAsset({ target, allAssetPaths: assetPaths, sourcePath })).toBe(expected)
     },
   )
@@ -6015,7 +6043,12 @@ describe("links that differ from their file only in letter case", () => {
     index.upsertNonMdFile("Éclair.png", 100)
     indexNote("source.md", "![[éclair.png]]\n")
 
-    expect(index.getOutgoingLinks({ path: "source.md" }, logger)).toEqual([
+    expect(
+      index.getOutgoingLinks(
+        { path: "source.md", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
+        logger,
+      ),
+    ).toEqual([
       {
         path: "éclair.png",
         title: null,
@@ -6058,9 +6091,12 @@ describe("links that differ from their file only in letter case", () => {
 
       index.upsertNonMdFile(assetPath, 100)
 
-      expect(index.getOutgoingLinks({ path: sourcePath }, logger)).toEqual([
-        resolvedFileLink(assetPath),
-      ])
+      expect(
+        index.getOutgoingLinks(
+          { path: sourcePath, dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
+          logger,
+        ),
+      ).toEqual([resolvedFileLink(assetPath)])
     },
   )
 })
