@@ -76,7 +76,11 @@ scripts/ # Dev and ops helpers in TypeScript (not shipped in Docker); most open 
   instance-env.ts # Derives PUBLIC_URL for manual deploys (npm run lightsail:up) the same way sst.config.ts and deploy.yml do, or the Lambda authorizer rejects tokens
   tool-surface-capture.ts # Boots one server per settings combination for the tool-surface snapshot test, size report, and LobeHub manifest; an on/off setting that gates tools goes in its SURFACE_AXES
   obsidian-tag-oracle.ts, generate-body-tag-vectors.ts, compare-body-tags-random.ts # Check body tags against Obsidian's own parser (see "Upgrading remark-parse")
-cli/src/ # npx vault-cortex CLI, run on the host: bin (entry) → main (wiring) → program (Commander), one module per command (init, configure, upgrade, get-sync-token; lifecycle holds start, restart, logs, and down), and the shared modules they use (prompts, docker, env, scaffold, and others)
+cli/src/ # npx vault-cortex CLI, run on the host: bin (entry) → main (wiring) → program (Commander), the only loose files; layers under "CLI layering"
+  adapters/ # The outside world: docker, prompts, env-file (.env read and write), vault, token
+  rules/ # Pure decisions and text: env-values (.env parse and typed getters), ports, messages, env-templates, node-version
+  steps/ # Shared workflow pieces: deployment, container-start, port-prompt, instance-identity, optional-settings, obsidian-sign-in
+  commands/ # One module per command: init, configure, upgrade, get-sync-token; lifecycle holds start, restart, logs, and down
   __tests__/integration/ # Interactive flows through node-pty in a real PTY: pty-harness, the cli-pty tests, and a fake docker binary in fixtures/
 src/
   logger.ts # Root logger (structured JSON, source location)
@@ -300,6 +304,36 @@ data API is grouped under `vaultFs`, but its low-level shared primitives
 (`resolveSafePath`, `atomicWriteFile`, `pruneEmptyParents`, …) are **named
 exports** — infrastructure consumed à la carte by other modules, not part of the
 vault data API.
+
+### CLI layering
+
+`cli/src/` follows the same rule as the server: a module's folder is decided by
+what it depends on. `bin.ts`, `main.ts` and `program.ts` are the wiring and the
+only loose files.
+
+| Layer       | Holds                                                                                                                                             | May import at runtime        |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------- |
+| `adapters/` | The outside world: Docker, the terminal prompts, `.env` file I/O, vault path, token                                                               | nothing internal             |
+| `rules/`    | Pure decisions and text: `.env` parsing and typed getters, ports, messages, templates                                                             | other rules                  |
+| `steps/`    | Shared workflow pieces: deployment checks, the container start, the free-port question, instance identity, the settings chooser, Obsidian sign-in | rules, adapters, other steps |
+| `commands/` | One module per command (`lifecycle` holds start, restart, logs and down)                                                                          | steps, rules, adapters       |
+
+- **Shared logic moves down.** When two commands need the same step, it goes
+  in `steps/`, never in one command for the other to import. A message or
+  command line two modules print goes in `rules/messages.ts`
+  (`vaultCortexCommand` builds every `npx vault-cortex@latest …` line).
+- **Pure decisions stay out of prompts.** A rule returns its decision as data
+  (`decidePort`), and a step acts on it, so `--yes` and the interactive flow
+  share one decision.
+- **Type-only imports cross any layer,** as in the server: `rules/` takes the
+  `Mode`, `DaemonStatus` and `PublishedPort` types from `adapters/docker.ts`.
+- **Export style** follows the server's: the `.env` file adapter and the
+  container start step export one namespace object (`envFile`,
+  `containerStart`); rules export named functions.
+
+Lint enforces the direction: `eslint.config.ts` has one
+`no-restricted-imports` block per CLI folder, and `rules/` also bans `node:fs`,
+`node:child_process` and `@clack/prompts`. Tests are exempt.
 
 ## Logging
 
@@ -1435,7 +1469,7 @@ changed:
 - `render.yaml` + `deploy/render/` + `deploy/railway/`: A variable the image needs at boot is added or renamed, a shipped default changes (plan, disk size, hop count, health path, port), or the image tag changes. `templates.test.ts` pins `render.yaml`; the Railway template is re-published by hand from the definition table in `CONTRIBUTING.md` — existing deployments keep their settings until their owners redeploy
 - `.env.example` (root): New env var or changed default for the Lightsail reference deployment
 - `cli/README.md`: Feature description or search capability changes — this is the npmjs.com landing page
-- `cli/src/env.ts`: Auto-synced optional blocks from `deploy/*/.env.example` via `npm run sync:cli-env-blocks` — run the script after editing deploy/ env files
+- `cli/src/rules/env-templates.ts`: Auto-synced optional blocks from `deploy/*/.env.example` via `npm run sync:cli-env-blocks` — run the script after editing deploy/ env files
 - `CONTRIBUTING.md`: CI pipeline, repo settings, or release conventions change
 - `DEPLOY.md`: Infrastructure, env vars, or deployment procedure changes
 - `GOVERNANCE.md`: Access to a sensitive resource changes — a registry, bot, or workflow credential is added or dropped, or a collaborator gains rights. The Access list and Continuity paragraph name concrete credentials, so they must track the workflows' secrets
@@ -1462,7 +1496,7 @@ pattern:
    `deploy/remote/.env.example`) — document for users with comment + default.
    These are the source of truth for optional var documentation.
 4. **Run `npm run sync:cli-env-blocks`** — syncs the optional sections from
-   step 3 into `cli/src/env.ts` (`LOCAL_OPTIONAL_BLOCK` /
+   step 3 into `cli/src/rules/env-templates.ts` (`LOCAL_OPTIONAL_BLOCK` /
    `REMOTE_OPTIONAL_BLOCK`). Always run after editing deploy/ env files.
 5. **Root .env.example** — Lightsail reference deployment (if applicable)
 6. **Root compose files** (`docker-compose.yml`, `docker-compose.local.yml`)
@@ -1479,7 +1513,7 @@ pattern:
    the remote guide's table. Re-publish the Railway template after editing
    its definition.
 
-CI drift tests in `cli/src/__tests__/templates.test.ts` catch omissions across
+CI drift tests in `cli/src/rules/__tests__/templates.test.ts` catch omissions across
 steps 2–4 after the fact and pin the committed hosted templates (step 8);
 following the checklist avoids the omissions in the first place.
 
