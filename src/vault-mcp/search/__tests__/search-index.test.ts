@@ -5288,7 +5288,8 @@ describe("getOutgoingLinks", () => {
   })
 
   it("flags a link into the daily folder written in another letter case", () => {
-    upsertPlanLinkingTo("[[daily notes/2026-10-07]] and [[Dailies/2026-10-07]]")
+    // Neither the setting's spelling nor its lowercase form, so both sides must fold
+    upsertPlanLinkingTo("[[DAILY NOTES/2026-10-07]] and [[Dailies/2026-10-07]]")
 
     expect(
       index.getOutgoingLinks(
@@ -5299,7 +5300,7 @@ describe("getOutgoingLinks", () => {
         },
         logger,
       ),
-    ).toEqual([brokenLink("Dailies/2026-10-07", false), brokenLink("daily notes/2026-10-07", true)])
+    ).toEqual([brokenLink("DAILY NOTES/2026-10-07", true), brokenLink("Dailies/2026-10-07", false)])
   })
 
   it("does not flag a date link inside a folder other than the daily folder", () => {
