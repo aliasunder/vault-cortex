@@ -359,8 +359,9 @@ describe("remote connect message https routing", () => {
     )
 
     expect(exitCode).toBe(0)
-    expect(scripted.errors).toHaveLength(1)
-    expect(scripted.errors[0]).toContain("Leave /mcp off PUBLIC_URL")
+    expect(scripted.errors).toEqual([
+      "Leave /mcp off PUBLIC_URL — it's the base URL and the server adds /mcp itself (e.g. https://vault.example.com).",
+    ])
     // The accepted base origin is stored verbatim — not silently rewritten —
     // and the connect URL appends /mcp exactly once.
     expect(readFileSync(join(targetDir, ".env"), "utf8")).toContain(
@@ -573,7 +574,13 @@ describe("runInit interactive local flow", () => {
     )
 
     expect(exitCode).toBe(0)
-    expect(scripted.asked[2]).toContain("Use it anyway?")
+    expect(scripted.asked).toEqual([
+      "How do you want to run Vault Cortex?",
+      "Path to your Obsidian vault:",
+      `${plainDir} doesn't look like an Obsidian vault (no .obsidian folder). Use it anyway?`,
+      "Where should I put the config files?",
+      "Any optional settings to change? (press enter to skip)",
+    ])
     expect(readFileSync(join(targetDir, ".env"), "utf8")).toContain(`VAULT_PATH=${plainDir}\n`)
   })
 })
@@ -612,10 +619,14 @@ describe("runInit remote flow", () => {
     expect(envContent).toContain("PUBLIC_URL=https://vault.example.com\n")
     expect(envContent).toContain("VAULT_NAME=MyVault\n")
     expect(envContent).toMatch(/^OBSIDIAN_AUTH_TOKEN=$/m)
-    expect(scripted.logs).toContain(
+    expect(scripted.logs).toEqual([
+      "Your server needs an Obsidian Sync token to access your vault.\n" +
+        "You can sign in to your Obsidian account now to generate one.",
       "No Sync token in .env — sign in on the server's sign-in page once it starts, or add a token with:\n" +
         `  npx vault-cortex@latest get-sync-token --dir "${targetDir}"`,
-    )
+      `${targetDir}/.env — created`,
+      "Generated MCP auth token (saved to .env).",
+    ])
   })
 
   it("always offers token generation even without Docker", async () => {
@@ -646,7 +657,6 @@ describe("runInit remote flow", () => {
       "Does your vault use end-to-end encryption?",
       "Any optional settings to change? (press enter to skip)",
     ])
-    expect(scripted.asked).toContain("Generate the token now?")
   })
 
   it("probes the public URL after a confirmed start and reports success", async () => {
@@ -782,7 +792,11 @@ describe("runInit remote flow", () => {
     // Exit 0 with the probe provably fired — the probe is informational,
     // never a gate — and the connect message still reports the running server.
     expect(exitCode).toBe(0)
-    expect(fetchedUrls).toContain("https://vault.example.com/healthz")
+    expect(fetchedUrls).toEqual([
+      "https://api.obsidian.md/user/signin",
+      "http://127.0.0.1:8000/healthz",
+      "https://vault.example.com/healthz",
+    ])
     // Signin spinner from auto-capture, then container health, then URL probe.
     expect(scripted.spinnerMessages).toEqual([
       "start: Signing in to Obsidian...",
@@ -897,8 +911,24 @@ describe("runInit remote flow", () => {
     )
 
     expect(exitCode).toBe(0)
-    expect(scripted.asked).toContain("Start the server now?")
-    expect(scripted.logs).not.toContain(expect.stringContaining("No token yet"))
+    expect(scripted.asked).toEqual([
+      "Re-run setup for this directory anyway?",
+      "Public base URL clients will use to reach this server (no /mcp — it's added for you):",
+      "Exact name of your Obsidian vault (case-sensitive):",
+      "Generate the token now?",
+      "Does your vault use end-to-end encryption?",
+      "Any optional settings to change? (press enter to skip)",
+      ".env already exists and differs — overwrite?",
+      "Start the server now?",
+    ])
+    // The kept Sync token means no "No Sync token" guidance is logged.
+    expect(scripted.logs).toEqual([
+      `Found an existing deployment in ${targetDir}.`,
+      "Your server needs an Obsidian Sync token to access your vault.\n" +
+        "You can sign in to your Obsidian account now to generate one.",
+      `${targetDir}/.env — overwritten`,
+      "Generated MCP auth token (saved to .env).",
+    ])
     const envContent = readFileSync(join(targetDir, ".env"), "utf8")
     expect(envContent).toMatch(/^OBSIDIAN_AUTH_TOKEN=existing-token$/m)
   })
@@ -1230,7 +1260,12 @@ describe("runInit --vault-path flag in interactive mode", () => {
 
     expect(exitCode).toBe(0)
     expect(scripted.errors).toEqual([`--vault-path: Path does not exist: ${missingPath}`])
-    expect(scripted.asked).toContain("Path to your Obsidian vault:")
+    expect(scripted.asked).toEqual([
+      "How do you want to run Vault Cortex?",
+      "Path to your Obsidian vault:",
+      "Where should I put the config files?",
+      "Any optional settings to change? (press enter to skip)",
+    ])
   })
 })
 
@@ -1256,7 +1291,15 @@ describe("runInit remote encryption password", () => {
     )
 
     expect(exitCode).toBe(0)
-    expect(scripted.asked).toContain("Vault encryption password:")
+    expect(scripted.asked).toEqual([
+      "Public base URL clients will use to reach this server (no /mcp — it's added for you):",
+      "Exact name of your Obsidian vault (case-sensitive):",
+      "Generate the token now?",
+      "Does your vault use end-to-end encryption?",
+      "Vault encryption password:",
+      "Any optional settings to change? (press enter to skip)",
+      "Start the server now?",
+    ])
     expect(readFileSync(join(targetDir, ".env"), "utf8")).toContain("VAULT_PASSWORD=hunter2\n")
   })
 })
@@ -1423,12 +1466,16 @@ describe("runInit sync-token auto-capture fallback", () => {
       },
     )
 
-    expect(scripted.warnings[0]).toBe("Could not sign in: Invalid email or password")
+    expect(scripted.warnings).toEqual(["Could not sign in: Invalid email or password"])
     expect(readFileSync(join(targetDir, ".env"), "utf8")).toMatch(/^OBSIDIAN_AUTH_TOKEN=$/m)
-    expect(scripted.logs).toContain(
+    expect(scripted.logs).toEqual([
+      "Your server needs an Obsidian Sync token to access your vault.\n" +
+        "You can sign in to your Obsidian account now to generate one.",
       "No Sync token in .env — sign in on the server's sign-in page once it starts, or add a token with:\n" +
         `  npx vault-cortex@latest get-sync-token --dir "${targetDir}"`,
-    )
+      `${targetDir}/.env — created`,
+      "Generated MCP auth token (saved to .env).",
+    ])
   })
 })
 
@@ -1884,9 +1931,14 @@ describe("runInit when the instance name is already in use", () => {
     )
 
     expect(exitCode).toBe(0)
-    expect(scripted.asked[0]).toBe(
+    expect(scripted.asked).toEqual([
       "Public base URL clients will use to reach this server (no /mcp — it's added for you):",
-    )
+      "Exact name of your Obsidian vault (case-sensitive):",
+      "Generate the token now?",
+      "Does your vault use end-to-end encryption?",
+      "Any optional settings to change? (press enter to skip)",
+      "Start the server now?",
+    ])
     expect(readIdentityLines(targetDir)).toEqual([
       "PUBLIC_URL=https://work.example.com",
       "INSTANCE_NAME=work",
@@ -2177,7 +2229,11 @@ describe("runInit when the instance name is already in use", () => {
     )
 
     expect(exitCode).toBe(0)
-    expect(scripted.asked[0]).toBe(PORT_QUESTION)
+    expect(scripted.asked).toEqual([
+      PORT_QUESTION,
+      "Any optional settings to change? (press enter to skip)",
+      'Start the server now? This stops and replaces the existing "work" container. Its data volumes are kept.',
+    ])
     expect(readIdentityLines(targetDir)).toEqual([
       "PUBLIC_URL=http://localhost:8002",
       "INSTANCE_NAME=work",
@@ -2346,7 +2402,16 @@ describe("runInit when the instance name is already in use", () => {
     )
 
     expect(exitCode).toBe(0)
-    expect(scripted.asked[0]).toBe(IN_USE_QUESTION)
+    expect(scripted.asked).toEqual([
+      IN_USE_QUESTION,
+      PORT_QUESTION,
+      "Public base URL clients will use to reach this server (no /mcp — it's added for you):",
+      "Exact name of your Obsidian vault (case-sensitive):",
+      "Generate the token now?",
+      "Does your vault use end-to-end encryption?",
+      "Any optional settings to change? (press enter to skip)",
+      "Start the server now?",
+    ])
   })
 
   it("suggests the folder name and re-asks for an invalid or in-use name", async () => {
@@ -2540,7 +2605,10 @@ describe("runInit --yes when the instance name is already in use", () => {
     )
 
     expect(exitCode).toBe(0)
-    expect(scripted.logs).not.toContain('Reusing the data of the existing "work" install.')
+    expect(scripted.logs).toEqual([
+      `${targetDir}/.env — created`,
+      "Generated MCP auth token (saved to .env).",
+    ])
     expect(readIdentityLines(targetDir)).toEqual([
       "PUBLIC_URL=http://localhost:8001",
       "INSTANCE_NAME=work",
@@ -2566,7 +2634,11 @@ describe("runInit --yes when the instance name is already in use", () => {
     )
 
     expect(exitCode).toBe(0)
-    expect(scripted.logs).toContain(`Reusing the data of the existing "${instanceName}" install.`)
+    expect(scripted.logs).toEqual([
+      `Reusing the data of the existing "${instanceName}" install.`,
+      `${targetDir}/.env — created`,
+      "Generated MCP auth token (saved to .env).",
+    ])
     const envValues = parseEnvValues(readFileSync(join(targetDir, ".env"), "utf8"))
 
     expect(readEnvInstanceName(envValues)).toEqual({ kind: "ok", instanceName })
@@ -2593,7 +2665,15 @@ describe("runInit --yes when the instance name is already in use", () => {
     )
 
     expect(exitCode).toBe(0)
-    expect(scripted.logs).toContain('Reusing the data of the existing "work" install.')
+    expect(scripted.logs).toEqual([
+      'Reusing the data of the existing "work" install.',
+      "Your server needs an Obsidian Sync token to access your vault.\n" +
+        "You can sign in to your Obsidian account now to generate one.",
+      "No Sync token in .env — sign in on the server's sign-in page once it starts, or add a token with:\n" +
+        `  npx vault-cortex@latest get-sync-token --dir "${targetDir}"`,
+      `${targetDir}/.env — created`,
+      "Generated MCP auth token (saved to .env).",
+    ])
     expect(readIdentityLines(targetDir)).toEqual([
       "PUBLIC_URL=https://work.example.com",
       "INSTANCE_NAME=work",
@@ -2870,7 +2950,7 @@ describe("runInit re-run keeps the instance identity", () => {
     expect(scripted.errors).toEqual([
       `PORT "80a" is not a valid port — use a whole number between 1 and 65535. Fix it in ${targetDir}/.env.`,
     ])
-    expect(scripted.asked).toHaveLength(1)
+    expect(scripted.asked).toEqual(["Re-run setup for this directory anyway?"])
     expect(readFileSync(join(targetDir, ".env"), "utf8")).toBe(existingEnv)
   })
 
