@@ -808,10 +808,11 @@ the description and each parameter's Zod `.describe()` text.
 
 1. **Group module** — create or extend a module in `prompts/`. Export
    `PROMPT_NAMES` and a `register*Prompt` function taking
-   `PromptRegistrationContext`. Pass the handler through
-   `trackedPromptHandler` (`prompt-helpers.ts`), so background embedding
-   waits while the prompt runs; tool handlers get this from
-   `tool-definitions.ts`, but prompts register one by one.
+   `PromptRegistrationContext`. Wrap the handler in `trackedPromptHandler`
+   (`prompt-helpers.ts`) so background embedding waits while the prompt
+   runs. `tool-definitions.ts` wraps every tool handler centrally, but
+   nothing wraps prompts for you: a prompt registered without the wrapper
+   runs untracked, and no test fails.
 2. **Registration** — add the register call in
    `prompt-definitions.ts`. If the prompt depends on a specific tool,
    gate it on `context.isToolEnabled(TOOL_NAMES.*)`.
