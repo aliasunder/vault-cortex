@@ -628,6 +628,73 @@ describe("task-mutations", () => {
       )
     })
 
+    it("completes a task in a later lane named Done into the first one when no lane carries the marker", async () => {
+      const vault = await createVault()
+      await writeTestNote(
+        vault,
+        "board.md",
+        "---\nkanban-plugin: board\n---\n\n## Done\n\n- [x] First ➕ 2026-07-01 ^first\n\n## Active\n\n## Done\n\n- [ ] Second ➕ 2026-07-02 ^second\n",
+      )
+
+      const result = await taskMutations.updateTask(
+        {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
+          vaultPath: vault,
+          path: "board.md",
+          blockId: "second",
+          status: "done",
+        },
+        logger,
+      )
+
+      expect(result).toEqual({
+        block_id: "second",
+        heading: "Done",
+        path: "board.md",
+        line: 6,
+        description: "Second",
+        changes: ["status: todo → done", "heading: Done → Done"],
+      })
+      const content = await readTestNote(vault, "board.md")
+      expect(content).toBe(
+        `---\nkanban-plugin: board\n---\n\n## Done\n- [x] Second ➕ 2026-07-02 ✅ ${today()} ^second\n\n- [x] First ➕ 2026-07-01 ^first\n\n## Active\n\n## Done\n\n`,
+      )
+    })
+
+    it("moves a task out of a later lane with the target's name to the bottom of the first one", async () => {
+      const vault = await createVault()
+      await writeTestNote(
+        vault,
+        "board.md",
+        "## Done\n\n- [ ] First ➕ 2026-07-01 ^first\n\n## Active\n\n## Done\n\n- [ ] Second ➕ 2026-07-02 ^second\n",
+      )
+
+      const result = await taskMutations.updateTask(
+        {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
+          vaultPath: vault,
+          path: "board.md",
+          blockId: "second",
+          heading: "Done",
+          position: "bottom",
+        },
+        logger,
+      )
+
+      expect(result).toEqual({
+        block_id: "second",
+        heading: "Done",
+        path: "board.md",
+        line: 4,
+        description: "Second",
+        changes: ["heading: Done → Done"],
+      })
+      const content = await readTestNote(vault, "board.md")
+      expect(content).toBe(
+        "## Done\n\n- [ ] First ➕ 2026-07-01 ^first\n- [ ] Second ➕ 2026-07-02 ^second\n\n## Active\n\n## Done\n\n",
+      )
+    })
+
     it("moves a task whose block holds an indented heading to the lane given", async () => {
       const vault = await createVault()
       await writeTestNote(
