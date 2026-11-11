@@ -19,8 +19,8 @@ vi.mock("../vault-operations/pdf-extractor.js", { spy: true })
 vi.mock("../search/file-watcher.js", { spy: true })
 
 describe("startServer", () => {
-  it("rethrows the startup error after logging every failed cleanup with its cause", async () => {
-    const vaultPath = await mkdtemp(join(tmpdir(), "server-startup-cleanup-"))
+  const stubStartupEnvironment = async (): Promise<string> => {
+    const vaultPath = await mkdtemp(join(tmpdir(), "server-startup-"))
     onTestFinished(async () => {
       vi.unstubAllEnvs()
       vi.restoreAllMocks()
@@ -32,6 +32,43 @@ describe("startServer", () => {
     vi.stubEnv("INDEX_DB_PATH", join(vaultPath, "search.db"))
     vi.stubEnv("EMBEDDING_ENABLED", "false")
     vi.stubEnv("MEMORY_ENABLED", "false")
+    return vaultPath
+  }
+
+  it("installs the SIGTERM handler before the index rebuild, and a SIGTERM then closes the child and exits 0", async () => {
+    await stubStartupEnvironment()
+    const pdfClose = vi.fn(async () => undefined)
+    const parserClose = vi.fn(async () => undefined)
+    vi.mocked(createPdfExtractor).mockReturnValue({
+      close: pdfClose,
+      extractForIndex: vi.fn(),
+      readText: vi.fn(),
+    })
+    vi.mocked(createBodyTagParser).mockReturnValue({ close: parserClose, parse: vi.fn() })
+    // The rebuild never finishes, so the signal arrives before any HTTP server exists.
+    vi.mocked(watchVaultAndBuildIndex).mockReturnValue(new Promise(() => undefined))
+    const sigtermHandler = Promise.withResolvers<() => void>()
+    const onceSpy = vi.spyOn(process, "once").mockImplementation((event, handler) => {
+      if (event === "SIGTERM") sigtermHandler.resolve(() => handler())
+      return process
+    })
+    const exitSpy = vi.spyOn(process, "exit").mockImplementation((() => undefined) as never)
+    vi.spyOn(logger, "info").mockImplementation(() => {})
+
+    void startServer()
+    await vi.waitFor(() => expect(watchVaultAndBuildIndex).toHaveBeenCalledTimes(1))
+
+    expect(onceSpy).toHaveBeenCalledExactlyOnceWith("SIGTERM", expect.any(Function))
+    expect(onceSpy).toHaveBeenCalledBefore(vi.mocked(watchVaultAndBuildIndex))
+    const handleSigterm = await sigtermHandler.promise
+    handleSigterm()
+    await vi.waitFor(() => expect(exitSpy).toHaveBeenCalledExactlyOnceWith(0))
+    expect(pdfClose).toHaveBeenCalledExactlyOnceWith()
+    expect(parserClose).toHaveBeenCalledExactlyOnceWith()
+  })
+
+  it("rethrows the startup error after logging every failed cleanup with its cause", async () => {
+    await stubStartupEnvironment()
     const startupError = new Error("controlled startup failure")
     const pdfClose = vi.fn(async () => {
       throw new Error("PDF close failed", { cause: new Error("PDF termination failed") })

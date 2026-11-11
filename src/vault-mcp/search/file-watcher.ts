@@ -252,137 +252,149 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
     const isIndexableNonCanvas =
       search.fileContentIndexingEnabled && CONTENT_INDEXED_FILE_KINDS.has(fileKind)
 
+    /** Writes the file's text to the content index and queues its embedding. Returns the
+     *  embedding's completion, which never rejects: the job logs its own failure and clears only
+     *  its own queue entry. */
+    const publishFileContent = (contentToIndex: string): Promise<void> => {
+      const sourceVersion = search.upsertFileContent(
+        {
+          filePath: relativePath,
+          rawContent: contentToIndex,
+          fileStat: { mtimeMs: fileStat.mtimeMs, size: fileStat.size },
+        },
+        logger,
+      )
+
+      // Embed file content vectors — serialized per path via the same
+      // pendingEmbeds map. A note path ends in .md and a file path never
+      // does, so their keys never collide. Reads the processed content from
+      // the file_content table.
+      const previousEmbed = pendingEmbeds.get(relativePath) ?? Promise.resolve()
+      const currentEmbed = previousEmbed
+        .catch((previousError) => {
+          logger.debug("previous file embed failed, proceeding with current", {
+            path: relativePath,
+            error: describeError(previousError),
+          })
+        })
+        .then(() => {
+          return search.embedFileContent({ filePath: relativePath, sourceVersion }, logger)
+        })
+      pendingEmbeds.set(relativePath, currentEmbed)
+
+      return currentEmbed
+        .catch((embedError) => {
+          logger.error("file content embedding failed", {
+            path: relativePath,
+            error: describeError(embedError),
+          })
+        })
+        .finally(() => {
+          if (pendingEmbeds.get(relativePath) === currentEmbed) {
+            pendingEmbeds.delete(relativePath)
+          }
+        })
+    }
+
+    /** A PDF is found by name at once and gets its text after the server listens. Its
+     *  completion includes the embedding, so a held PDF counts as done only with its vectors. */
+    const indexChangedPdf = async (): Promise<ChangeIndexResult> => {
+      // Removing the prior content also invalidates its queued vectors, so nothing stale
+      // answers while the new text is pending.
+      search.removeFileContent({ filePath: relativePath }, logger)
+      search.upsertFileContent(
+        {
+          filePath: relativePath,
+          rawContent: "",
+          fileStat: { mtimeMs: fileStat.mtimeMs, size: fileStat.size },
+        },
+        logger,
+      )
+
+      // Over the byte cap, the PDF keeps its name row and gets no text or vectors.
+      if (fileStat.size > maxFileBytes) return { status: "file-indexed" }
+      await pdfGate.promise
+
+      if (currentEvents.get(relativePath) !== eventToken) return { status: "superseded" }
+      const extraction = await pdfExtractor.extractForIndex(
+        { path: relativePath, coalesce: true },
+        logger,
+      )
+
+      if (extraction.status === "cancelled") return { status: "superseded" }
+      if (currentEvents.get(relativePath) !== eventToken) return { status: "superseded" }
+      await publishFileContent(extraction.result.text)
+      return { status: "file-indexed" }
+    }
+
+    /** The text to index for a non-PDF file:
+     *  - empty for an HTML page or script over its size limit, so its
+     *    file_content row still lets search find it by name;
+     *  - null for an HTML page or script that is not UTF-8 or holds a NUL byte
+     *    early on, which vault_read_file refuses too;
+     *  - the file's text otherwise. */
+    const readContentToIndex = async (): Promise<string | null> => {
+      switch (fileKind) {
+        case "html":
+        case "script": {
+          const tooLargeToRead = isHtmlOrScriptTooLargeToRead({
+            filePath: relativePath,
+            fileBytes: fileStat.size,
+          })
+
+          if (tooLargeToRead) return ""
+          const decodedSource = decodeTextBuffer(await readFile(filePath))
+
+          if (decodedSource.status !== "text") return null
+          return decodedSource.text
+        }
+        // Search keeps a text file's first MAX_INDEXED_CONTENT_BYTES only, so
+        // no more is read. The read decodes leniently, so a stray invalid byte
+        // or NUL padding keeps the file in search.
+        case "text":
+          return await readFileTextPrefix({
+            path: filePath,
+            maxBytes: MAX_INDEXED_CONTENT_BYTES,
+          })
+        // A canvas is read whole, because its links need the whole JSON, and
+        // it decodes leniently like a text file. PDFs have their own path above;
+        // images and other files never reach this switch, because the guard
+        // below reads only the kinds search indexes.
+        case "canvas":
+        case "pdf":
+        case "image":
+        case "other":
+          return await readFile(filePath, "utf8")
+      }
+    }
+
+    const indexChangedTextFile = async (): Promise<ChangeIndexResult> => {
+      const contentToIndex = await readContentToIndex()
+
+      if (currentEvents.get(relativePath) !== eventToken) return { status: "superseded" }
+
+      // Rejected text loses its indexed content but keeps the file row.
+      if (contentToIndex === null) {
+        search.removeFileContent({ filePath: relativePath }, logger)
+        logger.debug("indexed non-md file without its content", { path: relativePath })
+        return { status: "file-indexed" }
+      }
+
+      // Neither the live handler nor the startup batch waits on file-content model work.
+      void publishFileContent(contentToIndex)
+      return { status: "file-indexed" }
+    }
+
     if (isCanvas || isIndexableNonCanvas) {
       try {
-        /** The text to index for the file:
-         *  - empty for a PDF, HTML page or script over its size limit, so its
-         *    file_content row still lets search find it by name;
-         *  - null for an HTML page or script that is not UTF-8 or holds a NUL byte
-         *    early on, which vault_read_file refuses too;
-         *  - null for obsolete PDF work or a PDF whose watcher has closed;
-         *  - the file's text otherwise. */
-        const readContentAndResetPdfIndex = async (): Promise<string | null> => {
-          switch (fileKind) {
-            case "pdf": {
-              // Removing the prior content also invalidates its queued vectors.
-              search.removeFileContent({ filePath: relativePath }, logger)
-              search.upsertFileContent(
-                {
-                  filePath: relativePath,
-                  rawContent: "",
-                  fileStat: { mtimeMs: fileStat.mtimeMs, size: fileStat.size },
-                },
-                logger,
-              )
+        const indexed = fileKind === "pdf" ? await indexChangedPdf() : await indexChangedTextFile()
 
-              if (fileStat.size > maxFileBytes) return ""
-              await pdfGate.promise
-
-              const eventIsCurrent = currentEvents.get(relativePath) === eventToken
-
-              if (!eventIsCurrent || watcherState.mode === "closed") return null
-              const pdfResult = await pdfExtractor.extractForIndex(
-                { path: relativePath, coalesce: true },
-                logger,
-              )
-              return pdfResult.text
-            }
-            case "html":
-            case "script": {
-              const tooLargeToRead = isHtmlOrScriptTooLargeToRead({
-                filePath: relativePath,
-                fileBytes: fileStat.size,
-              })
-
-              if (tooLargeToRead) return ""
-              const decodedSource = decodeTextBuffer(await readFile(filePath))
-
-              if (decodedSource.status !== "text") return null
-              return decodedSource.text
-            }
-            // Search keeps a text file's first MAX_INDEXED_CONTENT_BYTES only, so
-            // no more is read. The read decodes leniently, so a stray invalid byte
-            // or NUL padding keeps the file in search.
-            case "text":
-              return await readFileTextPrefix({
-                path: filePath,
-                maxBytes: MAX_INDEXED_CONTENT_BYTES,
-              })
-            // A canvas is read whole, because its links need the whole JSON, and
-            // it decodes leniently like a text file. Images and other files never
-            // reach this switch: the guard above reads only the kinds search indexes.
-            case "canvas":
-            case "image":
-            case "other":
-              return await readFile(filePath, "utf8")
-          }
-        }
-        const contentToIndex = await readContentAndResetPdfIndex()
-
-        if (currentEvents.get(relativePath) !== eventToken) return { status: "superseded" }
-        // A byte-gated PDF keeps the filename row without creating new vectors.
-        if (fileKind === "pdf" && fileStat.size > maxFileBytes) return { status: "file-indexed" }
-
-        // Rejected text and closed PDF work lose indexed content but keep the file row.
-        // The event-token check above already discarded obsolete PDF work.
-        if (contentToIndex === null) {
-          search.removeFileContent({ filePath: relativePath }, logger)
-          logger.debug("indexed non-md file without its content", { path: relativePath })
-          return { status: "file-indexed" }
-        }
-
-        const sourceVersion = search.upsertFileContent(
-          {
-            filePath: relativePath,
-            rawContent: contentToIndex,
-            fileStat: { mtimeMs: fileStat.mtimeMs, size: fileStat.size },
-          },
-          logger,
-        )
-
-        // Embed file content vectors — serialized per path via the same
-        // pendingEmbeds map. A note path ends in .md and a file path never
-        // does, so their keys never collide. Reads the processed content from
-        // the file_content table.
-        const previousEmbed = pendingEmbeds.get(relativePath) ?? Promise.resolve()
-        const currentEmbed = previousEmbed
-          .catch((previousError) => {
-            logger.debug("previous file embed failed, proceeding with current", {
-              path: relativePath,
-              error: describeError(previousError),
-            })
-          })
-          .then(() => {
-            return search.embedFileContent({ filePath: relativePath, sourceVersion }, logger)
-          })
-        pendingEmbeds.set(relativePath, currentEmbed)
-
-        // Each job reports its failure and clears only its own queue entry.
-        const reportedEmbedding = currentEmbed
-          .catch((embedError) => {
-            logger.error("file content embedding failed", {
-              path: relativePath,
-              error: describeError(embedError),
-            })
-          })
-          .finally(() => {
-            if (pendingEmbeds.get(relativePath) === currentEmbed) {
-              pendingEmbeds.delete(relativePath)
-            }
-          })
-
-        // PDF completion includes the version-bound model job as well as extraction.
-        if (fileKind === "pdf") await reportedEmbedding
+        if (indexed.status === "superseded") return indexed
       } catch (error) {
-        const isCancelledPdf =
-          error instanceof Error &&
-          "pdfFailure" in error &&
-          (error.pdfFailure === "pdf-superseded" || error.pdfFailure === "pdf-closed")
-
-        if (isCancelledPdf) return { status: "superseded" }
         // A changed PDF keeps its current filename row on either a resource
         // failure or a transient failure; its obsolete content was removed above.
         // Other file kinds retain their prior content on transient failures.
+        // describeErrorForLog keeps the cause, which carries the child's own reason.
         logger.warn("file content indexing failed", {
           path: relativePath,
           ...describeErrorForLog(error),
@@ -1172,7 +1184,6 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
 
   const close = async (): Promise<void> => {
     watcherState = { mode: "closed" }
-    pdfGate.resolve(undefined)
     try {
       await watcher.close()
     } catch (error) {
@@ -1244,12 +1255,14 @@ export const watchVaultAndBuildIndex = async (
     await applied
     await holdingWatcher.startPdfPass()
   })()
+  // Logged here so a caller may leave the pass unawaited; the rebuild's own pass logs its
+  // failure too, under its own message.
   pdfs.catch((error: unknown) => {
-    logger.error("PDF content pass failed", { error: describeError(error) })
+    logger.error("startup PDF work failed", { error: describeError(error) })
   })
   const startPdfPass = (): Promise<void> => {
     pdfStart.resolve(undefined)
     return pdfs
   }
-  return { ...rebuildResult, startPdfPass, pdfs }
+  return { ...rebuildResult, startPdfPass }
 }

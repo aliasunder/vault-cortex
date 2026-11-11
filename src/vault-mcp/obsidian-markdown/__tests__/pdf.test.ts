@@ -1,6 +1,9 @@
 import { afterEach, describe, it, expect, onTestFinished, vi } from "vitest"
+import { extractLinks, extractTextItems, getMeta } from "unpdf"
+import type { StructuredTextItem } from "unpdf"
 import { createPdfDocumentProxy } from "../pdf-engine.js"
-import { extractPdfIndexText, extractPdfText } from "../pdf.js"
+import { extractPdfIndexText, extractPdfText, MAX_INDEXED_PDF_BYTES } from "../pdf.js"
+import { MAX_INDEXED_CONTENT_BYTES } from "../../search/search-index.js"
 import {
   buildPdf,
   buildMinimalPdf,
@@ -13,7 +16,50 @@ import {
 const HEADER = "Title: (untitled) | Pages: 1"
 
 vi.mock("../pdf-engine.js", { spy: true })
+vi.mock("unpdf", { spy: true })
 afterEach(() => vi.restoreAllMocks())
+
+/** Builds a single-page StructuredTextItem array from lines of text. Items
+ *  are positioned vertically (descending y, like a real PDF) with the given
+ *  fontSize and fontFamily. */
+const buildPageItems = (
+  lines: readonly string[],
+  options?: { fontSize?: number; fontFamily?: string },
+): StructuredTextItem[] => {
+  return lines.map((str, index) => ({
+    str,
+    x: 42,
+    y: 780 - index * 15,
+    width: str.length * 7,
+    height: options?.fontSize ?? 10.5,
+    fontSize: options?.fontSize ?? 10.5,
+    fontFamily: options?.fontFamily ?? "sans-serif",
+    dir: "ltr",
+    hasEOL: true,
+  }))
+}
+
+/** Stands in for a parsed document: the proxy and unpdf's three readers each
+ *  answer once with these values, so the rendition comes from these items
+ *  alone. Returns the proxy's destroy mock. */
+const stubPdfDocument = (params: {
+  title?: string
+  itemsByPage: StructuredTextItem[][]
+  linksByPage: string[][]
+}) => {
+  const destroy = vi.fn()
+  const totalPages = params.itemsByPage.length
+  vi.mocked(createPdfDocumentProxy, { partial: true, deep: true }).mockResolvedValueOnce({
+    loadingTask: { destroy },
+    numPages: totalPages,
+  })
+  vi.mocked(getMeta, { partial: true, deep: true }).mockResolvedValueOnce({
+    info: params.title ? { Title: params.title } : {},
+  })
+  vi.mocked(extractTextItems).mockResolvedValueOnce({ totalPages, items: params.itemsByPage })
+  vi.mocked(extractLinks).mockResolvedValueOnce({ totalPages, links: params.linksByPage })
+  return destroy
+}
 
 const createIndexProbe = async (params: {
   pdfData: Uint8Array
@@ -151,19 +197,22 @@ describe("extractPdfIndexText", () => {
         }),
       )
       const probe = await createIndexProbe({ pdfData, pageTexts: [bodyText] })
+      // The rendition that first reaches the cap is returned whole; the caller cuts it.
       const chosenRendition =
         extraBytes === -1
           ? header + bodyText + "\n\n--- Page 2 ---\n\nCAP-CROSSING-PAGE" + footer
           : header + bodyText + footer
-      const expectedText = Buffer.from(chosenRendition, "utf8")
-        .subarray(0, 102_400)
-        .toString("utf8")
 
-      expect(await extractPdfIndexText(pdfData)).toEqual({ text: expectedText, totalPages: 3 })
+      expect(await extractPdfIndexText(pdfData)).toEqual({ text: chosenRendition, totalPages: 3 })
       expect(probe.requestedPages).toEqual(expectedPages)
       expect(probe.destroy).toHaveBeenCalledExactlyOnceWith()
     },
   )
+
+  it("measures the stop against the index's own content budget", () => {
+    expect(MAX_INDEXED_PDF_BYTES).toBe(102_400)
+    expect(MAX_INDEXED_CONTENT_BYTES).toBe(102_400)
+  })
 
   it.each([{ totalPages: 500 }, { totalPages: 501 }])(
     "visits exactly 500 pages in a $totalPages-page document",
@@ -606,5 +655,320 @@ describe("extractPdfText", () => {
       const result = await extractPdfText(toPdfData(pdfBuffer))
       expect(result.text).toBe(`${HEADER}\n\n3.14\nmiddle\npi value\n7.`)
     })
+  })
+})
+
+describe("extractPdfText rendition from structured items", () => {
+  it("returns structured markdown with title, headings, and text", async () => {
+    stubPdfDocument({
+      title: "Research Paper",
+      itemsByPage: [
+        [
+          ...buildPageItems(["Introduction"], { fontSize: 18 }),
+          ...buildPageItems(["This is the body text of the paper."], {
+            fontSize: 10.5,
+          }).map((item) => ({ ...item, y: 750 })),
+        ],
+      ],
+      linksByPage: [["https://example.com"]],
+    })
+
+    expect(await extractPdfText(new Uint8Array([1]))).toEqual({
+      text: [
+        "Title: Research Paper | Pages: 1 | Links: 1",
+        "",
+        "# Introduction",
+        "This is the body text of the paper.",
+        "",
+        "Links:",
+        "- https://example.com",
+      ].join("\n"),
+      totalPages: 1,
+    })
+  })
+
+  it("detects monospace font as fenced code blocks", async () => {
+    stubPdfDocument({
+      title: "Code Doc",
+      itemsByPage: [
+        [
+          ...buildPageItems(["Example:"], { fontSize: 10.5 }),
+          ...buildPageItems(["const x = 42"], {
+            fontSize: 10.5,
+            fontFamily: "monospace",
+          }).map((item) => ({ ...item, y: 750 })),
+          ...buildPageItems(["return x"], {
+            fontSize: 10.5,
+            fontFamily: "monospace",
+          }).map((item) => ({ ...item, y: 735 })),
+          ...buildPageItems(["End of example."], { fontSize: 10.5 }).map((item) => ({
+            ...item,
+            y: 720,
+          })),
+        ],
+      ],
+      linksByPage: [[]],
+    })
+
+    expect(await extractPdfText(new Uint8Array([1]))).toEqual({
+      text: [
+        "Title: Code Doc | Pages: 1",
+        "",
+        "Example:",
+        "```",
+        "const x = 42",
+        "return x",
+        "```",
+        "End of example.",
+      ].join("\n"),
+      totalPages: 1,
+    })
+  })
+
+  it("keeps an RTL line's items in stream order instead of sorting them by x", async () => {
+    // pdfjs emits RTL runs in reading order, so the first word in the stream
+    // sits further right. The baked space joins the words in either order,
+    // which leaves the word order as the only thing under test.
+    const rtlItemMetrics = {
+      y: 780,
+      height: 10.5,
+      fontSize: 10.5,
+      fontFamily: "sans-serif",
+      dir: "rtl" as const,
+      hasEOL: false,
+    }
+    stubPdfDocument({
+      title: "RTL Doc",
+      itemsByPage: [
+        [
+          { ...rtlItemMetrics, str: "שלום ", x: 300, width: 35 },
+          { ...rtlItemMetrics, str: "עולם", x: 200, width: 28 },
+        ],
+      ],
+      linksByPage: [[]],
+    })
+
+    expect(await extractPdfText(new Uint8Array([1]))).toEqual({
+      text: ["Title: RTL Doc | Pages: 1", "", "שלום עולם"].join("\n"),
+      totalPages: 1,
+    })
+  })
+
+  it("keeps a space baked into either edge of a tight cross-font junction", async () => {
+    // Each item starts where the one before it ends, so neither junction has
+    // a word-sized gap. Only the space at the end of "Run " and the start of
+    // " now" can put a space back once each font run's text is trimmed.
+    const itemMetrics = {
+      y: 780,
+      height: 10.5,
+      fontSize: 10.5,
+      dir: "ltr" as const,
+      hasEOL: false,
+    }
+    stubPdfDocument({
+      title: "Junction Doc",
+      itemsByPage: [
+        [
+          { ...itemMetrics, str: "Run ", x: 42, width: 28, fontFamily: "sans-serif" },
+          { ...itemMetrics, str: "kubectl", x: 70, width: 49, fontFamily: "monospace" },
+          { ...itemMetrics, str: " now", x: 119, width: 28, fontFamily: "sans-serif" },
+        ],
+      ],
+      linksByPage: [[]],
+    })
+
+    expect(await extractPdfText(new Uint8Array([1]))).toEqual({
+      text: ["Title: Junction Doc | Pages: 1", "", "Run `kubectl` now"].join("\n"),
+      totalPages: 1,
+    })
+  })
+
+  it("deduplicates links in the footer", async () => {
+    stubPdfDocument({
+      title: "Links Doc",
+      itemsByPage: [buildPageItems(["Some text"])],
+      linksByPage: [["https://example.com", "https://other.com", "https://example.com"]],
+    })
+
+    expect(await extractPdfText(new Uint8Array([1]))).toEqual({
+      text: [
+        "Title: Links Doc | Pages: 1 | Links: 2",
+        "",
+        "Some text",
+        "",
+        "Links:",
+        "- https://example.com",
+        "- https://other.com",
+      ].join("\n"),
+      totalPages: 1,
+    })
+  })
+
+  it("shows (untitled) when the PDF has no title metadata", async () => {
+    stubPdfDocument({ itemsByPage: [buildPageItems(["Hello"])], linksByPage: [[]] })
+
+    expect(await extractPdfText(new Uint8Array([1]))).toEqual({
+      text: ["Title: (untitled) | Pages: 1", "", "Hello"].join("\n"),
+      totalPages: 1,
+    })
+  })
+
+  it("adds page separators for multi-page documents", async () => {
+    stubPdfDocument({
+      title: "Multi-page",
+      itemsByPage: [buildPageItems(["Page one content"]), buildPageItems(["Page two content"])],
+      linksByPage: [[], []],
+    })
+
+    expect(await extractPdfText(new Uint8Array([1]))).toEqual({
+      text: [
+        "Title: Multi-page | Pages: 2",
+        "",
+        "Page one content",
+        "",
+        "--- Page 2 ---",
+        "",
+        "Page two content",
+      ].join("\n"),
+      totalPages: 2,
+    })
+  })
+
+  it("returns empty text when every item is whitespace", async () => {
+    stubPdfDocument({
+      title: "Blank",
+      itemsByPage: [buildPageItems(["   ", "\t", "  \n  "])],
+      linksByPage: [[]],
+    })
+
+    expect(await extractPdfText(new Uint8Array([1]))).toEqual({ text: "", totalPages: 1 })
+  })
+
+  it("closes a code fence at end of page when no sans-serif transition follows", async () => {
+    stubPdfDocument({
+      title: "Trailing Code",
+      itemsByPage: [
+        [
+          ...buildPageItems(["Preamble"], { fontSize: 10.5 }),
+          ...buildPageItems(["func main() {"], {
+            fontSize: 10.5,
+            fontFamily: "monospace",
+          }).map((item) => ({ ...item, y: 750 })),
+          ...buildPageItems(["  fmt.Println()"], {
+            fontSize: 10.5,
+            fontFamily: "monospace",
+          }).map((item) => ({ ...item, y: 735 })),
+        ],
+      ],
+      linksByPage: [[]],
+    })
+
+    expect(await extractPdfText(new Uint8Array([1]))).toEqual({
+      text: [
+        "Title: Trailing Code | Pages: 1",
+        "",
+        "Preamble",
+        "```",
+        "func main() {",
+        "fmt.Println()",
+        "```",
+      ].join("\n"),
+      totalPages: 1,
+    })
+  })
+
+  it("skips heading detection when all items share one font size", async () => {
+    stubPdfDocument({
+      title: "Flat Doc",
+      itemsByPage: [buildPageItems(["Title Line", "Body text here"], { fontSize: 11 })],
+      linksByPage: [[]],
+    })
+
+    expect(await extractPdfText(new Uint8Array([1]))).toEqual({
+      text: ["Title: Flat Doc | Pages: 1", "", "Title Line", "Body text here"].join("\n"),
+      totalPages: 1,
+    })
+  })
+
+  // Spreading this many values into one call throws a RangeError in Node, so
+  // these pin that a code block and a links list are built without one.
+  const OVERSIZED_COUNT = 130_000
+
+  it("renders a code block longer than a call's argument limit", async () => {
+    // Each line carries a backtick, so the fence-length check sees one run per line
+    const codeLines = Array.from({ length: OVERSIZED_COUNT }, () => "`x")
+    stubPdfDocument({
+      title: "Long Code",
+      itemsByPage: [buildPageItems(codeLines, { fontFamily: "monospace" })],
+      linksByPage: [[]],
+    })
+
+    expect(await extractPdfText(new Uint8Array([1]))).toEqual({
+      text: ["Title: Long Code | Pages: 1", "", "```", ...codeLines, "```"].join("\n"),
+      totalPages: 1,
+    })
+  })
+
+  it("lists more links than a call's argument limit", async () => {
+    const linkUrls = Array.from({ length: OVERSIZED_COUNT }, (_, index) => {
+      return `https://example.com/${index}`
+    })
+    stubPdfDocument({
+      title: "Many Links",
+      itemsByPage: [buildPageItems(["Some text"])],
+      linksByPage: [linkUrls],
+    })
+    const linkLines = linkUrls.map((linkUrl) => `- ${linkUrl}`)
+
+    expect(await extractPdfText(new Uint8Array([1]))).toEqual({
+      text: [
+        `Title: Many Links | Pages: 1 | Links: ${OVERSIZED_COUNT}`,
+        "",
+        "Some text",
+        "",
+        "Links:",
+        ...linkLines,
+      ].join("\n"),
+      totalPages: 1,
+    })
+  })
+
+  it("destroys the document proxy after successful extraction", async () => {
+    const destroy = stubPdfDocument({
+      title: "Cleanup Test",
+      itemsByPage: [buildPageItems(["Content"])],
+      linksByPage: [[]],
+    })
+
+    expect(await extractPdfText(new Uint8Array([1]))).toEqual({
+      text: ["Title: Cleanup Test | Pages: 1", "", "Content"].join("\n"),
+      totalPages: 1,
+    })
+    expect(destroy).toHaveBeenCalledExactlyOnceWith()
+  })
+
+  it("destroys the document proxy even when extraction throws", async () => {
+    const destroy = vi.fn()
+    vi.mocked(createPdfDocumentProxy, { partial: true, deep: true }).mockResolvedValueOnce({
+      loadingTask: { destroy },
+      numPages: 1,
+    })
+    vi.mocked(getMeta, { partial: true, deep: true }).mockResolvedValueOnce({ info: {} })
+    const extractionFailure = new Error("text layer could not be read")
+    vi.mocked(extractTextItems).mockRejectedValueOnce(extractionFailure)
+
+    // The failure arriving unchanged shows it was thrown inside extraction
+    await expect(extractPdfText(new Uint8Array([1]))).rejects.toBe(extractionFailure)
+    expect(destroy).toHaveBeenCalledExactlyOnceWith()
+  })
+
+  it("passes a PDF load failure through unchanged", async () => {
+    // The engine's own failure to load arrives under this message
+    const loadFailure = new Error("PDF reader could not start", {
+      cause: new Error("worker terminated"),
+    })
+    vi.mocked(createPdfDocumentProxy).mockRejectedValueOnce(loadFailure)
+
+    await expect(extractPdfText(new Uint8Array([1]))).rejects.toBe(loadFailure)
   })
 })

@@ -110,6 +110,7 @@ export const resolveDataPaths = (indexDbPathSetting: string | undefined): DataPa
 /** Matches `*`, `?`, or `[`, which the `:remote` init scripts' `find -path` reads as wildcards. */
 const GLOB_CHARS = /[*?[]/
 
+/** Exported for the startup-failure tests; the entry-point guard below keeps a test import from starting it. */
 export const startServer = async (): Promise<void> => {
   const config = loadConfig()
   // Trim so a stray trailing space or newline on MCP_AUTH_TOKEN in .env
@@ -188,6 +189,16 @@ export const startServer = async (): Promise<void> => {
   // Lives until SIGTERM, when the shutdown handler closes it
   const bodyTagParser = createBodyTagParser({ timeoutMs: BODY_TAG_PARSE_TIMEOUT_MS })
   const pdfExtractor = createPdfExtractor({ vaultPath, maxFileBytes: config.maxFileBytes })
+  // Startup failure and a bind failure both leave the child and the worker to close.
+  const closeStartupResources = async (): Promise<void> => {
+    const cleanupResults = await Promise.allSettled([pdfExtractor.close(), bodyTagParser.close()])
+
+    for (const result of cleanupResults) {
+      if (result.status === "rejected") {
+        logger.error("startup cleanup failed", describeErrorForLog(result.reason))
+      }
+    }
+  }
   // The signal handler must exist before startup reconciliation can queue extraction.
   const lifecycle: { httpServer?: { close: (callback: () => void) => void } } = {}
   process.once(
@@ -290,7 +301,7 @@ export const startServer = async (): Promise<void> => {
           port,
           error: describeError(listenError),
         })
-        void pdfExtractor.close().finally(() => process.exit(1))
+        void closeStartupResources().finally(() => process.exit(1))
         return
       }
       logger.info("server started", { host, port })
@@ -331,13 +342,7 @@ export const startServer = async (): Promise<void> => {
       )
     }
   } catch (error) {
-    const cleanupResults = await Promise.allSettled([pdfExtractor.close(), bodyTagParser.close()])
-
-    for (const result of cleanupResults) {
-      if (result.status === "rejected") {
-        logger.error("startup cleanup failed", describeErrorForLog(result.reason))
-      }
-    }
+    await closeStartupResources()
     throw error
   }
 }

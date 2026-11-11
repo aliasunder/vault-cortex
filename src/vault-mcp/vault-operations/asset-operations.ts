@@ -284,7 +284,7 @@ const readAssetContent = async (
     maxFileBytes: number
     maxImageOutputBytes: number
     maxPdfRenderPages: number
-    /** Must be bound to this vaultPath and maxFileBytes. */
+    /** Reads a PDF's text in place of readAsset, so it carries its own vault path and byte cap. */
     pdfExtractor: PdfExtractor
   },
   logger: Logger,
@@ -315,6 +315,7 @@ const readAssetContent = async (
       const text = raw ? canvasSource : linearizeCanvas(canvasSource)
       return buildTextResult({ text, path, startLine, limit })
     }
+    // Only a raw read reaches this case; a text read returned above.
     case "pdf": {
       if (requestsLineWindow({ startLine, limit })) {
         throw new Error(

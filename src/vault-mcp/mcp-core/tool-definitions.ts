@@ -1,8 +1,8 @@
 /** MCP tool definitions — computes the enabled tool set from the registry
  *  and orchestrates tool group registration through the gated wrapper. */
 
-import type { PdfExtractor } from "../vault-operations/pdf-extractor.js"
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
+import type { PdfExtractor } from "../vault-operations/pdf-extractor.js"
 import type { SearchIndex } from "../search/search-index.js"
 import type { VaultConfig } from "../config.js"
 import type { Logger } from "../../logger.js"

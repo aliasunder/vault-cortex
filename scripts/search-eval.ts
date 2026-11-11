@@ -50,8 +50,6 @@
  */
 
 import { parseArgs } from "node:util"
-import { createPdfExtractor } from "../src/vault-mcp/vault-operations/pdf-extractor.js"
-import { loadConfig } from "../src/vault-mcp/config.js"
 import { mkdirSync, writeFileSync } from "node:fs"
 import { readFile } from "node:fs/promises"
 import { join } from "node:path"
@@ -65,6 +63,8 @@ import {
 import type { EvalSearchProblem, JudgmentQuery } from "./search-eval-plan.js"
 import { createVaultSnapshot, snapshotMatchesProvenance } from "./search-eval-snapshot.js"
 import type { Logger } from "../src/logger.js"
+import { loadConfig } from "../src/vault-mcp/config.js"
+import { createPdfExtractor } from "../src/vault-mcp/vault-operations/pdf-extractor.js"
 import { createSearchModels } from "../src/vault-mcp/search/search-models.js"
 import { createSearchIndex } from "../src/vault-mcp/search/search-index.js"
 import {
@@ -265,6 +265,7 @@ const main = async (): Promise<void> => {
       console.log(`indexed ${count} notes in ${rebuildSeconds}s`)
     } finally {
       await pdfExtractor.close()
+      // A second close after the one above is a no-op; this one covers the failure paths.
       await bodyTagParser.close()
     }
   }
