@@ -317,7 +317,14 @@ export default defineConfig(
         {
           patterns: [
             {
+              // A sibling by "./" and the folder by any other spelling.
               regex: "^\\./",
+              allowTypeImports: true,
+              message:
+                "CLI commands never import another command — move what both need into a step (AGENTS.md → CLI layering)",
+            },
+            {
+              group: ["**/commands/**"],
               allowTypeImports: true,
               message:
                 "CLI commands never import another command — move what both need into a step (AGENTS.md → CLI layering)",

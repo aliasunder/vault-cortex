@@ -131,7 +131,7 @@ export const resolveDeployment = (
  * Verifies the container runtime is reachable, reporting the shared error
  * message when it isn't. Callers early-return on false.
  */
-export const ensureDaemonRunning = (docker: DockerRunner, prompts: Prompts): boolean => {
+export const requireDaemonRunning = (docker: DockerRunner, prompts: Prompts): boolean => {
   const daemonStatus = docker.daemonStatus()
 
   if (daemonStatus === "running") return true

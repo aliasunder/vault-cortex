@@ -1,7 +1,7 @@
 import { LOCAL_IMAGE, REMOTE_IMAGE, type DockerRunner } from "../adapters/docker.js"
 import type { Prompts } from "../adapters/prompts.js"
 import { containerStart } from "../steps/container-start.js"
-import { ensureDaemonRunning, resolveDeployment } from "../steps/deployment.js"
+import { requireDaemonRunning, resolveDeployment } from "../steps/deployment.js"
 
 export type UpgradeFlags = {
   dir?: string
@@ -31,9 +31,9 @@ export const runUpgrade = async (flags: UpgradeFlags, deps: UpgradeDeps): Promis
 
   const image = deployment.mode === "local" ? LOCAL_IMAGE : REMOTE_IMAGE
 
-  if (!ensureDaemonRunning(docker, prompts)) return 1
+  if (!requireDaemonRunning(docker, prompts)) return 1
   // Checked before the download, which containerStart.recreate's own check follows.
-  const instanceContainer = containerStart.checkInstanceContainer(
+  const instanceContainer = containerStart.classifyInstanceContainer(
     { instanceName: deployment.instanceName, envFilePath: deployment.envFilePath },
     { prompts, docker },
   )

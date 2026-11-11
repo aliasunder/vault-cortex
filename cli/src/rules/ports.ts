@@ -41,10 +41,12 @@ export const portInUseMessage = (params: { port: string; containerName: string }
 
 /** The first port, counting up from the default, that no container publishes. */
 export const suggestFreePort = (portsInUse: PortsInUse): string => {
-  const findFreePort = (candidatePort: number): number => {
-    return portsInUse.has(candidatePort) ? findFreePort(candidatePort + 1) : candidatePort
-  }
-  return String(findFreePort(DEFAULT_PORT))
+  // A loop, not recursion: a container can publish tens of thousands of
+  // consecutive host ports, which would overflow the stack.
+  let candidatePort = DEFAULT_PORT
+
+  while (portsInUse.has(candidatePort)) candidatePort += 1
+  return String(candidatePort)
 }
 
 export const buildPortsInUse = (publishedPorts: ReadonlyArray<PublishedPort>): PortsInUse => {

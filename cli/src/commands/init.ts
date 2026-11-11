@@ -334,7 +334,7 @@ const offerDockerRun = async (deployment: Deployment, deps: InitDeps): Promise<S
     )
     return "not-started"
   }
-  const instanceContainer = containerStart.checkInstanceContainer(
+  const instanceContainer = containerStart.classifyInstanceContainer(
     { instanceName, envFilePath: deployment.envFilePath },
     { prompts, docker },
   )

@@ -21,7 +21,7 @@ type ContainerStartDeps = { prompts: Prompts; docker: DockerRunner; fetchFn: typ
  * image is someone else's, so no command may stop, remove or stream it: this
  * reports the refusal, and callers stop on "foreign".
  */
-const checkInstanceContainer = (
+const classifyInstanceContainer = (
   params: { instanceName: string; envFilePath: string },
   deps: { prompts: Prompts; docker: DockerRunner },
 ): InstanceContainer => {
@@ -148,7 +148,7 @@ const recreate = async (
   deps: ContainerStartDeps,
 ): Promise<number> => {
   const { deployment, healthTimeoutMs } = params
-  const instanceContainer = checkInstanceContainer(
+  const instanceContainer = classifyInstanceContainer(
     { instanceName: deployment.instanceName, envFilePath: deployment.envFilePath },
     deps,
   )
@@ -158,4 +158,4 @@ const recreate = async (
   return startStatus === "running" ? 0 : 1
 }
 
-export const containerStart = { checkInstanceContainer, start, recreate }
+export const containerStart = { classifyInstanceContainer, start, recreate }

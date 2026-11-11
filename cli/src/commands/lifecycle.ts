@@ -3,7 +3,7 @@ import type { Prompts } from "../adapters/prompts.js"
 import { vaultCortexCommand } from "../rules/messages.js"
 import { containerStart } from "../steps/container-start.js"
 import {
-  ensureDaemonRunning,
+  requireDaemonRunning,
   requireInitializedDir,
   resolveDeployment,
 } from "../steps/deployment.js"
@@ -55,9 +55,9 @@ export const runDown = async (flags: DownFlags, deps: DownDeps): Promise<number>
   const initialized = requireInitializedDir(flags.dir, prompts)
 
   if (!initialized) return 1
-  if (!ensureDaemonRunning(docker, prompts)) return 1
+  if (!requireDaemonRunning(docker, prompts)) return 1
   const { instanceName, envFilePath, targetDir } = initialized
-  const instanceContainer = containerStart.checkInstanceContainer(
+  const instanceContainer = containerStart.classifyInstanceContainer(
     { instanceName, envFilePath },
     { prompts, docker },
   )
@@ -94,9 +94,9 @@ export const runLogs = async (flags: LogsFlags, deps: LogsDeps): Promise<number>
   const initialized = requireInitializedDir(flags.dir, prompts)
 
   if (!initialized) return 1
-  if (!ensureDaemonRunning(docker, prompts)) return 1
+  if (!requireDaemonRunning(docker, prompts)) return 1
   const { instanceName, envFilePath, targetDir } = initialized
-  const instanceContainer = containerStart.checkInstanceContainer(
+  const instanceContainer = containerStart.classifyInstanceContainer(
     { instanceName, envFilePath },
     { prompts, docker },
   )
@@ -133,7 +133,7 @@ const runRecreateFromEnv = async (
   const deployment = resolveDeployment(flags.dir, prompts)
 
   if (!deployment) return 1
-  if (!ensureDaemonRunning(docker, prompts)) return 1
+  if (!requireDaemonRunning(docker, prompts)) return 1
 
   const exitCode = await containerStart.recreate(
     { deployment, healthTimeoutMs: deps.healthTimeoutMs },
