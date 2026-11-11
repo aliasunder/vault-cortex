@@ -1315,7 +1315,7 @@ Parameters:
 - prune_empty_folders keeps a folder that holds any file, even a hidden .DS_Store. An in-place rename or a move into a subfolder of the source prunes nothing. Pruning is best-effort: a folder that can't be removed never fails the call.
 
 Behavior:
-- A link is only rewritten when leaving it unchanged would break it, or would keep the old letter case after a rename, so a short [[Note]] that stays unambiguous after a folder move is left alone.
+- A link is only rewritten when leaving it unchanged would break it, or would keep the old letter case after the note's file name changes, so a short [[Note]] that stays unambiguous after a folder move is left alone.
 - Protected paths can be neither moved nor moved into: ${protectedPathsText}.
 
 Errors:
