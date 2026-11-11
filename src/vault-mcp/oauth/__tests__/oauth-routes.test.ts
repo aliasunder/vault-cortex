@@ -878,13 +878,26 @@ describe("OAuth endpoint rate limiting", () => {
   // are deliberately invalid: the limiter runs before request validation,
   // so invalid requests still count toward the window, and the pre-limit
   // status is each endpoint's own validation error.
-  it("rate-limits /authorize after 5 requests from one client IP", async () => {
+  it("rate-limits /authorize after 5 requests from one client IP, with the SDK's 429 body and headers", async () => {
     for (let attempt = 0; attempt < 5; attempt++) {
       const response = await fetch(`${baseUrl}/authorize?client_id=unknown`)
       expect(response.status).toBe(400)
     }
     const sixth = await fetch(`${baseUrl}/authorize?client_id=unknown`)
-    expect(sixth.status).toBe(429)
+    expect({
+      status: sixth.status,
+      body: await sixth.json(),
+      rateLimitHeader: sixth.headers.get("ratelimit-limit"),
+      legacyHeader: sixth.headers.get("x-ratelimit-limit"),
+    }).toEqual({
+      status: 429,
+      body: {
+        error: "too_many_requests",
+        error_description: "You have exceeded the rate limit for authorization requests",
+      },
+      rateLimitHeader: "5",
+      legacyHeader: null,
+    })
   })
 
   it("rate-limits /token after 5 requests from one client IP", async () => {
@@ -1205,7 +1218,7 @@ describe("OAuth refresh over HTTP", () => {
     return buffer.toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")
   }
 
-  const createRefreshTest = async (): Promise<{ baseUrl: string }> => {
+  const createRefreshTest = async (): Promise<{ baseUrl: string; oauth: OAuthProvider }> => {
     const dir = await mkdtemp(join(tmpdir(), "oauth-refresh-http-"))
     const oauth = createOAuthProvider({
       ...TEST_URLS,
@@ -1230,7 +1243,7 @@ describe("OAuth refresh over HTTP", () => {
       await new Promise<void>((resolve) => server.close(() => resolve()))
       await rm(dir, { recursive: true, force: true })
     })
-    return { baseUrl: `http://localhost:${getListeningPort(server)}` }
+    return { baseUrl: `http://localhost:${getListeningPort(server)}`, oauth }
   }
 
   // Each registration carries its own Forwarded address so two clients in one
@@ -1238,6 +1251,7 @@ describe("OAuth refresh over HTTP", () => {
   const registerClient = async (
     baseUrl: string,
     forwardedClientIp: string,
+    redirectUri = REDIRECT_URI,
   ): Promise<RegisteredClient> => {
     const response = await fetch(`${baseUrl}/register`, {
       method: "POST",
@@ -1247,7 +1261,7 @@ describe("OAuth refresh over HTTP", () => {
       },
       body: JSON.stringify({
         client_name: "refresh-test",
-        redirect_uris: [REDIRECT_URI],
+        redirect_uris: [redirectUri],
         grant_types: ["authorization_code", "refresh_token"],
         response_types: ["code"],
         token_endpoint_auth_method: "none",
@@ -1304,35 +1318,215 @@ describe("OAuth refresh over HTTP", () => {
     return { code, verifier }
   }
 
-  it("redirects an authorization request over 8 KB back to the client with invalid_request", async () => {
-    const { baseUrl } = await createRefreshTest()
-    const client = await registerClient(baseUrl, "203.0.113.40")
-    const oversizedState = "s".repeat(9000)
-    const authorizeUrl = new URL(`${baseUrl}/authorize`)
-    authorizeUrl.search = new URLSearchParams({
-      response_type: "code",
-      client_id: client.client_id,
-      redirect_uri: REDIRECT_URI,
-      code_challenge: base64Url(randomBytes(32)),
-      code_challenge_method: "S256",
-      state: oversizedState,
-    }).toString()
+  /** The parameters of a request the SDK accepts up to the consent page. */
+  const validAuthorizeParams = (client: RegisteredClient): Record<string, string> => ({
+    response_type: "code",
+    client_id: client.client_id,
+    redirect_uri: REDIRECT_URI,
+    code_challenge: base64Url(randomBytes(32)),
+    code_challenge_method: "S256",
+    state: "test-state",
+  })
 
-    const response = await fetch(authorizeUrl, {
-      headers: { forwarded: "for=203.0.113.40" },
+  /** What the guard answers: the status and body, whether a Location header
+   *  was sent, and the cache directive. */
+  const authorizeOutcome = async (
+    response: Response,
+  ): Promise<{ status: number; body: unknown; location: string | null; cache: string | null }> => ({
+    status: response.status,
+    body: await response.json(),
+    location: response.headers.get("location"),
+    cache: response.headers.get("cache-control"),
+  })
+
+  const authorizeByGet = (
+    baseUrl: string,
+    params: Record<string, string>,
+    forwardedClientIp: string,
+  ): Promise<Response> => {
+    const authorizeUrl = new URL(`${baseUrl}/authorize`)
+    authorizeUrl.search = new URLSearchParams(params).toString()
+    return fetch(authorizeUrl, {
+      headers: { forwarded: `for=${forwardedClientIp}` },
       redirect: "manual",
     })
+  }
 
-    expect(response.status).toBe(302)
-    const location = response.headers.get("location")
+  describe("authorization errors answered directly, never by redirect", () => {
+    const withoutCodeChallenge = (params: Record<string, string>): Record<string, string> => {
+      const { code_challenge: _omitted, ...rest } = params
+      return rest
+    }
 
-    if (!location) throw new Error("the refusal carried no redirect location")
-    const redirect = new URL(location)
-    expect(`${redirect.origin}${redirect.pathname}`).toBe(REDIRECT_URI)
-    expect(Object.fromEntries(redirect.searchParams)).toEqual({
-      error: "invalid_request",
-      error_description: "Authorization request parameters are too large",
-      state: oversizedState,
+    it.each([
+      {
+        label: "a wrong response_type",
+        malform: (params: Record<string, string>) => ({ ...params, response_type: "token" }),
+        error: "invalid_request",
+      },
+      {
+        label: "a missing code_challenge",
+        malform: withoutCodeChallenge,
+        error: "invalid_request",
+      },
+      {
+        label: "a plain code_challenge_method",
+        malform: (params: Record<string, string>) => ({
+          ...params,
+          code_challenge_method: "plain",
+        }),
+        error: "invalid_request",
+      },
+      {
+        label: "a resource naming another server",
+        malform: (params: Record<string, string>) => ({
+          ...params,
+          resource: "https://other.example/mcp",
+        }),
+        error: "invalid_target",
+      },
+      {
+        label: "parameters over 8 KB",
+        malform: (params: Record<string, string>) => ({ ...params, state: "s".repeat(9000) }),
+        error: "invalid_request",
+      },
+    ])("answers $label with a 400 and no Location", async ({ malform, error }) => {
+      const { baseUrl } = await createRefreshTest()
+      const client = await registerClient(baseUrl, "203.0.113.40")
+      const params = malform(validAuthorizeParams(client))
+
+      const outcome = await authorizeOutcome(await authorizeByGet(baseUrl, params, "203.0.113.40"))
+
+      expect(outcome).toEqual({
+        status: 400,
+        body: { error, error_description: expect.any(String) },
+        location: null,
+        cache: "no-store",
+      })
+    })
+
+    it("answers a repeated state parameter with a 400 and no Location", async () => {
+      const { baseUrl } = await createRefreshTest()
+      const client = await registerClient(baseUrl, "203.0.113.41")
+      const authorizeUrl = new URL(`${baseUrl}/authorize`)
+      authorizeUrl.search = `${new URLSearchParams(validAuthorizeParams(client)).toString()}&state=second`
+
+      const response = await fetch(authorizeUrl, {
+        headers: { forwarded: "for=203.0.113.41" },
+        redirect: "manual",
+      })
+
+      expect(await authorizeOutcome(response)).toEqual({
+        status: 400,
+        body: { error: "invalid_request", error_description: expect.any(String) },
+        location: null,
+        cache: "no-store",
+      })
+    })
+
+    it("answers a request whose registered redirect address alone pushes the stored parameters over 8 KB with a 400", async () => {
+      const { baseUrl } = await createRefreshTest()
+      // A registration well under 8 KB, so a registration body cap would not
+      // refuse it, whose redirect address fills most of the 8 KB the held
+      // consent request may hold; the state supplies the rest.
+      const longRedirectUri = `${REDIRECT_URI}?pad=${"p".repeat(7000)}`
+      const client = await registerClient(baseUrl, "203.0.113.42", longRedirectUri)
+      const { redirect_uri: _omitted, ...params } = validAuthorizeParams(client)
+
+      const outcome = await authorizeOutcome(
+        await authorizeByGet(baseUrl, { ...params, state: "s".repeat(1500) }, "203.0.113.42"),
+      )
+
+      expect(outcome).toEqual({
+        status: 400,
+        body: {
+          error: "invalid_request",
+          error_description: "Authorization request parameters are too large",
+        },
+        location: null,
+        cache: "no-store",
+      })
+    })
+
+    it("answers a malformed POST the same way as a GET", async () => {
+      const { baseUrl } = await createRefreshTest()
+      const client = await registerClient(baseUrl, "203.0.113.43")
+
+      const response = await fetch(`${baseUrl}/authorize`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/x-www-form-urlencoded",
+          forwarded: "for=203.0.113.43",
+        },
+        body: new URLSearchParams({ ...validAuthorizeParams(client), response_type: "token" }),
+        redirect: "manual",
+      })
+
+      expect(await authorizeOutcome(response)).toEqual({
+        status: 400,
+        body: { error: "invalid_request", error_description: expect.any(String) },
+        location: null,
+        cache: "no-store",
+      })
+    })
+
+    it("logs the rejection with the error code and client IP", async () => {
+      const logs: LogCall[] = []
+      recordingLogger(logs)
+      const { baseUrl } = await createRefreshTest()
+      const client = await registerClient(baseUrl, "203.0.113.44")
+      logs.length = 0
+
+      await authorizeByGet(
+        baseUrl,
+        { ...validAuthorizeParams(client), resource: "https://other.example/mcp" },
+        "203.0.113.44",
+      )
+
+      expect(logs.filter((log) => log.message === "oauth_authorize_rejected")).toEqual([
+        {
+          level: "warn",
+          message: "oauth_authorize_rejected",
+          data: { clientIp: "203.0.113.44", reason: "invalid_target" },
+        },
+      ])
+    })
+
+    it("answers a failure inside authorization with a 500 and logs it as an error", async () => {
+      const logs: LogCall[] = []
+      recordingLogger(logs)
+      const { baseUrl, oauth } = await createRefreshTest()
+      const client = await registerClient(baseUrl, "203.0.113.45")
+      vi.spyOn(oauth.provider, "authorize").mockRejectedValue(new Error("store unavailable"))
+      logs.length = 0
+
+      const outcome = await authorizeOutcome(
+        await authorizeByGet(baseUrl, validAuthorizeParams(client), "203.0.113.45"),
+      )
+
+      expect(outcome).toEqual({
+        status: 500,
+        body: { error: "server_error", error_description: "Internal Server Error" },
+        location: null,
+        cache: "no-store",
+      })
+      expect(logs.filter((log) => log.message === "oauth_authorize_failed")).toEqual([
+        {
+          level: "error",
+          message: "oauth_authorize_failed",
+          data: { clientIp: "203.0.113.45", error: "Internal Server Error" },
+        },
+      ])
+    })
+
+    it("still renders the consent page for a valid request", async () => {
+      const { baseUrl } = await createRefreshTest()
+      const client = await registerClient(baseUrl, "203.0.113.46")
+
+      const response = await authorizeByGet(baseUrl, validAuthorizeParams(client), "203.0.113.46")
+
+      expect(response.status).toBe(200)
+      expect(REQUEST_ID_PATTERN.test(await response.text())).toBe(true)
     })
   })
 
