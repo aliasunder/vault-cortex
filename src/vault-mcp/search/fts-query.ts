@@ -76,11 +76,13 @@ const sanitizedFtsParts = (raw: string): string[] => {
   // Control characters go first, so none survives inside a quoted phrase
   const controlFreeQuery = raw.replace(CONTROL_CHARACTER_REGEX, " ")
 
-  // Extract "quoted phrases", strip FTS5 metacharacters inside them,
-  // and collect into phrases[]. Other punctuation inside quotes is left
-  // alone — the unicode61 tokenizer splits it correctly in phrase queries.
+  // Extract "quoted phrases", turn FTS5 metacharacters inside them into
+  // spaces, and collect into phrases[]. A space keeps "10:30" as the two
+  // words the index holds; deleting the colon would search for "1030".
+  // Other punctuation inside quotes is left alone — the unicode61
+  // tokenizer splits it correctly in phrase queries.
   const remaining = controlFreeQuery.replace(QUOTED_PHRASE_REGEX, (_, phrase: string) => {
-    const cleaned = phrase.replace(FTS5_METACHARACTER_REGEX, "").trim()
+    const cleaned = phrase.replace(FTS5_METACHARACTER_REGEX, " ").trim()
 
     if (cleaned.length > 0) phrases.push(`"${cleaned}"`)
     return " "

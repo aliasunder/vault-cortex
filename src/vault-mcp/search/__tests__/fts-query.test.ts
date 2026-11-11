@@ -99,6 +99,11 @@ describe("sanitizeFtsQuery", () => {
       expected: "excluded term",
     },
     {
+      name: "colon inside a quoted phrase separates words instead of joining them",
+      input: '"standup at 10:30"',
+      expected: '"standup at 10 30"',
+    },
+    {
       name: "hyphen inside quoted phrase preserved",
       input: '"vault-cortex"',
       expected: '"vault-cortex"',
