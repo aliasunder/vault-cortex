@@ -110,7 +110,7 @@ Example: vault_search({ query: "decision", filters: { modified: { after: "2026-0
   const searchResultDetailsText = `${searchResultKindText} created is omitted, not null, when a result has none; type is null when the result has no type property; bytes is the on-disk size. With include_leading_callout, each result also carries leading_callout (the opening callout, { type, title, body }) when present.`
 
   const droppedQuerySyntaxText =
-    "the uppercase words AND, OR, NOT and NEAR (searched as terms in other spellings or inside double quotes), and punctuation such as *, ^, parentheses and colons, are dropped"
+    "the uppercase words AND, OR and NOT (searched as terms in other spellings or inside double quotes), and punctuation such as *, ^, parentheses and colons, are dropped"
 
   // The vector leg embeds the raw query, so an all-operator query still
   // returns semantic neighbours while embeddings are on — unless the query

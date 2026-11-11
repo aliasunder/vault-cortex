@@ -39,14 +39,14 @@ describe("sanitizeFtsQuery", () => {
       expected: '""',
     },
     {
-      name: "NEAR reserved word dropped from mixed input",
+      name: "uppercase NEAR kept as a term",
       input: "meeting NEAR fence",
-      expected: "meeting fence",
+      expected: "meeting NEAR fence",
     },
     {
-      name: "NEAR alone: empty result",
-      input: "NEAR",
-      expected: '""',
+      name: "NEAR group syntax loses its parentheses and comma, leaving terms",
+      input: "NEAR(alpha beta, 2)",
+      expected: "NEAR alpha beta 2",
     },
     {
       name: "lowercase and mixed-case reserved words kept as terms",

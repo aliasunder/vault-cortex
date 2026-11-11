@@ -1900,6 +1900,27 @@ describe("fullTextSearch", () => {
     expect(results.map((result) => result.path)).toEqual(["incident.md"])
   })
 
+  it("uppercase NEAR in a query is matched as a search term, not dropped", () => {
+    index.upsertNote(
+      withBodyTags({
+        filePath: "chain.md",
+        rawContent: "Bridged tokens to the NEAR protocol\n",
+        fileStat: testStat(6005),
+      }),
+      logger,
+    )
+    index.upsertNote(
+      withBodyTags({
+        filePath: "other-chain.md",
+        rawContent: "The protocol upgrade shipped today\n",
+        fileStat: testStat(6006),
+      }),
+      logger,
+    )
+    const results = index.fullTextSearch({ query: "NEAR protocol" }, logger)
+    expect(results.map((result) => result.path)).toEqual(["chain.md"])
+  })
+
   it("query with stray punctuation does not throw", () => {
     expect(() => {
       index.fullTextSearch({ query: "what's new in deploy/local, server.json & .env?" }, logger)

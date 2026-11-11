@@ -1,9 +1,10 @@
 // ── FTS5 query sanitization ─────────────────────────────────────
 
-/** FTS5 reads these only in uppercase as operators; "near miss" and "Not" are
+/** FTS5 reads these only in uppercase as operators; "and" and "Not" are
  *  ordinary terms, so sanitizedFtsParts drops only this exact spelling, and
- *  only from unquoted terms. */
-const FTS5_RESERVED = new Set(["AND", "OR", "NOT", "NEAR"])
+ *  only from unquoted terms. NEAR is not listed: FTS5 reads it as an operator
+ *  only when "(" follows, and every "(" is stripped before this check. */
+const FTS5_RESERVED = new Set(["AND", "OR", "NOT"])
 
 /** Every ASCII punctuation character except underscore, which FTS5 reads as
  *  part of a word. The character classes below insert it through
@@ -95,7 +96,7 @@ const sanitizedFtsParts = (raw: string): string[] => {
 
   // Strip all remaining ASCII punctuation (metacharacters, word-edge dots,
   // stray/leading hyphens), split into tokens, and drop the uppercase
-  // reserved words (AND, OR, NOT, NEAR).
+  // reserved words (AND, OR, NOT).
   const tokens = afterCompounds
     .replace(ASCII_PUNCTUATION_REGEX, " ")
     .split(/\s+/)
