@@ -44,6 +44,71 @@ const remoteDefaults = {
 // ── buildLocalConnectMessage ───────────────────────────────────────────────────
 
 describe("buildLocalConnectMessage", () => {
+  it("prints the whole connect message for a server that has not started", () => {
+    const message = buildLocalConnectMessage({
+      targetDir: "/home/user/vault-cortex",
+      instanceName: "vault-cortex",
+      token: "abc123deadbeef",
+      startStatus: "not-started",
+      port: 8123,
+      tokenWritten: true,
+    })
+
+    expect(message).toBe(`${expectedTopRule("Connect")}
+
+Start the server:
+  npx vault-cortex@latest start --dir "/home/user/vault-cortex"
+
+${expectedSectionRule("MCP client")}
+
+Connect your MCP client:
+  URL:        http://localhost:8123/mcp
+  Auth token:
+  abc123deadbeef
+
+Add the URL above as a remote MCP server (leave Client ID/Secret empty),
+then approve the consent page with the token. For example, Claude Code:
+  1. claude mcp add --scope user --transport http vault-cortex http://localhost:8123/mcp
+  2. approve the browser consent page with the token above
+  3. done — the client holds auto-refreshing access tokens; the token
+     never sits in client config
+
+Other clients (opencode, Cursor, …) take the URL above too. claude.ai
+(web) can't reach localhost — connect from a client on this machine.
+Claude Desktop only accepts https URLs in its connector dialog, so bridge
+it with mcp-remote:
+  "vault-cortex": {
+    "command": "npx",
+    "args": ["-y", "mcp-remote", "http://localhost:8123/mcp",
+      "--header", "Authorization: Bearer <token above>"]
+  }
+
+${expectedSectionRule("Non-OAuth")}
+
+Clients without OAuth, scripts, and curl send the token directly:
+  curl -H "Authorization: Bearer <token>" http://localhost:8123/mcp
+
+Smoke test:
+  curl http://localhost:8123/healthz
+
+${expectedSectionRule("Settings")}
+
+Adjust optional settings (memory layer and folder, daily notes
+folder and format, file tools, semantic search, port, timezone):
+  npx vault-cortex@latest configure --dir "/home/user/vault-cortex"
+
+Or edit /home/user/vault-cortex/.env directly — change a value (uncommenting it
+first if needed), then apply it (plain docker restart does not re-read .env):
+  npx vault-cortex@latest restart --dir "/home/user/vault-cortex"
+
+Update to the latest release:
+  npx vault-cortex@latest upgrade --dir "/home/user/vault-cortex"
+
+Full docs: https://github.com/aliasunder/vault-cortex
+
+${expectedBottomRule()}`)
+  })
+
   it("wraps the output in top and bottom box-drawing rules", () => {
     const message = buildLocalConnectMessage(localDefaults)
 
@@ -216,6 +281,71 @@ describe("buildLocalConnectMessage", () => {
 // ── buildRemoteConnectMessage ──────────────────────────────────────────────────
 
 describe("buildRemoteConnectMessage", () => {
+  it("prints the whole connect message for a server that has not started or signed in", () => {
+    const message = buildRemoteConnectMessage({
+      targetDir: "/srv/vault-cortex",
+      instanceName: "vault-cortex",
+      token: "abc123deadbeef",
+      publicUrl: "https://vault.example.com",
+      startStatus: "not-started",
+      obsidianTokenMissing: true,
+      tokenWritten: true,
+    })
+
+    expect(message).toBe(`${expectedTopRule("Connect")}
+
+Start the server:
+  npx vault-cortex@latest start --dir "/srv/vault-cortex"
+Until it's signed in to Obsidian Sync, it shows a sign-in page instead of
+syncing. Open the page:
+  https://vault.example.com
+It asks for the auth token below and your Obsidian password.
+
+${expectedSectionRule("MCP client")}
+
+Connect your MCP client:
+  URL:        https://vault.example.com/mcp
+  Auth token:
+  abc123deadbeef
+
+Add the URL above as a remote MCP server (leave Client ID/Secret empty),
+then approve the consent page with the token. For example, Claude Code:
+  1. claude mcp add --scope user --transport http vault-cortex https://vault.example.com/mcp
+  2. approve the browser consent page with the token above
+  3. done — the client holds auto-refreshing access tokens; the token
+     never sits in client config
+
+Reachable over https from any MCP client — Claude Desktop, claude.ai (web
+and mobile), opencode, Cursor — from any device.
+
+${expectedSectionRule("Non-OAuth")}
+
+Clients without OAuth, scripts, and curl send the token directly:
+  curl -H "Authorization: Bearer <token>" https://vault.example.com/mcp
+
+Smoke test:
+  curl https://vault.example.com/healthz
+
+${expectedSectionRule("Settings")}
+
+Adjust optional settings (memory layer and folder, daily notes
+folder and format, file tools, semantic search, port, timezone,
+sync direction):
+  npx vault-cortex@latest configure --dir "/srv/vault-cortex"
+
+Or edit /srv/vault-cortex/.env directly — change a value (uncommenting it
+first if needed), then apply it (plain docker restart does not re-read .env):
+  npx vault-cortex@latest restart --dir "/srv/vault-cortex"
+
+Update to the latest release:
+  npx vault-cortex@latest upgrade --dir "/srv/vault-cortex"
+
+For HTTPS options (API Gateway, Caddy, Cloudflare Tunnel), see:
+https://github.com/aliasunder/vault-cortex/blob/main/deploy/remote/README.md#https-access
+
+${expectedBottomRule()}`)
+  })
+
   it("wraps the output in top and bottom box-drawing rules", () => {
     const message = buildRemoteConnectMessage(remoteDefaults)
 
