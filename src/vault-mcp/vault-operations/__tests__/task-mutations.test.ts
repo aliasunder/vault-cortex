@@ -1272,6 +1272,25 @@ kanban-plugin: board
       )
     })
 
+    it("rejects an empty assignBlockId on update instead of rewriting the note unchanged", async () => {
+      const vault = await createVault()
+      await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
+
+      await expect(
+        taskMutations.updateTask(
+          {
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
+            vaultPath: vault,
+            path: "tasks.md",
+            blockId: "walk-dog",
+            assignBlockId: "",
+          },
+          logger,
+        ),
+      ).rejects.toThrow(new Error("assignBlockId cannot be empty (use null to remove the id)"))
+      expect(await readFile(join(vault, "tasks.md"), "utf8")).toBe(SIMPLE_NOTE)
+    })
+
     it("errors when heading is missing on a Kanban board", async () => {
       const vault = await createVault()
       await writeTestNote(vault, "board.md", KANBAN_BOARD)

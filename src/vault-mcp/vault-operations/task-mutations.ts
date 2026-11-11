@@ -1900,6 +1900,10 @@ const assertUpdateTaskParams = (params: UpdateTaskParams): void => {
     throw new Error("description must be a single line")
   }
 
+  if (assignBlockId === "") {
+    throw new Error("assignBlockId cannot be empty (use null to remove the id)")
+  }
+
   if (addSubtasks !== undefined && addSubtasks.length === 0) {
     throw new Error("addSubtasks cannot be empty")
   }
@@ -2163,18 +2167,27 @@ type NoteWriteTarget = {
   writtenBodyStartLine: number
 }
 
+/** A spawned next occurrence and where the body holds it. */
+type PlacedSpawn = {
+  spawn: Extract<RecurrenceSpawn, { kind: "spawn" }>
+  /** The spawn's index in the body lines. */
+  insertIndex: number
+  /** Written on the line below the completed task (the plugin's
+   *  recurrenceOnNextLine setting) instead of the line above it. */
+  writtenBelow: boolean
+}
+
 /** Removes a task completed under onCompletion "delete", with its
  *  children, and writes the note. A spawned next occurrence survives the
  *  removal: one written above the block keeps its index, and one written
- *  below it (recurrenceOnNextLine) moves up by the block's length. */
+ *  below it moves up by the block's length. */
 const deleteTaskOnCompletion = async (
   {
     note,
     lines,
     taskLineIndex,
-    spawnInsertIndex,
-    recurrenceSpawn,
-    recurrenceOnNextLine,
+    placedSpawn,
+    recurrenceAdvisory,
     headings,
     lineChanges,
     mutatedLine,
@@ -2185,10 +2198,9 @@ const deleteTaskOnCompletion = async (
     lines: readonly string[]
     /** The completed task's index in `lines`. */
     taskLineIndex: number
-    /** The spawn's index in `lines`; meaningful only for a spawn. */
-    spawnInsertIndex: number
-    recurrenceSpawn: RecurrenceSpawn
-    recurrenceOnNextLine: boolean
+    placedSpawn: PlacedSpawn | undefined
+    /** Why no next occurrence was written, when the rule gave none. */
+    recurrenceAdvisory: string | undefined
     headings: readonly HeadingInfo[]
     lineChanges: readonly string[]
     mutatedLine: string
@@ -2207,16 +2219,17 @@ const deleteTaskOnCompletion = async (
 
   // A spawn written below the task keeps the task's indentation, so the
   // deleted block ends where the spawn starts.
-  const spawnFinalIndex = recurrenceOnNextLine ? spawnInsertIndex - deleteCount : spawnInsertIndex
+  const spawnFinalIndex = (spawn: PlacedSpawn): number => {
+    return spawn.writtenBelow ? spawn.insertIndex - deleteCount : spawn.insertIndex
+  }
 
-  const nextOccurrence: NextOccurrencePosition | undefined =
-    recurrenceSpawn.kind === "spawn"
-      ? buildNextOccurrencePosition({
-          bodyStartLine: note.writtenBodyStartLine,
-          spawnIndex: spawnFinalIndex,
-          recurrenceSpawn,
-        })
-      : undefined
+  const nextOccurrence: NextOccurrencePosition | undefined = placedSpawn
+    ? buildNextOccurrencePosition({
+        bodyStartLine: note.writtenBodyStartLine,
+        spawnIndex: spawnFinalIndex(placedSpawn),
+        recurrenceSpawn: placedSpawn.spawn,
+      })
+    : undefined
 
   const changes = [
     ...lineChanges,
@@ -2264,9 +2277,7 @@ const deleteTaskOnCompletion = async (
     // this write never adds, so they are dropped. A recurrence advisory
     // ("rule unreadable, no spawn") stays: the caller needs to know the
     // chain broke.
-    ...(recurrenceSpawn.kind === "advisory" && {
-      advisories: [recurrenceSpawn.advisory],
-    }),
+    ...(recurrenceAdvisory && { advisories: [recurrenceAdvisory] }),
     on_completion_applied: "delete",
   }
 }
@@ -2525,9 +2536,16 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
           note,
           lines: linesWithSpawn,
           taskLineIndex: completedIndexAfterSpawn,
-          spawnInsertIndex,
-          recurrenceSpawn,
-          recurrenceOnNextLine: formatConfig.recurrenceOnNextLine,
+          placedSpawn:
+            recurrenceSpawn.kind === "spawn"
+              ? {
+                  spawn: recurrenceSpawn,
+                  insertIndex: spawnInsertIndex,
+                  writtenBelow: formatConfig.recurrenceOnNextLine,
+                }
+              : undefined,
+          recurrenceAdvisory:
+            recurrenceSpawn.kind === "advisory" ? recurrenceSpawn.advisory : undefined,
           headings: headingsAfterSpawn,
           lineChanges,
           mutatedLine,
