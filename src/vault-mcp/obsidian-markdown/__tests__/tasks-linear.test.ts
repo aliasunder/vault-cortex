@@ -65,7 +65,7 @@ const readGrammar = (): Grammar => {
       dataview: dataviewField,
       emoji: EMOJI_RECURRENCE_RE,
       repeat: DATAVIEW_RECURRENCE_RE,
-      dependencies: DATAVIEW_DEPENDS_ON_RE,
+      dependencies: DATAVIEW_DEPENDS_ON_MATCHER,
       metadataStart: findMetadataStart,
       withoutBlockLink: (body) => splitTrailingBlockLink(body).body,
       trailingTags: extractTrailingTags,
