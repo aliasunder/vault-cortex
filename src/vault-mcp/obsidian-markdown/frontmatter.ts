@@ -241,11 +241,19 @@ const convertDocumentToValue = (
   }
 }
 
+/** One unit of findFirstDuplicateKey's work: visit a node, or check one
+ *  pair's key against the keys its map has shown so far (`nodes` by identity,
+ *  `values` by scalar value). */
 type DuplicateKeyStep =
   | { kind: "node"; node: unknown }
   | { kind: "key"; pair: Pair; nodes: Set<unknown>; values: Set<unknown> }
 
-/** Preserves the YAML composer's duplicate-key error position. */
+/** The offset where the `yaml` library places a duplicate-key error for
+ *  `pair`, from the first of these that exists:
+ *  1. the end of the pair's last prefix token;
+ *  2. the key token's offset;
+ *  3. the start of the key node's range;
+ *  4. the first separator token's offset, else 0. */
 const duplicateKeyOffset = (pair: Pair): number => {
   const lastPrefixToken = pair.srcToken?.start.at(-1)
 
@@ -256,11 +264,14 @@ const duplicateKeyOffset = (pair: Pair): number => {
   return pair.srcToken?.sep?.[0]?.offset ?? 0
 }
 
-/** Mirrors composition order without the library's repeated scan of all earlier keys. */
+/** The first duplicate map key in `document`, as the error the `yaml`
+ *  library's own duplicate check reports for it (same message, same
+ *  position), or undefined. Keys are checked in the order the library
+ *  composes them, so the first duplicate found is the library's first. */
 const findFirstDuplicateKey = (document: Document): YAMLParseError | undefined => {
+  // A stack of pending steps; the last one pushed runs next.
   const steps: DuplicateKeyStep[] = [{ kind: "node", node: document.contents }]
 
-  // A stack interleaves each key, duplicate check and value in native composition order.
   while (steps.length) {
     const step = steps.pop()
 
@@ -287,14 +298,16 @@ const findFirstDuplicateKey = (document: Document): YAMLParseError | undefined =
       const nodes = new Set<unknown>()
       const values = new Set<unknown>()
       for (const pair of node.items.toReversed()) {
-        const check: DuplicateKeyStep = { kind: "key", pair, nodes, values }
-        const value: DuplicateKeyStep = { kind: "node", node: pair.value }
+        const keyCheck: DuplicateKeyStep = { kind: "key", pair, nodes, values }
+        const valueVisit: DuplicateKeyStep = { kind: "node", node: pair.value }
 
-        // LIFO scheduling visits key → value → check in flow maps, key → check → value in blocks.
+        // The library checks a flow-map key after composing its value, and a
+        // block-map key before. Pushed in reverse, the steps run as key node,
+        // value, key check (flow) or key node, key check, value (block).
         if (node.flow) {
-          steps.push(check, value)
+          steps.push(keyCheck, valueVisit)
         } else {
-          steps.push(value, check)
+          steps.push(valueVisit, keyCheck)
         }
         steps.push({ kind: "node", node: pair.key })
       }
@@ -320,15 +333,22 @@ const readPropertiesBlock = (blockText: string): PropertiesBlockReading => {
   //   opener line, line break included, and keeps the note's line breaks, so
   //   line N of the block is line N of the note.
   const lineCounter = new LineCounter()
-  // prettyErrors would append its own position and a multi-line excerpt of
-  // the block to each message; the message below states the position itself
+  // - prettyErrors would append its own position and a multi-line excerpt of
+  //   the block to each message; the message below states the position itself.
+  // - uniqueKeys: false turns off the library's duplicate-key check, which
+  //   compares each key with every earlier key in its map; findFirstDuplicateKey
+  //   finds the same first duplicate in one pass.
+  // - keepSourceTokens keeps the source tokens duplicateKeyOffset reads to
+  //   place that error where the library would.
   const document = parseDocument(blockText, {
     prettyErrors: false,
     lineCounter,
     uniqueKeys: false,
     keepSourceTokens: true,
   })
-  // Syntax failures may take precedence; duplicate-only blocks retain the native first error.
+  // A syntax error is reported ahead of any duplicate key, wherever each
+  // sits. A block whose only problem is a duplicate key gets the error the
+  // library's own check reports for it.
   const firstError = document.errors[0] ?? findFirstDuplicateKey(document)
 
   if (firstError) {
