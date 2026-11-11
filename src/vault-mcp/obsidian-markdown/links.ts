@@ -29,7 +29,8 @@ const LINE_TERMINATOR = /[\n\r\u2028\u2029]/
 const INLINE_CODE_RE = /`+[^`\n]*`+/g
 
 /** Splits a matched wikilink into [, embed `!`, target, `#heading`, `|alias`].
- *  Anchored and non-global — safe for .exec(). */
+ *  Anchored and non-global — safe for .exec(). scanWikilinks finds the links
+ *  this parses, so the two must accept the same grammar. */
 const WIKILINK_PARTS = /^(!?)\[\[([^\]#|]+)(#[^\]|]*)?(\|[^\]]+)?\]\]$/
 
 /** Splits a matched markdown link into [, `[text](`, path-without-ext,
@@ -37,7 +38,10 @@ const WIKILINK_PARTS = /^(!?)\[\[([^\]#|]+)(#[^\]|]*)?(\|[^\]]+)?\]\]$/
  *  ([text](Note.md), ![alt](image.png), [doc](file.pdf)); an extensionless
  *  target ([text](Extensionless%20Note)) parses with extension "". The
  *  extension group excludes "/" so a dot in a folder name is never misread
- *  as the extension. Anchored and non-global — safe for .exec(). */
+ *  as the extension. Anchored and non-global — safe for .exec().
+ *  scanMarkdownLinks finds the links this parses: the two must agree on the
+ *  target and `#heading` grammar, and the scanner alone skips URLs and
+ *  heading-only targets. */
 const MD_LINK_PARTS = /^(\[[^\]]*\]\()([^)#\s]+?)(\.[^/.#\s]+)?(#[^)\s]*)?(\))$/
 
 /** Safely decodes a URI component, falling back to the raw string if the
@@ -68,7 +72,9 @@ type LinkMatch = {
 /** The half-open character range [start, end) of an inline code span in a line. */
 type CodeSpan = { start: number; end: number }
 
-type TargetSpan = CodeSpan & { targetStart: number; targetEnd: number }
+/** A link a scanner found: [start, end) covers the whole link, and
+ *  [targetStart, targetEnd) its target alone, without any `#heading` or `|alias`. */
+type LinkSpan = { start: number; end: number; targetStart: number; targetEnd: number }
 
 /** The structural parts of a wikilink ![[target#heading|alias]]. heading/alias
  *  keep their leading `#` / `|` (or `\|` for table-escaped pipes) so
@@ -96,9 +102,13 @@ type MarkdownLinkParts = {
 
 // ── Line scanning ───────────────────────────────────────────────
 
-/** Delimiter cursors only advance, so failed openers share suffix scans. */
-const scanWikilinks = (text: string, visit: (span: TargetSpan) => void): void => {
-  // An overlapping opener before a cached delimiter has no intervening delimiter to find.
+/** Calls `visit` for each wikilink in `text`, left to right and never
+ *  overlapping: `[[target#heading|alias]]`, with an optional `!` embed prefix.
+ *  The target must be nonempty and the heading may be empty, but an alias
+ *  must not be. */
+const scanWikilinks = (text: string, visit: (span: LinkSpan) => void): void => {
+  // Each delimiter cursor outlives a failed opener and only moves forward: a
+  // later opener finds no delimiter before the one already found.
   let targetEnd = 0
   let headingEnd = 0
   let closeBracket = 0
@@ -133,10 +143,15 @@ const scanWikilinks = (text: string, visit: (span: TargetSpan) => void): void =>
   }
 }
 
-/** URI schemes follow RFC 3986, including uppercase letters and punctuation. */
-const scanMarkdownLinks = (text: string, visit: (span: TargetSpan) => void): void => {
-  // Later openers reuse the same ] or reach a later one, so ]( target starts never move back.
-  // A cached scheme end stays valid until a target starts beyond it.
+/** Calls `visit` for each markdown link `[text](target#heading)` in `text`,
+ *  left to right and never overlapping. The heading may be empty, and
+ *  whitespace ends the attempt. Skipped targets:
+ *  - a heading alone (`[a](#Heading)`), which points into the same note;
+ *  - one that opens with a URI scheme (`https:`, `mailto:`), an external link. */
+const scanMarkdownLinks = (text: string, visit: (span: LinkSpan) => void): void => {
+  // Each cursor outlives a failed opener and only moves forward: a later
+  // opener reaches the same `]` or a later one, so its target never starts
+  // further left, and a scheme end found earlier still holds.
   let textEnd = 0
   let targetEnd = 0
   let fragmentEnd = 0
@@ -150,6 +165,7 @@ const scanMarkdownLinks = (text: string, visit: (span: TargetSpan) => void): voi
     const targetStart = textEnd + 2
 
     if (text[targetStart] === "#") continue
+    // A URI scheme is a letter, then letters, digits, `+`, `.` or `-`, then `:` (RFC 3986).
     if (SCHEME_START.test(text.charAt(targetStart))) {
       schemeEnd = Math.max(schemeEnd, targetStart + 1)
       while (schemeEnd < text.length && SCHEME_CHARACTER.test(text.charAt(schemeEnd))) schemeEnd++
@@ -164,7 +180,6 @@ const scanMarkdownLinks = (text: string, visit: (span: TargetSpan) => void): voi
     )
       targetEnd++
     if (targetEnd === targetStart) continue
-    // A fragment may be empty; whitespace still ends the attempted match.
     let end = targetEnd
 
     if (text[end] === "#") {
@@ -183,10 +198,16 @@ const scanMarkdownLinks = (text: string, visit: (span: TargetSpan) => void): voi
   }
 }
 
-/** Line terminators stop Templater expressions even when the caller supplies a whole note. */
+/** Replaces each Templater expression in `text` with as many spaces, so links
+ *  inside one are not extracted and every offset after it stays the same.
+ *  - Templater is an Obsidian plugin whose `<% … %>` (and `<%+ … %>`)
+ *    expressions run when a template is applied; links in them are template
+ *    code, not links in the note.
+ *  - An expression must close on its own line, even when `text` holds a
+ *    whole note. */
 const maskTemplaterExpressions = (text: string): string => {
   const pieces: string[] = []
-  // The closer cursor is shared by every failed opener before it.
+  // The closer cursor outlives a failed opener: a later opener finds no `%>` before it.
   let close = 0
   let copiedThrough = 0
 
