@@ -8,7 +8,7 @@ import { setImmediate as setImmediateAsync } from "node:timers/promises"
 import type { Logger } from "../../logger.js"
 import { parseLeadingCallout } from "../obsidian-markdown/callouts.js"
 import type { LeadingCallout } from "../obsidian-markdown/callouts.js"
-import { linearizeCanvas, extractCanvasFileLinks } from "../obsidian-markdown/canvas.js"
+import { linearizeCanvas, extractCanvasLinks } from "../obsidian-markdown/canvas.js"
 import { getFileKind, isCanvasPath } from "../obsidian-markdown/file-kinds.js"
 import type { FileKind } from "../obsidian-markdown/file-kinds.js"
 import { extractHtmlVisibleText } from "../obsidian-markdown/html.js"
@@ -68,7 +68,7 @@ export const PDF_EXTRACTION_CONCURRENCY = 4
 
 /** File kinds whose content is indexed into file_content_fts when file tools
  *  are on. A canvas is left out because it is read whatever that setting is,
- *  since its file cards are graph links. */
+ *  since its cards hold graph links. */
 export const CONTENT_INDEXED_FILE_KINDS: ReadonlySet<FileKind> = new Set([
   "pdf",
   "text",
@@ -1521,7 +1521,9 @@ export const createSearchIndex = (
       })
     }
 
-    const canvasLinks = isCanvas ? extractCanvasFileLinks(params.rawContent) : []
+    const canvasLinks = isCanvas
+      ? extractCanvasLinks(params.rawContent)
+      : { fileCards: [], textCardLinks: [] }
 
     db.transaction(() => {
       // FTS indexing — gated behind fileToolsEnabled
@@ -1546,8 +1548,17 @@ export const createSearchIndex = (
       // Link extraction — canvas only, unconditional (graph integrity)
       if (isCanvas) {
         deleteLinksStmt.run(params.filePath)
-        const notePaths = canvasLinks.length > 0 ? getCanvasNotePaths() : []
-        for (const rawTarget of canvasLinks) {
+
+        // A file card opens the exact vault path it names, so it is stored
+        // as written. Resolving it like a link would send a Plan.pdf card
+        // to a Plan.pdf.md note.
+        for (const fileCardPath of canvasLinks.fileCards) {
+          insertLinkStmt.run(params.filePath, fileCardPath)
+        }
+
+        // A link typed in a text card resolves as the same link in a note.
+        const notePaths = canvasLinks.textCardLinks.length > 0 ? getCanvasNotePaths() : []
+        for (const rawTarget of canvasLinks.textCardLinks) {
           const resolvedNotePath = links.resolve({
             target: rawTarget,
             allPaths: notePaths,
@@ -1567,7 +1578,7 @@ export const createSearchIndex = (
 
     logger.debug("indexed file content", {
       path: params.filePath,
-      links: canvasLinks.length,
+      links: canvasLinks.fileCards.length + canvasLinks.textCardLinks.length,
       fts: Boolean(upsertFileContentStmt),
     })
     return sourceVersion

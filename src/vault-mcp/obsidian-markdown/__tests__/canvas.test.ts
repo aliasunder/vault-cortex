@@ -2,8 +2,7 @@ import { describe, it, expect, vi } from "vitest"
 import { readParserComplexityReport } from "./helpers/frontmatter-canvas-adversary.js"
 import {
   linearizeCanvas,
-  extractCanvasFileLinks,
-  extractCanvasCardTexts,
+  extractCanvasLinks,
   rewriteCanvasLinks,
   canNestCanvasGroups,
 } from "../canvas.js"
@@ -306,120 +305,134 @@ describe("linearizeCanvas", () => {
   })
 })
 
-describe("extractCanvasFileLinks", () => {
-  it("extracts file paths from file-type nodes", () => {
-    const json = canvasJson([
-      {
-        id: "f1",
-        type: "file",
-        x: 0,
-        y: 0,
-        width: 400,
-        height: 300,
-        file: "Notes/Plan.md",
-      },
-      {
-        id: "f2",
-        type: "file",
-        x: 500,
-        y: 0,
-        width: 400,
-        height: 300,
-        file: "Diagrams/arch.png",
-      },
-    ])
-
-    expect(extractCanvasFileLinks(json)).toEqual(["Notes/Plan.md", "Diagrams/arch.png"])
+describe("extractCanvasLinks", () => {
+  /** A file card at a fixed position; only its id and path vary. */
+  const fileNode = (id: string, file: string): Record<string, unknown> => ({
+    id,
+    type: "file",
+    x: 0,
+    y: 0,
+    width: 400,
+    height: 300,
+    file,
   })
 
-  it("does NOT extract wikilinks from text-type nodes", () => {
+  it("lists each file card's path as written", () => {
+    const json = canvasJson([
+      fileNode("f1", "Notes/Plan.md"),
+      fileNode("f2", "Diagrams/arch.png"),
+      fileNode("f3", "Plan.pdf"),
+    ])
+
+    expect(extractCanvasLinks(json)).toEqual({
+      fileCards: ["Notes/Plan.md", "Diagrams/arch.png", "Plan.pdf"],
+      textCardLinks: [],
+    })
+  })
+
+  it("lists the target of every link form typed in a text card", () => {
     const json = canvasJson([
       textNode({
         id: "t1",
-        text: "See [[Projects/Plan]] and [[Ideas/Backlog]]",
+        text: "[[A]] [[B|alias]] [[C#h]] [[D#^b]] ![[E.png]] [f](F.md)",
       }),
     ])
 
-    expect(extractCanvasFileLinks(json)).toEqual([])
+    expect(extractCanvasLinks(json)).toEqual({
+      fileCards: [],
+      textCardLinks: ["A", "B", "C", "D", "E.png", "F.md"],
+    })
   })
 
-  it("deduplicates file paths", () => {
+  it("keeps a relative link's target as written", () => {
+    const json = canvasJson([textNode({ id: "t1", text: "Up one folder: [[../Note]]" })])
+
+    expect(extractCanvasLinks(json)).toEqual({ fileCards: [], textCardLinks: ["../Note"] })
+  })
+
+  it("leaves out a link inside inline code", () => {
+    const json = canvasJson([textNode({ id: "t1", text: "Typed `[[Code]]` beside [[Kept]]" })])
+
+    expect(extractCanvasLinks(json)).toEqual({ fileCards: [], textCardLinks: ["Kept"] })
+  })
+
+  it("leaves out a link inside a fenced block", () => {
+    const json = canvasJson([textNode({ id: "t1", text: "[[Kept]]\n\n```\n[[Fenced]]\n```" })])
+
+    expect(extractCanvasLinks(json)).toEqual({ fileCards: [], textCardLinks: ["Kept"] })
+  })
+
+  it("reads a file card and a text card from the same canvas", () => {
     const json = canvasJson([
-      {
-        id: "f1",
-        type: "file",
-        x: 0,
-        y: 0,
-        width: 400,
-        height: 300,
-        file: "Notes/Plan.md",
-      },
-      {
-        id: "f2",
-        type: "file",
-        x: 500,
-        y: 0,
-        width: 400,
-        height: 300,
-        file: "Notes/Plan.md",
-      },
+      fileNode("f1", "Notes/Plan.md"),
+      textNode({ id: "t1", text: "See [[Backlog]]" }),
     ])
 
-    expect(extractCanvasFileLinks(json)).toEqual(["Notes/Plan.md"])
+    expect(extractCanvasLinks(json)).toEqual({
+      fileCards: ["Notes/Plan.md"],
+      textCardLinks: ["Backlog"],
+    })
   })
 
-  it("returns empty array for an empty canvas", () => {
-    expect(extractCanvasFileLinks("{}")).toEqual([])
+  it("lists a link typed in two text cards once", () => {
+    const json = canvasJson([
+      textNode({ id: "t1", text: "[[Plan]] and [[Backlog]]" }),
+      textNode({ id: "t2", text: "Again [[Plan]]" }),
+    ])
+
+    expect(extractCanvasLinks(json)).toEqual({
+      fileCards: [],
+      textCardLinks: ["Plan", "Backlog"],
+    })
   })
 
-  it("returns empty array for a text-only canvas", () => {
+  it("lists a path shown by two file cards once", () => {
+    const json = canvasJson([fileNode("f1", "Notes/Plan.md"), fileNode("f2", "Notes/Plan.md")])
+
+    expect(extractCanvasLinks(json)).toEqual({ fileCards: ["Notes/Plan.md"], textCardLinks: [] })
+  })
+
+  it("finds no link in an empty text card", () => {
+    const json = canvasJson([
+      textNode({ id: "t1", text: "" }),
+      textNode({ id: "t2", text: "[[Kept]]" }),
+    ])
+
+    expect(extractCanvasLinks(json)).toEqual({ fileCards: [], textCardLinks: ["Kept"] })
+  })
+
+  it("finds no link in text cards without one", () => {
     const json = canvasJson([
       textNode({ id: "t1", text: "just text" }),
       textNode({ id: "t2", text: "more text" }),
     ])
 
-    expect(extractCanvasFileLinks(json)).toEqual([])
+    expect(extractCanvasLinks(json)).toEqual({ fileCards: [], textCardLinks: [] })
   })
 
-  it("skips file nodes with missing file field", () => {
+  it("skips a file card with no file field", () => {
     const json = canvasJson([
-      {
-        id: "f1",
-        type: "file",
-        x: 0,
-        y: 0,
-        width: 400,
-        height: 300,
-      },
-      {
-        id: "f2",
-        type: "file",
-        x: 500,
-        y: 0,
-        width: 400,
-        height: 300,
-        file: "Diagrams/arch.png",
-      },
+      { id: "f1", type: "file", x: 0, y: 0, width: 400, height: 300 },
+      fileNode("f2", "Diagrams/arch.png"),
     ])
 
-    expect(extractCanvasFileLinks(json)).toEqual(["Diagrams/arch.png"])
+    expect(extractCanvasLinks(json)).toEqual({
+      fileCards: ["Diagrams/arch.png"],
+      textCardLinks: [],
+    })
   })
 
-  it("skips entries missing required geometry fields", () => {
+  it("skips cards missing required geometry fields", () => {
     const json = canvasJson([
-      { id: "bad", type: "file", file: "Notes/missing-geom.md" },
-      {
-        id: "good",
-        type: "file",
-        x: 0,
-        y: 0,
-        width: 400,
-        height: 300,
-        file: "Notes/has-geom.md",
-      },
+      { id: "bad-file", type: "file", file: "Notes/missing-geom.md" },
+      { id: "bad-text", type: "text", text: "[[No Geometry]]" },
+      fileNode("good", "Notes/has-geom.md"),
     ])
 
-    expect(extractCanvasFileLinks(json)).toEqual(["Notes/has-geom.md"])
+    expect(extractCanvasLinks(json)).toEqual({
+      fileCards: ["Notes/has-geom.md"],
+      textCardLinks: [],
+    })
   })
 
   it("ignores link-type and group-type nodes", () => {
@@ -440,46 +453,12 @@ describe("extractCanvasFileLinks", () => {
         y: 0,
         width: 400,
         height: 300,
-        label: "My Group",
+        label: "[[Group Label]]",
       },
-      {
-        id: "f1",
-        type: "file",
-        x: 0,
-        y: 0,
-        width: 400,
-        height: 300,
-        file: "Notes/real.md",
-      },
+      fileNode("f1", "Notes/real.md"),
     ])
 
-    expect(extractCanvasFileLinks(json)).toEqual(["Notes/real.md"])
-  })
-
-  it("throws on unparseable JSON", () => {
-    expect(() => extractCanvasFileLinks("{not json")).toThrow(/^invalid \.canvas JSON: /)
-  })
-})
-
-describe("extractCanvasCardTexts", () => {
-  it("returns the text of each text card in JSON order, skipping other node types", () => {
-    const json = canvasJson([
-      textNode({ id: "t1", text: "See [[Plan]]" }),
-      { id: "f1", type: "file", x: 0, y: 0, width: 400, height: 300, file: "Notes/Plan.md" },
-      textNode({ id: "t2", text: "Second card" }),
-    ])
-
-    expect(extractCanvasCardTexts(json)).toEqual(["See [[Plan]]", "Second card"])
-  })
-
-  it("skips empty cards and cards missing geometry", () => {
-    const json = canvasJson([
-      textNode({ id: "t1", text: "" }),
-      { id: "t2", type: "text", text: "[[No Geometry]]" },
-      textNode({ id: "t3", text: "kept" }),
-    ])
-
-    expect(extractCanvasCardTexts(json)).toEqual(["kept"])
+    expect(extractCanvasLinks(json)).toEqual({ fileCards: ["Notes/real.md"], textCardLinks: [] })
   })
 
   it.each([
@@ -487,12 +466,12 @@ describe("extractCanvasCardTexts", () => {
     { label: "a nodes value that is not an array", canvas: '{"nodes":"[[Plan]]"}' },
     { label: "a top-level array", canvas: '[{"type":"text","text":"[[Plan]]"}]' },
     { label: "a top-level null", canvas: "null" },
-  ])("returns no texts for $label", ({ canvas }) => {
-    expect(extractCanvasCardTexts(canvas)).toEqual([])
+  ])("finds no links in $label", ({ canvas }) => {
+    expect(extractCanvasLinks(canvas)).toEqual({ fileCards: [], textCardLinks: [] })
   })
 
   it("throws on unparseable JSON", () => {
-    expect(() => extractCanvasCardTexts("{not json")).toThrow(/^invalid \.canvas JSON: /)
+    expect(() => extractCanvasLinks("{not json")).toThrow(/^invalid \.canvas JSON: /)
   })
 })
 

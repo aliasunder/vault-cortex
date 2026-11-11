@@ -1,4 +1,5 @@
 import { posix } from "node:path"
+import { links } from "./links.js"
 
 /**
  * Linearizes an Obsidian .canvas file (JSON Canvas 1.0 —
@@ -297,38 +298,29 @@ export const linearizeCanvas = (canvasJson: string): string => {
   return sections.join("\n\n")
 }
 
-/** Extracts deduplicated vault-relative file paths from canvas `file`-type
- *  nodes. Text-node wikilinks are deliberately excluded — only explicit file
- *  references create graph edges (matching Obsidian's behavior). Throws on
- *  unparseable JSON. */
-export const extractCanvasFileLinks = (canvasJson: string): string[] => {
-  const parsed = parseCanvasJson(canvasJson)
-
-  const rawNodes = isRecord(parsed) && Array.isArray(parsed.nodes) ? parsed.nodes : []
-  const filePaths: string[] = []
-  for (const rawNode of rawNodes) {
-    const node = parseNode(rawNode)
-
-    if (node !== null && node.type === "file" && node.file) {
-      filePaths.push(node.file)
-    }
-  }
-
-  return [...new Set(filePaths)]
+/** The two kinds of link a canvas holds, each deduplicated in JSON order. */
+type CanvasLinks = {
+  /** The `file` path of every file card, an exact vault path. */
+  fileCards: string[]
+  /** The raw targets of the links typed in text cards, before resolution. */
+  textCardLinks: string[]
 }
 
-/** The text of every text-type node, in JSON order. Obsidian updates the
- *  links in these cards when their target is renamed, so the note mover
- *  reads them to find a Canvas that links to a moving note. Throws on
- *  unparseable JSON. */
-export const extractCanvasCardTexts = (canvasJson: string): string[] => {
+/** Extracts the links a canvas holds. A text card is read with the grammar a
+ *  note body uses, so links in inline code or a fenced block are left out.
+ *  Throws on unparseable JSON. */
+export const extractCanvasLinks = (canvasJson: string): CanvasLinks => {
   const parsed = parseCanvasJson(canvasJson)
 
   const rawNodes = isRecord(parsed) && Array.isArray(parsed.nodes) ? parsed.nodes : []
-  // An empty card holds no link, so it is left out.
-  return rawNodes
-    .map(parseNode)
-    .flatMap((node) => (node?.type === "text" && node.text ? [node.text] : []))
+  const nodes = rawNodes.map(parseNode)
+  const fileCards = nodes.flatMap((node) => (node?.type === "file" && node.file ? [node.file] : []))
+  const cardTexts = nodes.flatMap((node) => (node?.type === "text" && node.text ? [node.text] : []))
+  // A text card is plain Markdown with no properties block.
+  const noFrontmatter = {}
+  const textCardLinks = cardTexts.flatMap((cardText) => links.extractAll(cardText, noFrontmatter))
+
+  return { fileCards: [...new Set(fileCards)], textCardLinks: [...new Set(textCardLinks)] }
 }
 
 /**
@@ -381,9 +373,8 @@ export const rewriteCanvasLinks = (params: {
 
   if (!isRecord(parsed) || !Array.isArray(parsed.nodes)) return null
 
-  // Nodes pass through parseNode, the same check extractCanvasFileLinks and
-  // extractCanvasCardTexts apply, so the rewrite touches exactly the links
-  // those two report.
+  // Nodes pass through parseNode, the same check extractCanvasLinks applies,
+  // so the rewrite touches exactly the cards that function reads.
   const rewriteNode = (rawNode: unknown): NodeRewrite => {
     const node = parseNode(rawNode)
     const unchanged = { node: rawNode, linksRewritten: 0 }
