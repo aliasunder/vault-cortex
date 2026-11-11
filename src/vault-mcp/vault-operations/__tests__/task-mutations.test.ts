@@ -661,6 +661,39 @@ describe("task-mutations", () => {
       )
     })
 
+    it("moves a task to the heading given, not to a heading of that name inside its own block", async () => {
+      const vault = await createVault()
+      await writeTestNote(
+        vault,
+        "notes.md",
+        "## Active\n\n- [ ] Task A ➕ 2026-07-01 ^task-a\n  ### Notes\n  - a sub-item\n\n## Notes\n\n- [ ] Task B ➕ 2026-07-02 ^task-b\n",
+      )
+
+      const result = await taskMutations.updateTask(
+        {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
+          vaultPath: vault,
+          path: "notes.md",
+          blockId: "task-a",
+          heading: "Notes",
+        },
+        logger,
+      )
+
+      expect(result).toEqual({
+        block_id: "task-a",
+        heading: "Notes",
+        path: "notes.md",
+        line: 5,
+        description: "Task A",
+        changes: ["heading: Active → Notes"],
+      })
+      const content = await readTestNote(vault, "notes.md")
+      expect(content).toBe(
+        "## Active\n\n\n## Notes\n- [ ] Task A ➕ 2026-07-01 ^task-a\n  ### Notes\n  - a sub-item\n\n- [ ] Task B ➕ 2026-07-02 ^task-b\n",
+      )
+    })
+
     it("moves a task with sub-items", async () => {
       const vault = await createVault()
       await writeTestNote(vault, "board.md", KANBAN_WITH_SUBITEMS)
@@ -848,6 +881,39 @@ describe("task-mutations", () => {
         `\n- [x] In-progress task ➕ 2026-07-01 ✅ ${today()} ^active-task\n\n- [x] Completed ➕ 2026-06-01 ✅ 2026-06-15\n\n`,
       )
       expect(result.changes).toEqual(["status: in_progress → done", "heading: Active → Done"])
+    })
+
+    it("auto-completes to the 'Done' lane, not a 'Done' heading inside the card", async () => {
+      const vault = await createVault()
+      await writeTestNote(
+        vault,
+        "board.md",
+        "---\nkanban-plugin: board\n---\n\n## Active\n\n- [ ] Task A ➕ 2026-07-01 ^task-a\n  ### Done\n  - [x] Step 1\n\n## Done\n",
+      )
+
+      const result = await taskMutations.updateTask(
+        {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
+          vaultPath: vault,
+          path: "board.md",
+          blockId: "task-a",
+          status: "done",
+        },
+        logger,
+      )
+
+      expect(result).toEqual({
+        block_id: "task-a",
+        heading: "Done",
+        path: "board.md",
+        line: 9,
+        description: "Task A",
+        changes: ["status: todo → done", "heading: Active → Done"],
+      })
+      const content = await readTestNote(vault, "board.md")
+      expect(content).toBe(
+        `---\nkanban-plugin: board\n---\n\n## Active\n\n\n## Done\n- [x] Task A ➕ 2026-07-01 ✅ ${today()} ^task-a\n  ### Done\n  - [x] Step 1\n`,
+      )
     })
 
     it("moves a task between headings in a non-Kanban note", async () => {

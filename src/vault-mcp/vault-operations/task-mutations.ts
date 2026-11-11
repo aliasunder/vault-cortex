@@ -958,8 +958,8 @@ const moveTaskBlock = ({
 }: {
   lines: readonly string[]
   taskLineIndex: number
-  /** One of `headings`: the lane is identified, not re-found by name, so a
-   *  board with repeated lane names moves the card to the lane chosen. */
+  /** One of `headings`, so a board with repeated lane names moves the card
+   *  to the lane chosen, not to the first lane of that name. */
   targetHeading: HeadingInfo
   headings: readonly HeadingInfo[]
   position?: "top" | "bottom" | number
@@ -1001,16 +1001,19 @@ const moveTaskBlock = ({
     )
   }
 
-  // The block can hold an indented heading, which leaves the parse with it,
-  // so the target is found again by where its line moved to, not by its
-  // place in the heading order.
-  const targetStartAfterRemoval =
-    targetHeading.startLine > taskLineIndex
-      ? targetHeading.startLine - taskBlock.length
-      : targetHeading.startLine
-  const headingAfterRemoval = headingsAfterRemoval.find((heading) => {
-    return heading.startLine === targetStartAfterRemoval
-  })
+  // Headings inside the block leave the parse with it, so the target is
+  // found again by its own line, not by its place in the heading order:
+  // - a target below the card moves up by the block's length;
+  // - a target inside the block leaves with the card, which then goes under
+  //   the first heading of that name left in the note.
+  const targetIsBelowTask = targetHeading.startLine > taskLineIndex
+  const targetMovesWithBlock = targetIsBelowTask && targetHeading.startLine < taskBlockEnd
+  const targetStartAfterRemoval = targetIsBelowTask
+    ? targetHeading.startLine - taskBlock.length
+    : targetHeading.startLine
+  const headingAfterRemoval = targetMovesWithBlock
+    ? headingsAfterRemoval.find((heading) => heading.text === targetLane)
+    : headingsAfterRemoval.find((heading) => heading.startLine === targetStartAfterRemoval)
 
   if (!headingAfterRemoval) {
     throw new Error(`heading "${targetLane}" not found after line removal`)
