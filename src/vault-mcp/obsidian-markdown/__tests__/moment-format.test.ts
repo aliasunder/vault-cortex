@@ -148,9 +148,9 @@ describe("findUnsupportedTokens", () => {
   })
 
   it("detects weekday number d without false-positive on D or DD", () => {
-    expect(findUnsupportedTokens("YYYY-MM-DD d")).toContain("d")
-    expect(findUnsupportedTokens("YYYY-MM-DD")).not.toContain("d")
-    expect(findUnsupportedTokens("D")).not.toContain("d")
+    expect(findUnsupportedTokens("YYYY-MM-DD d")).toEqual(["d"])
+    expect(findUnsupportedTokens("YYYY-MM-DD")).toEqual([])
+    expect(findUnsupportedTokens("D")).toEqual([])
   })
 
   it("detects localized format tokens (L, LL, LLL, LLLL, LT, LTS)", () => {
@@ -197,6 +197,16 @@ describe("dailyNoteFormatToNameFormat", () => {
     expect(dailyNoteFormatToNameFormat("YYYY-MM-DD ")).toEqual({ luxonFormat: "yyyy-MM-dd" })
   })
 
+  it("trims a space at the start of the format, as Obsidian trims the file name", () => {
+    expect(dailyNoteFormatToNameFormat(" YYYY-MM-DD")).toEqual({ luxonFormat: "yyyy-MM-dd" })
+  })
+
+  it("ignores an unsupported token in the folder part", () => {
+    expect(dailyNoteFormatToNameFormat("YYYY/w/YYYY-MM-DD")).toEqual({
+      luxonFormat: "yyyy-MM-dd",
+    })
+  })
+
   it("accepts a year with a day of the year", () => {
     expect(dailyNoteFormatToNameFormat("YYYY-DDDD")).toEqual({ luxonFormat: "yyyy-ooo" })
   })
@@ -211,6 +221,14 @@ describe("dailyNoteFormatToNameFormat", () => {
 
   it("returns null when the file name has a month but no day", () => {
     expect(dailyNoteFormatToNameFormat("YYYY-MM")).toBeNull()
+  })
+
+  it("returns null when the file name has a day but no month", () => {
+    expect(dailyNoteFormatToNameFormat("YYYY-DD")).toBeNull()
+  })
+
+  it("returns null when the year appears only inside a [literal]", () => {
+    expect(dailyNoteFormatToNameFormat("[YYYY] MM-DD")).toBeNull()
   })
 
   it("returns null when the file name holds an unsupported token", () => {
