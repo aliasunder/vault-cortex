@@ -36,7 +36,7 @@ export const applyOptionalSettings = (
   Object.entries(overrides).reduce((content, [name, value]) => {
     // Fresh RegExp per use (the /g flag makes instances stateful via
     // lastIndex); function replacements avoid $-pattern interpretation in
-    // values, same as envFile.patchObsidianToken.
+    // values.
     const everyActiveLine = new RegExp(`^${name}=.*$`, "gm")
 
     if (activeLinePattern(name).test(content)) {

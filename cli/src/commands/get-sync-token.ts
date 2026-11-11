@@ -3,6 +3,8 @@ import { join, resolve } from "node:path"
 import { envFile } from "../adapters/env-file.js"
 import type { Prompts } from "../adapters/prompts.js"
 import { expandTilde } from "../adapters/vault.js"
+import { applyOptionalSettings } from "../rules/env-edits.js"
+import { parseEnvValues } from "../rules/env-values.js"
 import { vaultCortexCommand } from "../rules/messages.js"
 import { captureObsidianToken } from "../steps/obsidian-sign-in.js"
 
@@ -43,15 +45,18 @@ export const runGetSyncToken = async (
     return 0
   }
 
-  const patched = envFile.patchObsidianToken(envFilePath, token)
+  const envContent = envFile.read(envFilePath)
 
-  if (!patched) {
+  // A local-mode .env has no OBSIDIAN_AUTH_TOKEN line, and the token belongs
+  // only in a remote install's .env.
+  if (!envContent || !parseEnvValues(envContent).has("OBSIDIAN_AUTH_TOKEN")) {
     prompts.error(
       `Could not patch ${envFilePath} — the file is missing or has no ` +
         "OBSIDIAN_AUTH_TOKEN line. Run init first.",
     )
     return 1
   }
+  envFile.replace(envFilePath, applyOptionalSettings(envContent, { OBSIDIAN_AUTH_TOKEN: token }))
   prompts.log(
     `Token written to ${envFilePath}\n\n` +
       `Start the server:\n  ${vaultCortexCommand("start", flags.dir)}`,

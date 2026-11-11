@@ -12,7 +12,6 @@ import { join } from "node:path"
 import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest"
 
 import { envFile } from "../env-file.js"
-import { parseEnvValues, readEnvObsidianToken } from "../../rules/env-values.js"
 
 // Spy mode keeps the real fs, so a test can delete the .env right after the
 // adapter reads it.
@@ -185,111 +184,6 @@ describe("replace", () => {
     envFile.replace(envPath, "MCP_AUTH_TOKEN=new\n")
 
     expect(readFileSync(envPath, "utf8")).toBe("MCP_AUTH_TOKEN=new\n")
-    expect(statSync(envPath).mode & 0o777).toBe(0o600)
-  })
-})
-
-describe("patchObsidianToken", () => {
-  it("replaces an existing token value", () => {
-    const targetDir = makeTempDir()
-    const envPath = join(targetDir, ".env")
-    writeFileSync(
-      envPath,
-      "MCP_AUTH_TOKEN=abc\nOBSIDIAN_AUTH_TOKEN=old-token\nVAULT_NAME=MyVault\n",
-    )
-
-    const result = envFile.patchObsidianToken(envPath, "new-token")
-
-    expect(result).toBe(true)
-    expect(readFileSync(envPath, "utf8")).toBe(
-      "MCP_AUTH_TOKEN=abc\nOBSIDIAN_AUTH_TOKEN=new-token\nVAULT_NAME=MyVault\n",
-    )
-  })
-
-  it("replaces every active token line, so the last one docker reads is the new token", () => {
-    const targetDir = makeTempDir()
-    const envPath = join(targetDir, ".env")
-    writeFileSync(
-      envPath,
-      "OBSIDIAN_AUTH_TOKEN=old-token\nVAULT_NAME=MyVault\nOBSIDIAN_AUTH_TOKEN=stale-token\n",
-    )
-
-    const result = envFile.patchObsidianToken(envPath, "new-token")
-
-    expect(result).toBe(true)
-    expect(readFileSync(envPath, "utf8")).toBe(
-      "OBSIDIAN_AUTH_TOKEN=new-token\nVAULT_NAME=MyVault\nOBSIDIAN_AUTH_TOKEN=new-token\n",
-    )
-    expect(readEnvObsidianToken(parseEnvValues(readFileSync(envPath, "utf8")))).toBe("new-token")
-  })
-
-  it("replaces an empty token value", () => {
-    const targetDir = makeTempDir()
-    const envPath = join(targetDir, ".env")
-    writeFileSync(envPath, "OBSIDIAN_AUTH_TOKEN=\n")
-
-    const result = envFile.patchObsidianToken(envPath, "filled-in")
-
-    expect(result).toBe(true)
-    expect(readFileSync(envPath, "utf8")).toBe("OBSIDIAN_AUTH_TOKEN=filled-in\n")
-  })
-
-  it("returns false when the file does not exist", () => {
-    const result = envFile.patchObsidianToken(
-      join(tmpdir(), "vault-cli-no-such-file", ".env"),
-      "token",
-    )
-
-    expect(result).toBe(false)
-  })
-
-  it("returns false when the file has no OBSIDIAN_AUTH_TOKEN line", () => {
-    const targetDir = makeTempDir()
-    const envPath = join(targetDir, ".env")
-    writeFileSync(envPath, "MCP_AUTH_TOKEN=abc\nVAULT_PATH=/vault\n")
-
-    const result = envFile.patchObsidianToken(envPath, "token")
-
-    expect(result).toBe(false)
-    expect(readFileSync(envPath, "utf8")).toBe("MCP_AUTH_TOKEN=abc\nVAULT_PATH=/vault\n")
-  })
-
-  it("writes tokens containing $ patterns literally (no regex interpolation)", () => {
-    const targetDir = makeTempDir()
-    const envPath = join(targetDir, ".env")
-    writeFileSync(envPath, "OBSIDIAN_AUTH_TOKEN=old-token\n")
-
-    const result = envFile.patchObsidianToken(envPath, "abc$&def$$1$'end")
-
-    expect(result).toBe(true)
-    expect(readFileSync(envPath, "utf8")).toBe("OBSIDIAN_AUTH_TOKEN=abc$&def$$1$'end\n")
-  })
-
-  it("preserves surrounding content when patching", () => {
-    const targetDir = makeTempDir()
-    const envPath = join(targetDir, ".env")
-    const original =
-      "# Comment\nMCP_AUTH_TOKEN=abc\nOBSIDIAN_AUTH_TOKEN=old\nVAULT_NAME=Test\n# Footer\n"
-    writeFileSync(envPath, original)
-
-    envFile.patchObsidianToken(envPath, "new")
-
-    expect(readFileSync(envPath, "utf8")).toBe(
-      "# Comment\nMCP_AUTH_TOKEN=abc\nOBSIDIAN_AUTH_TOKEN=new\nVAULT_NAME=Test\n# Footer\n",
-    )
-  })
-})
-
-describe("patchObsidianToken permissions", () => {
-  it("recreates .env owner-only when it is deleted after the read", () => {
-    const envPath = join(makeTempDir(), ".env")
-    writeFileSync(envPath, "OBSIDIAN_AUTH_TOKEN=old-token\n", { mode: 0o600 })
-    deleteEnvAfterNextRead(envPath)
-
-    const result = envFile.patchObsidianToken(envPath, "new-token")
-
-    expect(result).toBe(true)
-    expect(readFileSync(envPath, "utf8")).toBe("OBSIDIAN_AUTH_TOKEN=new-token\n")
     expect(statSync(envPath).mode & 0o777).toBe(0o600)
   })
 })
