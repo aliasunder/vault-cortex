@@ -822,7 +822,7 @@ describe("daily-review handler", () => {
         STEP.reconcile,
         STEP.followUpsWithPatch,
         STEP.memoryWithTool,
-        "**Review tasks** — check the task summaries above. Are any blocked or need rescheduling? Update status or priority with vault_update_task. Reschedule by editing the date with vault_patch_note or vault_replace_in_note.",
+        "**Review tasks** — check the task summaries above. Are any blocked or need rescheduling? Update status, priority, or dates with vault_update_task.",
         STEP.followLinks,
         STEP.patterns,
       ]),
@@ -1132,7 +1132,7 @@ describe("daily-review with DISABLED_TOOLS", () => {
     content: "---\ntitle: Todo\n---\n# Todo\n\n- [ ] Urgent fix 📅 2026-06-16\n",
   }
 
-  it("drops the patch-note follow-up and names only the surviving reschedule tool when vault_patch_note is disabled", async () => {
+  it("drops the patch-note follow-up and keeps task updates when vault_patch_note is disabled", async () => {
     const { calls } = await setupDailyReviewVault({
       date: "2026-06-16",
       config: loadConfig({ DISABLED_TOOLS: "vault_patch_note" }),
@@ -1148,14 +1148,14 @@ describe("daily-review with DISABLED_TOOLS", () => {
         STEP.reconcile,
         STEP.followUpsInConversation,
         STEP.memoryWithTool,
-        "**Review tasks** — check the task summaries above. Are any blocked or need rescheduling? Update status or priority with vault_update_task. Reschedule by editing the date with vault_replace_in_note.",
+        "**Review tasks** — check the task summaries above. Are any blocked or need rescheduling? Update status, priority, or dates with vault_update_task.",
         STEP.followLinks,
         STEP.patterns,
       ]),
     )
   })
 
-  it("drops the reschedule sentence when both note-edit tools are disabled", async () => {
+  it("offers date updates through vault_update_task when both note-edit tools are disabled", async () => {
     const { calls } = await setupDailyReviewVault({
       date: "2026-06-16",
       config: loadConfig({
@@ -1171,7 +1171,7 @@ describe("daily-review with DISABLED_TOOLS", () => {
         STEP.reconcile,
         STEP.followUpsInConversation,
         STEP.memoryWithTool,
-        "**Review tasks** — check the task summaries above. Are any blocked or need rescheduling? Update status or priority with vault_update_task.",
+        "**Review tasks** — check the task summaries above. Are any blocked or need rescheduling? Update status, priority, or dates with vault_update_task.",
         STEP.followLinks,
         STEP.patterns,
       ]),
