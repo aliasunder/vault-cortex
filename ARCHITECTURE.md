@@ -710,8 +710,9 @@ same routes refuse two kinds of request:
   the Streamable HTTP spec requires; MCP clients send no `Origin`, so only
   browser pages are refused
 - with an `MCP_AUTH_TOKEN` under 32 characters, any request from a client IP
-  that has collected 30 **401** answers this minute, with **429** until the
-  minute ends, valid tokens included; a generated token leaves this limiter off
+  whose **401** answers this minute and requests still in flight reach 30,
+  with **429** until the minute ends, valid tokens included; a generated
+  token leaves this limiter off
 
 Both layers share the same HMAC key (`MCP_AUTH_TOKEN`) for JWT verification
 and `safeEqual`/`parseBearer` from `src/auth.ts`.
@@ -851,7 +852,7 @@ description of the grant.
   - a request whose parameters exceed 8 KB of JSON is refused with
     `invalid_request`, logged as `oauth_authorize_rejected`;
   - a held request keeps its client's ID rather than a copy of the
-    registration, which can run to 100 KB, and lookups load the registration
+    registration, which can run to 8 KB, and lookups load the registration
     from the database.
 
   A restart drops them all.
@@ -947,9 +948,6 @@ and before each new registration, logged as `oauth_clients_swept`:
   for it, which sets its `signed_in_at` column
 - A consent request and an authorization code each live ten minutes, so a
   row not signed in after an hour never finished consent
-- `/register` needs no sign-in and its JSON body is capped at 8 KB, so the
-  rate limit, the cap and the hour together bound how much disk anyone can
-  fill through it
 - A client that has signed in is never swept, even after its grant is
   revoked or its last refresh token expires
 - Such a client cannot recover from a sweep on its own: it keeps presenting
@@ -960,6 +958,8 @@ and before each new registration, logged as `oauth_clients_swept`:
   page, so only the owner adds rows that stay
 - The per-IP `/register` rate limit bounds how fast rows that never sign in
   can appear, and the sweep bounds how long they stay
+- A registration's JSON body is capped at 8 KB, which bounds how much disk
+  each of those rows takes
 - Adding `signed_in_at` to an existing `oauth.db` sets it on every row
   already there, in the same transaction, and logs
   `oauth_clients_marked_signed_in` with the count when there was at least

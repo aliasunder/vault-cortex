@@ -100,9 +100,9 @@ export const resolveDataPaths = (indexDbPathSetting: string | undefined): DataPa
 /** Matches `*`, `?`, or `[`, which the `:remote` init scripts' `find -path` reads as wildcards. */
 const GLOB_CHARS = /[*?[]/
 
-// 32 hex characters carry 128 bits, past guessing; every documented install
-// path generates 256 random bits, 44 or more characters.
-const MIN_UNLIMITED_TOKEN_LENGTH = 32
+// 32 hex characters carry 128 bits, past guessing. Every documented install
+// path generates 256 random bits: 64 hex characters, or 44 in base64.
+const MIN_UNGUESSABLE_TOKEN_LENGTH = 32
 
 const startServer = async (): Promise<void> => {
   const config = loadConfig()
@@ -110,12 +110,6 @@ const startServer = async (): Promise<void> => {
   // can't silently break every auth attempt — a valid token has no
   // surrounding whitespace.
   const authToken = env.get("MCP_AUTH_TOKEN").required().asString().trim()
-  // A generated token (every documented install path makes one) cannot be
-  // guessed, and a limiter that refuses requests before checking the token
-  // lets anyone sharing the owner's client IP lock the owner's clients out. So /mcp rate-limits failed sign-in attempts
-  // only for a token short enough to guess, where the lockout cost is worth
-  // paying; length stands in for randomness, since the server cannot tell.
-  const failedAuthLimiterEnabled = authToken.length < MIN_UNLIMITED_TOKEN_LENGTH
   const vaultPath = env.get("VAULT_PATH").required().asString()
 
   if (GLOB_CHARS.test(vaultPath)) {
@@ -248,9 +242,17 @@ const startServer = async (): Promise<void> => {
       logger,
     }),
   )
+  // A generated token (every documented install path makes one) cannot be
+  // guessed, and a limiter that refuses requests before checking the token
+  // lets anyone sharing the owner's client IP lock the owner's clients out.
+  // So /mcp rate-limits failed sign-in attempts only for a token short enough
+  // to guess, where the lockout cost is worth paying. Length stands in for
+  // randomness, since the server cannot measure randomness.
+  const failedAuthLimiterEnabled = authToken.length < MIN_UNGUESSABLE_TOKEN_LENGTH
+
   if (failedAuthLimiterEnabled) {
     logger.warn(
-      "MCP_AUTH_TOKEN is shorter than 32 characters, so failed sign-in attempts on /mcp are rate-limited; a generated token needs no limiter",
+      `MCP_AUTH_TOKEN is shorter than ${MIN_UNGUESSABLE_TOKEN_LENGTH} characters, so failed sign-in attempts on /mcp are rate-limited; a generated token needs no limiter`,
     )
   }
   app.use(

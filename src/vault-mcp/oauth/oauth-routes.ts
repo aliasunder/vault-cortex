@@ -27,8 +27,8 @@ type OAuthRoutesOptions = {
   logger: Logger
 }
 
-// The largest registration a real client has stored is under 500 bytes; the
-// consent-request cap (MAX_PENDING_REQUEST_PARAMS_BYTES) uses the same figure.
+// The largest registration a real client has stored is under 500 bytes. The
+// cap matches the consent-request cap (MAX_PENDING_REQUEST_PARAMS_BYTES).
 const REGISTRATION_BODY_LIMIT = "8kb"
 
 export const createOAuthRoutes = ({
@@ -45,12 +45,11 @@ export const createOAuthRoutes = ({
 
   // 5 req/min per client IP on each flow endpoint (/authorize through its
   // guard, /token, /register, /revoke, /oauth/decide — each mounts its own
-  // limiter), far
-  // tighter than the SDK's per-endpoint defaults: a complete OAuth flow
-  // touches each endpoint at most twice per minute, so 5/min absorbs
-  // reconnect storms while shutting down brute force. windowMs/max mirror
-  // the exact keys the SDK sets before spreading this config, so the spread
-  // replaces them outright.
+  // limiter), far tighter than the SDK's per-endpoint defaults: a complete
+  // OAuth flow touches each endpoint at most twice per minute, so 5/min
+  // absorbs reconnect storms while shutting down brute force. The SDK's
+  // handlers set windowMs and max, then spread this object over them, so
+  // these two keys replace the SDK's values.
   const oauthRateLimitOptions = {
     windowMs: 60 * 1000,
     max: 5,

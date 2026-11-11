@@ -40,19 +40,21 @@ type RedirectedError = {
 // code reports a bad request.
 const SERVER_ERROR_CODE = "server_error"
 
-const UNNAMED_ERROR: RedirectedError = {
-  status: 400,
-  body: { error: "invalid_request", error_description: "Invalid authorization request" },
-}
+const DEFAULT_ERROR_DESCRIPTION = "Invalid authorization request"
 
 /** Reads the OAuth error out of the redirect URL the SDK built. A redirect
- *  that names no error is refused all the same, so a redirect a later SDK
- *  version adds cannot reopen the endpoint. */
+ *  that names no error is refused all the same, so no redirect a later SDK
+ *  version adds can send the visitor on to the client's address. */
 const redirectedErrorFromUrl = (redirectUrl: string | undefined): RedirectedError => {
   const parsedUrl = redirectUrl ? URL.parse(redirectUrl) : null
   const errorCode = parsedUrl?.searchParams.get("error")
 
-  if (!parsedUrl || !errorCode) return UNNAMED_ERROR
+  if (!parsedUrl || !errorCode) {
+    return {
+      status: 400,
+      body: { error: "invalid_request", error_description: DEFAULT_ERROR_DESCRIPTION },
+    }
+  }
   const errorUri = parsedUrl.searchParams.get("error_uri")
   const errorDescription = parsedUrl.searchParams.get("error_description")
 
@@ -60,7 +62,7 @@ const redirectedErrorFromUrl = (redirectUrl: string | undefined): RedirectedErro
     status: errorCode === SERVER_ERROR_CODE ? 500 : 400,
     body: {
       error: errorCode,
-      error_description: errorDescription ?? UNNAMED_ERROR.body.error_description,
+      error_description: errorDescription ?? DEFAULT_ERROR_DESCRIPTION,
       ...(errorUri ? { error_uri: errorUri } : {}),
     },
   }
@@ -81,7 +83,8 @@ export const createAuthorizeGuard = ({
 
   // Replaces the SDK's own /authorize limiter, which sits behind this guard
   // and would otherwise never see a request the guard answers. The message
-  // and header options are the SDK's, so the 429 is unchanged for clients.
+  // and header options are copied from the SDK's authorizationHandler, so
+  // the 429 is unchanged for clients.
   guard.use(
     rateLimit({
       ...rateLimitOptions,
@@ -93,19 +96,27 @@ export const createAuthorizeGuard = ({
     }),
   )
 
-  // The SDK's handler parses the form itself; its parser finds the body
+  // The unknown-client check below reads a POST's client_id from its form.
+  // The SDK's handler parses the form too; its parser finds the body
   // already read and keeps it.
   guard.use(express.urlencoded({ extended: false }))
 
-  // A browser reaches this page when the client it sits in front of holds
-  // a client_id the server no longer stores: the server's data was reset,
-  // or the registration never signed in and was swept. The SDK would answer
-  // a JSON error the person cannot act on. A request that names no client
-  // is left to the SDK, whose JSON error is read by a client, not a person.
+  // A browser reaches this page when the MCP client that opened the browser
+  // holds a client_id the server no longer stores: the server's data was
+  // reset, or the registration never signed in and was swept. The SDK would
+  // answer a JSON error the person cannot act on.
   guard.use(async (req: Request, res: Response, next: NextFunction) => {
     const clientId = requestedClientId(req)
 
-    if (!clientId || (await clientsStore.getClient(clientId))) {
+    // A request that names no client is left to the SDK, whose JSON error
+    // is read by a client, not a person.
+    if (!clientId) {
+      next()
+      return
+    }
+    const client = await clientsStore.getClient(clientId)
+
+    if (client) {
       next()
       return
     }
@@ -126,7 +137,7 @@ export const createAuthorizeGuard = ({
       const { status, body } = redirectedErrorFromUrl(redirectUrl)
       const clientIp = extractClientIp(req, trustForwardedHops)
 
-      if (status === 500) {
+      if (body.error === SERVER_ERROR_CODE) {
         logger.error("oauth_authorize_failed", { clientIp, error: body.error_description })
       } else {
         logger.warn("oauth_authorize_rejected", { clientIp, reason: body.error })

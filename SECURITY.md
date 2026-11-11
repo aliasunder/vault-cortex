@@ -232,7 +232,7 @@ The server, and the `:remote` image's setup mode, set these headers:
 ### Request bodies and log storage
 
 - `POST /mcp` parses JSON up to 5 MB only after bearer validation, so a request
-  without a valid token gets 401 before its body is read
+  without a valid token is refused before its body is read
 - A rejected request body produces one short warning without a stack, and
   the logger caps every logged string at 256 code points (error text and
   stack traces at 4,096)
@@ -335,7 +335,7 @@ while the owner decides are bounded:
 `oauth.db` are bounded:
 
 - **Size-capped** — a registration body over 8 KB is refused with
-  `request body too large`; real clients send under 1 KB
+  `request body too large`; real clients send under 500 bytes
 - **Rate-limited** — 5 registrations per minute per client IP (an IPv6
   client by its /56), the same limit and key as `/authorize`
 - **Swept** — a registration that has not signed in within an hour is

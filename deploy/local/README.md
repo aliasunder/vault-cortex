@@ -380,12 +380,13 @@ in the main README.
 
 ## Troubleshooting
 
-**"This sign-in can't continue" in the browser when connecting.** Your MCP
-client saved login details from a previous server at this address, and the new
-server doesn't recognize them. Recreating the server (`docker compose down -v`,
-or scaffolding a fresh instance) resets `oauth.db`, so the cached `client_id` no
-longer exists. The sign-in page itself lists these steps. Clear the client's
-stored authorization for this server and reconnect so it registers fresh:
+**"This sign-in can't continue" in the browser instead of the consent page.**
+Your MCP client saved login details the server no longer has. Recreating the
+server (`docker compose down -v`, or scaffolding a fresh instance) resets
+`oauth.db`, so the cached `client_id` no longer exists. The same happens when a
+sign-in was started more than an hour ago and never approved. That page lists
+these steps too. Clear the client's stored authorization for this server and
+reconnect so it registers fresh:
 
 - **Claude Code:** `claude mcp remove <name>`, then
   `claude mcp add --scope user --transport http <name> http://localhost:<port>/mcp`.
