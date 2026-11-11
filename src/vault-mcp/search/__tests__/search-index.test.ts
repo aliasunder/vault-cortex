@@ -8182,6 +8182,28 @@ describe("canvas note catalog reuse", () => {
     expect(scans).toHaveBeenCalledTimes(1)
   })
 
+  it("stores a canvas holding only file cards without reading the note catalog", () => {
+    const scans = observeCatalogScans()
+    const search = createSearchIndex(":memory:", undefined, undefined, { fileToolsEnabled: true })
+    search.upsertNote(
+      withBodyTags({ filePath: "Target.md", rawContent: "targetamber", fileStat: testStat(1000) }),
+      logger,
+    )
+    scans.mockClear()
+    const fileCard = { id: "file", type: "file", x: 0, y: 0, width: 100, height: 100 }
+    search.upsertFileContent(
+      {
+        filePath: "board.canvas",
+        rawContent: JSON.stringify({ nodes: [{ ...fileCard, file: "Target.md" }], edges: [] }),
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+
+    expect(scans).not.toHaveBeenCalled()
+    expect(outgoingPaths(search)).toEqual(["Target.md"])
+  })
+
   it("refreshes the catalog after note additions, deletions and recreation with asset fallback", () => {
     const scans = observeCatalogScans()
     const search = createSearchIndex(":memory:", undefined, undefined, { fileToolsEnabled: true })
@@ -8751,6 +8773,29 @@ describe("canvas file content and links", () => {
       saveCanvas(search, "board.canvas", textCardCanvas("See [[Note]]"))
 
       expect(search.findOrphans({}, logger).map((orphan) => orphan.path)).toEqual(["Lonely.md"])
+    })
+
+    it("lists a note once when a file card and a text-card link in one canvas both name it", () => {
+      const search = createSearchIndex(":memory:")
+      saveNote(search, "Note.md")
+      const cardGeometry = { x: 0, width: 200, height: 100 }
+      const nodes = [
+        { id: "text", type: "text", y: 0, ...cardGeometry, text: "See [[Note]]" },
+        { id: "file", type: "file", y: 200, ...cardGeometry, file: "Note.md" },
+      ]
+      saveCanvas(search, "board.canvas", JSON.stringify({ nodes, edges: [] }))
+
+      expect(
+        search
+          .getOutgoingLinks(
+            { path: "board.canvas", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
+            logger,
+          )
+          .map((link) => link.path),
+      ).toEqual(["Note.md"])
+      expect(search.getBacklinks({ path: "Note.md" }, logger)).toEqual([
+        { path: "board.canvas", title: "board", bytes: 200 },
+      ])
     })
 
     it("resolves a relative text-card link from the canvas's own folder", () => {

@@ -1256,11 +1256,80 @@ describe("moveNote — Canvas sources", () => {
       updated_notes: [],
       pruned_empty_folders: 0,
     })
+    // No file links Inbox/Note.md, so this log must never fire, whatever its
+    // context.
     expect(vi.mocked(logger.info)).not.toHaveBeenCalledWith(
       "backlink verification discovered sources the index missed",
+      expect.anything(),
+    )
+  })
+
+  it("rewrites the text-card link in a backlink-source Canvas and leaves its bare-name and relative file cards unchanged", async () => {
+    const { writeFixture, moveNote, readNote } = setupVault()
+    await writeFixture("Inbox/Note.md", "# Note\n")
+    // The text card links the note, so the index lists the Canvas as a
+    // backlink source; neither file card holds the note's exact path.
+    await writeFixture(
+      "Boards/Board.canvas",
+      obsidianCanvas([
+        '{"id":"f1","type":"file","file":"Note.md","x":0,"y":0,"width":400,"height":400}',
+        '{"id":"f2","type":"file","file":"../Inbox/Note.md","x":500,"y":0,"width":400,"height":400}',
+        '{"id":"t1","type":"text","text":"See [[Inbox/Note]]","x":0,"y":500,"width":250,"height":60}',
+      ]),
+    )
+
+    const result = await moveNote({
+      oldPath: "Inbox/Note.md",
+      newPath: "Projects/Plan.md",
+      backlinkSources: ["Boards/Board.canvas"],
+    })
+
+    expect(await readNote("Boards/Board.canvas")).toBe(
+      obsidianCanvas([
+        '{"id":"f1","type":"file","file":"Note.md","x":0,"y":0,"width":400,"height":400}',
+        '{"id":"f2","type":"file","file":"../Inbox/Note.md","x":500,"y":0,"width":400,"height":400}',
+        '{"id":"t1","type":"text","text":"See [[Projects/Plan]]","x":0,"y":500,"width":250,"height":60}',
+      ]),
+    )
+    expect(result).toEqual({
+      moved_to: "Projects/Plan.md",
+      links_updated: 1,
+      updated_notes: ["Boards/Board.canvas"],
+      pruned_empty_folders: 0,
+    })
+  })
+
+  it("finds and rewrites a relative text-card link, resolving it from the Canvas's folder", async () => {
+    const { writeFixture, moveNote, readNote, logger } = setupVault()
+    await writeFixture("Note.md", "# Note\n")
+    // Boards/Note.md is the decoy: [[../Note]] from Boards/ opens the root
+    // Note.md, never the note beside the Canvas.
+    await writeFixture("Boards/Note.md", "# Board note\n")
+    await writeFixture(
+      "Boards/Board.canvas",
+      obsidianCanvas([
+        '{"id":"t1","type":"text","text":"Up one folder: [[../Note]]","x":0,"y":0,"width":250,"height":60}',
+      ]),
+    )
+
+    const result = await moveNote({ oldPath: "Note.md", newPath: "Archive/Note.md" })
+
+    expect(await readNote("Boards/Board.canvas")).toBe(
+      obsidianCanvas([
+        '{"id":"t1","type":"text","text":"Up one folder: [[../Archive/Note]]","x":0,"y":0,"width":250,"height":60}',
+      ]),
+    )
+    expect(result).toEqual({
+      moved_to: "Archive/Note.md",
+      links_updated: 1,
+      updated_notes: ["Boards/Board.canvas"],
+      pruned_empty_folders: 0,
+    })
+    expect(vi.mocked(logger.info)).toHaveBeenCalledWith(
+      "backlink verification discovered sources the index missed",
       {
-        from: "Inbox/Note.md",
-        to: "Projects/Plan.md",
+        from: "Note.md",
+        to: "Archive/Note.md",
         additionalSources: ["Boards/Board.canvas"],
         attempt: 0,
       },
