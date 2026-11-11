@@ -148,8 +148,10 @@ and claude.ai web still need the [remote quickstart](../remote/).
 This works with the Docker Compose setup only. **Set up with the CLI?** The
 CLI always keeps the server on this machine, so switch to Compose first: run
 `npx vault-cortex@latest down` from the folder you ran `init` in, and copy
-[`docker-compose.yml`](./docker-compose.yml) into that folder. Compose picks
-up the `.env` and search index the CLI made.
+[`docker-compose.yml`](./docker-compose.yml) next to the CLI's `.env`, in the
+`vault-cortex` folder `init` created or the folder you passed to `--dir`.
+Compose picks up that `.env` and the search index the CLI made, so run the
+steps below from that folder.
 
 1. Find this computer's address on your network, such as `192.168.1.20`:
    on macOS, System Settings → Wi-Fi → Details → TCP/IP; on Windows,
