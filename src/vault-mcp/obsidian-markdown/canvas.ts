@@ -11,11 +11,10 @@ import { links } from "./links.js"
  * opaque node ids — a reader consuming the raw JSON spends most of its
  * attention on `x`/`y`/`width`/`height` noise and mental id-joins. This
  * transform keeps exactly what carries meaning and re-expresses it as
- * document structure: spatial grouping becomes heading nesting within the
- * ownership-work budget, canvas position becomes reading order (top-to-bottom,
- * left-to-right), and
- * edges become an `A → B (label)` list with ids resolved to display
- * names. Geometry is dropped entirely — it is presentation, and the
+ * document structure: spatial grouping becomes heading nesting within
+ * CANVAS_GROUP_WORK_BUDGET, canvas position becomes reading order
+ * (top-to-bottom, left-to-right), and edges become an `A → B (label)` list
+ * with ids resolved to display names. Geometry is dropped entirely — it is presentation, and the
  * rendition is a reading surface, not a round-trippable format (callers
  * wanting fidelity request the raw source instead).
  *
@@ -56,11 +55,13 @@ type CanvasEdge = Readonly<{
   label?: string | undefined
 }>
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null && !Array.isArray(value)
+const isRecord = (value: unknown): value is Record<string, unknown> => {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+}
 
-const optionalString = (value: unknown): string | undefined =>
-  typeof value === "string" ? value : undefined
+const optionalString = (value: unknown): string | undefined => {
+  return typeof value === "string" ? value : undefined
+}
 
 /** Narrows one raw array entry to a node, or null when its required JSON
  *  Canvas fields are missing/mistyped (the entry is then skipped, not thrown). */
@@ -102,11 +103,14 @@ const parseEdge = (raw: unknown): CanvasEdge | null => {
 
 /** True when `inner`'s rectangle lies fully inside `outer`'s — JSON Canvas
  *  group membership is spatial containment, not a structural parent field. */
-const isContainedIn = (inner: CanvasNode, outer: CanvasNode): boolean =>
-  inner.x >= outer.x &&
-  inner.y >= outer.y &&
-  inner.x + inner.width <= outer.x + outer.width &&
-  inner.y + inner.height <= outer.y + outer.height
+const isContainedIn = (inner: CanvasNode, outer: CanvasNode): boolean => {
+  return (
+    inner.x >= outer.x &&
+    inner.y >= outer.y &&
+    inner.x + inner.width <= outer.x + outer.width &&
+    inner.y + inner.height <= outer.y + outer.height
+  )
+}
 
 /** The group that owns a node: the smallest-area group strictly containing
  *  it (groups nest, so the smallest container is the innermost). */
@@ -123,8 +127,9 @@ const smallestContainingGroup = (
     // so one nests under the other. Content nodes are exempt — they never
     // become parents, so mutual containment is harmless there.
     const mutuallyContained = node.type === "group" && isContainedIn(group, node)
-    const groupWinsTie = group.id > node.id
-    return !mutuallyContained || groupWinsTie
+
+    if (!mutuallyContained) return true
+    return group.id > node.id
   })
 
   if (containing.length === 0) return undefined
@@ -175,7 +180,8 @@ const renderNode = (node: CanvasNode): string => {
   return `[${node.type}]`
 }
 
-// Bounds both ownership axes while retaining nesting for ordinary multi-group canvases.
+// Nesting runs groups × (contentNodes + groups) containment checks, one per
+// node-group pair. The cap bounds that work and still nests 2,800 groups with 2,800 nodes.
 const CANVAS_GROUP_WORK_BUDGET = 16_000_000
 
 export const canNestCanvasGroups = (counts: { contentNodes: number; groups: number }): boolean => {
@@ -188,7 +194,9 @@ const groupHeading = (group: CanvasNode, depth: number): string => {
   return `${heading} Group: ${group.label ?? "(unlabeled)"}`
 }
 
-/** Buckets keyed by node identity append each section once, even when IDs repeat. */
+/** Renders ungrouped nodes, then each group under its heading, depth first.
+ *  Buckets are keyed by the node object rather than its id, so a canvas that
+ *  repeats an id still renders each node once. */
 const renderNestedNodes = ({
   contentNodes,
   groups,
@@ -198,16 +206,13 @@ const renderNestedNodes = ({
 }): string[] => {
   const membersByGroup = groupBy(contentNodes, (node) => smallestContainingGroup(node, groups))
   const childGroupsByParent = groupBy(groups, (group) => smallestContainingGroup(group, groups))
-  const sections = (membersByGroup.get(undefined) ?? []).map(renderNode)
-  const frames = (childGroupsByParent.get(undefined) ?? [])
-    .toReversed()
-    .map((group) => ({ group, depth: 0 }))
+  const ungroupedNodes = membersByGroup.get(undefined) ?? []
+  const topLevelGroups = childGroupsByParent.get(undefined) ?? []
+  const sections = ungroupedNodes.map(renderNode)
+  const frames = topLevelGroups.toReversed().map((group) => ({ group, depth: 0 }))
 
   // Reverse pushes retain the buckets' reading order during depth-first traversal.
-  while (frames.length) {
-    const frame = frames.pop()
-
-    if (!frame) break
+  for (let frame = frames.pop(); frame; frame = frames.pop()) {
     const { group, depth } = frame
 
     sections.push(groupHeading(group, depth))
@@ -254,7 +259,7 @@ const parseCanvasJson = (canvasJson: string): unknown => {
  * Linearizes .canvas JSON into readable markdown: an overview line, ungrouped
  * node content first, each group's content under a `Group:` heading (nested
  * groups one level deeper), then a `Connections` edge list in `A → B (label)`
- * form with ids resolved to display names. Above the ownership-work budget,
+ * form with ids resolved to display names. Above CANVAS_GROUP_WORK_BUDGET,
  * node content and group headings stay flat in reading order. Throws on
  * unparseable JSON. Every valid node is rendered once, even when IDs repeat.
  */
@@ -266,7 +271,7 @@ export const linearizeCanvas = (canvasJson: string): string => {
   const nodes = rawNodes
     .map(parseNode)
     .filter((node) => node !== null)
-    .sort(byReadingOrder)
+    .toSorted(byReadingOrder)
   const edges = rawEdges.map(parseEdge).filter((edge) => edge !== null)
 
   const groups = nodes.filter((node) => node.type === "group")
@@ -301,8 +306,9 @@ export const linearizeCanvas = (canvasJson: string): string => {
 /** The two kinds of link a canvas holds, each deduplicated in JSON order. */
 type CanvasLinks = {
   /** The `file` path of every file card, an exact vault path. */
-  fileCards: string[]
-  /** The raw targets of the links typed in text cards, before resolution. */
+  fileCardPaths: string[]
+  /** The targets of the links typed in text cards, without any heading or
+   *  alias, before resolution. */
   textCardLinks: string[]
 }
 
@@ -313,14 +319,19 @@ export const extractCanvasLinks = (canvasJson: string): CanvasLinks => {
   const parsed = parseCanvasJson(canvasJson)
 
   const rawNodes = isRecord(parsed) && Array.isArray(parsed.nodes) ? parsed.nodes : []
-  const nodes = rawNodes.map(parseNode)
-  const fileCards = nodes.flatMap((node) => (node?.type === "file" && node.file ? [node.file] : []))
-  const cardTexts = nodes.flatMap((node) => (node?.type === "text" && node.text ? [node.text] : []))
+  const nodes = rawNodes.map(parseNode).filter((node) => node !== null)
+  const fileCardPaths = nodes.flatMap((node) => {
+    return node.type === "file" && node.file ? [node.file] : []
+  })
+  const cardTexts = nodes.flatMap((node) => (node.type === "text" && node.text ? [node.text] : []))
   // A text card is plain Markdown with no properties block.
   const noFrontmatter = {}
   const textCardLinks = cardTexts.flatMap((cardText) => links.extractAll(cardText, noFrontmatter))
 
-  return { fileCards: [...new Set(fileCards)], textCardLinks: [...new Set(textCardLinks)] }
+  return {
+    fileCardPaths: [...new Set(fileCardPaths)],
+    textCardLinks: [...new Set(textCardLinks)],
+  }
 }
 
 /**

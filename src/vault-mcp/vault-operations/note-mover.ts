@@ -526,7 +526,7 @@ const rewriteCanvasContent = (params: {
   })
 }
 
-/** The error a move aborts with when a note it must rewrite cannot be
+/** The error a move aborts with when a note or Canvas it must rewrite cannot be
  *  planned. The message says which step failed:
  *  - "could not read": any failure that is not a properties-block refusal.
  *  - "could not rewrite": a link inside a block the rewrite would lose, or a
@@ -625,8 +625,8 @@ const MAX_BACKLINK_VERIFY_RETRIES = 3
  *  Canvas's note file cards and the links in its text cards. */
 const extractLinkTargets = (params: { path: string; content: string }): string[] => {
   if (isCanvasPath(params.path)) {
-    const { fileCards, textCardLinks } = extractCanvasLinks(params.content)
-    const noteCardPaths = fileCards.filter(isNoteCardPath)
+    const { fileCardPaths, textCardLinks } = extractCanvasLinks(params.content)
+    const noteCardPaths = fileCardPaths.filter(isNoteCardPath)
     return [...noteCardPaths, ...textCardLinks]
   }
 
@@ -952,11 +952,12 @@ const moveNote = async (
           return (rewriteParams) => rewriteTarget(rewriteParams, context)
         }
 
-        // File cards are matched with the resolver the backlink scan uses, so
-        // the rewrite covers exactly the cards the scan reports. A matching
-        // card gets the full new path whatever form it had, because Obsidian
-        // opens a file card by its exact vault path. Canvases never move, so
-        // the source location is fixed.
+        // File cards are matched with the resolver the backlink scan uses:
+        // - the rewrite covers exactly the cards the scan reports, including a
+        //   card that names the note by a shorter path;
+        // - a matching card gets the full new path, because Obsidian opens a
+        //   file card by its exact vault path.
+        // Canvases never move, so the source location is fixed.
         const rewriteCanvasFilePathForSource = (
           canvasPath: string,
         ): ((filePath: string) => string | null) => {

@@ -1473,8 +1473,8 @@ export const searchByProperty = (
 // ── Link queries ───────────────────────────────────────────────
 
 /** A link query takes a note, whose ".md" must be lowercase, or a canvas in
- *  any letter case. A canvas returns before the check, so ".canvas" in its
- *  list only names the accepted extensions in the refusal. */
+ *  any letter case. A canvas returns before the check, so ".canvas" is in
+ *  the list only so that the refusal names both accepted extensions. */
 const assertLinkQueryPath = (path: string): void => {
   if (isCanvasPath(path)) return
   assertPathHasExtension(path, [".md", ".canvas"])

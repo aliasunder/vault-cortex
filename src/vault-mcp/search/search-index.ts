@@ -66,9 +66,9 @@ export const INDEXING_FILE_READ_CONCURRENCY = 16
  *  CPU-heavy, so fewer run together than other file reads. */
 export const PDF_EXTRACTION_CONCURRENCY = 4
 
-/** File kinds whose content is indexed into file_content_fts when file tools
- *  are on. A canvas is left out because it is read whatever that setting is,
- *  since its cards hold graph links. */
+/** File kinds that are read and indexed into file_content_fts only when file
+ *  tools are on. A canvas is not listed because it is read whatever that
+ *  setting is, since its cards hold graph links. */
 export const CONTENT_INDEXED_FILE_KINDS: ReadonlySet<FileKind> = new Set([
   "pdf",
   "text",
@@ -830,12 +830,12 @@ export const createSearchIndex = (
 
   /** Note paths cached for resolving canvas links. Note upserts, removals, rebuild resets and
    *  rebuild rollbacks clear the cache. */
-  let cachedCanvasNotePaths: readonly string[] | undefined
-  const getCanvasNotePaths = (): readonly string[] => {
-    if (cachedCanvasNotePaths) return cachedCanvasNotePaths
+  let cachedNotePathsForCanvasLinks: readonly string[] | undefined
+  const getNotePathsForCanvasLinks = (): readonly string[] => {
+    if (cachedNotePathsForCanvasLinks) return cachedNotePathsForCanvasLinks
 
     const notePaths = selectAllNotePathsStmt.all().map((note) => note.path)
-    cachedCanvasNotePaths = notePaths
+    cachedNotePathsForCanvasLinks = notePaths
     return notePaths
   }
 
@@ -1329,8 +1329,9 @@ export const createSearchIndex = (
   }
 
   /** The second, folded-case walk: the exact, relative and stem comparisons
-   *  with ASCII letter case folded. The suffix tiers already fold, so their
-   *  miss in the first walk stands and they are not repeated. */
+   *  with ASCII letter case folded. The suffix tiers already ignore ASCII letter
+   *  case through SQLite's LIKE, so their first miss stands and they are not
+   *  repeated. */
   const resolveNonMarkdownFileIgnoringCase = (params: {
     target: string
     relativeTarget: string | null
@@ -1523,7 +1524,7 @@ export const createSearchIndex = (
 
     const canvasLinks = isCanvas
       ? extractCanvasLinks(params.rawContent)
-      : { fileCards: [], textCardLinks: [] }
+      : { fileCardPaths: [], textCardLinks: [] }
 
     db.transaction(() => {
       // FTS indexing — gated behind fileToolsEnabled
@@ -1552,12 +1553,13 @@ export const createSearchIndex = (
         // A file card opens the exact vault path it names, so it is stored
         // as written. Resolving it like a link would send a Plan.pdf card
         // to a Plan.pdf.md note.
-        for (const fileCardPath of canvasLinks.fileCards) {
+        for (const fileCardPath of canvasLinks.fileCardPaths) {
           insertLinkStmt.run(params.filePath, fileCardPath)
         }
 
-        // A link typed in a text card resolves as the same link in a note.
-        const notePaths = canvasLinks.textCardLinks.length > 0 ? getCanvasNotePaths() : []
+        // A link typed in a text card resolves as the same link in a note. A
+        // canvas with no such link skips reading every note path from the table.
+        const notePaths = canvasLinks.textCardLinks.length > 0 ? getNotePathsForCanvasLinks() : []
         for (const rawTarget of canvasLinks.textCardLinks) {
           const resolvedNotePath = links.resolve({
             target: rawTarget,
@@ -1578,7 +1580,7 @@ export const createSearchIndex = (
 
     logger.debug("indexed file content", {
       path: params.filePath,
-      links: canvasLinks.fileCards.length + canvasLinks.textCardLinks.length,
+      links: canvasLinks.fileCardPaths.length + canvasLinks.textCardLinks.length,
       fts: Boolean(upsertFileContentStmt),
     })
     return sourceVersion
@@ -1942,7 +1944,7 @@ export const createSearchIndex = (
       }
     })()
 
-    cachedCanvasNotePaths = undefined
+    cachedNotePathsForCanvasLinks = undefined
     const sourceVersion = Symbol()
     sourceVersions.set(filePath, sourceVersion)
 
@@ -2356,7 +2358,7 @@ export const createSearchIndex = (
         removeMemoryEntriesForFile(memoryFile)
       }
     })()
-    cachedCanvasNotePaths = undefined
+    cachedNotePathsForCanvasLinks = undefined
     sourceVersions.delete(filePath)
   }
 
@@ -2396,7 +2398,7 @@ export const createSearchIndex = (
     )
 
     sourceVersions.clear()
-    cachedCanvasNotePaths = undefined
+    cachedNotePathsForCanvasLinks = undefined
 
     // If directory listing fails after this reset, source tables stay empty until the next rebuild.
     db.exec("DELETE FROM notes_fts")
@@ -2765,7 +2767,7 @@ export const createSearchIndex = (
         // Each link resolves as in upsertNote's link step.
         const allPaths = selectAllNotePathsStmt.all()
         const pathList = allPaths.map((row) => row.path)
-        cachedCanvasNotePaths = pathList
+        cachedNotePathsForCanvasLinks = pathList
 
         // No source write may run during a rebuild, so this second clear
         // normally finds nothing. It stays so that a link written during the
@@ -2841,7 +2843,7 @@ export const createSearchIndex = (
       })()
     } catch (error) {
       sourceVersions.clear()
-      cachedCanvasNotePaths = undefined
+      cachedNotePathsForCanvasLinks = undefined
       throw error
     }
 
