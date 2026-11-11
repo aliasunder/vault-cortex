@@ -565,9 +565,13 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
   }
 
   /** Indexes one changed file, or records it for applyHeldChanges while the
-   *  watcher holds. A note's embedding comes back unawaited and never
-   *  rejects, so a caller indexing several files can publish each file's
-   *  keyword text without waiting for the model. */
+   *  watcher holds.
+   *  - A note's embedding comes back unawaited and never rejects, so a caller
+   *    indexing several files can publish each file's keyword text without
+   *    waiting for the model.
+   *  - A non-note file's embedding is queued inside indexChangedFile and never
+   *    comes back, so a settled `embedding` does not mean the file is fully
+   *    indexed. A PDF's embedding finishes before indexChange resolves. */
   const indexChange = async (filePath: string): Promise<{ embedding: Promise<void> }> => {
     const noEmbedding = { embedding: Promise.resolve() }
 
@@ -584,14 +588,14 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
 
     if (indexResult.status !== "note-indexed") return noEmbedding
 
-    const reportedEmbedding = async (): Promise<void> => {
+    const awaitEmbeddingAndReportFailure = async (): Promise<void> => {
       try {
         await indexResult.embedding
       } catch (error) {
         reportEmbeddingFailure(filePath, error)
       }
     }
-    return { embedding: reportedEmbedding() }
+    return { embedding: awaitEmbeddingAndReportFailure() }
   }
 
   /** chokidar's add and change listener. chokidar ignores the returned
