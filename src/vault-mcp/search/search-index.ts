@@ -420,6 +420,35 @@ const readStoredBodyTags = (
   }
 }
 
+// ── Background embedding ────────────────────────────────────────
+
+/** A stored chunk's content hash and the raw bytes of its vector. */
+type StoredVectorRow = { content_hash: string; embedding: Buffer }
+
+/** The vectors one note or file already has, keyed by the content hash of
+ *  their chunk text, so a chunk that moved keeps its vector without a model
+ *  call.
+ *  - The rows are read at the first lookup, so a job whose chunks all match
+ *    at their own position reads none.
+ *  - Vectors the model returns during the job are added, so repeated new text
+ *    reaches the model once. */
+const createStoredVectorLookup = (readStoredVectors: () => readonly StoredVectorRow[]) => {
+  // Null until the first lookup reads the stored rows
+  let vectorsByHash: Map<string, Buffer> | null = null
+
+  const loadVectorsByHash = (): Map<string, Buffer> => {
+    vectorsByHash ??= new Map(readStoredVectors().map((row) => [row.content_hash, row.embedding]))
+    return vectorsByHash
+  }
+
+  return {
+    find: (hash: string): Buffer | undefined => loadVectorsByHash().get(hash),
+    remember: (hash: string, vectorBytes: Buffer): void => {
+      loadVectorsByHash().set(hash, vectorBytes)
+    },
+  }
+}
+
 // ── Factory ─────────────────────────────────────────────────────
 
 export const createSearchIndex = (
@@ -974,6 +1003,14 @@ export const createSearchIndex = (
         `DELETE FROM note_vectors WHERE chunk_id IN (SELECT id FROM note_chunks WHERE note_path = ? AND chunk_index >= ?)`,
       )
     : null
+  const selectNoteVectorsStmt = embedder
+    ? db.prepare<[string], StoredVectorRow>(
+        `SELECT chunk.content_hash, vector.embedding
+         FROM note_chunks AS chunk
+         JOIN note_vectors AS vector ON vector.chunk_id = chunk.id
+         WHERE chunk.note_path = ?`,
+      )
+    : null
 
   // ── File content vector prepared statements (conditional on fileToolsEnabled + embedder) ──
   const fileContentVectorEnabled = fileToolsEnabled && Boolean(embedder)
@@ -1013,6 +1050,14 @@ export const createSearchIndex = (
   const deleteStaleFileVectorsStmt = fileContentVectorEnabled
     ? db.prepare(
         `DELETE FROM file_content_vectors WHERE chunk_id IN (SELECT id FROM file_content_chunks WHERE file_path = ? AND chunk_index >= ?)`,
+      )
+    : null
+  const selectFileVectorsStmt = fileContentVectorEnabled
+    ? db.prepare<[string], StoredVectorRow>(
+        `SELECT chunk.content_hash, vector.embedding
+         FROM file_content_chunks AS chunk
+         JOIN file_content_vectors AS vector ON vector.chunk_id = chunk.id
+         WHERE chunk.file_path = ?`,
       )
     : null
   // Reads the processed content from file_content for embedding.
@@ -1844,6 +1889,23 @@ export const createSearchIndex = (
 
   // ── Embedding pipeline ─────────────────────────────────────────
 
+  /** One background model call for a chunk's text. Null when a newer write to
+   *  the source superseded the job before or during the model call. */
+  const embedInBackground = async (
+    params: { text: string; sourcePath: string; sourceVersion: symbol },
+    logger: Logger,
+  ): Promise<Buffer | null> => {
+    const { text, ...source } = params
+
+    if (!embedder) throw new Error("background embedding ran without an embedder")
+    if (!isCurrentSourceVersion(source, logger)) return null
+
+    const embedding = await embedder.embedText(text)
+
+    if (!isCurrentSourceVersion(source, logger)) return null
+    return Buffer.from(embedding.buffer, embedding.byteOffset, embedding.byteLength)
+  }
+
   /** Embeds a note's chunks.
    *  - `rawContent` is the content upsertNote indexed under `sourceVersion`, so upsertNote
    *    has already warned about an unreadable properties block in it.
@@ -1862,7 +1924,8 @@ export const createSearchIndex = (
       !selectChunkIdStmt ||
       !deleteStaleChunksStmt ||
       !insertVectorStmt ||
-      !deleteVectorByChunkIdStmt
+      !deleteVectorByChunkIdStmt ||
+      !selectNoteVectorsStmt
     ) {
       return 0
     }
@@ -1897,32 +1960,32 @@ export const createSearchIndex = (
       selectChunkHashesStmt.all(notePath).map((row) => [row.chunk_index, row.content_hash]),
     )
 
-    // Counter tracking how many chunks were actually (re-)embedded — returned for logging
+    const storedVectors = createStoredVectorLookup(() => selectNoteVectorsStmt.all(notePath))
+
+    // The debug log line reports the rows written and how many of them reused
+    // a stored vector instead of calling the model
     let embeddedCount = 0
+    let reusedCount = 0
 
     for (const chunk of chunks) {
-      if (
-        !isCurrentSourceVersion(
-          { sourcePath: notePath, sourceVersion: params.sourceVersion },
-          logger,
-        )
-      )
-        return embeddedCount
-
       const hash = contentHash(chunk.text)
 
       // Skip if content hasn't changed
       if (existingHashes.get(chunk.index) === hash) continue
 
-      const embedding = await embedder.embedText(chunk.text)
-
-      if (
-        !isCurrentSourceVersion(
-          { sourcePath: notePath, sourceVersion: params.sourceVersion },
+      // A stored vector needs no version check of its own, because no await
+      // separates it from the last check (at the start or after a model call)
+      const storedVector = storedVectors.find(hash)
+      const vectorBytes =
+        storedVector ??
+        (await embedInBackground(
+          { text: chunk.text, sourcePath: notePath, sourceVersion: params.sourceVersion },
           logger,
-        )
-      )
-        return embeddedCount
+        ))
+
+      if (!vectorBytes) return embeddedCount
+
+      storedVectors.remember(hash, vectorBytes)
 
       // Wrap the DB writes in a transaction so the content hash is never
       // saved without its corresponding vector — prevents a crash between
@@ -1950,12 +2013,11 @@ export const createSearchIndex = (
             `chunk row missing after upsert: ${notePath} chunk ${String(chunk.index)}`,
           )
         }
-        insertVectorStmt.run(
-          BigInt(chunkRow.id),
-          Buffer.from(embedding.buffer, embedding.byteOffset, embedding.byteLength),
-        )
+        insertVectorStmt.run(BigInt(chunkRow.id), vectorBytes)
       })()
       embeddedCount++
+
+      if (storedVector) reusedCount++
     }
 
     if (
@@ -1974,6 +2036,7 @@ export const createSearchIndex = (
       path: notePath,
       totalChunks: chunks.length,
       embeddedCount,
+      reusedCount,
     })
     return embeddedCount
   }
@@ -2090,7 +2153,8 @@ export const createSearchIndex = (
       !selectFileChunkIdStmt ||
       !deleteStaleFileChunksStmt ||
       !insertFileVectorStmt ||
-      !deleteFileVectorByChunkIdStmt
+      !deleteFileVectorByChunkIdStmt ||
+      !selectFileVectorsStmt
     ) {
       return 0
     }
@@ -2123,30 +2187,31 @@ export const createSearchIndex = (
         .map((chunkHashRow) => [chunkHashRow.chunk_index, chunkHashRow.content_hash]),
     )
 
+    const storedVectors = createStoredVectorLookup(() => selectFileVectorsStmt.all(params.filePath))
+
+    // The debug log line reports the rows written and how many of them reused
+    // a stored vector instead of calling the model
     let embeddedCount = 0
+    let reusedCount = 0
 
     for (const chunk of chunks) {
-      if (
-        !isCurrentSourceVersion(
-          { sourcePath: params.filePath, sourceVersion: params.sourceVersion },
-          logger,
-        )
-      )
-        return embeddedCount
-
       const hash = contentHash(chunk.text)
 
       if (existingHashes.get(chunk.index) === hash) continue
 
-      const embedding = await embedder.embedText(chunk.text)
-
-      if (
-        !isCurrentSourceVersion(
-          { sourcePath: params.filePath, sourceVersion: params.sourceVersion },
+      // A stored vector needs no version check of its own, because no await
+      // separates it from the last check (at the start or after a model call)
+      const storedVector = storedVectors.find(hash)
+      const vectorBytes =
+        storedVector ??
+        (await embedInBackground(
+          { text: chunk.text, sourcePath: params.filePath, sourceVersion: params.sourceVersion },
           logger,
-        )
-      )
-        return embeddedCount
+        ))
+
+      if (!vectorBytes) return embeddedCount
+
+      storedVectors.remember(hash, vectorBytes)
 
       db.transaction(() => {
         const existingChunk = selectFileChunkIdStmt.get(params.filePath, chunk.index)
@@ -2170,12 +2235,11 @@ export const createSearchIndex = (
             `file chunk row missing after upsert: ${params.filePath} chunk ${String(chunk.index)}`,
           )
         }
-        insertFileVectorStmt.run(
-          BigInt(chunkRow.id),
-          Buffer.from(embedding.buffer, embedding.byteOffset, embedding.byteLength),
-        )
+        insertFileVectorStmt.run(BigInt(chunkRow.id), vectorBytes)
       })()
       embeddedCount++
+
+      if (storedVector) reusedCount++
     }
 
     if (
@@ -2197,6 +2261,7 @@ export const createSearchIndex = (
       path: params.filePath,
       totalChunks: chunks.length,
       embeddedCount,
+      reusedCount,
     })
     return embeddedCount
   }

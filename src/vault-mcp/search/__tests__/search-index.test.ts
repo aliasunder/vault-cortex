@@ -1,4 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach, onTestFinished } from "vitest"
+import type { Mock } from "vitest"
+import { createHash } from "node:crypto"
 import { mkdtemp, rm, writeFile, mkdir, symlink, readFile } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
@@ -106,15 +108,26 @@ const seedEmbeddingSource = (
   )
 }
 
-const createEmbeddingRaceIndex = async (sourceKind: "note" | "file") => {
+/** A fake embedder whose calls the test can read back */
+type RecordingEmbedder = {
+  embedText: Mock<(text: string) => Promise<Float32Array>>
+  embedBatch: Mock<(texts: readonly string[]) => Promise<Float32Array[]>>
+}
+
+/** Every text gets the same vector, for tests that count model calls only */
+const createSameVectorEmbedder = (): RecordingEmbedder => ({
+  embedText: vi.fn((_text: string) => Promise.resolve(new Float32Array(384).fill(0.1))),
+  embedBatch: vi.fn((texts: readonly string[]) => {
+    return Promise.resolve(texts.map(() => new Float32Array(384).fill(0.1)))
+  }),
+})
+
+const createEmbeddingRaceIndex = async (
+  sourceKind: "note" | "file",
+  embedder: RecordingEmbedder = createSameVectorEmbedder(),
+) => {
   const dir = await mkdtemp(join(tmpdir(), "embedding-race-"))
   onTestFinished(() => rm(dir, { recursive: true, force: true }))
-  const embedder = {
-    embedText: vi.fn().mockResolvedValue(new Float32Array(384).fill(0.1)),
-    embedBatch: vi.fn().mockImplementation((texts: string[]) => {
-      return Promise.resolve(texts.map(() => new Float32Array(384).fill(0.1)))
-    }),
-  }
   const dbPath = join(dir, "index.db")
   const searchIndex = createSearchIndex(dbPath, embedder, undefined, { fileToolsEnabled: true })
   const inspect = new Database(dbPath)
@@ -8235,6 +8248,159 @@ describe("canvas note catalog reuse", () => {
     saveCanvas(search, "Target")
     expect(outgoingPaths(search)).toEqual(["Target.md"])
   })
+})
+
+describe("vectors reused by chunk text", () => {
+  /** A vector unique to each text, so a row holding another text's vector fails */
+  const vectorForText = (text: string): Float32Array => {
+    const digest = createHash("sha256").update(text).digest()
+    return Float32Array.from({ length: 384 }, (_, position) => (digest[position % 32] ?? 0) / 255)
+  }
+
+  const createTextVectorEmbedder = (): RecordingEmbedder => ({
+    embedText: vi.fn((text: string) => Promise.resolve(vectorForText(text))),
+    embedBatch: vi.fn((texts: readonly string[]) => Promise.resolve(texts.map(vectorForText))),
+  })
+
+  /** A section of distinct words, long enough that a note of several sections
+   *  is split into one chunk per section */
+  const section = (name: string): string => {
+    const words = Array.from({ length: 130 }, (_, wordIndex) => `${name}word${String(wordIndex)}`)
+    return `## ${name}\n\n${words.join(" ")}\n`
+  }
+
+  const noteOf = (sectionNames: readonly string[]): string => {
+    return sectionNames.map(section).join("\n")
+  }
+
+  type StoredChunkRow = { id: number; chunk_index: number; chunk_text: string; embedding: Buffer }
+
+  const readStoredChunks = (
+    fixture: Awaited<ReturnType<typeof createEmbeddingRaceIndex>>,
+    sourceKind: "note" | "file",
+  ): StoredChunkRow[] => {
+    const chunkTable = sourceKind === "note" ? "note_chunks" : "file_content_chunks"
+    const vectorTable = sourceKind === "note" ? "note_vectors" : "file_content_vectors"
+    return fixture.inspect
+      .prepare<[], StoredChunkRow>(
+        `SELECT chunk.id, chunk.chunk_index, chunk.chunk_text, vector.embedding
+         FROM ${chunkTable} AS chunk
+         JOIN ${vectorTable} AS vector ON vector.chunk_id = chunk.id
+         ORDER BY chunk.chunk_index`,
+      )
+      .all()
+  }
+
+  /** Each stored row paired with its own vector and with the vector its text should have */
+  const vectorsAgainstText = (rows: readonly StoredChunkRow[]) => ({
+    stored: rows.map((row) => ({ index: row.chunk_index, vector: row.embedding })),
+    expected: rows.map((row) => ({
+      index: row.chunk_index,
+      vector: Buffer.from(vectorForText(row.chunk_text).buffer),
+    })),
+  })
+
+  const saveAndEmbed = async (
+    fixture: Awaited<ReturnType<typeof createEmbeddingRaceIndex>>,
+    content: string,
+  ): Promise<void> => {
+    await fixture.embed(content, fixture.upsert(content))
+  }
+
+  const sourceKinds = [
+    { label: "note", sourceKind: "note" },
+    { label: "file", sourceKind: "file" },
+  ] as const
+
+  it.each(sourceKinds)(
+    "$label: a top insertion calls the model only for new text, and every row keeps its own text's vector",
+    async ({ sourceKind }) => {
+      const embedder = createTextVectorEmbedder()
+      const fixture = await createEmbeddingRaceIndex(sourceKind, embedder)
+      await saveAndEmbed(fixture, noteOf(["alpha", "beta", "gamma", "delta", "epsilon"]))
+      const textsBefore = new Set(
+        readStoredChunks(fixture, sourceKind).map((row) => row.chunk_text),
+      )
+      embedder.embedText.mockClear()
+
+      await saveAndEmbed(fixture, noteOf(["zeta", "alpha", "beta", "gamma", "delta", "epsilon"]))
+
+      const rowsAfter = readStoredChunks(fixture, sourceKind)
+      const newTexts = rowsAfter
+        .map((row) => row.chunk_text)
+        .filter((text) => !textsBefore.has(text))
+      const modelTexts = embedder.embedText.mock.calls.map(([text]) => text)
+      expect(newTexts.length).toBeLessThan(rowsAfter.length - 1)
+      expect(modelTexts.toSorted()).toEqual(newTexts.toSorted())
+      const { stored, expected } = vectorsAgainstText(rowsAfter)
+      expect(stored).toEqual(expected)
+    },
+  )
+
+  it.each(sourceKinds)(
+    "$label: two new chunks with identical text call the model once and both hold its vector",
+    async ({ sourceKind }) => {
+      const embedder = createTextVectorEmbedder()
+      const fixture = await createEmbeddingRaceIndex(sourceKind, embedder)
+      await saveAndEmbed(fixture, noteOf(["alpha", "beta", "gamma", "delta"]))
+      const textsBefore = new Set(
+        readStoredChunks(fixture, sourceKind).map((row) => row.chunk_text),
+      )
+      embedder.embedText.mockClear()
+
+      await saveAndEmbed(fixture, noteOf(["twin", "twin", "alpha", "beta", "gamma", "delta"]))
+
+      const rowsAfter = readStoredChunks(fixture, sourceKind)
+      const twinRows = rowsAfter.filter((row) => row.chunk_text.includes("twinword0"))
+      const distinctNewTexts = [
+        ...new Set(rowsAfter.map((row) => row.chunk_text).filter((text) => !textsBefore.has(text))),
+      ]
+      const modelTexts = embedder.embedText.mock.calls.map(([text]) => text)
+      expect(twinRows.map((row) => row.chunk_index)).toEqual([0, 1])
+      expect(modelTexts.toSorted()).toEqual(distinctNewTexts.toSorted())
+      const { stored, expected } = vectorsAgainstText(rowsAfter)
+      expect(stored).toEqual(expected)
+    },
+  )
+
+  it.each(sourceKinds)(
+    "$label: an unchanged save calls no model and rewrites no rows",
+    async ({ sourceKind }) => {
+      const embedder = createTextVectorEmbedder()
+      const fixture = await createEmbeddingRaceIndex(sourceKind, embedder)
+      const content = noteOf(["alpha", "beta", "gamma", "delta"])
+      await saveAndEmbed(fixture, content)
+      const rowIdsBefore = readStoredChunks(fixture, sourceKind).map((row) => row.id)
+      embedder.embedText.mockClear()
+
+      await saveAndEmbed(fixture, content)
+
+      expect(embedder.embedText).not.toHaveBeenCalled()
+      expect(readStoredChunks(fixture, sourceKind).map((row) => row.id)).toEqual(rowIdsBefore)
+    },
+  )
+
+  // Shortening worked before reuse too, so this guards that reuse never keeps the old tail
+  it.each(sourceKinds)(
+    "$label: a shortened source loses its stale tail and keeps every other vector",
+    async ({ sourceKind }) => {
+      const embedder = createTextVectorEmbedder()
+      const fixture = await createEmbeddingRaceIndex(sourceKind, embedder)
+      await saveAndEmbed(fixture, noteOf(["alpha", "beta", "gamma", "delta", "epsilon"]))
+      const chunkCountBefore = readStoredChunks(fixture, sourceKind).length
+
+      await saveAndEmbed(fixture, noteOf(["beta", "gamma", "delta", "epsilon"]))
+
+      const rowsAfter = readStoredChunks(fixture, sourceKind)
+      expect(rowsAfter.map((row) => row.chunk_index)).toEqual(
+        Array.from({ length: rowsAfter.length }, (_, position) => position),
+      )
+      expect(rowsAfter.length).toBe(chunkCountBefore - 1)
+      expect(fixture.vectorCount()).toBe(rowsAfter.length)
+      const { stored, expected } = vectorsAgainstText(rowsAfter)
+      expect(stored).toEqual(expected)
+    },
+  )
 })
 
 describe("canvas file content and links", () => {
