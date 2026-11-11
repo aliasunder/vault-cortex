@@ -207,7 +207,7 @@ To remove a single entry from a memory file, use `vault_delete_memory`.
 `vault_move_note` moves or renames a note and rewrites every link across the vault that resolves to it, mirroring Obsidian's built-in rename:
 
 - **Every link form:** wikilinks (including aliases, heading anchors, and embeds), markdown links, and frontmatter links, resolved with the same logic as the link-graph tools
-- **Canvas files:** links in text cards are rewritten like note links. A file card that opens the moved note gets the note's new path, because Obsidian opens a file card by its exact path; the move's own scan also finds a file card that names the note by a shorter path, which the link index stores as written ([File I/O safety](#file-io-safety)). An edited Canvas is saved in Obsidian's own `.canvas` layout
+- **Canvas files:** links in text cards are rewritten like note links. A file card that opens the moved note gets the note's new path. Obsidian opens a file card by its exact path, so a card that names the note any other way is left as it is. An edited Canvas is saved in Obsidian's own `.canvas` layout
 - **Minimal rewrites:** apart from Canvas file cards, a link is rewritten only when leaving it unchanged would break it, or would keep the old letter case after the note's file name changes
 - **Guardrails:** refuses to overwrite an existing destination, and blocks moves out of or into protected folders
 
@@ -1355,11 +1355,10 @@ Docker hardening, and durability seatbelts above.
     the user set to keep.
 - **Verify-then-preflight-then-commit move** (`note-mover.ts`): under the
   lock, `moveNote` first scans notes and Canvas files for backlinks the
-  search index missed (closing a lag race) or stores unresolved (a Canvas
-  file card that names the note by a shorter path). The scan skips a file
-  it cannot read, or a Canvas file whose JSON it cannot parse, with a
-  warning, so such a file aborts
-  the move only when the index lists it as a backlink. A note whose
+  search index missed (closing a lag race). The scan skips a file it
+  cannot read, or a Canvas file whose JSON it cannot parse, with a
+  warning, so such a file aborts the move only when the index lists it as
+  a backlink. A note whose
   properties block is not valid YAML is scanned for its body links. When
   the scan finds new linking notes, the move releases the lock, adds them
   to the lock set and scans again, up to `MAX_BACKLINK_VERIFY_RETRIES` (3)
