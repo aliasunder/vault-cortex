@@ -3165,7 +3165,10 @@ export const createSearchIndex = (
         }
       }
       logger.info("PDF content pass complete", {
-        files: pdfPlaceholders.length,
+        scheduledFiles: pdfPlaceholders.length,
+        // Files whose text reached the index, so the summary reports coverage
+        // rather than the schedule
+        publishedFiles: publishedPdfs.length,
         durationMs: Math.round(performance.now() - passStart),
       })
 

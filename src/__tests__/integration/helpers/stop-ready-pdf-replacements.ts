@@ -22,4 +22,7 @@ childProcess.spawn = new Proxy(spawn, {
     return child
   },
 })
+// The server imports spawn as an ESM named binding, which only this call re-points at the
+// replacement; without it the replacement children run unstopped and the deadline and
+// queue-expiry tests wait out their real timers.
 syncBuiltinESMExports()
