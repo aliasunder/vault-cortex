@@ -1,13 +1,23 @@
-import { mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs"
+import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, onTestFinished } from "vitest"
 
 import { envFile } from "../env-file.js"
 import { parseEnvValues, readEnvObsidianToken } from "../../rules/env-values.js"
 
 const neverOverwrite = async (): Promise<boolean> => false
 const alwaysOverwrite = async (): Promise<boolean> => true
+
+// Creates a temp dir and registers its removal at creation time, so the
+// suite self-cleans even when an assertion throws mid-test.
+const makeTempDir = (): string => {
+  const tempDir = mkdtempSync(join(tmpdir(), "vault-cli-env-file-"))
+  onTestFinished(() => {
+    rmSync(tempDir, { recursive: true, force: true })
+  })
+  return tempDir
+}
 
 describe("read", () => {
   it("returns undefined when no .env exists", () => {
@@ -17,7 +27,7 @@ describe("read", () => {
   })
 
   it("returns the file's text, an empty file included", () => {
-    const envPath = join(mkdtempSync(join(tmpdir(), "vault-cli-")), ".env")
+    const envPath = join(makeTempDir(), ".env")
     writeFileSync(envPath, "")
 
     expect(envFile.read(envPath)).toBe("")
@@ -26,7 +36,7 @@ describe("read", () => {
 
 describe("write", () => {
   it("creates the target directory and writes .env", async () => {
-    const targetDir = join(mkdtempSync(join(tmpdir(), "vault-cli-")), "nested", "vault-cortex")
+    const targetDir = join(makeTempDir(), "nested", "vault-cortex")
 
     const writeStatus = await envFile.write(
       { targetDir, envContent: "MCP_AUTH_TOKEN=abc\n" },
@@ -38,7 +48,7 @@ describe("write", () => {
   })
 
   it("skips an existing identical .env without consulting the conflict resolver", async () => {
-    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"))
+    const targetDir = makeTempDir()
     writeFileSync(join(targetDir, ".env"), "MCP_AUTH_TOKEN=abc\n")
     const failingResolver = async (): Promise<boolean> => {
       throw new Error("resolver must not be called for identical content")
@@ -53,7 +63,7 @@ describe("write", () => {
   })
 
   it("keeps a differing existing .env untouched when the resolver declines", async () => {
-    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"))
+    const targetDir = makeTempDir()
     writeFileSync(join(targetDir, ".env"), "MCP_AUTH_TOKEN=old\n")
 
     const writeStatus = await envFile.write(
@@ -66,7 +76,7 @@ describe("write", () => {
   })
 
   it("overwrites a differing existing .env when the resolver approves", async () => {
-    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"))
+    const targetDir = makeTempDir()
     writeFileSync(join(targetDir, ".env"), "MCP_AUTH_TOKEN=old\n")
 
     const writeStatus = await envFile.write(
@@ -81,7 +91,7 @@ describe("write", () => {
 
 describe("write permissions", () => {
   it("creates .env owner-only (0600)", async () => {
-    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"))
+    const targetDir = makeTempDir()
 
     await envFile.write({ targetDir, envContent: "MCP_AUTH_TOKEN=abc\n" }, neverOverwrite)
 
@@ -90,7 +100,7 @@ describe("write permissions", () => {
   })
 
   it("tightens permissions when overwriting an existing wider-mode .env", async () => {
-    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"))
+    const targetDir = makeTempDir()
     const envPath = join(targetDir, ".env")
     writeFileSync(envPath, "MCP_AUTH_TOKEN=old\n", { mode: 0o644 })
 
@@ -103,7 +113,7 @@ describe("write permissions", () => {
 
 describe("replace", () => {
   it("rewrites an existing .env and keeps its owner-only permissions", () => {
-    const envPath = join(mkdtempSync(join(tmpdir(), "vault-cli-")), ".env")
+    const envPath = join(makeTempDir(), ".env")
     writeFileSync(envPath, "MCP_AUTH_TOKEN=old\n", { mode: 0o600 })
 
     envFile.replace(envPath, "MCP_AUTH_TOKEN=new\n")
@@ -115,7 +125,7 @@ describe("replace", () => {
 
 describe("patchObsidianToken", () => {
   it("replaces an existing token value", () => {
-    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-patch-"))
+    const targetDir = makeTempDir()
     const envPath = join(targetDir, ".env")
     writeFileSync(
       envPath,
@@ -131,7 +141,7 @@ describe("patchObsidianToken", () => {
   })
 
   it("replaces every active token line, so the last one docker reads is the new token", () => {
-    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-patch-"))
+    const targetDir = makeTempDir()
     const envPath = join(targetDir, ".env")
     writeFileSync(
       envPath,
@@ -148,7 +158,7 @@ describe("patchObsidianToken", () => {
   })
 
   it("replaces an empty token value", () => {
-    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-patch-"))
+    const targetDir = makeTempDir()
     const envPath = join(targetDir, ".env")
     writeFileSync(envPath, "OBSIDIAN_AUTH_TOKEN=\n")
 
@@ -168,7 +178,7 @@ describe("patchObsidianToken", () => {
   })
 
   it("returns false when the file has no OBSIDIAN_AUTH_TOKEN line", () => {
-    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-patch-"))
+    const targetDir = makeTempDir()
     const envPath = join(targetDir, ".env")
     writeFileSync(envPath, "MCP_AUTH_TOKEN=abc\nVAULT_PATH=/vault\n")
 
@@ -179,7 +189,7 @@ describe("patchObsidianToken", () => {
   })
 
   it("writes tokens containing $ patterns literally (no regex interpolation)", () => {
-    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-patch-"))
+    const targetDir = makeTempDir()
     const envPath = join(targetDir, ".env")
     writeFileSync(envPath, "OBSIDIAN_AUTH_TOKEN=old-token\n")
 
@@ -190,7 +200,7 @@ describe("patchObsidianToken", () => {
   })
 
   it("preserves surrounding content when patching", () => {
-    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-patch-"))
+    const targetDir = makeTempDir()
     const envPath = join(targetDir, ".env")
     const original =
       "# Comment\nMCP_AUTH_TOKEN=abc\nOBSIDIAN_AUTH_TOKEN=old\nVAULT_NAME=Test\n# Footer\n"
@@ -212,7 +222,7 @@ describe("stripQuotedValues", () => {
   })
 
   it("returns false when no values are quoted", () => {
-    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-sanitize-"))
+    const targetDir = makeTempDir()
     const envPath = join(targetDir, ".env")
     const content = "MCP_AUTH_TOKEN=abc\nVAULT_NAME=My Vault\n"
     writeFileSync(envPath, content)
@@ -222,7 +232,7 @@ describe("stripQuotedValues", () => {
   })
 
   it("strips double quotes from values and writes the file", () => {
-    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-sanitize-"))
+    const targetDir = makeTempDir()
     const envPath = join(targetDir, ".env")
     writeFileSync(envPath, 'MCP_AUTH_TOKEN=abc\nVAULT_NAME="My Vault"\n')
 
@@ -231,7 +241,7 @@ describe("stripQuotedValues", () => {
   })
 
   it("strips single quotes from values", () => {
-    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-sanitize-"))
+    const targetDir = makeTempDir()
     const envPath = join(targetDir, ".env")
     writeFileSync(envPath, "MCP_AUTH_TOKEN=abc\nVAULT_NAME='My Vault'\n")
 
@@ -240,7 +250,7 @@ describe("stripQuotedValues", () => {
   })
 
   it("strips quotes from multiple values in one pass", () => {
-    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-sanitize-"))
+    const targetDir = makeTempDir()
     const envPath = join(targetDir, ".env")
     writeFileSync(envPath, 'VAULT_NAME="My Vault"\nSYNC_EXCLUDED_FOLDERS="Folder A,Folder B"\n')
 
@@ -251,7 +261,7 @@ describe("stripQuotedValues", () => {
   })
 
   it("preserves comments and unquoted values", () => {
-    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-sanitize-"))
+    const targetDir = makeTempDir()
     const envPath = join(targetDir, ".env")
     const content = '# Comment\nMCP_AUTH_TOKEN=abc\nVAULT_NAME="My Vault"\nPORT=8000\n# Footer\n'
     writeFileSync(envPath, content)
@@ -264,7 +274,7 @@ describe("stripQuotedValues", () => {
   })
 
   it("does not strip mismatched quotes", () => {
-    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-sanitize-"))
+    const targetDir = makeTempDir()
     const envPath = join(targetDir, ".env")
     const content = "VAULT_NAME=\"My Vault'\n"
     writeFileSync(envPath, content)
@@ -274,7 +284,7 @@ describe("stripQuotedValues", () => {
   })
 
   it("preserves inner quotes of a different type", () => {
-    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-sanitize-"))
+    const targetDir = makeTempDir()
     const envPath = join(targetDir, ".env")
     writeFileSync(envPath, "VAULT_NAME=\"My 'Cool' Vault\"\n")
 

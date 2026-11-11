@@ -1,4 +1,4 @@
-import { chmodSync, mkdtempSync, writeFileSync } from "node:fs"
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { describe, expect, it, onTestFinished, vi } from "vitest"
@@ -623,6 +623,9 @@ describe("streamLogs", () => {
   it("removes its ctrl-C keep-alive listener once the stream ends", async () => {
     // A stand-in docker binary on PATH that exits at once with code 3.
     const binDir = mkdtempSync(join(tmpdir(), "vault-cli-docker-"))
+    onTestFinished(() => {
+      rmSync(binDir, { recursive: true, force: true })
+    })
     const fakeDockerPath = join(binDir, "docker")
     writeFileSync(fakeDockerPath, "#!/bin/sh\nexit 3\n")
     chmodSync(fakeDockerPath, 0o755)
@@ -632,11 +635,16 @@ describe("streamLogs", () => {
     })
     const sigintListenersBefore = process.listenerCount("SIGINT")
 
-    const exitCode = await createDockerRunner().streamLogs({
+    const logsStream = createDockerRunner().streamLogs({
       instanceName: "vault-cortex",
       follow: false,
     })
+    // This count proves the listener existed while the stream ran, so the
+    // removal check below cannot pass when no listener was ever added.
+    const sigintListenersWhileStreaming = process.listenerCount("SIGINT")
+    const exitCode = await logsStream
 
+    expect(sigintListenersWhileStreaming).toBe(sigintListenersBefore + 1)
     expect(exitCode).toBe(3)
     expect(process.listenerCount("SIGINT")).toBe(sigintListenersBefore)
   })
