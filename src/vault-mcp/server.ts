@@ -142,7 +142,9 @@ const startServer = async (): Promise<void> => {
     env.get("INDEX_DB_PATH").asString(),
   )
   const port = env.get("PORT").default("8000").asPortNumber()
-  const host = env.get("HOST").default("0.0.0.0").asString()
+  // Loopback unless told otherwise, so a bare run serves only the machine it
+  // runs on; the Docker images, compose files and CLI set HOST=0.0.0.0.
+  const host = env.get("HOST").default("127.0.0.1").asString()
 
   logger.info("config loaded", {
     memoryEnabled: config.memoryEnabled,

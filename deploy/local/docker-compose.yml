@@ -72,7 +72,9 @@ services:
       - "${VAULT_PATH:?Set VAULT_PATH to your Obsidian vault folder}:/vault:rw"
       - mcp_data:/data
     ports:
-      - "${PORT:-8000}:8000"
+      # Published on this machine only. To reach the server from another
+      # device on your network, drop the "127.0.0.1:" prefix.
+      - "127.0.0.1:${PORT:-8000}:8000"
     healthcheck:
       test:
         [

@@ -51,7 +51,7 @@ describe("buildDockerRunArgs", () => {
       "-e",
       "INDEX_DB_PATH=/data/index.db",
       "-p",
-      "8000:8000",
+      "127.0.0.1:8000:8000",
       "-v",
       "/home/user/MyVault:/vault:rw",
       "-v",
@@ -125,18 +125,20 @@ describe("buildDockerRunArgs", () => {
     ])
   })
 
-  it("uses a custom port for the host-side mapping", () => {
+  it.each([
+    { mode: "local" as const, vaultPath: "/vault", published: "127.0.0.1:9000:8000" },
+    { mode: "remote" as const, vaultPath: undefined, published: "9000:8000" },
+  ])("publishes a custom port on $published in $mode mode", ({ mode, vaultPath, published }) => {
     const args = buildDockerRunArgs({
-      mode: "local",
+      mode,
       instanceName: "vault-cortex",
       envFilePath: "/tmp/.env",
       port: 9000,
-      vaultPath: "/vault",
+      ...(vaultPath ? { vaultPath } : {}),
     })
 
-    expect(args).toContain("-p")
     const portIndex = args.indexOf("-p")
-    expect(args[portIndex + 1]).toBe("9000:8000")
+    expect(args[portIndex + 1]).toBe(published)
   })
 
   it("overrides VAULT_PATH so the host path does not leak into the container", () => {
@@ -212,7 +214,7 @@ describe("buildDockerRunArgs", () => {
       "-e",
       "INDEX_DB_PATH=/data/index.db",
       "-p",
-      "8001:8000",
+      "127.0.0.1:8001:8000",
       "-v",
       "/home/user/WorkVault:/vault:rw",
       "-v",

@@ -133,6 +133,9 @@ export const buildDockerRunArgs = (params: DockerRunParams): string[] => {
   const { mode, instanceName, envFilePath, port, vaultPath } = params
   const image = mode === "local" ? LOCAL_IMAGE : REMOTE_IMAGE
 
+  // A local install serves the vault on this machine only; a remote install
+  // runs on a server that other devices must reach.
+  const publishedPort = mode === "local" ? `127.0.0.1:${port}:8000` : `${port}:8000`
   const args = [
     "run",
     "-d",
@@ -144,7 +147,7 @@ export const buildDockerRunArgs = (params: DockerRunParams): string[] => {
     envFilePath,
     ...CONTAINER_ENV_OVERRIDES.flatMap((override) => ["-e", override]),
     "-p",
-    `${port}:8000`,
+    publishedPort,
   ]
 
   if (mode === "local") {
