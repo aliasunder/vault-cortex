@@ -4047,6 +4047,50 @@ describe("file watcher — new-directory rescan", () => {
   })
 
   it(
+    "indexes a missed note after a symlinked directory while that directory's note is still embedding",
+    { timeout: 15000 },
+    async () => {
+      const targetDirectory = join(vault, "target-dir")
+      await mkdir(targetDirectory)
+      const insidePath = join(targetDirectory, "inside.md")
+      await writeFile(insidePath, "inside symlinkedgamma note\n", "utf8")
+      await backdateMtime(insidePath)
+      const newDirectory = join(vault, "new-folder")
+      await mkdir(newDirectory)
+      await symlink(targetDirectory, join(newDirectory, "linked-dir"))
+      // The recursive listing reaches a subfolder's files after every
+      // top-level entry, so this note comes after the symlinked directory.
+      await mkdir(join(newDirectory, "sub"))
+      const laterPath = join(newDirectory, "sub", "later.md")
+      await writeFile(laterPath, "later missedepsilon note\n", "utf8")
+      await backdateMtime(laterPath)
+      const heldEmbedding = Promise.withResolvers<undefined>()
+      const embedNoteSpy = vi
+        .spyOn(index, "embedNote")
+        .mockImplementationOnce(async () => heldEmbedding.promise)
+      onTestFinished(() => heldEmbedding.resolve(undefined))
+
+      const { fireAddDir } = await startWatcherWithFakeChokidar({}, RESCAN_TEST_OPTIONS)
+      fireAddDir(newDirectory)
+
+      await waitFor(() => index.fullTextSearch({ query: "missedepsilon" }, logger).length > 0)
+      expect(
+        index.fullTextSearch({ query: "missedepsilon" }, logger).map((hit) => hit.path),
+      ).toEqual(["new-folder/sub/later.md"])
+      expect(embedNoteSpy).toHaveBeenNthCalledWith(
+        1,
+        {
+          notePath: "new-folder/linked-dir/inside.md",
+          rawContent: "inside symlinkedgamma note\n",
+          sourceVersion: expect.any(Symbol),
+        },
+        logger,
+      )
+      expect(embedNoteSpy).toHaveBeenCalledTimes(2)
+    },
+  )
+
+  it(
     "retries and indexes a still-being-written file inside a missed symlinked directory",
     { timeout: 15000 },
     async () => {
