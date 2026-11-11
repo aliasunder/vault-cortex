@@ -1911,10 +1911,12 @@ export const createSearchIndex = (
    *  the MCP layer runs each call through trackForegroundWork. */
   const foregroundWork = createActivityTracker()
 
-  /** One background model call for a chunk's text, made once no tool call or
-   *  prompt is running. Null when a newer write to the source superseded the
-   *  job during the wait. The caller checks the version again before it
-   *  writes the vector. */
+  /** Makes one model call for a chunk's text.
+   *  - It first waits while a tool call or prompt runs, for at most
+   *    BACKGROUND_EMBED_MAX_WAIT_MS, then calls the model either way.
+   *  - It returns null when a newer write to the source superseded the job
+   *    during the wait.
+   *  - The caller checks the source version again before it writes the vector. */
   const embedChunkWhenIdle = async (
     params: { text: string; sourcePath: string; sourceVersion: symbol },
     logger: Logger,
