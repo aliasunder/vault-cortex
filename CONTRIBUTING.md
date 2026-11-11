@@ -178,9 +178,9 @@ a tool does) starts as a
 [feature request](https://github.com/aliasunder/vault-cortex/issues/new?template=feature_request.yml),
 so the design is agreed with the maintainer before you write code. A bug fix
 can go straight to a PR. A feature PR ships with the tests
-[AGENTS.md](./AGENTS.md) asks for and updates the docs and generated files
-listed under
-[Files that track feature surface](./AGENTS.md#files-that-track-feature-surface).
+[AGENTS.md](./AGENTS.md) asks for and walks the checklist under
+[Files that track feature surface](./AGENTS.md#files-that-track-feature-surface),
+updating each doc or generated file the change affects.
 
 1. **Branch from `main`** — use a descriptive prefix (`feat/`, `fix/`, `docs/`,
    `refactor/`, `chore/`)

@@ -31,8 +31,9 @@ The foundations the planned work builds on:
 - One self-contained image for every deployment path — the MCP server
   and Obsidian Sync in a single container, runnable by any OCI runtime
   (Docker, Podman, nerdctl)
-- A guided CLI (`npx vault-cortex`) that walks through setup and handles
-  configuration, upgrades, restarts, and logs
+- A guided CLI (`npx vault-cortex`) that walks through setup, boots the
+  server straight to the browser Sync sign-in when you have no Sync token,
+  and handles configuration, upgrades, restarts, and logs
 - One-click Render and Railway deploys, with browser-based Obsidian Sync
   sign-in when no Sync token is configured
 
@@ -40,11 +41,7 @@ The foundations the planned work builds on:
 
 ### Setup without a terminal
 
-The remaining work is the rough edges early adopters hit as they work
-through the setup guides. The one-click deploys (Render, Railway), the
-browser sign-in page for Obsidian Sync, and a CLI `init` that boots the
-server straight to that page when you have no Sync token cover everything
-else.
+The rough edges early adopters hit as they work through the setup guides.
 
 ### Guided vault onboarding
 
@@ -64,11 +61,8 @@ query on task listings, and the same for tags by meaning.
 
 ### v1.0.0 — a stability contract
 
-A v1 release that MCP clients can build on:
-
-- Unknown input fields rejected, inside nested objects too, instead of
-  silently ignored
-- A written compatibility policy for what future versions may change
+A v1 release that MCP clients can build on, with a written compatibility
+policy for what future versions may change.
 
 ### Obsidian parity after 1.0
 
