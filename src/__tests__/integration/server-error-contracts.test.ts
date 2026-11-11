@@ -2706,6 +2706,47 @@ describe("isolated PDF extraction error contracts", () => {
     await assertRecovery()
   }, 60_000)
 
+  it("returns the start failure when a replacement child dies before it is ready, then recovers", async () => {
+    const preloadPath = fileURLToPath(
+      new URL("./helpers/kill-first-pdf-replacement.ts", import.meta.url),
+    )
+    const { server, ownClient, serverPid, childPid, assertRecovery } = await startPdfFailureServer(
+      ["Start.pdf"],
+      { NODE_OPTIONS: `--import=${JSON.stringify(preloadPath)}` },
+    )
+    // The warmed child dies between jobs, so the next read starts the replacement the preload kills.
+    signalPdfChild(childPid, "SIGKILL")
+    await vi.waitFor(async () => {
+      expect((await findPdfChildren(serverPid)).includes(childPid)).toBe(false)
+    })
+
+    expect(
+      await callTool({ client: ownClient, name: "vault_read_file", args: { path: "Start.pdf" } }),
+    ).toEqual({
+      content: [
+        { type: "text", text: '[Error]: PDF reader could not start: "Start.pdf"; retry later' },
+      ],
+      isError: true,
+    })
+    await waitForExtractionLog({
+      stdout: server.stdout,
+      matches: (entry) =>
+        entry.message === "PDF extraction reader discarded" &&
+        entry.path === "Start.pdf" &&
+        entry.signal === "SIGKILL",
+    })
+    // The watcher's index job for the same file ran on the warmed child; the read never dispatched.
+    expect(
+      readExtractionLogs(server.stdout).filter(
+        (entry) =>
+          entry.message === "PDF extraction dispatched" &&
+          entry.path === "Start.pdf" &&
+          entry.kind === "read",
+      ),
+    ).toEqual([])
+    await assertRecovery()
+  }, 45_000)
+
   it("returns retry later for a read that spends sixty seconds queued", async () => {
     const paths = ["Blocker1.pdf", "Blocker2.pdf", "Blocker3.pdf", "Blocker4.pdf", "Expired.pdf"]
     const preloadPath = fileURLToPath(

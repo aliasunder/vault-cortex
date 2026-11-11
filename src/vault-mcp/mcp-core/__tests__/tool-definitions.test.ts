@@ -2917,12 +2917,7 @@ describe("file tool handlers", () => {
     await writeFile(join(vault, "doc.pdf"), buildMinimalPdf())
     const result = await readAsset({ path: "doc.pdf" })
     expect(result).toEqual({
-      content: [
-        {
-          type: "text",
-          text: expect.stringMatching(/^Title: \(untitled\) \| Pages: 1\n\n[\s\S]*Hello PDF/),
-        },
-      ],
+      content: [{ type: "text", text: "Title: (untitled) | Pages: 1\n\nHello PDF" }],
     })
   }, 15_000)
 
