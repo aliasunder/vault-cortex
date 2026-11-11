@@ -482,11 +482,9 @@ const isExcludedFromLane = ({
 }: {
   line: string
   insideFenceOrComment: boolean
-  statusRegistry: ReadonlyMap<string, StatusClassification> | undefined
+  statusRegistry: ReadonlyMap<string, StatusClassification>
 }): boolean => {
   if (insideFenceOrComment) return true
-
-  if (!statusRegistry) return false
 
   return isNonTaskCheckbox({ taskLine: line, statusRegistry })
 }
@@ -523,7 +521,7 @@ const findLaneCards = ({
 }: {
   lines: readonly string[]
   heading: HeadingInfo
-  statusRegistry: ReadonlyMap<string, StatusClassification> | undefined
+  statusRegistry: ReadonlyMap<string, StatusClassification>
 }): { cardStartIndices: readonly number[]; firstChildStart: number | undefined } => {
   const firstChildStart = findFirstChildHeadingStart({ lines, heading })
   const walkEnd = firstChildStart ?? heading.bodyEndLine
@@ -566,7 +564,7 @@ const headingInsertIndexAtPosition = ({
   lines: readonly string[]
   heading: HeadingInfo
   position: number
-  statusRegistry?: ReadonlyMap<string, StatusClassification> | undefined
+  statusRegistry: ReadonlyMap<string, StatusClassification>
 }): number => {
   const { cardStartIndices, firstChildStart } = findLaneCards({ lines, heading, statusRegistry })
   const cardStartIndex = cardStartIndices[position - 1]
@@ -591,7 +589,7 @@ const headingInsertIndex = ({
   lines: readonly string[]
   heading: HeadingInfo
   position: "top" | "bottom" | number
-  statusRegistry?: ReadonlyMap<string, StatusClassification> | undefined
+  statusRegistry: ReadonlyMap<string, StatusClassification>
 }): number => {
   if (typeof position === "number") {
     return headingInsertIndexAtPosition({ lines, heading, position, statusRegistry })
@@ -990,7 +988,7 @@ const moveTaskBlock = ({
    *  value. Set only when a next occurrence was written and the call asked
    *  for a position. */
   beforePosition?: number | undefined
-  statusRegistry?: ReadonlyMap<string, StatusClassification> | undefined
+  statusRegistry: ReadonlyMap<string, StatusClassification>
 }): {
   lines: readonly string[]
   taskLineIndex: number
@@ -1135,7 +1133,7 @@ const positionOfTaskInLane = ({
   lines: readonly string[]
   heading: HeadingInfo
   taskLineIndex: number
-  statusRegistry?: ReadonlyMap<string, StatusClassification> | undefined
+  statusRegistry: ReadonlyMap<string, StatusClassification>
 }): number => {
   const { cardStartIndices } = findLaneCards({ lines, heading, statusRegistry })
   const cardIndex = cardStartIndices.indexOf(taskLineIndex)
