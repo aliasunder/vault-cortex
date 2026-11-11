@@ -15,7 +15,7 @@ export const createActivityTracker = (): ActivityTracker => {
   const idleWaiters = new Set<() => void>()
 
   const releaseIdleWaiters = (): void => {
-    for (const releaseWaiter of idleWaiters) releaseWaiter()
+    for (const releaseWaiter of [...idleWaiters]) releaseWaiter()
   }
 
   const track = async <T>(work: () => Promise<T>): Promise<T> => {

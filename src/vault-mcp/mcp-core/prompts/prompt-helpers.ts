@@ -42,7 +42,9 @@ export const formatNoteLine = (note: { path: string; title: string }): string =>
 }
 
 /** Runs a prompt handler as tracked foreground work, so background embedding
- *  waits while the prompt gathers vault data on the one JavaScript thread. */
+ *  waits while the prompt gathers vault data on the one JavaScript thread.
+ *  Its generic parameters carry registerPrompt's callback type to the handler
+ *  passed in, which types that handler's `args` and `extra`. */
 export const trackedPromptHandler = <HandlerArgs extends unknown[], HandlerResult>(
   search: Pick<SearchIndex, "trackForegroundWork">,
   handler: (...handlerArgs: HandlerArgs) => Promise<HandlerResult>,

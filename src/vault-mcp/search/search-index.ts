@@ -28,6 +28,7 @@ import { contentHash, type Embedder } from "./embedder.js"
 import type { Reranker } from "./reranker.js"
 import { buildChunkMetadataPrefix, chunkContent } from "./chunker.js"
 import type { PdfExtractor } from "../vault-operations/pdf-extractor.js"
+import type { PdfTextResult } from "../obsidian-markdown/pdf.js"
 import { caseFoldPath } from "../../utils/case-fold-path.js"
 import { describeError, describeErrorForLog } from "../../utils/describe-error.js"
 import { filterValidSymlinks } from "../../utils/filter-valid-symlinks.js"
@@ -423,25 +424,33 @@ const readStoredBodyTags = (
 
 // ── Background embedding ────────────────────────────────────────
 
-/** How long a background embedding unit (a chunk, or a batch of memory
- *  entries) waits for running tool calls and prompts to finish.
+/** How long a background embedding unit (one model call, for a chunk or a
+ *  batch of memory entries) waits for running tool calls and prompts to finish.
  *  - Inference runs on the one JavaScript thread, so a unit that runs during
  *    a call delays that call.
  *  - The cap keeps a stream of overlapping calls from stalling the index for
- *    good. Each job then runs one unit per wait, about six per 30-second call. */
+ *    good. A job (one note's or file's embedding) then runs one unit every 5
+ *    seconds, so about six during a 30-second call. */
 const BACKGROUND_EMBED_MAX_WAIT_MS = 5000
 
 /** A stored chunk's content hash and the raw bytes of its vector. */
 type StoredVectorRow = { content_hash: string; embedding: Buffer }
 
+type StoredVectorLookup = {
+  find: (hash: string) => Buffer | undefined
+  remember: (hash: string, vectorBytes: Buffer) => void
+}
+
 /** The vectors one note or file already has, keyed by the content hash of
- *  their chunk text, so a chunk that moved keeps its vector without a model
- *  call.
+ *  their chunk text, so a chunk whose text moved to another position keeps
+ *  its vector without a model call.
  *  - The rows are read at the first lookup, so a job whose chunks all match
  *    at their own position reads none.
  *  - Vectors the model returns during the job are added, so repeated new text
  *    reaches the model once. */
-const createStoredVectorLookup = (readStoredVectors: () => readonly StoredVectorRow[]) => {
+const createStoredVectorLookup = (
+  readStoredVectors: () => readonly StoredVectorRow[],
+): StoredVectorLookup => {
   // Null until the first lookup reads the stored rows
   let vectorsByHash: Map<string, Buffer> | null = null
 
@@ -1905,21 +1914,22 @@ export const createSearchIndex = (
   /** One background model call for a chunk's text, made once no tool call or
    *  prompt is running. Null when a newer write to the source superseded the
    *  job during the wait or the model call. */
-  const embedInBackground = async (
+  const embedChunkWhenIdle = async (
     params: { text: string; sourcePath: string; sourceVersion: symbol },
     logger: Logger,
   ): Promise<Buffer | null> => {
-    const { text, ...source } = params
+    const { text, sourcePath, sourceVersion } = params
 
+    // Both callers return early without an embedder, so this throw only narrows its type
     if (!embedder) throw new Error("background embedding ran without an embedder")
 
     await foregroundWork.whenIdle({ maxWaitMs: BACKGROUND_EMBED_MAX_WAIT_MS })
 
-    if (!isCurrentSourceVersion(source, logger)) return null
+    if (!isCurrentSourceVersion({ sourcePath, sourceVersion }, logger)) return null
 
     const embedding = await embedder.embedText(text)
 
-    if (!isCurrentSourceVersion(source, logger)) return null
+    if (!isCurrentSourceVersion({ sourcePath, sourceVersion }, logger)) return null
     return Buffer.from(embedding.buffer, embedding.byteOffset, embedding.byteLength)
   }
 
@@ -1990,19 +2000,19 @@ export const createSearchIndex = (
       // Skip if content hasn't changed
       if (existingHashes.get(chunk.index) === hash) continue
 
-      // A stored vector needs no version check of its own, because no await
-      // separates it from the last check (at the start or after a model call)
+      // A stored vector gets no version check of its own. The last check ran
+      // at the start of this function, or inside embedChunkWhenIdle after the
+      // previous model call.
       const storedVector = storedVectors.find(hash)
       const vectorBytes =
         storedVector ??
-        (await embedInBackground(
+        (await embedChunkWhenIdle(
           { text: chunk.text, sourcePath: notePath, sourceVersion: params.sourceVersion },
           logger,
         ))
 
       if (!vectorBytes) return embeddedCount
-
-      storedVectors.remember(hash, vectorBytes)
+      if (!storedVector) storedVectors.remember(hash, vectorBytes)
 
       // Wrap the DB writes in a transaction so the content hash is never
       // saved without its corresponding vector — prevents a crash between
@@ -2092,6 +2102,8 @@ export const createSearchIndex = (
       batchStart < unembeddedRows.length;
       batchStart += MEMORY_EMBED_BATCH_SIZE
     ) {
+      // This repeats embedChunkWhenIdle's wait and version checks, because that
+      // helper embeds one text and a batch goes to embedBatch
       await foregroundWork.whenIdle({ maxWaitMs: BACKGROUND_EMBED_MAX_WAIT_MS })
 
       if (!isCurrentSourceVersion({ sourcePath: notePath, sourceVersion }, logger))
@@ -2218,19 +2230,19 @@ export const createSearchIndex = (
 
       if (existingHashes.get(chunk.index) === hash) continue
 
-      // A stored vector needs no version check of its own, because no await
-      // separates it from the last check (at the start or after a model call)
+      // A stored vector gets no version check of its own. The last check ran
+      // at the start of this function, or inside embedChunkWhenIdle after the
+      // previous model call.
       const storedVector = storedVectors.find(hash)
       const vectorBytes =
         storedVector ??
-        (await embedInBackground(
+        (await embedChunkWhenIdle(
           { text: chunk.text, sourcePath: params.filePath, sourceVersion: params.sourceVersion },
           logger,
         ))
 
       if (!vectorBytes) return embeddedCount
-
-      storedVectors.remember(hash, vectorBytes)
+      if (!storedVector) storedVectors.remember(hash, vectorBytes)
 
       db.transaction(() => {
         const existingChunk = selectFileChunkIdStmt.get(params.filePath, chunk.index)
@@ -3066,8 +3078,8 @@ export const createSearchIndex = (
       // Finish other files after an embedding failure, then reject completion so eval cannot score it.
       const embeddingFailures: unknown[] = []
       // Every PDF's text is published before any PDF is embedded. Each
-      // embedding waits while a tool call runs, so embedding inside this loop
-      // would also hold back the next PDF's keyword text.
+      // embedding waits while a tool call or prompt runs, so embedding inside
+      // this loop would also hold back the next PDF's keyword text.
       const publishedPdfs: Array<{ relativePath: string; sourceVersion: symbol }> = []
       for (const file of pdfPlaceholders) {
         const scheduledVersion = pdfVersionsForExtraction.get(file.relativePath)
@@ -3075,7 +3087,8 @@ export const createSearchIndex = (
         if (!scheduledVersion) continue
         if (sourceVersions.get(file.relativePath) !== scheduledVersion) continue
         if (file.sizeBytes > maxFileBytes) continue
-        const result = await (async () => {
+
+        const extractPdfForIndex = async (): Promise<PdfTextResult | null> => {
           try {
             return await pdfExtractor.extractForIndex({ path: file.relativePath }, logger)
           } catch (error) {
@@ -3091,7 +3104,8 @@ export const createSearchIndex = (
             })
             return null
           }
-        })()
+        }
+        const result = await extractPdfForIndex()
 
         if (!result || sourceVersions.get(file.relativePath) !== scheduledVersion) continue
 
@@ -3118,6 +3132,7 @@ export const createSearchIndex = (
         if (!sourceVersion) continue
         publishedPdfs.push({ relativePath: file.relativePath, sourceVersion })
       }
+
       for (const { relativePath, sourceVersion } of publishedPdfs) {
         try {
           await embedFileContent({ filePath: relativePath, sourceVersion }, logger)

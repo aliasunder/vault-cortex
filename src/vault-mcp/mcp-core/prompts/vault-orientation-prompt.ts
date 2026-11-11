@@ -156,7 +156,7 @@ export const registerVaultOrientationPrompt = ({
   // This prompt takes no arguments, so it omits argsSchema entirely and the SDK
   // calls back as (extra) =>; an empty {} schema would count as a schema and
   // break arg parsing. With no argsSchema to infer from, the explicit type
-  // argument keeps the wrapped callback typed.
+  // argument keeps the callback passed to trackedPromptHandler typed.
   server.registerPrompt<ZodRawShapeCompat>(
     PROMPT_NAMES.VAULT_ORIENTATION,
     {

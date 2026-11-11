@@ -49,9 +49,9 @@ export const computeEnabledToolNames = (config: VaultConfig): ReadonlySet<ToolNa
 const createGatedRegisterTool = (params: {
   server: McpServer
   enabledToolNames: ReadonlySet<ToolName>
-  trackForegroundWork: SearchIndex["trackForegroundWork"]
+  search: Pick<SearchIndex, "trackForegroundWork">
 }): RegisterGatedTool => {
-  const { server, enabledToolNames, trackForegroundWork } = params
+  const { server, enabledToolNames, search } = params
 
   return (name, config, handler) => {
     const entry = TOOL_REGISTRY_BY_NAME.get(name)
@@ -64,8 +64,10 @@ const createGatedRegisterTool = (params: {
     // Background embedding waits while a handler runs, because model
     // inference shares the one JavaScript thread with the call
     const trackedHandler: typeof handler = (args, extra) => {
-      return trackForegroundWork(async () => handler(args, extra))
+      // The async wrapper turns a handler's synchronous result into a promise
+      return search.trackForegroundWork(async () => handler(args, extra))
     }
+
     // Inference picks the raw shape for InputArgs; no tool has an output schema
     server.registerTool<ZodRawShapeCompat, ToolInputObject<typeof config.inputSchema>>(
       name,
@@ -113,7 +115,7 @@ export const registerTools = (params: {
     registerTool: createGatedRegisterTool({
       server: params.server,
       enabledToolNames,
-      trackForegroundWork: params.search.trackForegroundWork,
+      search: params.search,
     }),
     vaultPath: params.vaultPath,
     search: params.search,
