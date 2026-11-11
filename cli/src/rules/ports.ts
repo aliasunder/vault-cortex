@@ -24,17 +24,19 @@ export type PortDecision =
   | { kind: "ask" }
 
 /**
- * Plain digits in the TCP port range. Number() coercion is not enough: it
- * accepts "1e4", "0x1F40" and "+9000".
+ * Plain digits with no leading zero, in the TCP port range. Number() coercion
+ * is not enough: it accepts "1e4", "0x1F40" and "+9000". A leading zero would
+ * reach the .env and PUBLIC_URL as written ("08000") while the port in use is
+ * 8000.
  */
 export const isValidPort = (value: string): boolean => {
-  if (!/^\d+$/.test(value)) return false
+  if (!/^[1-9]\d*$/.test(value)) return false
   const port = Number(value)
   return port >= 1 && port <= 65535
 }
 
 /** What isValidPort accepts, in the words every invalid-port error uses. */
-export const VALID_PORT_RANGE = "a whole number between 1 and 65535"
+export const VALID_PORT_RANGE = "a whole number between 1 and 65535, with no leading zero"
 
 /** The error for a .env PORT value that isn't a port; callers add where to fix it. */
 export const describeInvalidEnvPort = (portValue: string): string => {

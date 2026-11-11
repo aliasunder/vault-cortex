@@ -12,6 +12,7 @@ describe("isValidPort", () => {
   it.each([
     { label: "the lowest port", value: "1" },
     { label: "the highest port", value: "65535" },
+    { label: "the default port", value: "8000" },
   ])("accepts $label", ({ value }) => {
     expect(isValidPort(value)).toBe(true)
   })
@@ -23,6 +24,7 @@ describe("isValidPort", () => {
     { label: "a hex number", value: "0x1F40" },
     { label: "a signed number", value: "+9000" },
     { label: "an empty value", value: "" },
+    { label: "a leading zero", value: "08000" },
   ])("rejects $label", ({ value }) => {
     expect(isValidPort(value)).toBe(false)
   })

@@ -490,7 +490,7 @@ describe("runRestart", () => {
 
     expect(exitCode).toBe(1)
     expect(scripted.errors).toEqual([
-      `PORT "80a" is not a valid port — use a whole number between 1 and 65535. Fix it in ${targetDir}/.env.`,
+      `PORT "80a" is not a valid port — use a whole number between 1 and 65535, with no leading zero. Fix it in ${targetDir}/.env.`,
     ])
     expect(recording.runParams).toEqual([])
   })

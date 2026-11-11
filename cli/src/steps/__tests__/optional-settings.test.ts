@@ -448,7 +448,9 @@ describe("askOptionalSettings per-setting prompts", () => {
       scripted.prompts,
     )
 
-    expect(scripted.errors).toEqual(["PORT must be a whole number between 1 and 65535."])
+    expect(scripted.errors).toEqual([
+      "PORT must be a whole number between 1 and 65535, with no leading zero.",
+    ])
     expect(overrides).toEqual({ PORT: "9000" })
   })
 

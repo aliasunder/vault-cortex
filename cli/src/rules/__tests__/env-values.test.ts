@@ -92,7 +92,7 @@ describe("readEnvPort", () => {
     ({ portValue, reportedValue }) => {
       expect(readEnvPort(parseEnvValues(`PORT=9000\nPORT=${portValue}\n`))).toEqual({
         kind: "invalid",
-        message: `PORT "${reportedValue}" is not a valid port — use a whole number between 1 and 65535.`,
+        message: `PORT "${reportedValue}" is not a valid port — use a whole number between 1 and 65535, with no leading zero.`,
       })
     },
   )

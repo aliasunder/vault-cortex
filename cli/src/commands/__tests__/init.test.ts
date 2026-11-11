@@ -1566,8 +1566,8 @@ describe("runInit guided optional settings", () => {
 
     expect(exitCode).toBe(0)
     expect(scripted.errors).toEqual([
-      "PORT must be a whole number between 1 and 65535.",
-      "PORT must be a whole number between 1 and 65535.",
+      "PORT must be a whole number between 1 and 65535, with no leading zero.",
+      "PORT must be a whole number between 1 and 65535, with no leading zero.",
     ])
     expect(readFileSync(join(targetDir, ".env"), "utf8").split("\n")).toContain("PORT=9000")
   })
@@ -2698,12 +2698,12 @@ describe("runInit --yes when the instance name is already in use", () => {
     {
       label: "an invalid --port",
       flags: { port: "80a" },
-      expectedError: "--port must be a whole number between 1 and 65535.",
+      expectedError: "--port must be a whole number between 1 and 65535, with no leading zero.",
     },
     {
       label: "an empty --port",
       flags: { port: "" },
-      expectedError: "--port must be a whole number between 1 and 65535.",
+      expectedError: "--port must be a whole number between 1 and 65535, with no leading zero.",
     },
   ])("exits 1 on $label", async ({ flags, expectedError }) => {
     const scripted = createScriptedPrompts([])
@@ -2948,7 +2948,7 @@ describe("runInit re-run keeps the instance identity", () => {
 
     expect(exitCode).toBe(1)
     expect(scripted.errors).toEqual([
-      `PORT "80a" is not a valid port — use a whole number between 1 and 65535. Fix it in ${targetDir}/.env.`,
+      `PORT "80a" is not a valid port — use a whole number between 1 and 65535, with no leading zero. Fix it in ${targetDir}/.env.`,
     ])
     expect(scripted.asked).toEqual(["Re-run setup for this directory anyway?"])
     expect(readFileSync(join(targetDir, ".env"), "utf8")).toBe(existingEnv)
