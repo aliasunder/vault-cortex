@@ -1,9 +1,13 @@
-import { describe, expect, it } from "vitest"
+import { chmodSync, mkdtempSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+import { describe, expect, it, onTestFinished, vi } from "vitest"
 
 import {
   buildDockerLogsArgs,
   buildDockerRunArgs,
   classifyDaemonStatus,
+  createDockerRunner,
   healthPollTimeoutMs,
   healthTimeoutMessage,
   isContainerNamed,
@@ -612,5 +616,28 @@ describe("pollHealth deadline accuracy", () => {
 
     expect(healthy).toBe(false)
     expect(elapsedMs).toBeLessThan(500)
+  })
+})
+
+describe("streamLogs", () => {
+  it("removes its ctrl-C keep-alive listener once the stream ends", async () => {
+    // A stand-in docker binary on PATH that exits at once with code 3.
+    const binDir = mkdtempSync(join(tmpdir(), "vault-cli-docker-"))
+    const fakeDockerPath = join(binDir, "docker")
+    writeFileSync(fakeDockerPath, "#!/bin/sh\nexit 3\n")
+    chmodSync(fakeDockerPath, 0o755)
+    vi.stubEnv("PATH", binDir)
+    onTestFinished(() => {
+      vi.unstubAllEnvs()
+    })
+    const sigintListenersBefore = process.listenerCount("SIGINT")
+
+    const exitCode = await createDockerRunner().streamLogs({
+      instanceName: "vault-cortex",
+      follow: false,
+    })
+
+    expect(exitCode).toBe(3)
+    expect(process.listenerCount("SIGINT")).toBe(sigintListenersBefore)
   })
 })

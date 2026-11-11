@@ -349,17 +349,23 @@ export const createDockerRunner = (): DockerRunner => ({
       // default disposition would kill this process before the child's
       // "close" event fires; this no-op keep-alive lets the docker child
       // exit on its own SIGINT, the streams flush, and the exit code
-      // propagate. `once` self-removes, so later ctrl-Cs behave normally.
-      process.once("SIGINT", () => {})
+      // propagate. The listener goes once used or once the stream ends, so
+      // later ctrl-Cs behave normally.
+      const keepAliveOnSigint = (): void => {}
+      process.once("SIGINT", keepAliveOnSigint)
+      const finish = (exitCode: number): void => {
+        process.off("SIGINT", keepAliveOnSigint)
+        resolveExitCode(exitCode)
+      }
       child.once("error", (spawnError) => {
         // Event handler, not a catch — but the same "never swallow" rule
         // applies: without this line a spawn failure is a bare exit 1.
         process.stderr.write(`vault-cortex: could not run docker logs — ${spawnError.message}\n`)
-        resolveExitCode(1)
+        finish(1)
       })
       // A null code means the child died to a signal — report the shell
       // convention for ctrl-C (128 + SIGINT = 130).
-      child.once("close", (code) => resolveExitCode(code ?? 130))
+      child.once("close", (code) => finish(code ?? 130))
     })
   },
 })
