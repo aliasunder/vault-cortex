@@ -114,17 +114,20 @@ export const findUnsupportedTokens = (momentFormat: string): string[] => {
   return [...found]
 }
 
-/** Matches a [literal] escape group, or a "/" outside one. */
-const LITERAL_OR_SLASH_RE = /\[[^\]]*\]|\//g
-
-/** The format after its last "/" outside [literal] escapes. Obsidian treats
- *  the parts before that slash as folders, so this part names the file. */
+/** The format after its last "/". Obsidian treats the formatted text before
+ *  that slash as folders, including a slash written inside a [literal]
+ *  escape, so this part names the file. */
 const findFileNameFormat = (momentFormat: string): string => {
-  const slashMatches = [...momentFormat.matchAll(LITERAL_OR_SLASH_RE)].filter(
-    (match) => match[0] === "/",
-  )
-  const lastSlashIndex = slashMatches.at(-1)?.index ?? -1
-  return momentFormat.slice(lastSlashIndex + 1)
+  const lastSlashIndex = momentFormat.lastIndexOf("/")
+  const fileNameFormat = momentFormat.slice(lastSlashIndex + 1)
+  const isSlashInLiteral = [...momentFormat.matchAll(MOMENT_ESCAPE_RE)].some((literal) => {
+    const literalEnd = literal.index + literal[0].length
+    return literal.index < lastSlashIndex && lastSlashIndex < literalEnd
+  })
+
+  // The cut leaves the rest of the literal and its "]", so reopen it, and
+  // drop the literal entirely when nothing of it follows the slash.
+  return isSlashInLiteral ? `[${fileNameFormat}`.replace(/^\[\]/, "") : fileNameFormat
 }
 
 const YEAR_TOKENS: ReadonlySet<string> = new Set(["YYYY", "YY"])

@@ -181,9 +181,15 @@ describe("dailyNoteFormatToNameFormat", () => {
     })
   })
 
-  it("does not split at a slash inside a [literal] escape", () => {
+  it("splits at a slash inside a [literal] escape, which Obsidian also makes a folder", () => {
     expect(dailyNoteFormatToNameFormat("YYYY/[Week/Day] YYYY-MM-DD")).toEqual({
-      luxonFormat: "'Week/Day' yyyy-MM-dd",
+      luxonFormat: "'Day' yyyy-MM-dd",
+    })
+  })
+
+  it("drops a literal that ends at the slash", () => {
+    expect(dailyNoteFormatToNameFormat("[Journal/]YYYY-MM-DD")).toEqual({
+      luxonFormat: "yyyy-MM-dd",
     })
   })
 
@@ -227,6 +233,11 @@ describe("matchesDailyNoteName", () => {
       label: "the file-name part of a format with folders",
       name: "2026-10-07",
       momentFormat: "YYYY/MM/YYYY-MM-DD",
+    },
+    {
+      label: "the file-name part after a slash inside a literal",
+      name: "2026-10-07",
+      momentFormat: "[Journal/]YYYY-MM-DD",
     },
     {
       label: "a weekday name in other letter case",
