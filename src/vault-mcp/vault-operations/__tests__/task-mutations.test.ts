@@ -562,6 +562,39 @@ describe("task-mutations", () => {
       expect(content).toBe("## Active\n\n\n## Done\n- [ ] Walk the dog ➕ 2026-07-01 ^walk  \n")
     })
 
+    it("moves a task to a heading whose text is empty when that heading is given", async () => {
+      const vault = await createVault()
+      await writeTestNote(
+        vault,
+        "board.md",
+        "---\nkanban-plugin: board\n---\n\n## Active\n\n- [ ] Task A ➕ 2026-07-01 ^task-a\n- [ ] Task B ➕ 2026-07-02 ^task-b\n\n## \n\n- [ ] Unnamed ➕ 2026-06-01 ^unnamed\n\n## Done\n",
+      )
+
+      const result = await taskMutations.updateTask(
+        {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
+          vaultPath: vault,
+          path: "board.md",
+          blockId: "task-a",
+          heading: "",
+        },
+        logger,
+      )
+
+      expect(result).toEqual({
+        block_id: "task-a",
+        heading: "",
+        path: "board.md",
+        line: 10,
+        description: "Task A",
+        changes: ["heading: Active → "],
+      })
+      const content = await readTestNote(vault, "board.md")
+      expect(content).toBe(
+        "---\nkanban-plugin: board\n---\n\n## Active\n\n- [ ] Task B ➕ 2026-07-02 ^task-b\n\n## \n- [ ] Task A ➕ 2026-07-01 ^task-a\n\n- [ ] Unnamed ➕ 2026-06-01 ^unnamed\n\n## Done\n",
+      )
+    })
+
     it("moves a task with sub-items", async () => {
       const vault = await createVault()
       await writeTestNote(vault, "board.md", KANBAN_WITH_SUBITEMS)
