@@ -1330,24 +1330,25 @@ const buildNextOccurrencePosition = ({
   ...(recurrenceSpawn.nextDates.startDate ? { start: recurrenceSpawn.nextDates.startDate } : {}),
 })
 
+/** The `changes` entry that names where the spawned next occurrence landed. */
+const nextOccurrenceChange = (nextOccurrence: NextOccurrencePosition): string => {
+  return formatChange({
+    field: "next_occurrence",
+    before: null,
+    after: `line ${nextOccurrence.line}`,
+  })
+}
+
 /** Detects the done lane for auto-completion: checks for **Complete**
  *  markers first, falls back to a heading named "Done". */
 const detectDoneLane = (bodyLines: readonly string[], headings: readonly HeadingInfo[]): string => {
-  const doneLanes = tasks.extractDoneLanes(bodyLines, headings)
+  const [doneLane, ...otherDoneLanes] = tasks.extractDoneLanes(bodyLines, headings)
 
-  if (doneLanes.length > 1) {
+  if (otherDoneLanes.length > 0) {
     throw new Error("multiple done lanes detected")
   }
-
-  // The one lane's name can be "" (a `## ` heading), so only an absent entry is an error.
-  if (doneLanes.length === 1) {
-    const lane = doneLanes[0]
-
-    if (lane === undefined) {
-      throw new Error("unexpected empty done lanes")
-    }
-    return lane
-  }
+  // The lane's name can be "" (a `## ` heading), so presence is the test.
+  if (doneLane !== undefined) return doneLane
 
   // No **Complete** marker found — fall back to a heading named "Done"
   const doneHeading = headings.find((heading) => heading.text === "Done")
@@ -2135,19 +2136,10 @@ const editTaskLine = ({
     return { mutatedLine, lineChanges: fieldChanges, deduplicatedTags: tagDedup.deduplicatedTags }
   }
 
-  // The description entry's after-value:
-  // - previews the new description on the original line, since the field
-  //   edits never move the description/metadata boundary;
-  // - reads the written line after a dedup, since the parser would show the
-  //   removed tail tag again on the preview.
-  const describedLine =
-    tagDedup.deduplicatedTags.length > 0
-      ? mutatedLine
-      : tasks.replaceTaskLineDescription({ taskLine: originalTaskLine, newDescription })
   const descriptionChange = formatChange({
     field: "description",
     before: taskBefore.description,
-    after: tasks.describeTaskLine(describedLine),
+    after: tasks.describeTaskLine(mutatedLine),
   })
 
   return {
@@ -2237,15 +2229,7 @@ const deleteTaskOnCompletion = async (
 
   const changes = [
     ...lineChanges,
-    ...(nextOccurrence
-      ? [
-          formatChange({
-            field: "next_occurrence",
-            before: null,
-            after: `line ${nextOccurrence.line}`,
-          }),
-        ]
-      : []),
+    ...(nextOccurrence ? [nextOccurrenceChange(nextOccurrence)] : []),
     deletionChange,
   ]
 
@@ -2493,32 +2477,26 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
     // Obsidian too) and a later lane move takes the completed line
     // alone. The spawn never rides that move: the next instance stays in
     // the source lane.
-    const spawnInsertIndex = formatConfig.recurrenceOnNextLine ? taskLineIndex + 1 : taskLineIndex
-    const linesWithSpawn =
+    const placedSpawn: PlacedSpawn | undefined =
       recurrenceSpawn.kind === "spawn"
-        ? linesWithEdits.toSpliced(spawnInsertIndex, 0, recurrenceSpawn.spawnedLine)
-        : linesWithEdits
-    const spawnWrittenAbove = recurrenceSpawn.kind === "spawn" && !formatConfig.recurrenceOnNextLine
-    const completedIndexAfterSpawn = spawnWrittenAbove ? taskLineIndex + 1 : taskLineIndex
+        ? {
+            spawn: recurrenceSpawn,
+            insertIndex: formatConfig.recurrenceOnNextLine ? taskLineIndex + 1 : taskLineIndex,
+            writtenBelow: formatConfig.recurrenceOnNextLine,
+          }
+        : undefined
+    const recurrenceAdvisory =
+      recurrenceSpawn.kind === "advisory" ? recurrenceSpawn.advisory : undefined
+    const linesWithSpawn = placedSpawn
+      ? linesWithEdits.toSpliced(placedSpawn.insertIndex, 0, placedSpawn.spawn.spawnedLine)
+      : linesWithEdits
+    // A spawn written above the task pushes the task down one line.
+    const completedIndexAfterSpawn =
+      placedSpawn && !placedSpawn.writtenBelow ? taskLineIndex + 1 : taskLineIndex
 
     // The spawn insert shifts every heading below it by one line — the lane
     // move must see re-parsed positions or it lands on a stale boundary.
-    const headingsAfterSpawn =
-      recurrenceSpawn.kind === "spawn" ? parseHeadings(linesWithSpawn) : headings
-
-    const advisories = [
-      ...(recurrenceSpawn.kind === "advisory" ? [recurrenceSpawn.advisory] : []),
-      ...roundTripAdvisories({
-        taskLine: mutatedLine,
-        priorTaskLine: originalTaskLine,
-        submitted: {
-          ...submittedTaskFields(params),
-          ...statusImpliedDateFields({ status, config: formatConfig, today }),
-        },
-      }),
-      ...subtaskRoundTripAdvisories(addSubtasks ?? []),
-      ...tagDedupAdvisories,
-    ]
+    const headingsAfterSpawn = placedSpawn ? parseHeadings(linesWithSpawn) : headings
 
     // onCompletion "delete": the Tasks plugin removes the completed
     // instance when the field says "delete". Only on a genuine transition
@@ -2540,16 +2518,8 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
           note,
           lines: linesWithSpawn,
           taskLineIndex: completedIndexAfterSpawn,
-          placedSpawn:
-            recurrenceSpawn.kind === "spawn"
-              ? {
-                  spawn: recurrenceSpawn,
-                  insertIndex: spawnInsertIndex,
-                  writtenBelow: formatConfig.recurrenceOnNextLine,
-                }
-              : undefined,
-          recurrenceAdvisory:
-            recurrenceSpawn.kind === "advisory" ? recurrenceSpawn.advisory : undefined,
+          placedSpawn,
+          recurrenceAdvisory,
           headings: headingsAfterSpawn,
           lineChanges,
           mutatedLine,
@@ -2558,6 +2528,20 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
         logger,
       )
     }
+
+    const advisories = [
+      ...(recurrenceAdvisory ? [recurrenceAdvisory] : []),
+      ...roundTripAdvisories({
+        taskLine: mutatedLine,
+        priorTaskLine: originalTaskLine,
+        submitted: {
+          ...submittedTaskFields(params),
+          ...statusImpliedDateFields({ status, config: formatConfig, today }),
+        },
+      }),
+      ...subtaskRoundTripAdvisories(addSubtasks ?? []),
+      ...tagDedupAdvisories,
+    ]
 
     const targetLane = resolveTargetLane({
       targetHeadingParam,
@@ -2636,32 +2620,23 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
             insertAt: moved.taskLineIndex,
           }
         : undefined
-    const nextOccurrence: NextOccurrencePosition | undefined =
-      recurrenceSpawn.kind === "spawn"
-        ? buildNextOccurrencePosition({
-            bodyStartLine: note.writtenBodyStartLine,
-            spawnIndex: spawnIndexAfterSplices({
-              spawnIndex: spawnInsertIndex,
-              laneMove: moveSplice,
-              subtaskAppend: withSubtasks.checklistSplice,
-            }),
-            recurrenceSpawn,
-          })
-        : undefined
+    const nextOccurrence: NextOccurrencePosition | undefined = placedSpawn
+      ? buildNextOccurrencePosition({
+          bodyStartLine: note.writtenBodyStartLine,
+          spawnIndex: spawnIndexAfterSplices({
+            spawnIndex: placedSpawn.insertIndex,
+            laneMove: moveSplice,
+            subtaskAppend: withSubtasks.checklistSplice,
+          }),
+          recurrenceSpawn: placedSpawn.spawn,
+        })
+      : undefined
 
     const changes = [
       ...lineChanges,
       ...moved.changes,
       withSubtasks.change,
-      ...(nextOccurrence
-        ? [
-            formatChange({
-              field: "next_occurrence",
-              before: null,
-              after: `line ${nextOccurrence.line}`,
-            }),
-          ]
-        : []),
+      ...(nextOccurrence ? [nextOccurrenceChange(nextOccurrence)] : []),
     ].filter((change) => change !== undefined)
 
     const finalTaskLine = resultLines[finalTaskIndex]
