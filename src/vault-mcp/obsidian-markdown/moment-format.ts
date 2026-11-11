@@ -149,8 +149,10 @@ const namesCompleteDate = (momentFormat: string): boolean => {
   const hasMonthAndDay = hasTokenFrom(MONTH_TOKENS) && hasTokenFrom(DAY_OF_MONTH_TOKENS)
   const hasMonthOrDay = hasTokenFrom(MONTH_TOKENS) || hasTokenFrom(DAY_OF_MONTH_TOKENS)
   const hasDayOfYear = hasTokenFrom(DAY_OF_YEAR_TOKENS)
-  // Every "W" outside a literal is Moment's ISO week token.
-  const fixesDayTwice = joinedFormatSpans.includes("W") || (hasDayOfYear && hasMonthOrDay)
+  // Outside a literal, "W" is Moment's ISO week token, and an "o" or "k" has
+  // no Moment mapping, so it reaches Luxon as its day-of-year or week-year token.
+  const hasWeekOrOrdinalToken = /[Wok]/.test(joinedFormatSpans)
+  const fixesDayTwice = hasWeekOrOrdinalToken || (hasDayOfYear && hasMonthOrDay)
 
   if (fixesDayTwice) return false
   return hasTokenFrom(YEAR_TOKENS) && (hasMonthAndDay || hasDayOfYear)

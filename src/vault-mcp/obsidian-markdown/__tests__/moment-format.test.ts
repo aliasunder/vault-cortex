@@ -245,6 +245,13 @@ describe("dailyNoteFormatToNameFormat", () => {
     expect(dailyNoteFormatToNameFormat("YYYY-MM-DDDD")).toBeNull()
   })
 
+  it.each([
+    { label: "an unmapped o (Luxon's day of the year)", momentFormat: "YYYY-MM-DD o" },
+    { label: "an unmapped kkkk (Luxon's week year)", momentFormat: "YYYY-MM-DD kkkk" },
+  ])("returns null when the file name holds $label", ({ momentFormat }) => {
+    expect(dailyNoteFormatToNameFormat(momentFormat)).toBeNull()
+  })
+
   it("accepts a W inside a [literal], which is not a week token", () => {
     expect(dailyNoteFormatToNameFormat("YYYY-MM-DD [Week]")).toEqual({
       luxonFormat: "yyyy-MM-dd 'Week'",
