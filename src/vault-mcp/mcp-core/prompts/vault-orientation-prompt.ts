@@ -102,33 +102,19 @@ const formatMemoryOutlineEntry = (outline: MemoryFileOutline): string => {
 const formatMemoryOutline = (outlines: readonly MemoryFileOutline[]): string =>
   outlines.map(formatMemoryOutlineEntry).join("\n")
 
-/** The "excludes N forward-refs in <folder>/" note, or "" when none were excluded. */
-const formatExcludedForwardRefs = (params: {
-  excludedFolder: string | null
-  excludedCount: number
-}): string => {
-  const { excludedFolder, excludedCount } = params
+/** The "excludes N forward-refs to daily notes" note, or "" when none were excluded. */
+const formatExcludedForwardRefs = (excludedCount: number): string => {
+  if (excludedCount === 0) return ""
 
-  // brokenLinkCount excludes nothing without a folder, so a null folder
-  // always comes with a zero count.
-  if (excludedFolder === null || excludedCount === 0) return ""
-
-  // brokenLinkCount echoes the folder as its caller passed it, which may end
-  // in a slash; the label shows exactly one.
-  const excludedFolderLabel = `${excludedFolder}/`.replace(/\/+$/, "/")
   const forwardReferenceLabel = excludedCount === 1 ? "forward-ref" : "forward-refs"
-  return `excludes ${excludedCount} ${forwardReferenceLabel} in ${excludedFolderLabel}`
+  return `excludes ${excludedCount} ${forwardReferenceLabel} to daily notes`
 }
 
 /** Formats the broken-link count for the stats line, including excluded
  *  forward-refs when present. Returns "" when both counts are zero. */
-const formatBrokenLinkSegment = (result: {
-  count: number
-  excludedFolder: string | null
-  excludedCount: number
-}): string => {
-  const { count, excludedFolder, excludedCount } = result
-  const excludedNote = formatExcludedForwardRefs({ excludedFolder, excludedCount })
+const formatBrokenLinkSegment = (result: { count: number; excludedCount: number }): string => {
+  const { count, excludedCount } = result
+  const excludedNote = formatExcludedForwardRefs(excludedCount)
 
   if (count === 0 && excludedNote.length === 0) return ""
 
@@ -182,7 +168,7 @@ export const registerVaultOrientationPrompt = ({
           ? await memoryStore.listMemoryFiles({ vaultPath }, reqLogger)
           : []
         // Read once rather than through readEffectiveOrphanExcludeFolders,
-        // because the broken-link count below needs the same daily folder.
+        // because the broken-link count below needs the same daily-notes settings.
         const dailyNotesConfig = await readDailyNotesConfig(
           {
             vaultPath,
@@ -204,7 +190,10 @@ export const registerVaultOrientationPrompt = ({
         const hasMoreOrphans = orphanResults.length > ORIENTATION_ORPHAN_LIMIT
         const orphans = orphanResults.slice(0, ORIENTATION_ORPHAN_LIMIT)
         const brokenLinkResult = search.brokenLinkCount(
-          { dailyNotesFolder: dailyNotesConfig.dedicatedFolder },
+          {
+            dailyNotesFolder: dailyNotesConfig.dedicatedFolder,
+            dailyNotesFormat: dailyNotesConfig.format,
+          },
           reqLogger,
         )
         const stats = search.vaultStats({}, reqLogger)

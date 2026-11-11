@@ -794,7 +794,11 @@ ${INDEX_ENGINE_ERROR_ENTRY}`,
             reqLogger,
           )
           return search.getOutgoingLinks(
-            { path, dailyNotesFolder: dailyNotesConfig.dedicatedFolder },
+            {
+              path,
+              dailyNotesFolder: dailyNotesConfig.dedicatedFolder,
+              dailyNotesFormat: dailyNotesConfig.format,
+            },
             reqLogger,
           )
         },

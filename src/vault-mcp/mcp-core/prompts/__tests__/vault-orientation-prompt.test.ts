@@ -91,7 +91,7 @@ describe("vault-orientation live orphan folders", () => {
   })
 
   it.each(["Journal/", "Journal///"])(
-    "renders one trailing separator for the excluded daily folder %s",
+    "excludes forward-refs under the daily folder written as %s",
     async (dailyNotesFolder) => {
       const { readSurveySections } = await setupOrphanPrompt({
         settings: JSON.stringify({ folder: dailyNotesFolder }),
@@ -100,7 +100,7 @@ describe("vault-orientation live orphan folders", () => {
       })
 
       expect((await readSurveySections()).stats).toBe(
-        "2 notes across 0 folders, 0 tags, 0 property keys. 2 untagged. 2 without properties. 2 broken links (excludes 2 forward-refs in Journal/).",
+        "2 notes across 0 folders, 0 tags, 0 property keys. 2 untagged. 2 without properties. 2 broken links (excludes 2 forward-refs to daily notes).",
       )
     },
   )
@@ -113,7 +113,7 @@ describe("vault-orientation live orphan folders", () => {
     })
 
     expect((await readSurveySections()).stats).toBe(
-      "2 notes across 0 folders, 0 tags, 0 property keys. 2 untagged. 2 without properties. 1 broken link (excludes 1 forward-ref in Journal/).",
+      "2 notes across 0 folders, 0 tags, 0 property keys. 2 untagged. 2 without properties. 1 broken link (excludes 1 forward-ref to daily notes).",
     )
   })
 
@@ -208,7 +208,7 @@ describe("vault-orientation live orphan folders", () => {
       orphans:
         "4 orphan notes (no incoming links):\n- Journal/daily.md — daily\n- Daily Notes/daily.md — daily\n- Templates/template.md — template\n- Profile/memory.md — memory",
       stats:
-        "4 notes across 0 folders, 0 tags, 0 property keys. 4 untagged. 4 without properties. 2 broken links (excludes 2 forward-refs in Journal/).",
+        "4 notes across 0 folders, 0 tags, 0 property keys. 4 untagged. 4 without properties. 2 broken links (excludes 2 forward-refs to daily notes).",
     })
     expect(vi.mocked(readDailyNotesConfig)).toHaveBeenCalledTimes(1)
     expect(vi.mocked(readDailyNotesConfig)).toHaveBeenCalledWith(
@@ -230,7 +230,7 @@ describe("vault-orientation live orphan folders", () => {
       orphans:
         "4 orphan notes (no incoming links):\n- JournalOld/note.md — note\n- ordinary.md — ordinary\n- Daily Notes/daily.md — daily\n- Archive/note.md — note",
       stats:
-        "8 notes across 0 folders, 0 tags, 0 property keys. 8 untagged. 8 without properties. 2 broken links (excludes 2 forward-refs in Journal/).",
+        "8 notes across 0 folders, 0 tags, 0 property keys. 8 untagged. 8 without properties. 2 broken links (excludes 2 forward-refs to daily notes).",
     })
     expect(vi.mocked(readDailyNotesConfig)).toHaveBeenCalledTimes(1)
   })

@@ -36,6 +36,9 @@ beforeEach(() => {
   index = createSearchIndex(":memory:")
 })
 
+/** Obsidian's default daily-note format; no link in these tests is a bare date. */
+const DEFAULT_DAILY_NOTES_FORMAT = "YYYY-MM-DD"
+
 const NOTE_WITH_FRONTMATTER = `---
 title: Principles
 type: about-me
@@ -964,7 +967,12 @@ describe("leading callout", () => {
       }),
       logger,
     )
-    expect(warmIndex.getOutgoingLinks({ path: "source.md" }, logger)).toEqual([
+    expect(
+      warmIndex.getOutgoingLinks(
+        { path: "source.md", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
+        logger,
+      ),
+    ).toEqual([
       {
         path: "photo.png",
         title: null,
@@ -1107,7 +1115,12 @@ describe("upsertNote", () => {
       index.listTasks({ status: "all" }, logger).tasks.map((task) => [task.path, task.description]),
     ).toEqual([["Meetings/Q3 plan.md", "Book the room"]])
     expect(
-      index.getOutgoingLinks({ path: "Meetings/Q3 plan.md" }, logger).map((link) => link.path),
+      index
+        .getOutgoingLinks(
+          { path: "Meetings/Q3 plan.md", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
+          logger,
+        )
+        .map((link) => link.path),
     ).toEqual(["Budget"])
   })
 
@@ -1410,9 +1423,12 @@ describe("upsertNote atomicity", () => {
       total: 1,
       tasks: [versionATask()],
     })
-    expect(atomicIndex.getOutgoingLinks({ path: "atomic/target.md" }, logger)).toEqual([
-      versionALink(),
-    ])
+    expect(
+      atomicIndex.getOutgoingLinks(
+        { path: "atomic/target.md", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
+        logger,
+      ),
+    ).toEqual([versionALink()])
   })
 
   it("rolls back the link phase when a link statement fails mid-upsert", () => {
@@ -1453,9 +1469,12 @@ describe("upsertNote atomicity", () => {
       total: 1,
       tasks: [versionATask()],
     })
-    expect(atomicIndex.getOutgoingLinks({ path: "atomic/target.md" }, logger)).toEqual([
-      versionALink(),
-    ])
+    expect(
+      atomicIndex.getOutgoingLinks(
+        { path: "atomic/target.md", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
+        logger,
+      ),
+    ).toEqual([versionALink()])
   })
 
   it("leaves no trace when a statement fails on a first-ever upsert", () => {
@@ -1507,7 +1526,12 @@ describe("upsertNote atomicity", () => {
       total: 0,
       tasks: [],
     })
-    expect(atomicIndex.getOutgoingLinks({ path: "atomic/target.md" }, logger)).toEqual([])
+    expect(
+      atomicIndex.getOutgoingLinks(
+        { path: "atomic/target.md", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
+        logger,
+      ),
+    ).toEqual([])
   })
 })
 
@@ -1604,9 +1628,12 @@ describe("removeNote atomicity", () => {
       total: 1,
       tasks: [versionATask()],
     })
-    expect(atomicIndex.getOutgoingLinks({ path: "atomic/target.md" }, logger)).toEqual([
-      versionALink(),
-    ])
+    expect(
+      atomicIndex.getOutgoingLinks(
+        { path: "atomic/target.md", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
+        logger,
+      ),
+    ).toEqual([versionALink()])
   })
 })
 
@@ -3827,9 +3854,12 @@ describe("markdown path requirement", () => {
   })
 
   it("getOutgoingLinks rejects a path without .md or .canvas extension", () => {
-    expect(() => index.getOutgoingLinks({ path: "Projects/Plan" }, logger)).toThrow(
-      /^path must end in "\.md" or "\.canvas" \(received "Projects\/Plan"\)$/,
-    )
+    expect(() =>
+      index.getOutgoingLinks(
+        { path: "Projects/Plan", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
+        logger,
+      ),
+    ).toThrow(/^path must end in "\.md" or "\.canvas" \(received "Projects\/Plan"\)$/)
   })
 })
 
@@ -4090,7 +4120,10 @@ describe("rebuildFromVault filesystem failures", () => {
     )
     expect(
       search
-        .getOutgoingLinks({ path: "source.md" }, logger)
+        .getOutgoingLinks(
+          { path: "source.md", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
+          logger,
+        )
         .map((link) => ({ path: link.path, exists: link.exists })),
     ).toEqual([{ path: "image.png", exists: false }])
     statSpy.mockRestore()
@@ -4109,7 +4142,10 @@ describe("rebuildFromVault filesystem failures", () => {
     )
     expect(
       search
-        .getOutgoingLinks({ path: "source.md" }, logger)
+        .getOutgoingLinks(
+          { path: "source.md", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
+          logger,
+        )
         .map((link) => ({ path: link.path, exists: link.exists })),
     ).toEqual([{ path: "image.png", exists: true }])
     expect(warnSpy).toHaveBeenCalledTimes(1)
@@ -4488,7 +4524,12 @@ describe("rebuildFromVault", () => {
     expect(
       linkFailureIndex.fullTextSearch({ query: "alpha" }, logger).map((result) => result.path),
     ).toEqual(["linker.md"])
-    expect(linkFailureIndex.getOutgoingLinks({ path: "linker.md" }, logger)).toEqual([])
+    expect(
+      linkFailureIndex.getOutgoingLinks(
+        { path: "linker.md", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
+        logger,
+      ),
+    ).toEqual([])
   })
 
   it("keeps the memory entries and vectors of a note that fails to index but is still on disk", async () => {
@@ -4626,7 +4667,12 @@ describe("rebuildFromVault", () => {
     )
     // The note is in the notes table, so the link resolves to it; the title
     // is the file name because the block's title was not read
-    expect(index.getOutgoingLinks({ path: "linker.md" }, logger)).toEqual([
+    expect(
+      index.getOutgoingLinks(
+        { path: "linker.md", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
+        logger,
+      ),
+    ).toEqual([
       {
         path: "broken.md",
         title: "broken",
@@ -4668,7 +4714,10 @@ describe("rebuildFromVault", () => {
       logger,
     )
 
-    const outgoing = index.getOutgoingLinks({ path: "source.md" }, logger)
+    const outgoing = index.getOutgoingLinks(
+      { path: "source.md", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
+      logger,
+    )
     expect(outgoing).toHaveLength(2)
     const asset = outgoing.find((link) => link.path === "Trip Route.canvas")
     expect(asset?.exists).toBe(true)
@@ -4676,7 +4725,9 @@ describe("rebuildFromVault", () => {
     const broken = outgoing.find((link) => link.path === "missing-note")
     expect(broken?.exists).toBe(false)
     expect(broken?.kind).toBe("note")
-    expect(index.brokenLinkCount({}, logger).count).toBe(1)
+    expect(
+      index.brokenLinkCount({ dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT }, logger).count,
+    ).toBe(1)
   })
 
   it("resolves markdown-style file embeds through the two-pass rebuild", async () => {
@@ -4692,7 +4743,12 @@ describe("rebuildFromVault", () => {
     )
 
     // Results order by target, so "genuinely-missing" sorts first.
-    expect(index.getOutgoingLinks({ path: "source.md" }, logger)).toEqual([
+    expect(
+      index.getOutgoingLinks(
+        { path: "source.md", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
+        logger,
+      ),
+    ).toEqual([
       {
         path: "genuinely-missing",
         title: null,
@@ -4710,7 +4766,9 @@ describe("rebuildFromVault", () => {
         daily_note_forward_ref: false,
       },
     ])
-    expect(index.brokenLinkCount({}, logger).count).toBe(1)
+    expect(
+      index.brokenLinkCount({ dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT }, logger).count,
+    ).toBe(1)
   })
 
   it("resolves extensionless wikilinks to non-md files by basename", async () => {
@@ -4726,7 +4784,10 @@ describe("rebuildFromVault", () => {
       logger,
     )
 
-    const outgoing = index.getOutgoingLinks({ path: "source.md" }, logger)
+    const outgoing = index.getOutgoingLinks(
+      { path: "source.md", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
+      logger,
+    )
     expect(outgoing).toHaveLength(2)
     const asset = outgoing.find((link) => link.path === "canvases/Dashboard.canvas")
     expect(asset?.exists).toBe(true)
@@ -4734,7 +4795,9 @@ describe("rebuildFromVault", () => {
     const broken = outgoing.find((link) => link.path === "genuinely-missing")
     expect(broken?.exists).toBe(false)
     expect(broken?.kind).toBe("note")
-    expect(index.brokenLinkCount({}, logger).count).toBe(1)
+    expect(
+      index.brokenLinkCount({ dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT }, logger).count,
+    ).toBe(1)
   })
 
   it("resolves extensionless wikilinks to non-md files by exact path", async () => {
@@ -4750,7 +4813,10 @@ describe("rebuildFromVault", () => {
       logger,
     )
 
-    const outgoing = index.getOutgoingLinks({ path: "source.md" }, logger)
+    const outgoing = index.getOutgoingLinks(
+      { path: "source.md", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
+      logger,
+    )
     expect(outgoing).toHaveLength(2)
     const asset = outgoing.find((link) => link.path === "views/Inventory.base")
     expect(asset?.exists).toBe(true)
@@ -4758,7 +4824,9 @@ describe("rebuildFromVault", () => {
     const broken = outgoing.find((link) => link.path === "genuinely-missing")
     expect(broken?.exists).toBe(false)
     expect(broken?.kind).toBe("note")
-    expect(index.brokenLinkCount({}, logger).count).toBe(1)
+    expect(
+      index.brokenLinkCount({ dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT }, logger).count,
+    ).toBe(1)
   })
 
   it("does not match a folder-qualified target against a same-named file in a different folder", async () => {
@@ -4770,9 +4838,14 @@ describe("rebuildFromVault", () => {
       logger,
     )
 
-    const outgoing = index.getOutgoingLinks({ path: "source.md" }, logger)
+    const outgoing = index.getOutgoingLinks(
+      { path: "source.md", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
+      logger,
+    )
     expect(outgoing.map((link) => link.path)).toEqual(["views/Inventory"])
-    expect(index.brokenLinkCount({}, logger).count).toBe(1)
+    expect(
+      index.brokenLinkCount({ dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT }, logger).count,
+    ).toBe(1)
   })
 
   it("does not let LIKE wildcards in the target match unrelated files", async () => {
@@ -4784,7 +4857,9 @@ describe("rebuildFromVault", () => {
       logger,
     )
 
-    expect(index.brokenLinkCount({}, logger).count).toBe(1)
+    expect(
+      index.brokenLinkCount({ dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT }, logger).count,
+    ).toBe(1)
   })
 
   it("resolves extensionless wikilinks to non-md files by relative path", async () => {
@@ -4800,7 +4875,10 @@ describe("rebuildFromVault", () => {
       logger,
     )
 
-    const outgoing = index.getOutgoingLinks({ path: "sub/source.md" }, logger)
+    const outgoing = index.getOutgoingLinks(
+      { path: "sub/source.md", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
+      logger,
+    )
     expect(outgoing).toHaveLength(2)
     const asset = outgoing.find((link) => link.path === "Route.canvas")
     expect(asset?.exists).toBe(true)
@@ -4808,7 +4886,9 @@ describe("rebuildFromVault", () => {
     const broken = outgoing.find((link) => link.path === "genuinely-missing")
     expect(broken?.exists).toBe(false)
     expect(broken?.kind).toBe("note")
-    expect(index.brokenLinkCount({}, logger).count).toBe(1)
+    expect(
+      index.brokenLinkCount({ dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT }, logger).count,
+    ).toBe(1)
   })
 
   it("skips non-md files in hidden directories", async () => {
@@ -4819,7 +4899,9 @@ describe("rebuildFromVault", () => {
       logger,
     )
 
-    expect(index.brokenLinkCount({}, logger).count).toBe(1)
+    expect(
+      index.brokenLinkCount({ dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT }, logger).count,
+    ).toBe(1)
   })
 
   it("resolves explicit-extension wikilinks against the non-md file index", async () => {
@@ -4834,14 +4916,19 @@ describe("rebuildFromVault", () => {
       logger,
     )
 
-    const outgoing = index.getOutgoingLinks({ path: "source.md" }, logger)
+    const outgoing = index.getOutgoingLinks(
+      { path: "source.md", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
+      logger,
+    )
     expect(outgoing).toHaveLength(2)
     const asset = outgoing.find((link) => link.path === "photo.png")
     expect(asset?.exists).toBe(true)
     expect(asset?.kind).toBe("file")
     const broken = outgoing.find((link) => link.path === "genuinely-missing")
     expect(broken?.exists).toBe(false)
-    expect(index.brokenLinkCount({}, logger).count).toBe(1)
+    expect(
+      index.brokenLinkCount({ dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT }, logger).count,
+    ).toBe(1)
   })
 
   it("resolves an extensionless target to a note when both note and non-md file share the same base name", async () => {
@@ -4853,11 +4940,16 @@ describe("rebuildFromVault", () => {
       logger,
     )
 
-    const outgoing = index.getOutgoingLinks({ path: "source.md" }, logger)
+    const outgoing = index.getOutgoingLinks(
+      { path: "source.md", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
+      logger,
+    )
     expect(outgoing.map((link) => link.path)).toEqual(["Report.md"])
     expect(outgoing[0]?.kind).toBe("note")
     expect(outgoing[0]?.exists).toBe(true)
-    expect(index.brokenLinkCount({}, logger).count).toBe(0)
+    expect(
+      index.brokenLinkCount({ dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT }, logger).count,
+    ).toBe(0)
   })
 
   it("resolves a case-differing asset target through the SQL suffix tier's fold", async () => {
@@ -4872,11 +4964,16 @@ describe("rebuildFromVault", () => {
       logger,
     )
 
-    const outgoing = index.getOutgoingLinks({ path: "source.md" }, logger)
+    const outgoing = index.getOutgoingLinks(
+      { path: "source.md", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
+      logger,
+    )
     expect(outgoing.map((link) => link.path)).toEqual(["photos/Sunset.png"])
     expect(outgoing[0]?.kind).toBe("file")
     expect(outgoing[0]?.exists).toBe(true)
-    expect(index.brokenLinkCount({}, logger).count).toBe(0)
+    expect(
+      index.brokenLinkCount({ dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT }, logger).count,
+    ).toBe(0)
   })
 
   it("indexes a symlinked .md file", async () => {
@@ -4911,7 +5008,10 @@ describe("rebuildFromVault", () => {
       logger,
     )
 
-    const outgoing = index.getOutgoingLinks({ path: "source.md" }, logger)
+    const outgoing = index.getOutgoingLinks(
+      { path: "source.md", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
+      logger,
+    )
     expect(outgoing).toEqual([
       expect.objectContaining({
         path: "Board.canvas",
@@ -5062,7 +5162,10 @@ describe("getOutgoingLinks", () => {
   })
 
   it("returns outgoing links with exists flag and kind", () => {
-    const links = index.getOutgoingLinks({ path: "source.md" }, logger)
+    const links = index.getOutgoingLinks(
+      { path: "source.md", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
+      logger,
+    )
     expect(links).toHaveLength(2)
 
     const existing = links.find((link) => link.path === "target-exists.md")
@@ -5073,7 +5176,10 @@ describe("getOutgoingLinks", () => {
   })
 
   it("marks unresolved links as exists: false with kind note", () => {
-    const links = index.getOutgoingLinks({ path: "source.md" }, logger)
+    const links = index.getOutgoingLinks(
+      { path: "source.md", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
+      logger,
+    )
     const missing = links.find((link) => link.path === "NonExistent")
     expect(missing).toBeDefined()
     expect(missing?.exists).toBe(false)
@@ -5083,7 +5189,10 @@ describe("getOutgoingLinks", () => {
   })
 
   it("includes bytes for existing targets, null for broken links", () => {
-    const links = index.getOutgoingLinks({ path: "source.md" }, logger)
+    const links = index.getOutgoingLinks(
+      { path: "source.md", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
+      logger,
+    )
     const existing = links.find((link) => link.path === "target-exists.md")
     expect(existing?.bytes).toBe(222)
     const broken = links.find((link) => link.path === "NonExistent")
@@ -5103,7 +5212,11 @@ describe("getOutgoingLinks", () => {
       )
 
       const links = index.getOutgoingLinks(
-        { path: "Daily Notes/2026-06-24.md", dailyNotesFolder },
+        {
+          path: "Daily Notes/2026-06-24.md",
+          dailyNotesFolder,
+          dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT,
+        },
         logger,
       )
       expect(links).toEqual([
@@ -5136,7 +5249,10 @@ describe("getOutgoingLinks", () => {
       }),
       logger,
     )
-    const links = index.getOutgoingLinks({ path: "lonely.md" }, logger)
+    const links = index.getOutgoingLinks(
+      { path: "lonely.md", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
+      logger,
+    )
     expect(links).toHaveLength(0)
   })
 })
@@ -5486,7 +5602,10 @@ describe("frontmatter links in the graph", () => {
       }),
       logger,
     )
-    const links = index.getOutgoingLinks({ path: "session.md" }, logger)
+    const links = index.getOutgoingLinks(
+      { path: "session.md", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
+      logger,
+    )
     expect(links.map((link) => link.path)).toEqual(["task-board.md"])
     expect(links[0]?.exists).toBe(true)
     expect(links[0]?.kind).toBe("note")
@@ -5599,7 +5718,10 @@ describe("relative links (path from current file)", () => {
   })
 
   it("resolves the ../ link so the source lists the target as an outgoing link", () => {
-    const outgoing = index.getOutgoingLinks({ path: "Areas/Work/note.md" }, logger)
+    const outgoing = index.getOutgoingLinks(
+      { path: "Areas/Work/note.md", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
+      logger,
+    )
     expect(outgoing).toEqual([
       {
         path: "Areas/Health/target.md",
@@ -5877,7 +5999,9 @@ describe("brokenLinkCount", () => {
       }),
       logger,
     )
-    expect(index.brokenLinkCount({}, logger).count).toBe(0)
+    expect(
+      index.brokenLinkCount({ dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT }, logger).count,
+    ).toBe(0)
   })
 
   it("counts links to non-existent notes", () => {
@@ -5889,7 +6013,9 @@ describe("brokenLinkCount", () => {
       }),
       logger,
     )
-    expect(index.brokenLinkCount({}, logger).count).toBe(2)
+    expect(
+      index.brokenLinkCount({ dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT }, logger).count,
+    ).toBe(2)
   })
 
   it("counts only broken links, not resolved ones", () => {
@@ -5909,7 +6035,9 @@ describe("brokenLinkCount", () => {
       }),
       logger,
     )
-    expect(index.brokenLinkCount({}, logger).count).toBe(1)
+    expect(
+      index.brokenLinkCount({ dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT }, logger).count,
+    ).toBe(1)
   })
 
   it("does not count escaped-pipe wikilinks as broken when the target note exists", () => {
@@ -5929,11 +6057,16 @@ describe("brokenLinkCount", () => {
       }),
       logger,
     )
-    const outgoing = index.getOutgoingLinks({ path: "dashboard.md" }, logger)
+    const outgoing = index.getOutgoingLinks(
+      { path: "dashboard.md", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
+      logger,
+    )
     expect(outgoing.map((link) => link.path)).toEqual(["sessions/log-a.md"])
     expect(outgoing[0]?.exists).toBe(true)
     expect(outgoing[0]?.kind).toBe("note")
-    expect(index.brokenLinkCount({}, logger).count).toBe(0)
+    expect(
+      index.brokenLinkCount({ dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT }, logger).count,
+    ).toBe(0)
   })
 
   it("does not count wikilinks to non-note files as broken when files are registered", () => {
@@ -5947,7 +6080,10 @@ describe("brokenLinkCount", () => {
       }),
       logger,
     )
-    const outgoing = index.getOutgoingLinks({ path: "source.md" }, logger)
+    const outgoing = index.getOutgoingLinks(
+      { path: "source.md", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
+      logger,
+    )
     expect(outgoing).toHaveLength(3)
     const photo = outgoing.find((link) => link.path === "photo.png")
     expect(photo?.exists).toBe(true)
@@ -5958,7 +6094,9 @@ describe("brokenLinkCount", () => {
     const broken = outgoing.find((link) => link.path === "real-note")
     expect(broken?.exists).toBe(false)
     expect(broken?.kind).toBe("note")
-    expect(index.brokenLinkCount({}, logger).count).toBe(1)
+    expect(
+      index.brokenLinkCount({ dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT }, logger).count,
+    ).toBe(1)
   })
 
   it("excludes extensionless targets after upsertNonMdFile registers the file", () => {
@@ -5971,7 +6109,10 @@ describe("brokenLinkCount", () => {
       }),
       logger,
     )
-    const outgoing = index.getOutgoingLinks({ path: "source.md" }, logger)
+    const outgoing = index.getOutgoingLinks(
+      { path: "source.md", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
+      logger,
+    )
     expect(outgoing).toHaveLength(2)
     const asset = outgoing.find((link) => link.path === "Trip Route.canvas")
     expect(asset?.exists).toBe(true)
@@ -5979,7 +6120,9 @@ describe("brokenLinkCount", () => {
     const broken = outgoing.find((link) => link.path === "missing")
     expect(broken?.exists).toBe(false)
     expect(broken?.kind).toBe("note")
-    expect(index.brokenLinkCount({}, logger).count).toBe(1)
+    expect(
+      index.brokenLinkCount({ dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT }, logger).count,
+    ).toBe(1)
   })
 
   it("upsertNonMdFile re-resolves previously unresolved links to non-md paths", () => {
@@ -5991,11 +6134,18 @@ describe("brokenLinkCount", () => {
       }),
       logger,
     )
-    expect(index.brokenLinkCount({}, logger).count).toBe(1)
+    expect(
+      index.brokenLinkCount({ dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT }, logger).count,
+    ).toBe(1)
 
     index.upsertNonMdFile("Route.canvas", 100)
-    expect(index.brokenLinkCount({}, logger).count).toBe(0)
-    const outgoing = index.getOutgoingLinks({ path: "source.md" }, logger)
+    expect(
+      index.brokenLinkCount({ dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT }, logger).count,
+    ).toBe(0)
+    const outgoing = index.getOutgoingLinks(
+      { path: "source.md", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
+      logger,
+    )
     expect(outgoing.map((link) => link.path)).toEqual(["Route.canvas"])
     expect(outgoing[0]?.exists).toBe(true)
     expect(outgoing[0]?.kind).toBe("file")
@@ -6011,11 +6161,18 @@ describe("brokenLinkCount", () => {
       }),
       logger,
     )
-    expect(index.brokenLinkCount({}, logger).count).toBe(0)
+    expect(
+      index.brokenLinkCount({ dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT }, logger).count,
+    ).toBe(0)
 
     index.removeNonMdFile("Route.canvas")
-    expect(index.brokenLinkCount({}, logger).count).toBe(1)
-    const outgoing = index.getOutgoingLinks({ path: "source.md" }, logger)
+    expect(
+      index.brokenLinkCount({ dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT }, logger).count,
+    ).toBe(1)
+    const outgoing = index.getOutgoingLinks(
+      { path: "source.md", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
+      logger,
+    )
     expect(outgoing).toHaveLength(1)
     expect(outgoing[0]?.exists).toBe(false)
     expect(outgoing[0]?.kind).toBe("note")
@@ -6033,9 +6190,13 @@ describe("brokenLinkCount", () => {
         }),
         logger,
       )
-      expect(index.brokenLinkCount({ dailyNotesFolder }, logger)).toEqual({
+      expect(
+        index.brokenLinkCount(
+          { dailyNotesFolder, dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
+          logger,
+        ),
+      ).toEqual({
         count: 2,
-        excludedFolder: dailyNotesFolder,
         excludedCount: 1,
       })
     },
@@ -6050,7 +6211,12 @@ describe("brokenLinkCount", () => {
       }),
       logger,
     )
-    expect(index.brokenLinkCount({ dailyNotesFolder: "Daily Notes" }, logger).count).toBe(0)
+    expect(
+      index.brokenLinkCount(
+        { dailyNotesFolder: "Daily Notes", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
+        logger,
+      ).count,
+    ).toBe(0)
   })
 
   it("still counts broken links outside the daily note folder", () => {
@@ -6062,7 +6228,12 @@ describe("brokenLinkCount", () => {
       }),
       logger,
     )
-    expect(index.brokenLinkCount({ dailyNotesFolder: "Daily Notes" }, logger).count).toBe(2)
+    expect(
+      index.brokenLinkCount(
+        { dailyNotesFolder: "Daily Notes", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
+        logger,
+      ).count,
+    ).toBe(2)
   })
 
   it("excludes all broken links under the daily notes folder, not just dates", () => {
@@ -6074,7 +6245,10 @@ describe("brokenLinkCount", () => {
       }),
       logger,
     )
-    const result = index.brokenLinkCount({ dailyNotesFolder: "Daily Notes" }, logger)
+    const result = index.brokenLinkCount(
+      { dailyNotesFolder: "Daily Notes", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
+      logger,
+    )
     expect(result.count).toBe(1)
     expect(result.excludedCount).toBe(1)
   })
@@ -6088,7 +6262,9 @@ describe("brokenLinkCount", () => {
       }),
       logger,
     )
-    expect(index.brokenLinkCount({}, logger).count).toBe(2)
+    expect(
+      index.brokenLinkCount({ dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT }, logger).count,
+    ).toBe(2)
   })
 })
 
@@ -6108,7 +6284,12 @@ describe("markdown-style links to non-md targets", () => {
     // The broken control link proves link indexing ran — without it, a broken
     // count of 0 could come from extraction silently producing nothing.
     // Results order by target, so "genuinely-missing" sorts first.
-    expect(index.getOutgoingLinks({ path: "source.md" }, logger)).toEqual([
+    expect(
+      index.getOutgoingLinks(
+        { path: "source.md", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
+        logger,
+      ),
+    ).toEqual([
       {
         path: "genuinely-missing",
         title: null,
@@ -6126,7 +6307,9 @@ describe("markdown-style links to non-md targets", () => {
         daily_note_forward_ref: false,
       },
     ])
-    expect(index.brokenLinkCount({}, logger).count).toBe(1)
+    expect(
+      index.brokenLinkCount({ dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT }, logger).count,
+    ).toBe(1)
   })
 
   it("resolves a markdown link to a PDF as a file", () => {
@@ -6139,7 +6322,12 @@ describe("markdown-style links to non-md targets", () => {
       }),
       logger,
     )
-    expect(index.getOutgoingLinks({ path: "source.md" }, logger)).toEqual([
+    expect(
+      index.getOutgoingLinks(
+        { path: "source.md", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
+        logger,
+      ),
+    ).toEqual([
       {
         path: "papers/report.pdf",
         title: null,
@@ -6161,7 +6349,12 @@ describe("markdown-style links to non-md targets", () => {
       }),
       logger,
     )
-    expect(index.getOutgoingLinks({ path: "source.md" }, logger)).toEqual([
+    expect(
+      index.getOutgoingLinks(
+        { path: "source.md", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
+        logger,
+      ),
+    ).toEqual([
       {
         path: "Trip Photos/pic 1.png",
         title: null,
@@ -6190,7 +6383,12 @@ describe("markdown-style links to non-md targets", () => {
       }),
       logger,
     )
-    expect(index.getOutgoingLinks({ path: "source.md" }, logger)).toEqual([
+    expect(
+      index.getOutgoingLinks(
+        { path: "source.md", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
+        logger,
+      ),
+    ).toEqual([
       {
         path: "My Note.md",
         title: "My Note",
@@ -6200,7 +6398,9 @@ describe("markdown-style links to non-md targets", () => {
         daily_note_forward_ref: false,
       },
     ])
-    expect(index.brokenLinkCount({}, logger).count).toBe(0)
+    expect(
+      index.brokenLinkCount({ dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT }, logger).count,
+    ).toBe(0)
   })
 
   it("keeps markdown links to .md notes resolving with the target stored as written", () => {
@@ -6220,7 +6420,12 @@ describe("markdown-style links to non-md targets", () => {
       }),
       logger,
     )
-    expect(index.getOutgoingLinks({ path: "source.md" }, logger)).toEqual([
+    expect(
+      index.getOutgoingLinks(
+        { path: "source.md", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
+        logger,
+      ),
+    ).toEqual([
       {
         path: "Projects/target.md",
         title: "target",
@@ -6249,7 +6454,12 @@ describe("markdown-style links to non-md targets", () => {
       }),
       logger,
     )
-    expect(index.getOutgoingLinks({ path: "source.md" }, logger)).toEqual([
+    expect(
+      index.getOutgoingLinks(
+        { path: "source.md", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
+        logger,
+      ),
+    ).toEqual([
       {
         path: "Some Note.md",
         title: "Some Note",
@@ -6270,7 +6480,12 @@ describe("markdown-style links to non-md targets", () => {
       }),
       logger,
     )
-    expect(index.getOutgoingLinks({ path: "source.md" }, logger)).toEqual([
+    expect(
+      index.getOutgoingLinks(
+        { path: "source.md", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
+        logger,
+      ),
+    ).toEqual([
       {
         path: "missing.png",
         title: null,
@@ -6280,7 +6495,9 @@ describe("markdown-style links to non-md targets", () => {
         daily_note_forward_ref: false,
       },
     ])
-    expect(index.brokenLinkCount({}, logger).count).toBe(1)
+    expect(
+      index.brokenLinkCount({ dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT }, logger).count,
+    ).toBe(1)
   })
 
   it("does not index scheme-prefixed markdown targets as links", () => {
@@ -6295,7 +6512,12 @@ describe("markdown-style links to non-md targets", () => {
     )
     // The Control wikilink proves link indexing ran — without it, both
     // assertions could pass from extraction silently producing nothing.
-    expect(index.getOutgoingLinks({ path: "source.md" }, logger)).toEqual([
+    expect(
+      index.getOutgoingLinks(
+        { path: "source.md", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
+        logger,
+      ),
+    ).toEqual([
       {
         path: "Control",
         title: null,
@@ -6305,7 +6527,9 @@ describe("markdown-style links to non-md targets", () => {
         daily_note_forward_ref: false,
       },
     ])
-    expect(index.brokenLinkCount({}, logger).count).toBe(1)
+    expect(
+      index.brokenLinkCount({ dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT }, logger).count,
+    ).toBe(1)
   })
 })
 
@@ -6320,7 +6544,12 @@ describe("file targets written with extensions", () => {
       }),
       logger,
     )
-    expect(index.getOutgoingLinks({ path: "source.md" }, logger)).toEqual([
+    expect(
+      index.getOutgoingLinks(
+        { path: "source.md", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
+        logger,
+      ),
+    ).toEqual([
       {
         path: "attachments/photo.png",
         title: null,
@@ -6330,7 +6559,9 @@ describe("file targets written with extensions", () => {
         daily_note_forward_ref: false,
       },
     ])
-    expect(index.brokenLinkCount({}, logger).count).toBe(0)
+    expect(
+      index.brokenLinkCount({ dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT }, logger).count,
+    ).toBe(0)
   })
 
   it("resolves a markdown embed by basename when the file lives in a subfolder", () => {
@@ -6343,7 +6574,12 @@ describe("file targets written with extensions", () => {
       }),
       logger,
     )
-    expect(index.getOutgoingLinks({ path: "source.md" }, logger)).toEqual([
+    expect(
+      index.getOutgoingLinks(
+        { path: "source.md", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
+        logger,
+      ),
+    ).toEqual([
       {
         path: "attachments/photo.png",
         title: null,
@@ -6353,7 +6589,9 @@ describe("file targets written with extensions", () => {
         daily_note_forward_ref: false,
       },
     ])
-    expect(index.brokenLinkCount({}, logger).count).toBe(0)
+    expect(
+      index.brokenLinkCount({ dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT }, logger).count,
+    ).toBe(0)
   })
 
   it("resolves a relative file link against the source note's folder", () => {
@@ -6366,7 +6604,12 @@ describe("file targets written with extensions", () => {
       }),
       logger,
     )
-    expect(index.getOutgoingLinks({ path: "A/note.md" }, logger)).toEqual([
+    expect(
+      index.getOutgoingLinks(
+        { path: "A/note.md", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
+        logger,
+      ),
+    ).toEqual([
       {
         path: "assets/photo.png",
         title: null,
@@ -6376,7 +6619,9 @@ describe("file targets written with extensions", () => {
         daily_note_forward_ref: false,
       },
     ])
-    expect(index.brokenLinkCount({}, logger).count).toBe(0)
+    expect(
+      index.brokenLinkCount({ dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT }, logger).count,
+    ).toBe(0)
   })
 
   it("resolves a folder-qualified target with extension by path suffix", () => {
@@ -6389,7 +6634,12 @@ describe("file targets written with extensions", () => {
       }),
       logger,
     )
-    expect(index.getOutgoingLinks({ path: "source.md" }, logger)).toEqual([
+    expect(
+      index.getOutgoingLinks(
+        { path: "source.md", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
+        logger,
+      ),
+    ).toEqual([
       {
         path: "deep/sub/photo.png",
         title: null,
@@ -6399,7 +6649,9 @@ describe("file targets written with extensions", () => {
         daily_note_forward_ref: false,
       },
     ])
-    expect(index.brokenLinkCount({}, logger).count).toBe(0)
+    expect(
+      index.brokenLinkCount({ dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT }, logger).count,
+    ).toBe(0)
   })
 
   it("resolves a shared basename deterministically to the shortest path", () => {
@@ -6413,7 +6665,12 @@ describe("file targets written with extensions", () => {
       }),
       logger,
     )
-    expect(index.getOutgoingLinks({ path: "source.md" }, logger)).toEqual([
+    expect(
+      index.getOutgoingLinks(
+        { path: "source.md", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
+        logger,
+      ),
+    ).toEqual([
       {
         path: "a/photo.png",
         title: null,
@@ -6439,7 +6696,12 @@ describe("file targets written with extensions", () => {
       }),
       logger,
     )
-    expect(index.getOutgoingLinks({ path: "source.md" }, logger)).toEqual([
+    expect(
+      index.getOutgoingLinks(
+        { path: "source.md", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
+        logger,
+      ),
+    ).toEqual([
       {
         path: "a/photo.png",
         title: null,
@@ -6464,7 +6726,12 @@ describe("file targets written with extensions", () => {
       }),
       logger,
     )
-    expect(index.getOutgoingLinks({ path: "source.md" }, logger)).toEqual([
+    expect(
+      index.getOutgoingLinks(
+        { path: "source.md", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
+        logger,
+      ),
+    ).toEqual([
       {
         path: "photo.png.canvas",
         title: null,
@@ -6488,7 +6755,12 @@ describe("file targets written with extensions", () => {
     )
     // The suffix match is on the full filename, not the extension-stripped
     // stem — photo.jpg must not satisfy a photo.png link.
-    expect(index.getOutgoingLinks({ path: "source.md" }, logger)).toEqual([
+    expect(
+      index.getOutgoingLinks(
+        { path: "source.md", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
+        logger,
+      ),
+    ).toEqual([
       {
         path: "photo.png",
         title: null,
@@ -6498,7 +6770,9 @@ describe("file targets written with extensions", () => {
         daily_note_forward_ref: false,
       },
     ])
-    expect(index.brokenLinkCount({}, logger).count).toBe(1)
+    expect(
+      index.brokenLinkCount({ dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT }, logger).count,
+    ).toBe(1)
   })
 
   it("upsertNonMdFile re-resolves a previously unresolved with-extension target", () => {
@@ -6510,10 +6784,17 @@ describe("file targets written with extensions", () => {
       }),
       logger,
     )
-    expect(index.brokenLinkCount({}, logger).count).toBe(1)
+    expect(
+      index.brokenLinkCount({ dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT }, logger).count,
+    ).toBe(1)
 
     index.upsertNonMdFile("attachments/photo.png", 100)
-    expect(index.getOutgoingLinks({ path: "source.md" }, logger)).toEqual([
+    expect(
+      index.getOutgoingLinks(
+        { path: "source.md", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
+        logger,
+      ),
+    ).toEqual([
       {
         path: "attachments/photo.png",
         title: null,
@@ -6523,7 +6804,9 @@ describe("file targets written with extensions", () => {
         daily_note_forward_ref: false,
       },
     ])
-    expect(index.brokenLinkCount({}, logger).count).toBe(0)
+    expect(
+      index.brokenLinkCount({ dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT }, logger).count,
+    ).toBe(0)
   })
 
   it.each([
@@ -6553,13 +6836,21 @@ describe("file targets written with extensions", () => {
       assetIndex.upsertNonMdFile("elsewhere/decoy.png", 42)
       expect(
         assetIndex
-          .getOutgoingLinks({ path: "Projects/source.md" }, logger)
+          .getOutgoingLinks(
+            { path: "Projects/source.md", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
+            logger,
+          )
           .map((link) => link.path),
       ).toEqual([target, "unrelated.png"].toSorted())
 
       assetIndex.upsertNonMdFile(filePath, 100)
 
-      expect(assetIndex.getOutgoingLinks({ path: "Projects/source.md" }, logger)).toEqual(
+      expect(
+        assetIndex.getOutgoingLinks(
+          { path: "Projects/source.md", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
+          logger,
+        ),
+      ).toEqual(
         [
           {
             path: filePath,
@@ -6594,7 +6885,12 @@ describe("file targets written with extensions", () => {
       }),
       logger,
     )
-    expect(index.getOutgoingLinks({ path: "source.md" }, logger)).toEqual([
+    expect(
+      index.getOutgoingLinks(
+        { path: "source.md", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
+        logger,
+      ),
+    ).toEqual([
       {
         path: "photo_final.png",
         title: null,
@@ -6604,7 +6900,9 @@ describe("file targets written with extensions", () => {
         daily_note_forward_ref: false,
       },
     ])
-    expect(index.brokenLinkCount({}, logger).count).toBe(1)
+    expect(
+      index.brokenLinkCount({ dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT }, logger).count,
+    ).toBe(1)
   })
 })
 
@@ -7534,7 +7832,12 @@ describe("canvas note catalog reuse", () => {
     )
   }
   const outgoingPaths = (search: SearchIndex): string[] =>
-    search.getOutgoingLinks({ path: "board.canvas" }, logger).map((link) => link.path)
+    search
+      .getOutgoingLinks(
+        { path: "board.canvas", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
+        logger,
+      )
+      .map((link) => link.path)
 
   it("avoids empty-canvas scans and shares one catalog across repeated linked saves", () => {
     const scans = observeCatalogScans()
@@ -7737,7 +8040,10 @@ describe("canvas file content and links", () => {
 
       expect(
         canvasIndex
-          .getOutgoingLinks({ path: "Boards/source.canvas" }, logger)
+          .getOutgoingLinks(
+            { path: "Boards/source.canvas", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
+            logger,
+          )
           .map((link) => ({ path: link.path, exists: link.exists })),
       ).toEqual([
         { path: "Notes/Plan.md", exists: true },
@@ -7753,15 +8059,17 @@ describe("canvas file content and links", () => {
       expect(
         canvasIndex.getBacklinks({ path: "assets/map.canvas" }, logger).map((link) => link.path),
       ).toEqual(["Boards/source.canvas"])
-      expect(canvasIndex.brokenLinkCount({}, logger)).toEqual({
+      expect(
+        canvasIndex.brokenLinkCount({ dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT }, logger),
+      ).toEqual({
         count: 1,
-        excludedFolder: null,
         excludedCount: 0,
       })
       canvasIndex.upsertNonMdFile("other/unchanged.txt", 12)
-      expect(canvasIndex.brokenLinkCount({}, logger)).toEqual({
+      expect(
+        canvasIndex.brokenLinkCount({ dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT }, logger),
+      ).toEqual({
         count: 1,
-        excludedFolder: null,
         excludedCount: 0,
       })
     },
@@ -7926,7 +8234,10 @@ describe("canvas file content and links", () => {
         },
         logger,
       )
-      const outgoing = fileIndex.getOutgoingLinks({ path: "Diagrams/arch.canvas" }, logger)
+      const outgoing = fileIndex.getOutgoingLinks(
+        { path: "Diagrams/arch.canvas", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
+        logger,
+      )
       const targetPaths = outgoing.map((link) => link.path)
       expect(targetPaths).toEqual(["Notes/design-doc.md", "Projects/vault-cortex.md"])
     })
@@ -7944,7 +8255,10 @@ describe("canvas file content and links", () => {
         },
         logger,
       )
-      const outgoing = fileIndex.getOutgoingLinks({ path: "Diagrams/arch.canvas" }, logger)
+      const outgoing = fileIndex.getOutgoingLinks(
+        { path: "Diagrams/arch.canvas", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
+        logger,
+      )
       const brokenLink = outgoing.find((link) => link.path === "Notes/design-doc.md")
       expect(brokenLink?.exists).toBe(false)
     })
@@ -8453,7 +8767,10 @@ describe("files with an uppercase extension", { timeout: 15_000 }, () => {
   it("lists the file cards of a canvas with an uppercase extension as its outgoing links", async () => {
     const fileIndex = await rebuildMixedCaseIndex()
 
-    const outgoingLinks = fileIndex.getOutgoingLinks({ path: "files/Board.Canvas" }, logger)
+    const outgoingLinks = fileIndex.getOutgoingLinks(
+      { path: "files/Board.Canvas", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
+      logger,
+    )
 
     expect(outgoingLinks).toEqual([
       {

@@ -1,5 +1,6 @@
 // ── Query methods bound by createSearchIndex ─────────────────
 
+import { posix } from "node:path"
 import type Database from "better-sqlite3"
 import type { Logger } from "../../logger.js"
 import { classifyIsoDate } from "../../utils/classify-iso-date.js"
@@ -7,6 +8,10 @@ import { describeError } from "../../utils/describe-error.js"
 import { compareByUtf8Bytes } from "../../utils/compare-utf8-bytes.js"
 import { assertPathHasExtension } from "../../utils/assert-path-has-extension.js"
 import { isCanvasPath } from "../obsidian-markdown/file-kinds.js"
+import {
+  dailyNoteFormatToNameFormat,
+  matchesDailyNoteName,
+} from "../obsidian-markdown/moment-format.js"
 import { sanitizeFtsQuery, sanitizeFtsQueryAnyTerm } from "./fts-query.js"
 import { computeRrfScores } from "./rrf.js"
 import { sigmoid } from "./reranker.js"
@@ -1475,6 +1480,36 @@ const assertLinkQueryPath = (path: string): void => {
   assertPathHasExtension(path, [".md", ".canvas"])
 }
 
+/** Builds the check for a broken link target that names a daily note not
+ *  yet created. A target counts when either holds:
+ *  - it starts with the dedicated daily notes folder;
+ *  - it has no folder, and its name without one trailing ".md" is a date
+ *    written in the daily-note format. Such a link resolves to the daily
+ *    note by name once the note exists, wherever its folder is.
+ *  The format is converted once here, not once per target. */
+const createDailyNoteForwardRefCheck = (params: {
+  dailyNotesFolder: string | null | undefined
+  dailyNotesFormat: string
+}): ((brokenTarget: string) => boolean) => {
+  const dailyNotesFolderPrefix = params.dailyNotesFolder
+    ? `${stripTrailingSlashes(params.dailyNotesFolder)}/`
+    : null
+  const dailyNoteNameFormat = dailyNoteFormatToNameFormat(params.dailyNotesFormat)
+
+  const isBareDailyNoteName = (brokenTarget: string): boolean => {
+    if (!dailyNoteNameFormat || brokenTarget.includes("/")) return false
+
+    const name = posix.basename(brokenTarget, ".md")
+    return matchesDailyNoteName({ name, format: dailyNoteNameFormat })
+  }
+
+  return (brokenTarget) => {
+    const isUnderDailyNotesFolder =
+      dailyNotesFolderPrefix !== null && brokenTarget.startsWith(dailyNotesFolderPrefix)
+    return isUnderDailyNotesFolder || isBareDailyNoteName(brokenTarget)
+  }
+}
+
 /** Returns notes and files that link TO the given path (incoming links /
  *  backlinks). Canvas file-node references are included — a canvas that
  *  embeds a note via a `file`-type node appears as a backlink source. */
@@ -1515,13 +1550,14 @@ export const getBacklinks = (
  *  "file" for resolved non-markdown files (.canvas, .base, images, etc.),
  *  defaulting to "note" for unresolved (broken) links. Accepts both
  *  .md and .canvas paths — canvas file-node references appear as outgoing.
- *  When the caller passes the vault's daily notes folder (readDailyNotesConfig's
- *  dedicatedFolder), broken links under it are flagged
- *  daily_note_forward_ref — expected "create on click" navigation. Null, for a
- *  vault-root or blank setting, flags none. */
+ *  A broken link to a daily note not yet created, as
+ *  createDailyNoteForwardRefCheck defines it, is flagged
+ *  daily_note_forward_ref. dailyNotesFolder is readDailyNotesConfig's
+ *  dedicatedFolder; when it is null, for a vault-root or blank setting, only
+ *  a bare date in dailyNotesFormat is flagged. */
 export const getOutgoingLinks = (
   context: SearchQueryContext,
-  params: { path: string; dailyNotesFolder?: string | null },
+  params: { path: string; dailyNotesFolder?: string | null; dailyNotesFormat: string },
   logger: Logger,
 ): OutgoingLinkEntry[] => {
   assertLinkQueryPath(params.path)
@@ -1555,19 +1591,17 @@ export const getOutgoingLinks = (
       }
     >(sql)
     .all(params.path)
-  const dailyNotesFolderPrefix = params.dailyNotesFolder
-    ? `${stripTrailingSlashes(params.dailyNotesFolder)}/`
-    : null
+  const isDailyNoteForwardRef = createDailyNoteForwardRefCheck({
+    dailyNotesFolder: params.dailyNotesFolder,
+    dailyNotesFormat: params.dailyNotesFormat,
+  })
   const results: OutgoingLinkEntry[] = rows.map((row) => ({
     path: row.path,
     title: row.title,
     exists: row.exists_flag === 1,
     kind: row.kind,
     bytes: row.bytes ?? null,
-    daily_note_forward_ref:
-      row.exists_flag === 0 &&
-      dailyNotesFolderPrefix !== null &&
-      row.path.startsWith(dailyNotesFolderPrefix),
+    daily_note_forward_ref: row.exists_flag === 0 && isDailyNoteForwardRef(row.path),
   }))
   logger.info("get outgoing links", {
     path: params.path,
@@ -1634,42 +1668,25 @@ export const findOrphans = (
 
 type BrokenLinkResult = {
   count: number
-  excludedFolder: string | null
   excludedCount: number
 }
 
 /** Counts unique broken link targets — links whose targets exist in
- *  neither the notes table nor the non_md_files table. When the caller
- *  passes the vault's daily notes folder (readDailyNotesConfig's
- *  dedicatedFolder), broken links under it are excluded — they are
- *  forward-references (intentional "create on click" navigation), not
- *  genuinely broken. Null, for a vault-root or blank setting, excludes none.
- *  Returns the count plus exclusion metadata so
- *  callers can communicate what was filtered. */
+ *  neither the notes table nor the non_md_files table. A target that names
+ *  a daily note not yet created, as createDailyNoteForwardRefCheck defines
+ *  it, is not broken: it is left out of count and counted in excludedCount.
+ *  dailyNotesFolder is readDailyNotesConfig's dedicatedFolder; when it is
+ *  null, for a vault-root or blank setting, only a bare date in
+ *  dailyNotesFormat is excluded. */
 export const brokenLinkCount = (
   context: SearchQueryContext,
-  params: { dailyNotesFolder?: string | null },
+  params: { dailyNotesFolder?: string | null; dailyNotesFormat: string },
   logger: Logger,
 ): BrokenLinkResult => {
-  const excludedFolder = params.dailyNotesFolder ?? null
-
-  if (excludedFolder === null) {
-    const row = context.db
-      .prepare<unknown[], { count: number }>(
-        `SELECT COUNT(DISTINCT target) as count
-         FROM links
-         WHERE target NOT IN (SELECT path FROM notes)
-           AND target NOT IN (SELECT path FROM non_md_files)`,
-      )
-      .get()
-
-    if (!row) throw new Error("aggregate COUNT query returned no row")
-    const count = row.count
-    logger.info("broken link count", { count })
-    return { count, excludedFolder: null, excludedCount: 0 }
-  }
-
-  const excludedFolderPrefix = `${stripTrailingSlashes(excludedFolder)}/`
+  const isDailyNoteForwardRef = createDailyNoteForwardRefCheck({
+    dailyNotesFolder: params.dailyNotesFolder,
+    dailyNotesFormat: params.dailyNotesFormat,
+  })
   const brokenTargets = context.db
     .prepare<unknown[], { target: string }>(
       `SELECT DISTINCT target
@@ -1679,16 +1696,18 @@ export const brokenLinkCount = (
     )
     .all()
 
-  // Keep the same case-sensitive folder test as getOutgoingLinks' forward-reference flag.
-  const count = brokenTargets.filter((row) => !row.target.startsWith(excludedFolderPrefix)).length
+  // The same check as getOutgoingLinks' daily_note_forward_ref flag.
+  const count = brokenTargets.filter(
+    (brokenLink) => !isDailyNoteForwardRef(brokenLink.target),
+  ).length
   const excludedCount = brokenTargets.length - count
 
   logger.info("broken link count", {
     count,
-    dailyNotesFolder: excludedFolder,
+    dailyNotesFolder: params.dailyNotesFolder ?? null,
     excludedForwardRefs: excludedCount,
   })
-  return { count, excludedFolder, excludedCount }
+  return { count, excludedCount }
 }
 
 /** Returns notes whose filesystem mtime falls within a calendar date

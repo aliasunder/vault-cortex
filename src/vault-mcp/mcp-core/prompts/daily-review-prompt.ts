@@ -226,6 +226,7 @@ export const registerDailyReviewPrompt = ({
               {
                 path: dailyNote.path,
                 dailyNotesFolder: dailyNotesConfig.dedicatedFolder,
+                dailyNotesFormat: dailyNotesConfig.format,
               },
               reqLogger,
             )
