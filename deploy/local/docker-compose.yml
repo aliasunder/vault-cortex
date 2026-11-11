@@ -73,7 +73,8 @@ services:
       - mcp_data:/data
     ports:
       # Published on this machine only. To reach the server from another
-      # device on your network, drop the "127.0.0.1:" prefix.
+      # device on your network, drop the "127.0.0.1:" prefix and set
+      # PUBLIC_URL in .env to the address that device uses.
       - "127.0.0.1:${PORT:-8000}:8000"
     healthcheck:
       test:

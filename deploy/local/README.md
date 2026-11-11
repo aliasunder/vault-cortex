@@ -74,8 +74,9 @@ The server listens at `http://localhost:8000/mcp`.
 - Claude Mobile and claude.ai web can't reach localhost — use the
   [remote quickstart](../remote/) for access from other devices. To reach
   this install from another device on your own network instead, drop the
-  `127.0.0.1:` prefix from the `ports` line in `docker-compose.yml` (the CLI
-  always publishes on this machine only).
+  `127.0.0.1:` prefix from the `ports` line in `docker-compose.yml` and set
+  `PUBLIC_URL` in `.env` to the address those devices use (the CLI always
+  publishes on this machine only).
 
 ### Claude Code
 
