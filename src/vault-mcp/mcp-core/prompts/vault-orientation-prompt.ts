@@ -102,10 +102,8 @@ const formatMemoryOutlineEntry = (outline: MemoryFileOutline): string => {
 const formatMemoryOutline = (outlines: readonly MemoryFileOutline[]): string =>
   outlines.map(formatMemoryOutlineEntry).join("\n")
 
-/** The "excludes N forward-refs to daily notes" note, or "" when none were excluded. */
+/** The "excludes N forward-refs to daily notes" note. */
 const formatExcludedForwardRefs = (excludedCount: number): string => {
-  if (excludedCount === 0) return ""
-
   const forwardReferenceLabel = excludedCount === 1 ? "forward-ref" : "forward-refs"
   return `excludes ${excludedCount} ${forwardReferenceLabel} to daily notes`
 }
@@ -114,12 +112,11 @@ const formatExcludedForwardRefs = (excludedCount: number): string => {
  *  forward-refs when present. Returns "" when both counts are zero. */
 const formatBrokenLinkSegment = (result: { count: number; excludedCount: number }): string => {
   const { count, excludedCount } = result
-  const excludedNote = formatExcludedForwardRefs(excludedCount)
 
   if (count === 0 && excludedCount === 0) return ""
 
   const linkCount = `${count} broken link${count === 1 ? "" : "s"}`
-  const parenthetical = excludedCount > 0 ? ` (${excludedNote})` : ""
+  const parenthetical = excludedCount > 0 ? ` (${formatExcludedForwardRefs(excludedCount)})` : ""
   return `${linkCount}${parenthetical}.`
 }
 
