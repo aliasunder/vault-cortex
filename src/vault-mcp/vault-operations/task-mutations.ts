@@ -1329,10 +1329,7 @@ const buildNextOccurrencePosition = ({
 
 /** Detects the done lane for auto-completion: checks for **Complete**
  *  markers first, falls back to a heading named "Done". */
-const detectDoneLane = (
-  bodyLines: readonly string[],
-  headings: ReturnType<typeof parseHeadings>,
-): string => {
+const detectDoneLane = (bodyLines: readonly string[], headings: readonly HeadingInfo[]): string => {
   const doneLanes = tasks.extractDoneLanes(bodyLines, headings)
 
   if (doneLanes.length > 1) {
@@ -1788,23 +1785,61 @@ const createTask = async (params: CreateTaskParams, logger: Logger): Promise<Cre
 
 // ── updateTask ──────────────────────────────────────────────────
 
-/** Applies every requested mutation to a task line in one atomic
- *  read-modify-write cycle. */
-const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<UpdateTaskResult> => {
+/** The four date fields an update can set (a string) or clear (null), in
+ *  the order their `changes` entries are reported. */
+const dateFieldParams = ({
+  due,
+  scheduled,
+  start,
+  created,
+}: UpdateTaskParams): ReadonlyArray<{ field: DateFieldKey; value: string | null | undefined }> => [
+  { field: "due", value: due },
+  { field: "scheduled", value: scheduled },
+  { field: "start", value: start },
+  { field: "created", value: created },
+]
+
+/** The field values an update submitted, for the round-trip check against
+ *  what the written line parses back as. A field left undefined was not
+ *  submitted; null clears it and is checked as such. */
+const submittedTaskFields = ({
+  description,
+  priority,
+  due,
+  scheduled,
+  start,
+  created,
+  taskId,
+  dependsOn,
+  recurrence,
+  onCompletion,
+}: UpdateTaskParams): SubmittedTaskFields => ({
+  ...(description !== undefined && { description }),
+  ...(priority !== undefined && { priority }),
+  ...(due !== undefined && { dueDate: due }),
+  ...(scheduled !== undefined && { scheduledDate: scheduled }),
+  ...(start !== undefined && { startDate: start }),
+  ...(created !== undefined && { createdDate: created }),
+  ...(taskId !== undefined && { taskId }),
+  ...(dependsOn !== undefined && { dependsOn }),
+  ...(recurrence !== undefined && { recurrence }),
+  ...(onCompletion !== undefined && { onCompletion }),
+})
+
+/** Refuses an update before the note is read: it must name exactly one
+ *  task, change at least one field, and carry only values the task line
+ *  grammar can write. */
+const assertUpdateTaskParams = (params: UpdateTaskParams): void => {
   const {
-    vaultPath,
-    path,
-    statusRegistry,
     blockId,
     line,
     status,
     priority,
     recurrence,
     onCompletion,
-    heading: targetHeadingParam,
+    heading,
     position,
-    format,
-    description: newDescription,
+    description,
     due,
     scheduled,
     start,
@@ -1812,7 +1847,7 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
     taskId,
     dependsOn,
     addSubtasks,
-    assignBlockId: newBlockId,
+    assignBlockId,
   } = params
 
   // Exactly one identifier required
@@ -1831,8 +1866,8 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
     priority !== undefined ||
     recurrence !== undefined ||
     onCompletion !== undefined ||
-    targetHeadingParam !== undefined ||
-    newDescription !== undefined ||
+    heading !== undefined ||
+    description !== undefined ||
     due !== undefined ||
     scheduled !== undefined ||
     start !== undefined ||
@@ -1840,7 +1875,7 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
     taskId !== undefined ||
     dependsOn !== undefined ||
     addSubtasks !== undefined ||
-    newBlockId !== undefined ||
+    assignBlockId !== undefined ||
     position !== undefined
 
   if (!hasMutation) {
@@ -1849,27 +1884,17 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
     )
   }
 
-  const dateParams: ReadonlyArray<{
-    field: DateFieldKey
-    value: string | null | undefined
-  }> = [
-    { field: "due", value: due },
-    { field: "scheduled", value: scheduled },
-    { field: "start", value: start },
-    { field: "created", value: created },
-  ]
-
-  for (const { field, value } of dateParams) {
+  for (const { field, value } of dateFieldParams(params)) {
     // null clears the date and undefined leaves it as it is; only a string sets one
     if (typeof value === "string") {
       assertTaskDate(value, field)
     }
   }
 
-  if (newDescription !== undefined && !newDescription.trim()) {
+  if (description !== undefined && !description.trim()) {
     throw new Error("description cannot be empty")
   }
-  if (newDescription !== undefined && TASK_TEXT_LINE_BREAK_PATTERN.test(newDescription)) {
+  if (description !== undefined && TASK_TEXT_LINE_BREAK_PATTERN.test(description)) {
     throw new Error("description must be a single line")
   }
 
@@ -1888,6 +1913,438 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
   }
   assertTaskIdGrammar({ taskId, dependsOn })
   assertRecurrenceRuleGrammar(recurrence)
+}
+
+/** The task line after every in-line edit, the `changes` entry for each
+ *  edit, and the tags deduplicated between the description and the
+ *  metadata tail. */
+type EditedTaskLine = {
+  mutatedLine: string
+  lineChanges: string[]
+  deduplicatedTags: readonly string[]
+}
+
+/** Applies the field, block-id and description edits to the task line.
+ *  The description edit runs last because every field edit splits the
+ *  line at the description/metadata boundary, and a signifier in the NEW
+ *  description text would shift that boundary; with the old description
+ *  still in place, the boundary stays put. */
+const editTaskLine = ({
+  params,
+  originalTaskLine,
+  taskBefore,
+  formatConfig,
+  today,
+}: {
+  params: UpdateTaskParams
+  originalTaskLine: string
+  taskBefore: ParsedTask
+  formatConfig: TaskFormatConfig
+  today: string
+}): EditedTaskLine => {
+  const {
+    status,
+    priority,
+    recurrence,
+    onCompletion,
+    description: newDescription,
+    taskId,
+    dependsOn,
+    assignBlockId: newBlockId,
+  } = params
+
+  const descriptionEdit: LineEdit | undefined =
+    newDescription !== undefined
+      ? {
+          apply: (taskLine: string) => {
+            return tasks.replaceTaskLineDescription({ taskLine, newDescription })
+          },
+          // The after-value previews the swap on the ORIGINAL line. The
+          // field edits below never move the description/metadata
+          // boundary (the old description is still in place while they
+          // run), so this preview parses the same as the final line.
+          change: formatChange({
+            field: "description",
+            before: taskBefore.description,
+            after: tasks.describeTaskLine(
+              tasks.replaceTaskLineDescription({
+                taskLine: originalTaskLine,
+                newDescription,
+              }),
+            ),
+          }),
+        }
+      : undefined
+
+  const lineEdits: LineEdit[] = [
+    ...(status
+      ? [
+          {
+            apply: (taskLine: string) => {
+              return tasks.updateTaskLineStatus({
+                taskLine,
+                newStatus: status,
+                today,
+                config: formatConfig,
+              })
+            },
+            change: formatChange({
+              field: "status",
+              before: taskBefore.status,
+              after: status,
+            }),
+          },
+        ]
+      : []),
+    ...(priority !== undefined
+      ? [
+          {
+            apply: (taskLine: string) => {
+              return tasks.updateTaskLinePriority({
+                taskLine,
+                newPriority: priority,
+                config: formatConfig,
+              })
+            },
+            change: formatChange({
+              field: "priority",
+              before: taskBefore.priority,
+              after: priority,
+            }),
+          },
+        ]
+      : []),
+    ...dateFieldParams(params).flatMap(({ field, value }) => {
+      if (value === undefined) return []
+      return [
+        {
+          apply: (taskLine: string) => {
+            return tasks.updateTaskLineDate({
+              taskLine,
+              field,
+              date: value,
+              config: formatConfig,
+            })
+          },
+          change: formatChange({
+            field,
+            before: taskBefore[`${field}Date`],
+            after: value,
+          }),
+        },
+      ]
+    }),
+    ...(recurrence !== undefined
+      ? [
+          {
+            apply: (taskLine: string) => {
+              return tasks.updateTaskLineRecurrence({
+                taskLine,
+                recurrenceText: recurrence,
+                config: formatConfig,
+              })
+            },
+            change: formatChange({
+              field: "recurrence",
+              before: taskBefore.recurrence,
+              after: recurrence,
+            }),
+          },
+        ]
+      : []),
+    ...(onCompletion !== undefined
+      ? [
+          {
+            apply: (taskLine: string) => {
+              return tasks.updateTaskLineOnCompletion({
+                taskLine,
+                onCompletion,
+                config: formatConfig,
+              })
+            },
+            change: formatChange({
+              field: "on_completion",
+              before: taskBefore.onCompletion,
+              after: onCompletion,
+            }),
+          },
+        ]
+      : []),
+    ...(taskId !== undefined
+      ? [
+          {
+            apply: (taskLine: string) => {
+              return tasks.updateTaskLineTaskId({
+                taskLine,
+                taskId,
+                config: formatConfig,
+              })
+            },
+            change: formatChange({
+              field: "task_id",
+              before: taskBefore.taskId,
+              after: taskId,
+            }),
+          },
+        ]
+      : []),
+    ...(dependsOn !== undefined
+      ? [
+          {
+            apply: (taskLine: string) => {
+              return tasks.updateTaskLineDependsOn({
+                taskLine,
+                dependsOn,
+                config: formatConfig,
+              })
+            },
+            change: formatChange({
+              field: "depends_on",
+              before: formatDependsOnForChange(taskBefore.dependsOn),
+              after: formatDependsOnForChange(dependsOn),
+            }),
+          },
+        ]
+      : []),
+    ...(newBlockId
+      ? [
+          {
+            apply: (taskLine: string) => tasks.assignBlockId({ taskLine, blockId: newBlockId }),
+            change: formatChange({
+              field: "block_id",
+              before: taskBefore.blockId,
+              after: newBlockId,
+            }),
+          },
+        ]
+      : []),
+    ...(newBlockId === null
+      ? [
+          {
+            apply: (taskLine: string) => tasks.removeBlockId(taskLine),
+            change: formatChange({ field: "block_id", before: taskBefore.blockId, after: null }),
+          },
+        ]
+      : []),
+    ...(descriptionEdit ? [descriptionEdit] : []),
+  ]
+  const editedLine = lineEdits.reduce((taskLine, edit) => edit.apply(taskLine), originalTaskLine)
+  // Deduplicate tags that appear in both the description and the metadata
+  // tail — the round-trip artifact of the parser's tag re-append.
+  const tagDedup = tasks.deduplicateDescriptionTags(editedLine)
+  const mutatedLine = tagDedup.taskLine
+
+  // The description edit's after-value previews the swap on the original
+  // line, which predates dedup. When dedup strips a metadata tag, the
+  // preview re-appends it via describeTaskLine, showing a doubled tag the
+  // written line doesn't have. Recompute from the post-dedup line.
+  const descriptionChangedAndDeduped = newDescription && tagDedup.deduplicatedTags.length > 0
+
+  const lineChanges = descriptionChangedAndDeduped
+    ? lineEdits.map((edit) => {
+        if (edit === descriptionEdit) {
+          return formatChange({
+            field: "description",
+            before: taskBefore.description,
+            after: tasks.describeTaskLine(mutatedLine),
+          })
+        }
+        return edit.change
+      })
+    : lineEdits.map((edit) => edit.change)
+
+  return { mutatedLine, lineChanges, deduplicatedTags: tagDedup.deduplicatedTags }
+}
+
+/** Where the note lives, and how its body lines map to file lines on the
+ *  note as read and as it will be written: the rewritten properties block
+ *  can have a different number of lines. */
+type NoteWriteTarget = {
+  path: string
+  fullPath: string
+  properties: Record<string, unknown>
+  readBodyStartLine: number
+  writtenBodyStartLine: number
+}
+
+/** Removes a task completed under onCompletion "delete", with its
+ *  children, and writes the note. A spawned next occurrence survives the
+ *  removal: one written above the block keeps its index, and one written
+ *  below it (recurrenceOnNextLine) moves up by the block's length. */
+const deleteTaskOnCompletion = async (
+  {
+    note,
+    lines,
+    taskLineIndex,
+    spawnInsertIndex,
+    recurrenceSpawn,
+    recurrenceOnNextLine,
+    headings,
+    lineChanges,
+    mutatedLine,
+    priorBlockId,
+  }: {
+    note: NoteWriteTarget
+    /** The body with the edited task line and any spawn in place. */
+    lines: readonly string[]
+    /** The completed task's index in `lines`. */
+    taskLineIndex: number
+    /** The spawn's index in `lines`; meaningful only for a spawn. */
+    spawnInsertIndex: number
+    recurrenceSpawn: RecurrenceSpawn
+    recurrenceOnNextLine: boolean
+    headings: readonly HeadingInfo[]
+    lineChanges: readonly string[]
+    mutatedLine: string
+    priorBlockId: string | null | undefined
+  },
+  logger: Logger,
+): Promise<UpdateTaskResult> => {
+  const taskBlockEnd = findTaskBlockEnd(lines, taskLineIndex)
+  const deleteCount = taskBlockEnd - taskLineIndex
+  const childCount = deleteCount - 1
+  const childLabel = childCount === 1 ? "child" : "children"
+  const deletionChange =
+    childCount > 0
+      ? `on_completion: task and ${childCount} ${childLabel} removed (🏁 delete)`
+      : "on_completion: task removed (🏁 delete)"
+
+  const spawnFinalIndex = recurrenceOnNextLine ? spawnInsertIndex - deleteCount : spawnInsertIndex
+
+  const nextOccurrence: NextOccurrencePosition | undefined =
+    recurrenceSpawn.kind === "spawn"
+      ? buildNextOccurrencePosition({
+          bodyStartLine: note.writtenBodyStartLine,
+          spawnIndex: spawnFinalIndex,
+          recurrenceSpawn,
+        })
+      : undefined
+
+  const changes = [
+    ...lineChanges,
+    ...(nextOccurrence
+      ? [
+          formatChange({
+            field: "next_occurrence",
+            before: null,
+            after: `line ${nextOccurrence.line}`,
+          }),
+        ]
+      : []),
+    deletionChange,
+  ]
+
+  const resultLines = lines.toSpliced(taskLineIndex, deleteCount)
+
+  const serialized = stringifyNote(resultLines.join("\n"), note.properties)
+  await atomicWriteFile({ filePath: note.fullPath, content: serialized }, logger)
+
+  const headingBefore = headings.findLast((heading) => heading.startLine < taskLineIndex)
+
+  // The task is gone from the written file, so its line is the one it held
+  // just before removal: below the spawn when one was written above it,
+  // and offset by the properties block as read
+  const deletedTaskLine = note.readBodyStartLine + taskLineIndex + 1
+
+  logger.info("task deleted on completion", {
+    path: note.path,
+    line: deletedTaskLine,
+    onCompletion: "delete",
+    childrenRemoved: childCount,
+  })
+
+  return {
+    path: note.path,
+    line: deletedTaskLine,
+    description: tasks.describeTaskLine(mutatedLine),
+    // The line is gone, so block_id is the id it carried before this call.
+    block_id: priorBlockId ?? undefined,
+    heading: headingBefore?.text,
+    next_occurrence: nextOccurrence,
+    changes,
+    // Round-trip advisories are about a line that no longer exists —
+    // drop them. Recurrence advisories ("rule unreadable, no spawn")
+    // matter because the caller needs to know the chain broke.
+    ...(recurrenceSpawn.kind === "advisory" && {
+      advisories: [recurrenceSpawn.advisory],
+    }),
+    on_completion_applied: "delete",
+  }
+}
+
+/** The lane the update moves the task to, or undefined when the task stays
+ *  where it is. Three paths resolve it:
+ *   1. Explicit heading param — the caller picks the destination.
+ *   2. Auto-done-lane — completing a top-level Kanban card with no
+ *      explicit heading detects the board's done lane.
+ *   3. Same-lane reorder — position without a heading or auto-done
+ *      resolves the card's current heading so it stays in place. */
+const resolveTargetLane = ({
+  targetHeadingParam,
+  position,
+  status,
+  isKanbanBoard,
+  isSubtask,
+  lines,
+  headings,
+  taskLineIndex,
+}: {
+  targetHeadingParam: string | undefined
+  position: "top" | "bottom" | number | undefined
+  status: TaskStatus | undefined
+  isKanbanBoard: boolean
+  isSubtask: boolean
+  lines: readonly string[]
+  headings: readonly HeadingInfo[]
+  taskLineIndex: number
+}): string | undefined => {
+  if (targetHeadingParam !== undefined) return targetHeadingParam
+
+  const autoDoneLane = status === "done" && isKanbanBoard && !isSubtask
+
+  if (autoDoneLane) return detectDoneLane(lines, headings)
+  if (!position) return undefined
+
+  // Kept as a HeadingInfo (not .text) so an empty-named heading is not
+  // misread as "above all headings."
+  const currentHeading = headings.findLast((heading) => heading.startLine < taskLineIndex)
+
+  if (!currentHeading) {
+    throw new Error("cannot reorder a task that sits above the first heading — pass a heading")
+  }
+  return currentHeading.text
+}
+
+/** Edits one task line and places the result. The stages, in order:
+ *  1. Refuse bad parameters, then find the task on the note as read.
+ *  2. Edit the task line in place (editTaskLine).
+ *  3. Write the next occurrence of a completed recurring task beside it.
+ *  4. Either remove a task completed under onCompletion "delete"
+ *     (deleteTaskOnCompletion), or move the task to its lane and append
+ *     its checklist items, then write the note.
+ *
+ *  Line numbers change at two of those boundaries. The task is found and
+ *  its prior values read on the note as read; the spawn shifts every line
+ *  below it; and lines reported for tasks that survive the write are
+ *  counted on the note as written, whose rewritten properties block can
+ *  have a different number of lines. */
+const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<UpdateTaskResult> => {
+  const {
+    vaultPath,
+    path,
+    statusRegistry,
+    blockId,
+    line,
+    status,
+    onCompletion,
+    heading: targetHeadingParam,
+    position,
+    format,
+    addSubtasks,
+    assignBlockId: newBlockId,
+  } = params
+
+  assertUpdateTaskParams(params)
 
   const fullPath = resolveNotePath({ vaultPath, path })
 
@@ -1897,16 +2354,17 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
     const bodyLines = splitIntoLines(parsed.content)
     const headings = parseHeadings(bodyLines)
 
-    // The task is found, and its prior values matched, on the note as read,
-    // with the offset extractTasks numbers its tasks by. Lines reported for
-    // tasks that survive the write are counted on the note as written, whose
-    // rewritten properties block can have a different number of lines.
-    const readBodyStartLine = findBodyStartLine(fileContent)
-    const writtenBodyStartLine = findWrittenBodyStartLine(parsed.data)
+    const note: NoteWriteTarget = {
+      path,
+      fullPath,
+      properties: parsed.data,
+      readBodyStartLine: findBodyStartLine(fileContent),
+      writtenBodyStartLine: findWrittenBodyStartLine(parsed.data),
+    }
 
     const taskLineIndex = locateTaskLine({
       bodyLines,
-      bodyStartLine: readBodyStartLine,
+      bodyStartLine: note.readBodyStartLine,
       blockId,
       line,
       path,
@@ -1934,7 +2392,7 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
     // Parsed from the whole note so `depth` counts task ancestors the way
     // the index does — raw indentation would call a checklist item under a
     // plain bullet a sub-task while the index lists it as top-level.
-    const taskFileLine = readBodyStartLine + taskLineIndex + 1
+    const taskFileLine = note.readBodyStartLine + taskLineIndex + 1
     const taskBefore = tasks
       .extractTasks(fileContent, formatConfig.statusRegistry)
       .find((task) => task.line === taskFileLine)
@@ -1975,195 +2433,13 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
     }
 
     const today = todayIsoDate()
-
-    const descriptionEdit: LineEdit | undefined =
-      newDescription !== undefined
-        ? {
-            apply: (taskLine: string) => {
-              return tasks.replaceTaskLineDescription({ taskLine, newDescription })
-            },
-            // The after-value previews the swap on the ORIGINAL line. The
-            // field edits below never move the description/metadata
-            // boundary (the old description is still in place while they
-            // run), so this preview parses the same as the final line.
-            change: formatChange({
-              field: "description",
-              before: taskBefore.description,
-              after: tasks.describeTaskLine(
-                tasks.replaceTaskLineDescription({
-                  taskLine: originalTaskLine,
-                  newDescription,
-                }),
-              ),
-            }),
-          }
-        : undefined
-
-    // In-line edits applied to the task line in order. Description must
-    // be last: field edits split at the description/metadata boundary,
-    // and a signifier in new description text shifts that boundary.
-    const lineEdits: LineEdit[] = [
-      ...(status
-        ? [
-            {
-              apply: (taskLine: string) => {
-                return tasks.updateTaskLineStatus({
-                  taskLine,
-                  newStatus: status,
-                  today,
-                  config: formatConfig,
-                })
-              },
-              change: formatChange({
-                field: "status",
-                before: taskBefore.status,
-                after: status,
-              }),
-            },
-          ]
-        : []),
-      ...(priority !== undefined
-        ? [
-            {
-              apply: (taskLine: string) => {
-                return tasks.updateTaskLinePriority({
-                  taskLine,
-                  newPriority: priority,
-                  config: formatConfig,
-                })
-              },
-              change: formatChange({
-                field: "priority",
-                before: taskBefore.priority,
-                after: priority,
-              }),
-            },
-          ]
-        : []),
-      ...dateParams.flatMap(({ field, value }) => {
-        if (value === undefined) return []
-        return [
-          {
-            apply: (taskLine: string) => {
-              return tasks.updateTaskLineDate({
-                taskLine,
-                field,
-                date: value,
-                config: formatConfig,
-              })
-            },
-            change: formatChange({
-              field,
-              before: taskBefore[`${field}Date`],
-              after: value,
-            }),
-          },
-        ]
-      }),
-      ...(recurrence !== undefined
-        ? [
-            {
-              apply: (taskLine: string) => {
-                return tasks.updateTaskLineRecurrence({
-                  taskLine,
-                  recurrenceText: recurrence,
-                  config: formatConfig,
-                })
-              },
-              change: formatChange({
-                field: "recurrence",
-                before: taskBefore.recurrence,
-                after: recurrence,
-              }),
-            },
-          ]
-        : []),
-      ...(onCompletion !== undefined
-        ? [
-            {
-              apply: (taskLine: string) => {
-                return tasks.updateTaskLineOnCompletion({
-                  taskLine,
-                  onCompletion,
-                  config: formatConfig,
-                })
-              },
-              change: formatChange({
-                field: "on_completion",
-                before: taskBefore.onCompletion,
-                after: onCompletion,
-              }),
-            },
-          ]
-        : []),
-      ...(taskId !== undefined
-        ? [
-            {
-              apply: (taskLine: string) => {
-                return tasks.updateTaskLineTaskId({
-                  taskLine,
-                  taskId,
-                  config: formatConfig,
-                })
-              },
-              change: formatChange({
-                field: "task_id",
-                before: taskBefore.taskId,
-                after: taskId,
-              }),
-            },
-          ]
-        : []),
-      ...(dependsOn !== undefined
-        ? [
-            {
-              apply: (taskLine: string) => {
-                return tasks.updateTaskLineDependsOn({
-                  taskLine,
-                  dependsOn,
-                  config: formatConfig,
-                })
-              },
-              change: formatChange({
-                field: "depends_on",
-                before: formatDependsOnForChange(taskBefore.dependsOn),
-                after: formatDependsOnForChange(dependsOn),
-              }),
-            },
-          ]
-        : []),
-      ...(newBlockId
-        ? [
-            {
-              apply: (taskLine: string) => tasks.assignBlockId({ taskLine, blockId: newBlockId }),
-              change: formatChange({
-                field: "block_id",
-                before: taskBefore.blockId,
-                after: newBlockId,
-              }),
-            },
-          ]
-        : []),
-      ...(newBlockId === null
-        ? [
-            {
-              apply: (taskLine: string) => tasks.removeBlockId(taskLine),
-              change: formatChange({ field: "block_id", before: taskBefore.blockId, after: null }),
-            },
-          ]
-        : []),
-      // The description edit must run last. Every field edit above splits
-      // the line at the description/metadata boundary, and a signifier in
-      // the NEW description text shifts that boundary — a field edit running
-      // after it would strip or duplicate fields inside the caller's prose.
-      // With the old description still in place, the boundary stays stable.
-      ...(descriptionEdit ? [descriptionEdit] : []),
-    ]
-    const editedLine = lineEdits.reduce((taskLine, edit) => edit.apply(taskLine), originalTaskLine)
-    // Deduplicate tags that appear in both the description and the metadata
-    // tail — the round-trip artifact of the parser's tag re-append.
-    const tagDedup = tasks.deduplicateDescriptionTags(editedLine)
-    const mutatedLine = tagDedup.taskLine
+    const { mutatedLine, lineChanges, deduplicatedTags } = editTaskLine({
+      params,
+      originalTaskLine,
+      taskBefore,
+      formatConfig,
+      today,
+    })
 
     // On an indented board line a string assignBlockId was refused above, so
     // a new trailing id can only come from description text ending in ` ^id`:
@@ -2181,26 +2457,7 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
       )
     }
 
-    // The description edit's after-value previews the swap on the original
-    // line, which predates dedup. When dedup strips a metadata tag, the
-    // preview re-appends it via describeTaskLine, showing a doubled tag the
-    // written line doesn't have. Recompute from the post-dedup line.
-    const descriptionChangedAndDeduped = newDescription && tagDedup.deduplicatedTags.length > 0
-
-    const lineChanges = descriptionChangedAndDeduped
-      ? lineEdits.map((edit) => {
-          if (edit === descriptionEdit) {
-            return formatChange({
-              field: "description",
-              before: taskBefore.description,
-              after: tasks.describeTaskLine(mutatedLine),
-            })
-          }
-          return edit.change
-        })
-      : lineEdits.map((edit) => edit.change)
-
-    const tagDedupAdvisories = tagDedup.deduplicatedTags.map((tag) => {
+    const tagDedupAdvisories = deduplicatedTags.map((tag) => {
       return `tag: "${tag}" appeared in both the description and the metadata tail — deduplicated to one copy`
     })
 
@@ -2242,16 +2499,7 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
         taskLine: mutatedLine,
         priorTaskLine: originalTaskLine,
         submitted: {
-          ...(newDescription !== undefined && { description: newDescription }),
-          ...(priority !== undefined && { priority }),
-          ...(due !== undefined && { dueDate: due }),
-          ...(scheduled !== undefined && { scheduledDate: scheduled }),
-          ...(start !== undefined && { startDate: start }),
-          ...(created !== undefined && { createdDate: created }),
-          ...(taskId !== undefined && { taskId }),
-          ...(dependsOn !== undefined && { dependsOn }),
-          ...(recurrence !== undefined && { recurrence }),
-          ...(onCompletion !== undefined && { onCompletion }),
+          ...submittedTaskFields(params),
           ...statusImpliedDateFields({ status, config: formatConfig, today }),
         },
       }),
@@ -2267,12 +2515,9 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
     // onCompletion "delete": the Tasks plugin removes the completed
     // instance when the field says "delete". Only on a genuine transition
     // to done — not on updates to an already-done task, and not on
-    // cancellation. When the task also recurs, the spawn has already
-    // inserted the next occurrence into linesWithSpawn above — only the
-    // completed line (and its children) is removed; the spawn survives.
-    // When onCompletion is submitted in the same call, the submitted
-    // value takes precedence — setting "keep" while completing a "delete"
-    // task must not delete the task.
+    // cancellation. When onCompletion is submitted in the same call, the
+    // submitted value takes precedence — setting "keep" while completing a
+    // "delete" task must not delete the task.
     const effectiveOnCompletion =
       onCompletion !== undefined ? onCompletion : taskBefore.onCompletion
     const shouldDeleteOnCompletion =
@@ -2281,108 +2526,38 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
       effectiveOnCompletion?.toLowerCase() === "delete"
 
     if (shouldDeleteOnCompletion) {
-      const taskBlockEnd = findTaskBlockEnd(linesWithSpawn, completedIndexAfterSpawn)
-      const deleteCount = taskBlockEnd - completedIndexAfterSpawn
-      const childCount = deleteCount - 1
-      const childLabel = childCount === 1 ? "child" : "children"
-      const deletionChange =
-        childCount > 0
-          ? `on_completion: task and ${childCount} ${childLabel} removed (🏁 delete)`
-          : "on_completion: task removed (🏁 delete)"
-
-      // A spawn written above the completed block keeps its index when the
-      // block is removed. One written below it (recurrenceOnNextLine) moves
-      // up by the block's length.
-      const spawnFinalIndexAfterDelete = formatConfig.recurrenceOnNextLine
-        ? spawnInsertIndex - deleteCount
-        : spawnInsertIndex
-
-      const nextOccurrence: NextOccurrencePosition | undefined =
-        recurrenceSpawn.kind === "spawn"
-          ? buildNextOccurrencePosition({
-              bodyStartLine: writtenBodyStartLine,
-              spawnIndex: spawnFinalIndexAfterDelete,
-              recurrenceSpawn,
-            })
-          : undefined
-
-      const changes = [
-        ...lineChanges,
-        ...(nextOccurrence
-          ? [
-              formatChange({
-                field: "next_occurrence",
-                before: null,
-                after: `line ${nextOccurrence.line}`,
-              }),
-            ]
-          : []),
-        deletionChange,
-      ]
-
-      const resultLines = linesWithSpawn.toSpliced(completedIndexAfterSpawn, deleteCount)
-
-      const serialized = stringifyNote(resultLines.join("\n"), parsed.data)
-      await atomicWriteFile({ filePath: fullPath, content: serialized }, logger)
-
-      const headingBefore = headingsAfterSpawn.findLast(
-        (heading) => heading.startLine < completedIndexAfterSpawn,
+      return deleteTaskOnCompletion(
+        {
+          note,
+          lines: linesWithSpawn,
+          taskLineIndex: completedIndexAfterSpawn,
+          spawnInsertIndex,
+          recurrenceSpawn,
+          recurrenceOnNextLine: formatConfig.recurrenceOnNextLine,
+          headings: headingsAfterSpawn,
+          lineChanges,
+          mutatedLine,
+          priorBlockId: taskBefore.blockId,
+        },
+        logger,
       )
-
-      // The task is gone from the written file, so its line is the one it held
-      // just before removal: below the spawn when one was written above it,
-      // and offset by the properties block as read
-      const deletedTaskLine = readBodyStartLine + completedIndexAfterSpawn + 1
-
-      logger.info("task deleted on completion", {
-        path,
-        line: deletedTaskLine,
-        onCompletion: "delete",
-        childrenRemoved: childCount,
-      })
-
-      return {
-        path,
-        line: deletedTaskLine,
-        description: tasks.describeTaskLine(mutatedLine),
-        // The line is gone, so block_id is the id it carried before this call.
-        block_id: taskBefore.blockId ?? undefined,
-        heading: headingBefore?.text,
-        next_occurrence: nextOccurrence,
-        changes,
-        // Round-trip advisories are about a line that no longer exists —
-        // drop them. Recurrence advisories ("rule unreadable, no spawn")
-        // matter because the caller needs to know the chain broke.
-        ...(recurrenceSpawn.kind === "advisory" && {
-          advisories: [recurrenceSpawn.advisory],
-        }),
-        on_completion_applied: "delete",
-      }
     }
 
-    // Three paths resolve the target lane:
-    //   1. Explicit heading param — the caller picks the destination.
-    //   2. Auto-done-lane — completing a top-level Kanban card with no
-    //      explicit heading detects the board's done lane.
-    //   3. Same-lane reorder — position without a heading or auto-done
-    //      resolves the card's current heading so it stays in place.
-    const autoDoneLane = !targetHeadingParam && status === "done" && isKanbanBoard && !isSubtask
-    // Path 3: look up the card's current heading for a position-only reorder.
-    // Kept as a HeadingInfo (not .text) so an empty-named heading is not
-    // misread as "above all headings."
-    const isSameLaneReorder = !targetHeadingParam && !autoDoneLane && Boolean(position)
-    const currentHeadingForReorder = isSameLaneReorder
-      ? headingsAfterSpawn.findLast((heading) => heading.startLine < completedIndexAfterSpawn)
-      : undefined
-
-    if (isSameLaneReorder && !currentHeadingForReorder) {
-      throw new Error("cannot reorder a task that sits above the first heading — pass a heading")
-    }
+    const targetLane = resolveTargetLane({
+      targetHeadingParam,
+      position,
+      status,
+      isKanbanBoard,
+      isSubtask,
+      lines: linesWithSpawn,
+      headings: headingsAfterSpawn,
+      taskLineIndex: completedIndexAfterSpawn,
+    })
 
     // Pre-spawn position for accurate before/after reporting — the spawn
-    // may add a card to the lane, inflating the count. Applies to all three
-    // move paths (explicit heading, auto-done, same-lane) when an integer
-    // position is requested and the task has a heading to count against.
+    // may add a card to the lane, inflating the count. Applies to every
+    // move path when an integer position is requested and the task has a
+    // heading to count against.
     const preSpawnHeading =
       recurrenceSpawn.kind === "spawn" && position
         ? headings.findLast((heading) => heading.startLine < taskLineIndex)
@@ -2396,9 +2571,6 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
         })
       : undefined
 
-    const targetLane = autoDoneLane
-      ? detectDoneLane(linesWithSpawn, headingsAfterSpawn)
-      : (targetHeadingParam ?? currentHeadingForReorder?.text)
     const noMoveChanges: string[] = []
     // Gate on presence, not truthiness — an empty-string heading text
     // ("## ") is a valid lane name and must trigger the move.
@@ -2427,7 +2599,7 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
           lines: moved.lines,
           taskLineIndex: moved.taskLineIndex,
           descriptions: addSubtasks,
-          bodyStartLine: writtenBodyStartLine,
+          bodyStartLine: note.writtenBodyStartLine,
           statusRegistry: formatConfig.statusRegistry,
         })
       : {
@@ -2461,7 +2633,7 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
     const nextOccurrence: NextOccurrencePosition | undefined =
       recurrenceSpawn.kind === "spawn" && spawnFinalIndex !== undefined
         ? buildNextOccurrencePosition({
-            bodyStartLine: writtenBodyStartLine,
+            bodyStartLine: note.writtenBodyStartLine,
             spawnIndex: spawnFinalIndex,
             recurrenceSpawn,
           })
@@ -2483,10 +2655,10 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
     ].filter((change) => change !== undefined)
 
     // Write atomically
-    const serialized = stringifyNote(resultLines.join("\n"), parsed.data)
-    await atomicWriteFile({ filePath: fullPath, content: serialized }, logger)
+    const serialized = stringifyNote(resultLines.join("\n"), note.properties)
+    await atomicWriteFile({ filePath: note.fullPath, content: serialized }, logger)
 
-    const finalLine = writtenBodyStartLine + finalTaskIndex + 1
+    const finalLine = note.writtenBodyStartLine + finalTaskIndex + 1
     const finalTaskLine = resultLines[finalTaskIndex] ?? mutatedLine
     const finalBlockId = trailingBlockIdOf(finalTaskLine)
     const finalHeading = parseHeadings(resultLines).findLast(
