@@ -11,18 +11,14 @@ import {
   startCommand,
   type StartStatus,
 } from "./messages.js"
-import {
-  healthPollTimeoutMs,
-  healthTimeoutMessage,
-  pollHealth,
-  type DockerRunner,
-} from "./docker.js"
+import { containerStart } from "./container-start.js"
+import type { DockerRunner } from "./docker.js"
 import {
   applyInstanceIdentity,
   describeStrandedCarriedPublicUrl,
   resolveInstanceIdentity,
 } from "./instance-identity.js"
-import { checkInstanceContainer, reportPublicUrlProbe, resolveDeployment } from "./lifecycle.js"
+import { resolveDeployment, type Deployment } from "./lifecycle.js"
 import {
   applyOptionalSettings,
   askOptionalSettings,
@@ -34,7 +30,6 @@ import {
   buildFilesToWrite,
   detectMode,
   readEnvObsidianToken,
-  stripEnvQuotedValues,
   writeFiles,
   type FileWriteResult,
   type Mode,
@@ -313,17 +308,14 @@ const reportWrites = (
 /**
  * Offers to start the container, walking a gate ladder where each failed
  * gate degrades to instructions instead of an error: daemon running → no
- * other image's container holds the name → user consents → any container with
- * this name is removed → docker run succeeds → health check passes. Returns
- * "running" when the server is confirmed up, "starting" when the container
- * launched but the health check timed out, or "not-started" when a gate failed.
+ * other image's container holds the name → user consents → the shared start
+ * sequence. Returns "running" when the server is confirmed up, "starting"
+ * when the container launched but the health check timed out, or
+ * "not-started" when a gate failed.
  */
-const offerDockerRun = async (
-  params: { targetDir: string; instanceName: string; port: number; mode: Mode; vaultPath?: string },
-  deps: InitDeps,
-): Promise<StartStatus> => {
-  const { targetDir, instanceName, port, mode, vaultPath } = params
-  const { prompts, docker, fetchFn } = deps
+const offerDockerRun = async (deployment: Deployment, deps: InitDeps): Promise<StartStatus> => {
+  const { targetDir, instanceName } = deployment
+  const { prompts, docker } = deps
   const daemonStatus = docker.daemonStatus()
 
   if (daemonStatus !== "running") {
@@ -337,51 +329,22 @@ const offerDockerRun = async (
     )
     return "not-started"
   }
-  const envFilePath = join(targetDir, ".env")
-  const instanceContainer = checkInstanceContainer(
-    { instanceName, envFilePath },
+  const instanceContainer = containerStart.checkInstanceContainer(
+    { instanceName, envFilePath: deployment.envFilePath },
     { prompts, docker },
   )
 
   if (instanceContainer === "foreign") return "not-started"
   // docker run refuses a name an existing container already holds, so a yes
   // replaces that container the way `start` does, and the question says so.
-  const containerExists = instanceContainer === "own"
-  const startQuestion = containerExists
-    ? `Start the server now? This stops and replaces the existing "${instanceName}" container. Its data volumes are kept.`
-    : "Start the server now?"
+  const startQuestion =
+    instanceContainer === "own"
+      ? `Start the server now? This stops and replaces the existing "${instanceName}" container. Its data volumes are kept.`
+      : "Start the server now?"
   const startNow = await prompts.confirm(startQuestion, true)
 
   if (!startNow) return "not-started"
-  if (containerExists && !docker.stopAndRemoveContainer(instanceName)) {
-    prompts.error(`Could not remove the existing container — check: docker rm -f ${instanceName}`)
-    return "not-started"
-  }
-  stripEnvQuotedValues(envFilePath)
-  const containerStarted = docker.dockerRun({
-    mode,
-    instanceName,
-    envFilePath,
-    port,
-    vaultPath,
-  })
-
-  if (!containerStarted) {
-    prompts.error("docker run failed — see output above.")
-    return "not-started"
-  }
-
-  const spinner = prompts.spinner()
-  spinner.start("Waiting for the server to come up (first run may take a moment)")
-  const timeoutMs = healthPollTimeoutMs(mode)
-  const healthy = await pollHealth({ url: `http://127.0.0.1:${port}/healthz`, timeoutMs }, fetchFn)
-
-  if (!healthy) {
-    spinner.stop(healthTimeoutMessage({ mode, timeoutMs, instanceName }))
-    return "starting"
-  }
-  spinner.stop("Server is up — health check passed.")
-  return "running"
+  return containerStart.start({ deployment, instanceContainer }, deps)
 }
 
 // Local flow: resolve vault path → resolve target dir → generate token →
@@ -510,10 +473,7 @@ const runLocalInit = async (flags: InitFlags, deps: InitDeps): Promise<number> =
   // --yes is for scripts/CI, so it never starts Docker.
   const startStatus: StartStatus = flags.yes
     ? "not-started"
-    : await offerDockerRun(
-        { targetDir, instanceName, port, mode: "local", vaultPath: deployment.vaultPath },
-        deps,
-      )
+    : await offerDockerRun(deployment, deps)
   prompts.print(
     buildLocalConnectMessage({
       targetDir,
@@ -634,20 +594,11 @@ const runRemoteInit = async (flags: InitFlags, deps: InitDeps): Promise<number> 
   const deployment = resolveDeployment(targetDir, prompts)
 
   if (!deployment) return 1
-  const { instanceName, port, publicUrl: effectivePublicUrl } = deployment
+  const { instanceName, publicUrl: effectivePublicUrl } = deployment
 
   // Started without a Sync token in .env, the container keeps a login saved
   // on its volume, or serves its sign-in page; the closing message covers both.
-  const startStatus = await offerDockerRun({ targetDir, instanceName, port, mode: "remote" }, deps)
-
-  // The container check above hit localhost on this machine; the public URL
-  // is the ingress path clients actually use — probe it too, informationally.
-  if (startStatus === "running") {
-    await reportPublicUrlProbe(effectivePublicUrl, {
-      prompts,
-      fetchFn: deps.fetchFn,
-    })
-  }
+  const startStatus = await offerDockerRun(deployment, deps)
   prompts.print(
     buildRemoteConnectMessage({
       targetDir,

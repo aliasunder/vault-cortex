@@ -1,13 +1,7 @@
 import { join, resolve } from "node:path"
 
-import {
-  healthPollTimeoutMs,
-  healthTimeoutMessage,
-  isVaultCortexImage,
-  pollHealth,
-  probeHealth,
-  type DockerRunner,
-} from "./docker.js"
+import { containerStart } from "./container-start.js"
+import type { DockerRunner } from "./docker.js"
 import { buildDaemonNotRunningMessage, buildDockerNotInstalledMessage } from "./messages.js"
 import {
   detectMode,
@@ -15,7 +9,6 @@ import {
   readEnvPort,
   readEnvPublicUrl,
   readEnvVaultPath,
-  stripEnvQuotedValues,
   type Mode,
 } from "./scaffold.js"
 import { expandTilde } from "./vault.js"
@@ -161,131 +154,6 @@ export const ensureDaemonRunning = (docker: DockerRunner, prompts: Prompts): boo
 }
 
 /**
- * One-shot informational probe of the public /healthz after a confirmed
- * container start. Never a gate: a failure warns and the command still
- * succeeds — before HTTPS/ingress access is set up an unreachable public URL
- * is the expected state, and this machine's result doesn't prove the same
- * for other devices (a VPS may not reach its own public address). Returning
- * void keeps the informational contract structural.
- */
-export const reportPublicUrlProbe = async (
-  publicUrl: string,
-  deps: { prompts: Prompts; fetchFn: typeof fetch },
-): Promise<void> => {
-  const { prompts, fetchFn } = deps
-  // A hand-edited .env value may carry a trailing slash; strip it so the
-  // probe URL is `${base}/healthz`, never `${base}//healthz`.
-  const healthUrl = `${publicUrl.replace(/\/+$/, "")}/healthz`
-  const spinner = prompts.spinner()
-  spinner.start(`Checking the public URL (${healthUrl})`)
-  const publicUrlResponded = await probeHealth({ url: healthUrl }, fetchFn)
-
-  if (publicUrlResponded) {
-    spinner.stop(`Public URL responds — ${healthUrl} answered from this machine.`)
-    return
-  }
-  spinner.stop(`No answer from ${healthUrl} yet.`)
-  prompts.warn(
-    "The server is up, but its public URL didn't answer from this machine.\n" +
-      "That's expected until HTTPS (or direct port) access is set up — and\n" +
-      "some networks keep a server from reaching its own public address even\n" +
-      "when other devices can. Once access is set up, check from any device:\n" +
-      `  curl ${healthUrl}`,
-  )
-}
-
-/**
- * Looks up the container that holds the install's name. One running another
- * image is someone else's, so no command may stop, remove or stream it: this
- * reports the refusal, and callers stop on "foreign".
- */
-export const checkInstanceContainer = (
-  params: { instanceName: string; envFilePath: string },
-  deps: { prompts: Prompts; docker: DockerRunner },
-): "none" | "own" | "foreign" => {
-  const { instanceName, envFilePath } = params
-  const image = deps.docker.containerImage(instanceName)
-
-  if (!image) return "none"
-  if (isVaultCortexImage(image)) return "own"
-  deps.prompts.error(
-    `A container named "${instanceName}" runs ${image}, not Vault Cortex, so this command leaves it alone.\n` +
-      `To keep this install's data, rename that container: docker rename ${instanceName} <new-name>\n` +
-      `Or change INSTANCE_NAME in ${envFilePath}: the install then starts on new, empty volumes.`,
-  )
-  return "foreign"
-}
-
-/**
- * Stop-and-remove → docker run → health poll, with the shared messaging.
- * Returns a process exit code. Callers own the daemon check and any
- * image-pull step.
- */
-export const recreateContainer = async (
-  params: { deployment: Deployment; healthTimeoutMs?: number },
-  deps: { prompts: Prompts; docker: DockerRunner; fetchFn: typeof fetch },
-): Promise<number> => {
-  const { deployment, healthTimeoutMs } = params
-  const { prompts, docker, fetchFn } = deps
-  const { instanceName } = deployment
-  const instanceContainer = checkInstanceContainer(
-    { instanceName, envFilePath: deployment.envFilePath },
-    { prompts, docker },
-  )
-
-  if (instanceContainer === "foreign") return 1
-  // `docker rm -f` on a missing container exits non-zero on engines < 23,
-  // so the bare return value can't distinguish "nothing to remove" from a
-  // real failure — only treat removal as failed when a container exists.
-  // Proceeding after a genuine failure would surface as a confusing
-  // "container name already in use" from docker run.
-  if (instanceContainer === "own" && !docker.stopAndRemoveContainer(instanceName)) {
-    prompts.error(`Could not remove the existing container — check: docker rm -f ${instanceName}`)
-    return 1
-  }
-
-  stripEnvQuotedValues(deployment.envFilePath)
-  prompts.log("Starting container...")
-  const containerStarted = docker.dockerRun({
-    mode: deployment.mode,
-    instanceName,
-    envFilePath: deployment.envFilePath,
-    port: deployment.port,
-    vaultPath: deployment.vaultPath,
-  })
-
-  if (!containerStarted) {
-    prompts.error("docker run failed — see output above.")
-    return 1
-  }
-
-  const spinner = prompts.spinner()
-  spinner.start("Waiting for the server to come up")
-  const timeoutMs = healthTimeoutMs ?? healthPollTimeoutMs(deployment.mode)
-  const healthy = await pollHealth(
-    {
-      url: `http://127.0.0.1:${deployment.port}/healthz`,
-      timeoutMs,
-    },
-    fetchFn,
-  )
-
-  if (!healthy) {
-    spinner.stop(healthTimeoutMessage({ mode: deployment.mode, timeoutMs, instanceName }))
-    return 1
-  }
-  spinner.stop("Server is up — health check passed.")
-
-  // Informational only — the container is confirmed healthy above, so the
-  // public-URL result never changes the exit code. A local PUBLIC_URL is the
-  // localhost address the health check just reached, so only remote probes it.
-  if (deployment.mode === "remote") {
-    await reportPublicUrlProbe(deployment.publicUrl, { prompts, fetchFn })
-  }
-  return 0
-}
-
-/**
  * Stops and removes the container. Vault data, the search index, and .env
  * settings all live outside the container (bind mount, named volumes, host
  * file), so this is always safe.
@@ -302,7 +170,7 @@ export const runDown = async (flags: DownFlags, deps: DownDeps): Promise<number>
   if (!initialized) return 1
   if (!ensureDaemonRunning(docker, prompts)) return 1
   const { instanceName, envFilePath, targetDir } = initialized
-  const instanceContainer = checkInstanceContainer(
+  const instanceContainer = containerStart.checkInstanceContainer(
     { instanceName, envFilePath },
     { prompts, docker },
   )
@@ -341,7 +209,7 @@ export const runLogs = async (flags: LogsFlags, deps: LogsDeps): Promise<number>
   if (!initialized) return 1
   if (!ensureDaemonRunning(docker, prompts)) return 1
   const { instanceName, envFilePath, targetDir } = initialized
-  const instanceContainer = checkInstanceContainer(
+  const instanceContainer = containerStart.checkInstanceContainer(
     { instanceName, envFilePath },
     { prompts, docker },
   )
@@ -380,7 +248,7 @@ const runRecreateFromEnv = async (
   if (!deployment) return 1
   if (!ensureDaemonRunning(docker, prompts)) return 1
 
-  const exitCode = await recreateContainer(
+  const exitCode = await containerStart.recreate(
     { deployment, healthTimeoutMs: deps.healthTimeoutMs },
     { prompts, docker, fetchFn },
   )

@@ -1,10 +1,6 @@
+import { containerStart } from "./container-start.js"
 import { LOCAL_IMAGE, REMOTE_IMAGE, type DockerRunner } from "./docker.js"
-import {
-  checkInstanceContainer,
-  ensureDaemonRunning,
-  recreateContainer,
-  resolveDeployment,
-} from "./lifecycle.js"
+import { ensureDaemonRunning, resolveDeployment } from "./lifecycle.js"
 import type { Prompts } from "./prompts.js"
 
 export type UpgradeFlags = {
@@ -36,8 +32,8 @@ export const runUpgrade = async (flags: UpgradeFlags, deps: UpgradeDeps): Promis
   const image = deployment.mode === "local" ? LOCAL_IMAGE : REMOTE_IMAGE
 
   if (!ensureDaemonRunning(docker, prompts)) return 1
-  // Checked before the download, which recreateContainer's own check follows.
-  const instanceContainer = checkInstanceContainer(
+  // Checked before the download, which containerStart.recreate's own check follows.
+  const instanceContainer = containerStart.checkInstanceContainer(
     { instanceName: deployment.instanceName, envFilePath: deployment.envFilePath },
     { prompts, docker },
   )
@@ -54,7 +50,7 @@ export const runUpgrade = async (flags: UpgradeFlags, deps: UpgradeDeps): Promis
   }
   spinner.stop("Image pulled.")
 
-  const exitCode = await recreateContainer(
+  const exitCode = await containerStart.recreate(
     { deployment, healthTimeoutMs: deps.healthTimeoutMs },
     { prompts, docker, fetchFn },
   )

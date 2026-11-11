@@ -1,6 +1,7 @@
 import { readFileSync, writeFileSync } from "node:fs"
 
-import { recreateContainer, requireInitializedDir, resolveDeployment } from "./lifecycle.js"
+import { containerStart } from "./container-start.js"
+import { requireInitializedDir, resolveDeployment } from "./lifecycle.js"
 import {
   applyOptionalSettings,
   askOptionalSettings,
@@ -111,7 +112,7 @@ export const runConfigure = async (flags: ConfigureFlags, deps: ConfigureDeps): 
     )
     return 1
   }
-  const exitCode = await recreateContainer(
+  const exitCode = await containerStart.recreate(
     { deployment, healthTimeoutMs: deps.healthTimeoutMs },
     { prompts, docker, fetchFn },
   )
