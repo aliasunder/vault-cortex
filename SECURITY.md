@@ -325,8 +325,8 @@ while the owner decides are bounded:
   `MCP_AUTH_TOKEN` is under 32 characters, 30 answers of 401 a minute from
   one client IP (an IPv6 client by its /56) turn into 429 for the rest of
   that minute, valid tokens from that IP included, and the server warns at
-  boot. A generated token (every install guide makes 64 hex characters)
-  cannot be guessed, so the limiter stays off and no one sharing the
+  boot. A generated token (every install guide makes one of 256 random
+  bits) cannot be guessed, so the limiter stays off and no one sharing the
   owner's IP or proxy can lock the owner's clients out
 
 ### OAuth client registrations

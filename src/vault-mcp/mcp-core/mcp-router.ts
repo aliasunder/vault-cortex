@@ -33,8 +33,8 @@ type McpRouterOptions = {
 
 // How many 401 answers a minute one client IP (an IPv6 client by its /56)
 // may collect before /mcp answers 429, when the limiter is on. A valid
-// client produces a 401 only when its six-hour access token expires, so
-// thirty a minute is far above any honest rate; the OAuth endpoints use five
+// client produces a 401 only on its first request, which carries no token,
+// and when its six-hour access token expires, so thirty a minute is far above any honest rate; the OAuth endpoints use five
 // because a sign-in touches each of them at most twice a minute.
 const MCP_FAILED_AUTH_LIMIT = 30
 const MCP_FAILED_AUTH_WINDOW_MS = 60 * 1000

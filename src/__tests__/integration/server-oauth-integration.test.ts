@@ -556,7 +556,7 @@ describe("MCP endpoint Origin check", () => {
 })
 
 describe("MCP endpoint failed sign-in limiter", () => {
-  // 64 hex characters, the length every documented install path generates,
+  // 64 hex characters, the length `openssl rand -hex 32` and the CLI generate,
   // against a token under the 32-character gate. (TOKEN_A is 33 characters,
   // so the other suites run with the limiter off.)
   const GENERATED_TOKEN = "a".repeat(64)

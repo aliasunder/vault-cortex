@@ -607,7 +607,7 @@ export const createOAuthProvider = ({
       // from piling up.
       purgeExpiredPendingRequests()
       // Thrown before anything is sent, so the SDK's handler can still
-      // redirect the client with error=invalid_target.
+      // answer the request with error=invalid_target.
       assertResourceIsThisServer(params.resource, client.client_id)
       const requestId = randomUUID()
       const scopes = [VAULT_SCOPE]

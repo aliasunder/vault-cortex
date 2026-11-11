@@ -703,7 +703,15 @@ APIs, which MCP clients treat as a broken server rather than a sign-in prompt.
 The OAuth provider's `verifyAccessToken()` accepts both static tokens and
 JWTs. It independently verifies JWT signature and binding, then enforces expiry
 and revocation. An expired token stops here with **401** and
-`WWW-Authenticate`. No MCP handler runs.
+`WWW-Authenticate`. No MCP handler runs. Ahead of `requireBearerAuth`, the
+same routes refuse two kinds of request:
+
+- one whose `Origin` header is not `PUBLIC_URL`'s origin, with **403**, as
+  the Streamable HTTP spec requires; MCP clients send no `Origin`, so only
+  browser pages are refused
+- with an `MCP_AUTH_TOKEN` under 32 characters, any request from a client IP
+  that has collected 30 **401** answers this minute, with **429** until the
+  minute ends, valid tokens included; a generated token leaves this limiter off
 
 Both layers share the same HMAC key (`MCP_AUTH_TOKEN`) for JWT verification
 and `safeEqual`/`parseBearer` from `src/auth.ts`.
@@ -923,6 +931,11 @@ live in the library's default key generator, and the custom
 don't fire behind the reverse proxy. A tripped limiter
 emits an `oauth_rate_limited` warn log with the client IP and endpoint path
 before returning the 429.
+
+**Authorization errors:** the SDK's `/authorize` handler reports a malformed
+request by redirecting to the client's registered address, which anyone can
+register. `oauth/authorize-guard.ts`, mounted ahead of it, answers each such
+error directly with a 400 (500 for a server error) and never redirects.
 
 **Registrations that never signed in:** every MCP client registers itself
 through `/register` on first connect, and some register more than once per

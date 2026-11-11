@@ -101,7 +101,7 @@ export const resolveDataPaths = (indexDbPathSetting: string | undefined): DataPa
 const GLOB_CHARS = /[*?[]/
 
 // 32 hex characters carry 128 bits, past guessing; every documented install
-// path generates 64.
+// path generates 256 random bits, 44 or more characters.
 const MIN_UNLIMITED_TOKEN_LENGTH = 32
 
 const startServer = async (): Promise<void> => {
@@ -110,10 +110,9 @@ const startServer = async (): Promise<void> => {
   // can't silently break every auth attempt — a valid token has no
   // surrounding whitespace.
   const authToken = env.get("MCP_AUTH_TOKEN").required().asString().trim()
-  // A generated token (every documented install path makes 64 hex
-  // characters) cannot be guessed, and a limiter that refuses requests
-  // before checking the token lets anyone sharing the owner's client IP lock
-  // the owner's clients out. So /mcp rate-limits failed sign-in attempts
+  // A generated token (every documented install path makes one) cannot be
+  // guessed, and a limiter that refuses requests before checking the token
+  // lets anyone sharing the owner's client IP lock the owner's clients out. So /mcp rate-limits failed sign-in attempts
   // only for a token short enough to guess, where the lockout cost is worth
   // paying; length stands in for randomness, since the server cannot tell.
   const failedAuthLimiterEnabled = authToken.length < MIN_UNLIMITED_TOKEN_LENGTH
