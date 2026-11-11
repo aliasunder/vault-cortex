@@ -670,7 +670,8 @@ const resolveNewTaskPlacement = ({
       heading: nearestHeading?.text,
     }
   }
-  if (heading) {
+  // Presence, not truthiness: an empty-named heading ("## ") is a valid target.
+  if (heading !== undefined) {
     const targetHeading = headings.find((headingInfo) => headingInfo.text === heading)
 
     if (!targetHeading) {
@@ -1594,7 +1595,7 @@ const createTask = async (params: CreateTaskParams, logger: Logger): Promise<Cre
 
   // A sub-task lives wherever its parent lives — a heading has nothing to
   // place, so a parent locator and a heading are exclusive.
-  if (parentLocator && heading) {
+  if (parentLocator && heading !== undefined) {
     throw new Error("parent and heading are mutually exclusive")
   }
   if (dependsOn !== undefined && dependsOn.length === 0) {

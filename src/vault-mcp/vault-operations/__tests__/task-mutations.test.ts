@@ -1082,6 +1082,40 @@ title: Tasks
       )
     })
 
+    it("creates a task under a heading whose text is empty", async () => {
+      const vault = await createVault()
+      await writeTestNote(
+        vault,
+        "notes.md",
+        "## Ideas\n\n- [ ] First idea\n\n## \n\n- [ ] Unnamed\n",
+      )
+
+      const result = await taskMutations.createTask(
+        {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
+          vaultPath: vault,
+          path: "notes.md",
+          description: "Under the empty heading",
+          blockId: "unnamed-lane",
+          heading: "",
+        },
+        logger,
+      )
+
+      expect(result).toEqual({
+        path: "notes.md",
+        line: 8,
+        description: "Under the empty heading",
+        block_id: "unnamed-lane",
+        heading: "",
+        changes: [`created: (none) → ${today()}`],
+      })
+      const content = await readTestNote(vault, "notes.md")
+      expect(content).toBe(
+        `## Ideas\n\n- [ ] First idea\n\n## \n\n- [ ] Unnamed\n- [ ] Under the empty heading ➕ ${today()} ^unnamed-lane\n`,
+      )
+    })
+
     it("reports the last heading when appending to a note that has headings", async () => {
       const vault = await createVault()
       const noteWithHeadings = `---\ntitle: Notes\n---\n\n## Ideas\n\n- [ ] First idea\n\n## Later\n\n- [ ] Someday\n`
