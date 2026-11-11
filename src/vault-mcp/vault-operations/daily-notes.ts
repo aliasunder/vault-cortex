@@ -280,7 +280,7 @@ export const readDailyNotesConfig = async (
 // ── Path resolution + read ──────────────────────────────────────
 
 /** Matches strict YYYY-MM-DD date strings (no time component, no partial dates). */
-const STRICT_ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/
+export const STRICT_ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 
 /** The refusal for a YYYY-MM-DD date the calendar lacks, such as February 30.
  *  Shared so the daily-note tool and the daily-review prompt refuse it in the

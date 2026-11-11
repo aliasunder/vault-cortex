@@ -5287,6 +5287,21 @@ describe("getOutgoingLinks", () => {
     ).toEqual([brokenLink("2026-10-07.md", true), brokenLink("missing", false)])
   })
 
+  it("flags a link into the daily folder written in another letter case", () => {
+    upsertPlanLinkingTo("[[daily notes/2026-10-07]] and [[Dailies/2026-10-07]]")
+
+    expect(
+      index.getOutgoingLinks(
+        {
+          path: "plan.md",
+          dailyNotesFolder: "Daily Notes",
+          dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT,
+        },
+        logger,
+      ),
+    ).toEqual([brokenLink("Dailies/2026-10-07", false), brokenLink("daily notes/2026-10-07", true)])
+  })
+
   it("does not flag a date link inside a folder other than the daily folder", () => {
     upsertPlanLinkingTo("[[Meetings/2026-10-07]] and [[2026-10-08]]")
 

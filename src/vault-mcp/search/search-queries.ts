@@ -1482,7 +1482,8 @@ const assertLinkQueryPath = (path: string): void => {
 
 /** Builds the check for a broken link target that names a daily note not
  *  yet created. A target counts when either holds:
- *  - it starts with the dedicated daily notes folder;
+ *  - it starts with the dedicated daily notes folder, in any letter case,
+ *    since a link resolves in any letter case once its note exists;
  *  - it has no folder, and its name without one trailing ".md" is a date
  *    written in the daily-note format. Such a link resolves to the daily
  *    note by name once the note exists, wherever its folder is.
@@ -1491,8 +1492,8 @@ const createDailyNoteForwardRefCheck = (params: {
   dailyNotesFolder: string | null | undefined
   dailyNotesFormat: string
 }): ((brokenTarget: string) => boolean) => {
-  const dailyNotesFolderPrefix = params.dailyNotesFolder
-    ? `${stripTrailingSlashes(params.dailyNotesFolder)}/`
+  const foldedDailyNotesFolderPrefix = params.dailyNotesFolder
+    ? `${stripTrailingSlashes(params.dailyNotesFolder)}/`.toLowerCase()
     : null
   const dailyNoteNameFormat = dailyNoteFormatToNameFormat(params.dailyNotesFormat)
 
@@ -1505,7 +1506,8 @@ const createDailyNoteForwardRefCheck = (params: {
 
   return (brokenTarget) => {
     const isUnderDailyNotesFolder =
-      dailyNotesFolderPrefix !== null && brokenTarget.startsWith(dailyNotesFolderPrefix)
+      foldedDailyNotesFolderPrefix !== null &&
+      brokenTarget.toLowerCase().startsWith(foldedDailyNotesFolderPrefix)
     return isUnderDailyNotesFolder || isBareDailyNoteName(brokenTarget)
   }
 }

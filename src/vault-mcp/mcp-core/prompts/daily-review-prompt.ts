@@ -9,6 +9,7 @@
 import { DateTime } from "luxon"
 import { z } from "zod"
 import {
+  STRICT_ISO_DATE_RE,
   describeNonCalendarDate,
   getDailyNote,
   readDailyNotesConfig,
@@ -30,9 +31,6 @@ const PROMPT_NAMES = {
   DAILY_REVIEW: "daily-review",
 } as const
 export { PROMPT_NAMES as DAILY_REVIEW_PROMPT_NAMES }
-
-/** Matches strict YYYY-MM-DD date strings (no time component, no partial dates). */
-const ISO_DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/
 
 const DAILY_RECENT_LIMIT = 10
 const DAILY_TASK_LIMIT = 20
@@ -155,7 +153,7 @@ export const registerDailyReviewPrompt = ({
       argsSchema: {
         date: z
           .string()
-          .regex(ISO_DATE_REGEX, "use YYYY-MM-DD")
+          .regex(STRICT_ISO_DATE_RE, "use YYYY-MM-DD")
           .optional()
           .describe("Day to review in YYYY-MM-DD format (defaults to today)"),
         max_chars: maxCharsArg,
