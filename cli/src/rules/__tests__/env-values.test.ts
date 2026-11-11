@@ -9,6 +9,7 @@ import {
   readEnvPublicUrl,
   readEnvValue,
   readEnvVaultPath,
+  validatePublicUrl,
 } from "../env-values.js"
 
 describe("readEnvValue", () => {
@@ -392,4 +393,115 @@ describe("value readers with an empty last line", () => {
       expect(readValue(parseEnvValues(envContent))).toBeUndefined()
     },
   )
+})
+
+describe("validatePublicUrl", () => {
+  it("accepts a valid https URL", () => {
+    expect(validatePublicUrl("https://vault.example.com")).toEqual({
+      kind: "ok",
+      url: "https://vault.example.com",
+    })
+  })
+
+  it("accepts a valid http URL with port", () => {
+    expect(validatePublicUrl("http://203.0.113.10:8000")).toEqual({
+      kind: "ok",
+      url: "http://203.0.113.10:8000",
+    })
+  })
+
+  it("strips a trailing slash", () => {
+    expect(validatePublicUrl("https://vault.example.com/")).toEqual({
+      kind: "ok",
+      url: "https://vault.example.com",
+    })
+  })
+
+  it("rejects a URL with username and password", () => {
+    expect(validatePublicUrl("https://user:pass@vault.example.com")).toEqual({
+      kind: "error",
+      message: "PUBLIC_URL must not contain credentials (user:password@).",
+    })
+  })
+
+  it("rejects a URL with username only", () => {
+    expect(validatePublicUrl("https://user@vault.example.com")).toEqual({
+      kind: "error",
+      message: "PUBLIC_URL must not contain credentials (user:password@).",
+    })
+  })
+
+  it("rejects a URL with password only", () => {
+    expect(validatePublicUrl("https://:pass@vault.example.com")).toEqual({
+      kind: "error",
+      message: "PUBLIC_URL must not contain credentials (user:password@).",
+    })
+  })
+
+  it("rejects a non-http URL", () => {
+    expect(validatePublicUrl("ws://vault.example.com")).toEqual({
+      kind: "error",
+      message:
+        "PUBLIC_URL must be a full http:// or https:// URL (e.g. https://vault.example.com).",
+    })
+  })
+
+  it("rejects a URL with a trailing /mcp path", () => {
+    expect(validatePublicUrl("https://vault.example.com/mcp")).toEqual({
+      kind: "error",
+      message:
+        "Leave /mcp off PUBLIC_URL — it's the base URL and the server adds /mcp itself (e.g. https://vault.example.com).",
+    })
+  })
+
+  it("rejects invalid syntax", () => {
+    expect(validatePublicUrl("not-a-url")).toEqual({
+      kind: "error",
+      message:
+        "PUBLIC_URL must be a full http:// or https:// URL (e.g. https://vault.example.com).",
+    })
+  })
+
+  it("rejects a URL with a query string", () => {
+    expect(validatePublicUrl("https://vault.example.com/?tab=2")).toEqual({
+      kind: "error",
+      message: "PUBLIC_URL must be a bare origin — no query string (?...) or fragment (#...).",
+    })
+  })
+
+  it("rejects a URL with a hash fragment", () => {
+    expect(validatePublicUrl("https://vault.example.com/#section")).toEqual({
+      kind: "error",
+      message: "PUBLIC_URL must be a bare origin — no query string (?...) or fragment (#...).",
+    })
+  })
+
+  it("rejects a bare trailing query delimiter", () => {
+    expect(validatePublicUrl("https://vault.example.com/?")).toEqual({
+      kind: "error",
+      message: "PUBLIC_URL must be a bare origin — no query string (?...) or fragment (#...).",
+    })
+  })
+
+  it("rejects a bare trailing hash delimiter", () => {
+    expect(validatePublicUrl("https://vault.example.com/#")).toEqual({
+      kind: "error",
+      message: "PUBLIC_URL must be a bare origin — no query string (?...) or fragment (#...).",
+    })
+  })
+
+  it("rejects a URL with a path prefix", () => {
+    expect(validatePublicUrl("https://vault.example.com/vault/")).toEqual({
+      kind: "error",
+      message:
+        "PUBLIC_URL must be a bare origin — no path (e.g. https://vault.example.com, not https://vault.example.com/vault/).",
+    })
+  })
+
+  it("accepts a bare origin with redundant trailing slashes", () => {
+    expect(validatePublicUrl("https://vault.example.com//")).toEqual({
+      kind: "ok",
+      url: "https://vault.example.com",
+    })
+  })
 })
