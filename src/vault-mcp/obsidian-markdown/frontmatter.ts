@@ -140,7 +140,8 @@ export const findBodyStartLine = (content: string): number => {
 
   // The body is a suffix of the note, so the lines above it are the note's
   // lines minus the body's. A BOM is no line break, and a `\r` that ends the
-  // note right after the closer (`---\r`) is the closer's line break.
+  // note right after the closer (`---\r`) is the closer's line break, and
+  // splitIntoLines counts a final `\r` as one.
   return splitIntoLines(content).length - splitIntoLines(body).length
 }
 
@@ -242,14 +243,17 @@ const convertDocumentToValue = (
 }
 
 /** One unit of findFirstDuplicateKey's work: visit a node, or check one
- *  pair's key against the keys its map has shown so far (`nodes` by identity,
- *  `values` by scalar value). */
+ *  pair's key against the keys its map has shown so far. The check repeats
+ *  the two tests in the library's `mapIncludes`: `nodes` by identity,
+ *  `values` by scalar value. */
 type DuplicateKeyStep =
   | { kind: "node"; node: unknown }
   | { kind: "key"; pair: Pair; nodes: Set<unknown>; values: Set<unknown> }
 
 /** The offset where the `yaml` library places a duplicate-key error for
- *  `pair`, from the first of these that exists:
+ *  `pair`, its `keyStart` in `compose/resolve-block-map.js` and
+ *  `compose/resolve-flow-collection.js`, rebuilt from the first of these that
+ *  exists:
  *  1. the end of the pair's last prefix token;
  *  2. the key token's offset;
  *  3. the start of the key node's range;
@@ -532,8 +536,8 @@ export const stringifyNote = (body: string, data: object): string => {
 
 /**
  * Matches a CRLF that follows no other CR. The YAML parser reads a CR before a
- * CRLF as text (`a: x\r\r\n` holds `x\r`), and writing that CRLF as LF would
- * turn the CR and the LF into a new CRLF line break.
+ * CRLF as text (`a: x\r\r\n` holds `x\r`). Writing that CRLF as LF would give
+ * `a: x\r\n`, where the CR becomes part of a line break and the value loses it.
  */
 const CRLF_NOT_AFTER_CR = /(?<!\r)\r\n/g
 
@@ -558,8 +562,9 @@ export const splitNoteKeepingBlock = (
   // A CR inside a line stays, because the YAML parser reads it as text, not a line break
   const blockWithCrlfAsLf = blockAsWritten.replace(CRLF_NOT_AFTER_CR, "\n")
 
-  // splitPropertiesBlock starts the body after a lone CR that follows the
-  // closer (`---\r`), reading that CR as the closer's line break
+  // gray-matter, which splitPropertiesBlock calls, starts the body after a
+  // lone CR that follows the closer (`---\r`), reading that CR as the closer's
+  // line break
   const textBeforeBody = blockWithCrlfAsLf.endsWith("\r")
     ? `${blockWithCrlfAsLf.slice(0, -1)}\n`
     : blockWithCrlfAsLf
