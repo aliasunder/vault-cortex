@@ -117,6 +117,30 @@ describe("vault-orientation live orphan folders", () => {
     )
   })
 
+  it("excludes a bare date link in the daily-note format from the broken links", async () => {
+    const { readSurveySections } = await setupOrphanPrompt({
+      settings: '{"folder":"Journal"}',
+      paths: ["source.md", "other.md"],
+      noteContents: { "source.md": "[[2026-10-08]] [[missing]]" },
+    })
+
+    expect((await readSurveySections()).stats).toBe(
+      "2 notes across 0 folders, 0 tags, 0 property keys. 2 untagged. 2 without properties. 1 broken link (excludes 1 forward-ref to daily notes).",
+    )
+  })
+
+  it("excludes a bare date link when the daily folder setting is blank", async () => {
+    const { readSurveySections } = await setupOrphanPrompt({
+      settings: '{"folder":""}',
+      paths: ["source.md", "other.md"],
+      noteContents: { "source.md": "[[2026-10-08]] [[missing]]" },
+    })
+
+    expect((await readSurveySections()).stats).toBe(
+      "2 notes across 0 folders, 0 tags, 0 property keys. 2 untagged. 2 without properties. 1 broken link (excludes 1 forward-ref to daily notes).",
+    )
+  })
+
   it("neither excludes nor counts forward-refs in the new-note folder a blank daily folder resolves to", async () => {
     const { vault, readSurveySections } = await setupOrphanPrompt({
       settings: '{"folder":""}',

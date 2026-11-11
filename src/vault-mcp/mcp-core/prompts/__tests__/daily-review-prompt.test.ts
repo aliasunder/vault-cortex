@@ -434,6 +434,24 @@ describe("daily-review handler", () => {
     )
   })
 
+  it("lists a bare date link in the daily-note format as a daily note not created yet", async () => {
+    const { calls } = await setupDailyReviewVault({
+      date: "2026-06-16",
+      dailyContent: "# 2026-06-16\n\n[[2026-06-17]] [[missing]]\n",
+    })
+    const handler = findCall(calls, PROMPT_NAMES.DAILY_REVIEW)[2]
+    const text = textOf(await handler({ date: "2026-06-16" }, fakeExtra))
+
+    expect(reviewSection(text, "Outgoing links")).toBe(
+      [
+        "- 2026-06-17 (daily note not created yet)",
+        "- missing (**broken** — target does not exist)",
+        "",
+        "1 broken link — the target note does not exist yet.",
+      ].join("\n"),
+    )
+  })
+
   it("reads a blank-folder daily note from the new-note folder and counts its missing links there as broken", async () => {
     const vault = await mkdtemp(join(tmpdir(), "prompt-daily-blank-folder-"))
     onTestFinished(() => rm(vault, { recursive: true, force: true }))
