@@ -57,8 +57,8 @@ that is ready to serve through vault-cortex on day one.
 
 ### Deeper task management
 
-Safer structured edits — atomic markdown table row operations instead of
-find-and-replace splices.
+Finding a task by its subject without listing the whole board — a text
+query on task listings, with the same for tags by meaning.
 
 ### v1.0.0 — a stability contract
 
@@ -67,6 +67,18 @@ A v1 release that MCP clients can build on:
 - Unknown input parameters rejected at every nesting level instead of
   silently ignored
 - A written compatibility policy for what future versions may change
+
+### Obsidian parity after 1.0
+
+Features Obsidian users reach for that the server does not offer yet,
+planned for the 1.x releases:
+
+- Folder create, rename and move, with links rewritten
+- Periodic notes (weekly, monthly, quarterly, yearly) beside daily notes
+- Creating today's daily note from the vault's template
+- Vault-wide tag rename
+- Templates on note creation, with the core plugin's date, time and
+  title placeholders
 
 ### Files beyond markdown
 
@@ -86,6 +98,8 @@ write them. Planned:
 
 ## Exploring — not committed
 
+- Atomic markdown table row operations instead of find-and-replace
+  splices
 - Graph queries over the vault's wikilink graph (multi-hop paths,
   neighborhoods)
 - MCP resources as a third primitive alongside tools and prompts
