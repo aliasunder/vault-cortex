@@ -18,6 +18,7 @@ import {
   describeEnvFix,
   vaultCortexCommand,
 } from "../rules/messages.js"
+import { containerStart } from "./container-start.js"
 
 /** An init'd deployment on disk, reconstructed from its .env file. */
 export type Deployment = {
@@ -142,4 +143,28 @@ export const requireDaemonRunning = (docker: DockerRunner, prompts: Prompts): bo
   if (daemonStatus === "running") return true
   prompts.error(buildDaemonUnavailableMessage({ daemonStatus }))
   return false
+}
+
+/**
+ * The gates for a command that acts on an existing container without
+ * starting one: an init'd .env, a running daemon, and a container name that
+ * is free or holds Vault Cortex. Reports each failure and returns undefined.
+ */
+export const resolveInstanceContainer = (
+  requestedDir: string | undefined,
+  deps: { prompts: Prompts; docker: DockerRunner },
+): { initialized: InitializedDir; instanceContainer: "own" | "none" } | undefined => {
+  const { prompts, docker } = deps
+  const initialized = requireInitializedDir(requestedDir, prompts)
+
+  if (!initialized) return undefined
+  if (!requireDaemonRunning(docker, prompts)) return undefined
+  const { instanceName, envFilePath } = initialized
+  const instanceContainer = containerStart.classifyInstanceContainer(
+    { instanceName, envFilePath },
+    deps,
+  )
+
+  if (instanceContainer === "foreign") return undefined
+  return { initialized, instanceContainer }
 }

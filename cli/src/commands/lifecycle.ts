@@ -4,8 +4,8 @@ import { buildContainerRemovalFailedMessage, vaultCortexCommand } from "../rules
 import { containerStart } from "../steps/container-start.js"
 import {
   requireDaemonRunning,
-  requireInitializedDir,
   resolveDeployment,
+  resolveInstanceContainer,
 } from "../steps/deployment.js"
 
 export type DownFlags = {
@@ -52,18 +52,12 @@ export const runDown = async (flags: DownFlags, deps: DownDeps): Promise<number>
 
   // Teardown only needs to confirm this is an init'd directory — the full
   // .env validation (PORT, VAULT_PATH, PUBLIC_URL) guards container starts.
-  const initialized = requireInitializedDir(flags.dir, prompts)
+  const resolved = resolveInstanceContainer(flags.dir, { prompts, docker })
 
-  if (!initialized) return 1
-  if (!requireDaemonRunning(docker, prompts)) return 1
-  const { instanceName, envFilePath, targetDir } = initialized
-  const instanceContainer = containerStart.classifyInstanceContainer(
-    { instanceName, envFilePath },
-    { prompts, docker },
-  )
+  if (!resolved) return 1
+  const { instanceName, targetDir } = resolved.initialized
 
-  if (instanceContainer === "foreign") return 1
-  if (instanceContainer === "none") {
+  if (resolved.instanceContainer === "none") {
     prompts.log(`No ${instanceName} container found — nothing to stop.`)
     prompts.outro("Done.")
     return 0
@@ -91,18 +85,12 @@ export const runLogs = async (flags: LogsFlags, deps: LogsDeps): Promise<number>
 
   prompts.intro("vault-cortex logs")
 
-  const initialized = requireInitializedDir(flags.dir, prompts)
+  const resolved = resolveInstanceContainer(flags.dir, { prompts, docker })
 
-  if (!initialized) return 1
-  if (!requireDaemonRunning(docker, prompts)) return 1
-  const { instanceName, envFilePath, targetDir } = initialized
-  const instanceContainer = containerStart.classifyInstanceContainer(
-    { instanceName, envFilePath },
-    { prompts, docker },
-  )
+  if (!resolved) return 1
+  const { instanceName, targetDir } = resolved.initialized
 
-  if (instanceContainer === "foreign") return 1
-  if (instanceContainer === "none") {
+  if (resolved.instanceContainer === "none") {
     prompts.error(
       `No ${instanceName} container — start it with: ${vaultCortexCommand("start", targetDir)}`,
     )
