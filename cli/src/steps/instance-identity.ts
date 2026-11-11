@@ -21,6 +21,7 @@ import {
   describeInvalidEnvPort,
   isValidPort,
   portsOfOtherContainers,
+  VALID_PORT_RANGE,
   type PortRequest,
   type PortsInUse,
 } from "../rules/ports.js"
@@ -217,7 +218,7 @@ export const resolveInstanceIdentity = async (
     return { kind: "exit" }
   }
   if (flags.port !== undefined && !isValidPort(flags.port)) {
-    prompts.error("--port must be a whole number between 1 and 65535.")
+    prompts.error(`--port must be ${VALID_PORT_RANGE}.`)
     return { kind: "exit" }
   }
   const flagOverrides = {

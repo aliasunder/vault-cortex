@@ -33,9 +33,12 @@ export const isValidPort = (value: string): boolean => {
   return port >= 1 && port <= 65535
 }
 
+/** What isValidPort accepts, in the words every invalid-port error uses. */
+export const VALID_PORT_RANGE = "a whole number between 1 and 65535"
+
 /** The error for a .env PORT value that isn't a port; callers add where to fix it. */
 export const describeInvalidEnvPort = (portValue: string): string => {
-  return `PORT "${portValue}" is not a valid port — use a whole number between 1 and 65535.`
+  return `PORT "${portValue}" is not a valid port — use ${VALID_PORT_RANGE}.`
 }
 
 export const portInUseMessage = (params: { port: string; containerName: string }): string => {

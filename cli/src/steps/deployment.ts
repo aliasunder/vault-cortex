@@ -82,7 +82,7 @@ export const requireInitializedDir = (
 
 /** A local PUBLIC_URL is this machine's own address; a remote one is the user's domain. */
 const missingPublicUrlFix = (mode: Mode, port: number): string => {
-  if (mode === "local") return `Set this line in your .env:\n  PUBLIC_URL=http://localhost:${port}`
+  if (mode === "local") return `Set this line:\n  PUBLIC_URL=http://localhost:${port}`
   return "Set it to the address your MCP clients reach this server at, for example:\n  PUBLIC_URL=https://vault.example.com"
 }
 
@@ -112,17 +112,21 @@ export const resolveDeployment = (
 
   if (mode === "local" && !vaultPath) {
     prompts.error(
-      `VAULT_PATH is empty or missing in ${targetDir}/.env — cannot start the container.`,
+      describeEnvFix({
+        problem: "VAULT_PATH is empty or missing — the container cannot start without it.",
+        targetDir,
+      }),
     )
     return undefined
   }
   const publicUrl = readEnvPublicUrl(envValues)
 
   if (!publicUrl) {
-    prompts.error(
-      `PUBLIC_URL is empty or missing in ${targetDir}/.env — the server requires it.\n` +
-        missingPublicUrlFix(mode, port),
-    )
+    const envFix = describeEnvFix({
+      problem: "PUBLIC_URL is empty or missing — the server requires it.",
+      targetDir,
+    })
+    prompts.error(`${envFix}\n${missingPublicUrlFix(mode, port)}`)
     return undefined
   }
   return { mode, instanceName, targetDir, envFilePath, port, vaultPath, publicUrl }

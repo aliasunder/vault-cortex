@@ -1108,8 +1108,8 @@ describe("runInit with a kept existing .env", () => {
 
     expect(exitCode).toBe(1)
     expect(scripted.errors).toEqual([
-      `PUBLIC_URL is empty or missing in ${targetDir}/.env — the server requires it.\n` +
-        "Set this line in your .env:\n  PUBLIC_URL=http://localhost:8000",
+      `PUBLIC_URL is empty or missing — the server requires it. Fix it in ${targetDir}/.env.\n` +
+        "Set this line:\n  PUBLIC_URL=http://localhost:8000",
     ])
     expect(recording.runParams).toEqual([])
     expect(scripted.prints).toEqual([])

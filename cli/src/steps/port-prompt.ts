@@ -5,6 +5,7 @@ import {
   isValidPort,
   portInUseMessage,
   suggestFreePort,
+  VALID_PORT_RANGE,
   type PortRequest,
   type PortsInUse,
 } from "../rules/ports.js"
@@ -32,7 +33,7 @@ export const askFreePort = async (
   ).trim()
 
   if (!isValidPort(answer)) {
-    prompts.error("PORT must be a whole number between 1 and 65535.")
+    prompts.error(`PORT must be ${VALID_PORT_RANGE}.`)
     return askFreePort(params, prompts)
   }
   const portUser = portsInUse.get(Number(answer))

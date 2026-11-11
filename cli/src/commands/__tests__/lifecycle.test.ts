@@ -389,7 +389,7 @@ describe("runRestart", () => {
 
     expect(exitCode).toBe(1)
     expect(scripted.errors).toEqual([
-      `VAULT_PATH is empty or missing in ${targetDir}/.env — cannot start the container.`,
+      `VAULT_PATH is empty or missing — the container cannot start without it. Fix it in ${targetDir}/.env.`,
     ])
   })
 
@@ -408,8 +408,8 @@ describe("runRestart", () => {
 
     expect(exitCode).toBe(1)
     expect(scripted.errors).toEqual([
-      `PUBLIC_URL is empty or missing in ${targetDir}/.env — the server requires it.\n` +
-        "Set this line in your .env:\n  PUBLIC_URL=http://localhost:8000",
+      `PUBLIC_URL is empty or missing — the server requires it. Fix it in ${targetDir}/.env.\n` +
+        "Set this line:\n  PUBLIC_URL=http://localhost:8000",
     ])
   })
 
@@ -425,8 +425,8 @@ describe("runRestart", () => {
 
     expect(exitCode).toBe(1)
     expect(scripted.errors).toEqual([
-      `PUBLIC_URL is empty or missing in ${targetDir}/.env — the server requires it.\n` +
-        "Set this line in your .env:\n  PUBLIC_URL=http://localhost:8000",
+      `PUBLIC_URL is empty or missing — the server requires it. Fix it in ${targetDir}/.env.\n` +
+        "Set this line:\n  PUBLIC_URL=http://localhost:8000",
     ])
   })
 
@@ -446,7 +446,7 @@ describe("runRestart", () => {
 
     expect(exitCode).toBe(1)
     expect(scripted.errors).toEqual([
-      `PUBLIC_URL is empty or missing in ${targetDir}/.env — the server requires it.\n` +
+      `PUBLIC_URL is empty or missing — the server requires it. Fix it in ${targetDir}/.env.\n` +
         "Set it to the address your MCP clients reach this server at, for example:\n" +
         "  PUBLIC_URL=https://vault.example.com",
     ])
