@@ -69,7 +69,8 @@ export const momentToLuxonFormat = (momentFormat: string): string => {
 /** Moment tokens with no Luxon equivalent. Each entry is a standalone
  *  regex pattern with boundary guards so it doesn't false-positive inside
  *  a supported token (e.g. dd inside ddd, D inside DD, L inside LL).
- *  Boundary guards use lookahead/lookbehind for the same letter family. */
+ *  Most boundary guards look only for the token's own letter family; the
+ *  guards on e, Q and w refuse any adjacent letter. */
 const UNSUPPORTED_PATTERNS: ReadonlyArray<{ pattern: RegExp; token: string }> = [
   { pattern: /DDDo/, token: "DDDo" },
   { pattern: /(?<!D)Do/, token: "Do" },
@@ -104,19 +105,16 @@ const joinFormatSpans = (momentFormat: string): string => {
 /** Returns unsupported Moment tokens present in the format string outside
  *  of [literal] escapes, or an empty array if none. */
 export const findUnsupportedTokens = (momentFormat: string): string[] => {
-  const formatSegments = joinFormatSpans(momentFormat)
-  const found = new Set<string>()
-  for (const { pattern, token } of UNSUPPORTED_PATTERNS) {
-    if (pattern.test(formatSegments)) {
-      found.add(token)
-    }
-  }
-  return [...found]
+  const joinedFormatSpans = joinFormatSpans(momentFormat)
+  return UNSUPPORTED_PATTERNS.filter(({ pattern }) => pattern.test(joinedFormatSpans)).map(
+    ({ token }) => token,
+  )
 }
 
-/** The format after its last "/". Obsidian treats the formatted text before
- *  that slash as folders, including a slash written inside a [literal]
- *  escape, so this part names the file. */
+/** The format after its last "/", or the whole format when it has none.
+ *  Obsidian treats the formatted text before that slash as folders,
+ *  including a slash written inside a [literal] escape, so this part names
+ *  the file. */
 const findFileNameFormat = (momentFormat: string): string => {
   const lastSlashIndex = momentFormat.lastIndexOf("/")
   const fileNameFormat = momentFormat.slice(lastSlashIndex + 1)
@@ -126,7 +124,8 @@ const findFileNameFormat = (momentFormat: string): string => {
   })
 
   // The cut leaves the rest of the literal and its "]", so reopen it, and
-  // drop the literal entirely when nothing of it follows the slash.
+  // drop the literal entirely when nothing of it follows the slash:
+  // "[a/b]YYYY" gives "[b]YYYY", and "[Journal/]YYYY" gives "YYYY".
   return isSlashInLiteral ? `[${fileNameFormat}`.replace(/^\[\]/, "") : fileNameFormat
 }
 
@@ -140,7 +139,7 @@ const DAY_OF_YEAR_TOKENS: ReadonlySet<string> = new Set(["DDDD", "DDD"])
  *  from today's date, so a format without one would match names such as
  *  "07" or "1984" that are not dates. */
 const namesCompleteDate = (momentFormat: string): boolean => {
-  const formatTokens = new Set(joinFormatSpans(momentFormat).match(MOMENT_TOKEN_RE))
+  const formatTokens = new Set(joinFormatSpans(momentFormat).match(MOMENT_TOKEN_RE) ?? [])
   const hasTokenFrom = (tokenGroup: ReadonlySet<string>): boolean => {
     return [...tokenGroup].some((token) => formatTokens.has(token))
   }
@@ -148,13 +147,15 @@ const namesCompleteDate = (momentFormat: string): boolean => {
   return hasTokenFrom(YEAR_TOKENS) && (hasMonthAndDay || hasTokenFrom(DAY_OF_YEAR_TOKENS))
 }
 
-/** The file-name part of a daily-note format, as a Luxon format. */
+/** The file-name part of a daily-note format, as a Luxon format. The object
+ *  keeps a raw Moment format string from reaching matchesDailyNoteName. */
 type DailyNoteNameFormat = { luxonFormat: string }
 
 /** Converts a daily-note format (Moment tokens) to the Luxon format of the
  *  note's file name, for matchesDailyNoteName. Null when that file name
  *  holds an unsupported token or does not fix one calendar day, since no
- *  name can then be read back as a date. */
+ *  name can then be read back as a date. The folder part is not checked,
+ *  because the names matched here carry no folder. */
 export const dailyNoteFormatToNameFormat = (momentFormat: string): DailyNoteNameFormat | null => {
   // Obsidian trims the formatted date before naming the file, so a format
   // with a space at either end still names "2026-05-13.md".
