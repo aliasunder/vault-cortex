@@ -5614,7 +5614,14 @@ describe("links that differ from their file only in letter case", () => {
   }
 
   const resolvedFileLink = (path: string): OutgoingLinkEntry => {
-    return { path, title: null, exists: true, kind: "file", bytes: 100, daily_note_forward_ref: false }
+    return {
+      path,
+      title: null,
+      exists: true,
+      kind: "file",
+      bytes: 100,
+      daily_note_forward_ref: false,
+    }
   }
 
   const CASE_DIFFERENT_LINKS = "[[real]], [[folder/real]] and [[Folder/Real]].\n"
@@ -5667,6 +5674,16 @@ describe("links that differ from their file only in letter case", () => {
 
     expect(index.getOutgoingLinks({ path: "source.md" }, logger)).toEqual([
       resolvedNoteLink("Folder/Real.md", "Real"),
+    ])
+  })
+
+  it("prefers a note that matches only with case folded over a file that matches in exact case", () => {
+    index.upsertNonMdFile("photo.png", 100)
+    indexNote("Photo.md", "# Photo\n")
+    indexNote("source.md", "[[photo]]\n")
+
+    expect(index.getOutgoingLinks({ path: "source.md" }, logger)).toEqual([
+      resolvedNoteLink("Photo.md", "Photo"),
     ])
   })
 
