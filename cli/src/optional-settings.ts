@@ -1,5 +1,5 @@
-import { DEFAULT_PORT, isValidPort, stripSurroundingQuotes, type Mode } from "./scaffold.js"
-import type { PublishedPort } from "./docker.js"
+import { DEFAULT_PORT, isValidPort, parseEnvValues, readEnvValue } from "./env-values.js"
+import type { Mode, PublishedPort } from "./docker.js"
 import type { Prompts, SelectOption } from "./prompts.js"
 
 type OptionalSettingBase = {
@@ -170,22 +170,6 @@ const activeLinePattern = (name: string): RegExp => new RegExp(`^${name}=.*$`, "
 const commentedLinePattern = (name: string): RegExp => new RegExp(`^# ${name}=.*$`, "m")
 
 /**
- * Reads a var's current value from .env content. A commented-out or missing
- * line returns undefined — both mean "the server uses its built-in default",
- * which is exactly what the prompts need to distinguish. Duplicate lines
- * report the LAST value, matching docker --env-file precedence. The value
- * loses one pair of surrounding quotes, as stripEnvQuotedValues removes them
- * before docker run. Hints, prompt seeding, and the PUBLIC_URL derivation
- * must reason from the value that actually takes effect.
- */
-export const readOptionalValue = (envContent: string, name: string): string | undefined => {
-  const matches = [...envContent.matchAll(new RegExp(`^${name}=(.*)$`, "gm"))]
-  const lastMatch = matches.at(-1)
-
-  return lastMatch && stripSurroundingQuotes(lastMatch[1].trim())
-}
-
-/**
  * Applies chosen values to .env content as a pure text transform: every
  * active line for the var is replaced (docker --env-file gives the last
  * duplicate precedence, so a single-line replace could leave a stale
@@ -200,7 +184,7 @@ export const applyOptionalSettings = (
   Object.entries(overrides).reduce((content, [name, value]) => {
     // Fresh RegExp per use (the /g flag makes instances stateful via
     // lastIndex); function replacements avoid $-pattern interpretation in
-    // values, same as patchEnvObsidianToken.
+    // values, same as envFile.patchObsidianToken.
     const everyActiveLine = new RegExp(`^${name}=.*$`, "gm")
 
     if (activeLinePattern(name).test(content)) {
@@ -228,9 +212,10 @@ export const withPublicUrlOverride = (params: {
   const newPort = overrides.PORT
 
   if (!newPort) return overrides
+  const envValues = parseEnvValues(envContent)
   // An empty PORT= line leaves the default port in effect, as readEnvPort reads it.
-  const currentPort = readOptionalValue(envContent, "PORT") || String(DEFAULT_PORT)
-  const currentPublicUrl = readOptionalValue(envContent, "PUBLIC_URL")
+  const currentPort = readEnvValue(envValues, "PORT") || String(DEFAULT_PORT)
+  const currentPublicUrl = readEnvValue(envValues, "PUBLIC_URL")
   // A generated .env starts with PUBLIC_URL on the default port, so beside a
   // PORT edited into a value that isn't a port, that URL follows too.
   const followedPorts = isValidPort(currentPort)
@@ -255,10 +240,11 @@ export const describeStrandedPublicUrl = (params: {
   appliedOverrides: Record<string, string>
 }): string | undefined => {
   const { envContent, pickedOverrides, appliedOverrides } = params
-  const currentPublicUrl = readOptionalValue(envContent, "PUBLIC_URL")
+  const envValues = parseEnvValues(envContent)
+  const currentPublicUrl = readEnvValue(envValues, "PUBLIC_URL")
 
   // Picking PORT and accepting its pre-filled current value changes nothing.
-  const currentPort = readOptionalValue(envContent, "PORT") || String(DEFAULT_PORT)
+  const currentPort = readEnvValue(envValues, "PORT") || String(DEFAULT_PORT)
   const portChanged = Boolean(pickedOverrides.PORT) && pickedOverrides.PORT !== currentPort
   // A localhost URL that already names the new port still reaches the server.
   const publicUrlNamesNewPort = currentPublicUrl === `http://localhost:${pickedOverrides.PORT}`
@@ -511,16 +497,19 @@ export const askOptionalSettings = async (
   prompts: Prompts,
 ): Promise<Record<string, string>> => {
   const { mode, envContent, portsInUse } = params
+  // Hints, prompt seeding and the PUBLIC_URL derivation reason from the value
+  // that takes effect, so each one reads the parsed value, quotes removed.
+  const envValues = parseEnvValues(envContent)
   const offeredSettings = OPTIONAL_SETTINGS.filter(
     (setting) => !setting.remoteOnly || mode === "remote",
   )
   const chooserOptions = offeredSettings.map((setting) => {
-    const currentValue = readOptionalValue(envContent, setting.name)
+    const currentValue = readEnvValue(envValues, setting.name)
     const requiredToggle = OPTIONAL_SETTINGS.find(
       (candidate) => candidate.name === setting.requiresToggle,
     )
     const dependencyNote =
-      requiredToggle && !isEnabledToggleValue(readOptionalValue(envContent, requiredToggle.name))
+      requiredToggle && !isEnabledToggleValue(readEnvValue(envValues, requiredToggle.name))
         ? ` · not used while ${requiredToggle.label} is off`
         : ""
     return {
@@ -542,7 +531,7 @@ export const askOptionalSettings = async (
   for (const setting of offeredSettings) {
     if (!pickedNames.includes(setting.name)) continue
     const value = await askSettingValue(
-      { setting, currentValue: readOptionalValue(envContent, setting.name), portsInUse },
+      { setting, currentValue: readEnvValue(envValues, setting.name), portsInUse },
       prompts,
     )
 

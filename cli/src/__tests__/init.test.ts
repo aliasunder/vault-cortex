@@ -6,7 +6,7 @@ import { describe, expect, it, onTestFinished, vi } from "vitest"
 import { runInit, validatePublicUrl } from "../init.js"
 import { LOCAL_IMAGE, pollHealth, type DockerRunner } from "../docker.js"
 import { buildDaemonNotRunningMessage, buildDockerNotInstalledMessage } from "../messages.js"
-import { readEnvInstanceName } from "../scaffold.js"
+import { parseEnvValues, readEnvInstanceName } from "../env-values.js"
 
 vi.mock("../docker.js", { spy: true })
 import {
@@ -2611,7 +2611,9 @@ describe("runInit --yes when the instance name is already in use", () => {
 
     expect(exitCode).toBe(0)
     expect(scripted.logs).toContain(`Reusing the data of the existing "${instanceName}" install.`)
-    expect(readEnvInstanceName(join(targetDir, ".env"))).toEqual({ kind: "ok", instanceName })
+    const envValues = parseEnvValues(readFileSync(join(targetDir, ".env"), "utf8"))
+
+    expect(readEnvInstanceName(envValues)).toEqual({ kind: "ok", instanceName })
   })
 
   it("gives a remote install reusing a name from --instance-name that name as its device name", async () => {

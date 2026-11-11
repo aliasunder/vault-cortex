@@ -1,6 +1,7 @@
 import { spawn, spawnSync } from "node:child_process"
 
-import type { Mode } from "./scaffold.js"
+/** The deployment mode, which picks the image and its volumes. */
+export type Mode = "local" | "remote"
 
 export const LOCAL_IMAGE = "ghcr.io/aliasunder/vault-cortex:latest"
 export const REMOTE_IMAGE = "ghcr.io/aliasunder/vault-cortex:remote"

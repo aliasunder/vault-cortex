@@ -1,7 +1,7 @@
 import { join, resolve } from "node:path"
 
+import { envFile } from "./env-file.js"
 import type { Prompts } from "./prompts.js"
-import { patchEnvObsidianToken } from "./scaffold.js"
 import { expandTilde } from "./vault.js"
 
 export type GetSyncTokenFlags = {
@@ -166,7 +166,7 @@ export const runGetSyncToken = async (
     return 0
   }
 
-  const patched = patchEnvObsidianToken(envFilePath, token)
+  const patched = envFile.patchObsidianToken(envFilePath, token)
 
   if (!patched) {
     prompts.error(

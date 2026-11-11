@@ -1,16 +1,18 @@
 import { join, resolve } from "node:path"
 
 import { containerStart } from "./container-start.js"
-import type { DockerRunner } from "./docker.js"
-import { buildDaemonNotRunningMessage, buildDockerNotInstalledMessage } from "./messages.js"
+import type { DockerRunner, Mode } from "./docker.js"
+import { envFile } from "./env-file.js"
 import {
   detectMode,
+  parseEnvValues,
   readEnvInstanceName,
   readEnvPort,
   readEnvPublicUrl,
   readEnvVaultPath,
-  type Mode,
-} from "./scaffold.js"
+  type EnvValues,
+} from "./env-values.js"
+import { buildDaemonNotRunningMessage, buildDockerNotInstalledMessage } from "./messages.js"
 import { expandTilde } from "./vault.js"
 import type { Prompts } from "./prompts.js"
 
@@ -61,6 +63,15 @@ export type Deployment = {
 
 const DEFAULT_TARGET_DIR = "./vault-cortex"
 
+type InitializedDir = {
+  targetDir: string
+  envFilePath: string
+  /** The .env's values, parsed once for every check that follows. */
+  envValues: EnvValues
+  mode: Mode
+  instanceName: string
+}
+
 /**
  * Light gate for commands that use an existing deployment without starting a container:
  * - resolves --dir and confirms an init'd .env exists;
@@ -70,23 +81,30 @@ const DEFAULT_TARGET_DIR = "./vault-cortex"
 export const requireInitializedDir = (
   dirFlag: string | undefined,
   prompts: Prompts,
-): { targetDir: string; envFilePath: string; mode: Mode; instanceName: string } | undefined => {
+): InitializedDir | undefined => {
   const targetDir = resolve(expandTilde(dirFlag ?? DEFAULT_TARGET_DIR))
   const envFilePath = join(targetDir, ".env")
+  const envContent = envFile.read(envFilePath)
 
-  const mode = detectMode(envFilePath)
-
-  if (!mode) {
+  // Only a missing file stops here: an empty .env reads as a local install.
+  if (envContent === undefined) {
     prompts.error(`No .env found in ${targetDir} — run \`npx vault-cortex@latest init\` first.`)
     return undefined
   }
-  const instanceNameRead = readEnvInstanceName(envFilePath)
+  const envValues = parseEnvValues(envContent)
+  const instanceNameRead = readEnvInstanceName(envValues)
 
   if (instanceNameRead.kind === "invalid") {
     prompts.error(`${instanceNameRead.message} Fix it in ${targetDir}/.env.`)
     return undefined
   }
-  return { targetDir, envFilePath, mode, instanceName: instanceNameRead.instanceName }
+  return {
+    targetDir,
+    envFilePath,
+    envValues,
+    mode: detectMode(envValues),
+    instanceName: instanceNameRead.instanceName,
+  }
 }
 
 /** A local PUBLIC_URL is this machine's own address; a remote one is the user's domain. */
@@ -108,16 +126,16 @@ export const resolveDeployment = (
   const initialized = requireInitializedDir(dirFlag, prompts)
 
   if (!initialized) return undefined
-  const { targetDir, envFilePath, mode, instanceName } = initialized
+  const { targetDir, envFilePath, envValues, mode, instanceName } = initialized
 
-  const portRead = readEnvPort(envFilePath)
+  const portRead = readEnvPort(envValues)
 
   if (portRead.kind === "invalid") {
     prompts.error(`${portRead.message} Fix it in ${targetDir}/.env.`)
     return undefined
   }
   const { port } = portRead
-  const vaultPath = mode === "local" ? readEnvVaultPath(envFilePath) : undefined
+  const vaultPath = mode === "local" ? readEnvVaultPath(envValues) : undefined
 
   if (mode === "local" && !vaultPath) {
     prompts.error(
@@ -125,7 +143,7 @@ export const resolveDeployment = (
     )
     return undefined
   }
-  const publicUrl = readEnvPublicUrl(envFilePath)
+  const publicUrl = readEnvPublicUrl(envValues)
 
   if (!publicUrl) {
     prompts.error(

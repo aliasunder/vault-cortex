@@ -6,10 +6,10 @@ import {
   probeHealth,
   type DockerRunner,
 } from "./docker.js"
+import { envFile } from "./env-file.js"
 import type { Deployment } from "./lifecycle.js"
 import type { StartStatus } from "./messages.js"
 import type { Prompts } from "./prompts.js"
-import { stripEnvQuotedValues } from "./scaffold.js"
 
 /** Who holds the install's container name: nobody, a Vault Cortex container, or another app. */
 type InstanceContainer = "none" | "own" | "foreign"
@@ -104,7 +104,7 @@ const start = async (
     return "not-started"
   }
 
-  stripEnvQuotedValues(envFilePath)
+  envFile.stripQuotedValues(envFilePath)
   prompts.log("Starting container...")
   const containerStarted = docker.dockerRun({
     mode,

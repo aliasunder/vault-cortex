@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs"
+import { existsSync } from "node:fs"
 import { join, resolve } from "node:path"
 
 import { buildLocalEnv, buildRemoteEnv } from "./env.js"
@@ -12,7 +12,9 @@ import {
   type StartStatus,
 } from "./messages.js"
 import { containerStart } from "./container-start.js"
-import type { DockerRunner } from "./docker.js"
+import type { DockerRunner, Mode } from "./docker.js"
+import { envFile, type FileWriteResult } from "./env-file.js"
+import { detectMode, parseEnvValues, readEnvObsidianToken, type EnvValues } from "./env-values.js"
 import {
   applyInstanceIdentity,
   describeStrandedCarriedPublicUrl,
@@ -23,17 +25,8 @@ import {
   applyOptionalSettings,
   askOptionalSettings,
   describeStrandedPublicUrl,
-  readOptionalValue,
   withPublicUrlOverride,
 } from "./optional-settings.js"
-import {
-  buildFilesToWrite,
-  detectMode,
-  readEnvObsidianToken,
-  writeFiles,
-  type FileWriteResult,
-  type Mode,
-} from "./scaffold.js"
 import { generateToken } from "./token.js"
 import { expandTilde, validateVaultPath } from "./vault.js"
 import type { Prompts } from "./prompts.js"
@@ -240,6 +233,17 @@ const confirmOverwrite =
   (name: string): Promise<boolean> =>
     prompts.confirm(`${name} already exists and differs — overwrite?`, false)
 
+/** The target folder's .env values, or undefined when it has no .env yet. */
+const readTargetEnvValues = (targetDir: string): EnvValues | undefined => {
+  const envContent = envFile.read(join(targetDir, ".env"))
+  return envContent === undefined ? undefined : parseEnvValues(envContent)
+}
+
+const readTargetObsidianToken = (targetDir: string): string | undefined => {
+  const envValues = readTargetEnvValues(targetDir)
+  return envValues && readEnvObsidianToken(envValues)
+}
+
 /**
  * The refusal for a folder whose .env belongs to the other mode's install:
  * start, restart and upgrade read the mode from that file, so a re-run must
@@ -247,14 +251,15 @@ const confirmOverwrite =
  */
 const describeModeMismatch = (params: { targetDir: string; mode: Mode }): string | undefined => {
   const { targetDir, mode } = params
-  const envFilePath = join(targetDir, ".env")
-  const existingMode = detectMode(envFilePath)
+  const envValues = readTargetEnvValues(targetDir)
 
-  if (!existingMode || existingMode === mode) return undefined
+  if (!envValues) return undefined
+  const existingMode = detectMode(envValues)
+
+  if (existingMode === mode) return undefined
   // detectMode reads any .env without a Sync token as local, but only a file
   // init wrote has MCP_AUTH_TOKEN; another app's .env gets the usual re-run question.
-  const writtenByInit =
-    readOptionalValue(readFileSync(envFilePath, "utf8"), "MCP_AUTH_TOKEN") !== undefined
+  const writtenByInit = envValues.has("MCP_AUTH_TOKEN")
 
   if (!writtenByInit) return undefined
   return (
@@ -440,9 +445,9 @@ const runLocalInit = async (flags: InitFlags, deps: InitDeps): Promise<number> =
   // Conflict policy: identical existing files are skipped silently;
   // differing ones prompt per file (default keep). --yes never overwrites —
   // any differing file becomes an exit-1 below, leaving it untouched.
-  const files = buildFilesToWrite(envContent)
+  const files = envFile.buildFilesToWrite(envContent)
   const resolveConflict = flags.yes ? keepExisting : confirmOverwrite(prompts)
-  const results = await writeFiles({ targetDir, files }, resolveConflict)
+  const results = await envFile.writeFiles({ targetDir, files }, resolveConflict)
   reportWrites({ targetDir, results }, prompts)
 
   const keptConflicts = results.filter((result) => result.status === "kept")
@@ -524,7 +529,7 @@ const runRemoteInit = async (flags: InitFlags, deps: InitDeps): Promise<number> 
   // in the on-disk .env (a re-init over an existing deployment). Only show
   // the sign-in guidance when neither source has a token.
   const capturedToken = await offerSyncTokenCapture(prompts, fetchFn)
-  const existingEnvToken = readEnvObsidianToken(join(targetDir, ".env"))
+  const existingEnvToken = readTargetObsidianToken(targetDir)
   const hasSyncToken = Boolean(capturedToken ?? existingEnvToken)
 
   if (!hasSyncToken) {
@@ -570,8 +575,8 @@ const runRemoteInit = async (flags: InitFlags, deps: InitDeps): Promise<number> 
     pickedOverrides: optionalOverrides,
     appliedOverrides,
   })
-  const files = buildFilesToWrite(envContent)
-  const results = await writeFiles({ targetDir, files }, confirmOverwrite(prompts))
+  const files = envFile.buildFilesToWrite(envContent)
+  const results = await envFile.writeFiles({ targetDir, files }, confirmOverwrite(prompts))
   reportWrites({ targetDir, results }, prompts)
 
   // Same kept-.env handling as the local flow: the server only reads config
@@ -607,7 +612,7 @@ const runRemoteInit = async (flags: InitFlags, deps: InitDeps): Promise<number> 
       publicUrl: effectivePublicUrl,
       startStatus,
       // From the file, like PUBLIC_URL: a token captured this run is not in a kept .env.
-      obsidianTokenMissing: !readEnvObsidianToken(join(targetDir, ".env")),
+      obsidianTokenMissing: !readTargetObsidianToken(targetDir),
       tokenWritten,
     }),
   )

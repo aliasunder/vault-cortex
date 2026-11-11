@@ -1,7 +1,16 @@
-import { existsSync, readFileSync } from "node:fs"
 import { basename, join } from "node:path"
 
-import { instanceVolumeNames, isVaultCortexImage, type DockerRunner } from "./docker.js"
+import { instanceVolumeNames, isVaultCortexImage, type DockerRunner, type Mode } from "./docker.js"
+import { envFile } from "./env-file.js"
+import {
+  DEFAULT_INSTANCE_NAME,
+  DEFAULT_PORT,
+  describeInvalidEnvPort,
+  describeInvalidInstanceName,
+  isValidPort,
+  parseEnvValues,
+  readEnvValue,
+} from "./env-values.js"
 import {
   applyOptionalSettings,
   askFreePort,
@@ -9,19 +18,10 @@ import {
   describeStrandedPublicUrl,
   portInUseMessage,
   portsOfOtherContainers,
-  readOptionalValue,
   suggestFreePort,
   withPublicUrlOverride,
   type PortsInUse,
 } from "./optional-settings.js"
-import {
-  DEFAULT_INSTANCE_NAME,
-  DEFAULT_PORT,
-  describeInvalidEnvPort,
-  describeInvalidInstanceName,
-  isValidPort,
-  type Mode,
-} from "./scaffold.js"
 import type { Prompts } from "./prompts.js"
 
 /** The .env values that tell one install on a machine apart from another. */
@@ -63,10 +63,10 @@ const CARRIED_SETTINGS: Readonly<Record<Mode, ReadonlyArray<string>>> = {
   remote: ["INSTANCE_NAME", "PORT", "DEVICE_NAME"],
 }
 
-const readCarriedIdentity = (envFilePath: string, mode: Mode): Record<string, string> => {
-  const envContent = readFileSync(envFilePath, "utf8")
+const readCarriedIdentity = (envContent: string, mode: Mode): Record<string, string> => {
+  const envValues = parseEnvValues(envContent)
   const carriedEntries = CARRIED_SETTINGS[mode].flatMap((name) => {
-    const currentValue = readOptionalValue(envContent, name)
+    const currentValue = readEnvValue(envValues, name)
     return currentValue ? [[name, currentValue] as const] : []
   })
   return Object.fromEntries(carriedEntries)
@@ -254,12 +254,13 @@ export const resolveInstanceIdentity = async (
     ...(flags.port ? { PORT: flags.port } : {}),
   }
 
-  const existingEnvPath = join(targetDir, ".env")
+  const existingEnvContent = envFile.read(join(targetDir, ".env"))
 
-  // An existing .env makes this folder an install already, and its own
-  // container and volumes would always count as in use, so a re-run skips the name check.
-  if (existsSync(existingEnvPath)) {
-    const carried = readCarriedIdentity(existingEnvPath, mode)
+  // An existing .env, even an empty one, makes this folder an install already,
+  // and its own container and volumes would always count as in use, so a
+  // re-run skips the name check.
+  if (existingEnvContent !== undefined) {
+    const carried = readCarriedIdentity(existingEnvContent, mode)
     const carriedName = carried.INSTANCE_NAME || DEFAULT_INSTANCE_NAME
     const carriedNameError = describeInvalidInstanceName(carriedName)
 

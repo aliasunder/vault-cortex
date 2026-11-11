@@ -5,39 +5,9 @@ import {
   askOptionalSettings,
   describeStrandedPublicUrl,
   portsOfOtherContainers,
-  readOptionalValue,
   withPublicUrlOverride,
 } from "../optional-settings.js"
 import { createScriptedPrompts } from "./command-stubs.js"
-
-describe("readOptionalValue", () => {
-  it("reads the value of an active line", () => {
-    expect(readOptionalValue("PORT=9000\nTZ=UTC\n", "PORT")).toBe("9000")
-  })
-
-  it("returns the last duplicate, matching docker --env-file precedence", () => {
-    expect(readOptionalValue("PORT=8000\nTZ=UTC\nPORT=9000\n", "PORT")).toBe("9000")
-  })
-
-  it("returns undefined for a commented-out line", () => {
-    expect(readOptionalValue("# TZ=America/New_York\n", "TZ")).toBeUndefined()
-  })
-
-  it("returns undefined for a missing line", () => {
-    expect(readOptionalValue("PORT=9000\n", "TZ")).toBeUndefined()
-  })
-
-  it.each([
-    { label: "double quotes", envContent: 'PORT="9000"\n' },
-    { label: "single quotes", envContent: "PORT='9000'\n" },
-  ])("drops one pair of surrounding $label, as the server reads the value", ({ envContent }) => {
-    expect(readOptionalValue(envContent, "PORT")).toBe("9000")
-  })
-
-  it("returns an empty string for a line with no value", () => {
-    expect(readOptionalValue("PORT=\n", "PORT")).toBe("")
-  })
-})
 
 describe("applyOptionalSettings", () => {
   it("replaces the value of an active line", () => {
