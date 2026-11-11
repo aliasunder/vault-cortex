@@ -8558,6 +8558,48 @@ describe("background embedding waits for foreground work", () => {
     expect(fixture.vectorCount()).toBe(1)
   })
 
+  it("a memory-entry batch runs after 5 seconds while a tool call is still running", async () => {
+    const embedder = createSameVectorEmbedder()
+    const searchIndex = createSearchIndex(":memory:", embedder, undefined, {
+      memoryDir: "About Me",
+    })
+    const notePath = "About Me/Practices.md"
+    const sourceVersion = seedEmbeddingSource(searchIndex, {
+      notePath,
+      rawContent: MEMORY_FILE_CONTENT,
+    })
+    // The first pass stores the note's chunks but no entry vectors, so the
+    // second pass has work for the memory loop alone
+    embedder.embedBatch.mockRejectedValueOnce(new Error("model unavailable"))
+    await expect(
+      searchIndex.embedNote({ notePath, rawContent: MEMORY_FILE_CONTENT, sourceVersion }, logger),
+    ).rejects.toThrow(new Error("model unavailable"))
+    embedder.embedBatch.mockClear()
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
+    onTestFinished(() => {
+      vi.useRealTimers()
+    })
+    const call = Promise.withResolvers<undefined>()
+    const trackedCall = searchIndex.trackForegroundWork(() => call.promise)
+    onTestFinished(async () => {
+      call.resolve(undefined)
+      await trackedCall
+    })
+
+    const embedding = searchIndex.embedNote(
+      { notePath, rawContent: MEMORY_FILE_CONTENT, sourceVersion },
+      logger,
+    )
+    await vi.advanceTimersByTimeAsync(4999)
+
+    expect(embedder.embedBatch).not.toHaveBeenCalled()
+
+    await vi.advanceTimersByTimeAsync(1)
+    await embedding
+
+    expect(embedder.embedBatch).toHaveBeenCalledTimes(1)
+  })
+
   it("memory-entry batches wait while a tool call runs and embed after it returns", async () => {
     const embedder = createSameVectorEmbedder()
     const searchIndex = createSearchIndex(":memory:", embedder, undefined, {
