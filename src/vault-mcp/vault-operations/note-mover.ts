@@ -233,16 +233,21 @@ const rewriteTarget = (
   }
 
   // A link that already resolves correctly from the new location is left
-  // alone. A link to the moved note qualifies only when it matches in its own
-  // letter case. After a case-only rename from Foo.md to foo.md, [[Foo]]
-  // still reaches foo.md with case folded, yet it is rewritten to [[foo]].
-  const resolvedAfter = linksToMovedNote
-    ? links.resolveInExactCase({
-        target: rawTarget,
-        allPaths: context.allNotePathsAfter,
-        sourcePath: context.newSourcePath,
-      })
-    : resolveFromNewSource(rawTarget)
+  // alone. When the move changes the note's file name, a link to it qualifies
+  // only when it matches in its own letter case. After a rename from Foo.md
+  // to foo.md, [[Foo]] still reaches foo.md with case folded, yet it is
+  // rewritten to [[foo]]. A move that keeps the file name leaves [[real]]
+  // alone while it still reaches the note, as Obsidian does on a folder move.
+  const fileNameChanges =
+    posix.basename(context.oldTargetPath) !== posix.basename(context.newTargetPath)
+  const resolvedAfter =
+    linksToMovedNote && fileNameChanges
+      ? links.resolveInExactCase({
+          target: rawTarget,
+          allPaths: context.allNotePathsAfter,
+          sourcePath: context.newSourcePath,
+        })
+      : resolveFromNewSource(rawTarget)
 
   if (resolvedAfter === desiredTarget) return null
 

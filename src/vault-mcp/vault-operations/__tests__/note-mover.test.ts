@@ -234,6 +234,26 @@ describe("moveNote — link rewriting forms", () => {
     expect(await readNote("src.md")).toBe("See [[Other/Real]] here.\n")
   })
 
+  it("leaves a bare wikilink in another letter case alone on a move that keeps the file name", async () => {
+    const { writeFixture, moveNote, readNote } = setupVault()
+    await writeFixture("Folder/Real.md", "content\n")
+    await writeFixture("src.md", "See [[real]] and [[folder/real]].\n")
+
+    const result = await moveNote({
+      oldPath: "Folder/Real.md",
+      newPath: "Other/Real.md",
+      backlinkSources: ["src.md"],
+    })
+
+    expect(result).toEqual({
+      moved_to: "Other/Real.md",
+      links_updated: 1,
+      updated_notes: ["src.md"],
+      pruned_empty_folders: 0,
+    })
+    expect(await readNote("src.md")).toBe("See [[real]] and [[Other/Real]].\n")
+  })
+
   it("preserves an alias when rewriting a wikilink", async () => {
     const { writeFixture, moveNote, readNote } = setupVault()
     await writeFixture("Foo.md", "content\n")
