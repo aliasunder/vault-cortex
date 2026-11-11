@@ -136,6 +136,10 @@ export const describeEnvFix = (params: { problem: string; targetDir: string }): 
   return `${params.problem} Fix it in ${params.targetDir}/.env.`
 }
 
+export const buildContainerRemovalFailedMessage = (instanceName: string): string => {
+  return `Could not remove the container — check: docker rm -f ${instanceName}`
+}
+
 // Start guidance prints `start`, not `upgrade` — telling a user who has never
 // started anything to run "upgrade" reads as updating something they don't
 // have. `start` runs the same re-create cycle and pulls the image on demand.

@@ -714,7 +714,7 @@ describe("runRestart", () => {
     expect(exitCode).toBe(1)
     expect(runCalls).toEqual([])
     expect(scripted.errors).toEqual([
-      "Could not remove the existing container — check: docker rm -f vault-cortex",
+      "Could not remove the container — check: docker rm -f vault-cortex",
     ])
   })
 
@@ -905,9 +905,7 @@ describe("commands on an install with a custom INSTANCE_NAME", () => {
     )
 
     expect(exitCode).toBe(1)
-    expect(scripted.errors).toEqual([
-      "Could not remove the existing container — check: docker rm -f work",
-    ])
+    expect(scripted.errors).toEqual(["Could not remove the container — check: docker rm -f work"])
     expect(dockerRun).not.toHaveBeenCalled()
   })
 

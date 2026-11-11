@@ -1,6 +1,6 @@
 import type { DockerRunner } from "../adapters/docker.js"
 import type { Prompts } from "../adapters/prompts.js"
-import { vaultCortexCommand } from "../rules/messages.js"
+import { buildContainerRemovalFailedMessage, vaultCortexCommand } from "../rules/messages.js"
 import { containerStart } from "../steps/container-start.js"
 import {
   requireDaemonRunning,
@@ -70,7 +70,7 @@ export const runDown = async (flags: DownFlags, deps: DownDeps): Promise<number>
   }
 
   if (!docker.stopAndRemoveContainer(instanceName)) {
-    prompts.error(`Could not remove the container — check: docker rm -f ${instanceName}`)
+    prompts.error(buildContainerRemovalFailedMessage(instanceName))
     return 1
   }
 

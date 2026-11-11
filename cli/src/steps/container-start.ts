@@ -8,7 +8,7 @@ import {
 } from "../adapters/docker.js"
 import { envFile } from "../adapters/env-file.js"
 import type { Prompts } from "../adapters/prompts.js"
-import type { StartStatus } from "../rules/messages.js"
+import { buildContainerRemovalFailedMessage, type StartStatus } from "../rules/messages.js"
 import type { Deployment } from "./deployment.js"
 
 /** Who holds the install's container name: nobody, a Vault Cortex container, or another app. */
@@ -98,7 +98,7 @@ const start = async (
   // Proceeding after a genuine failure would surface as a confusing
   // "container name already in use" from docker run.
   if (instanceContainer === "own" && !docker.stopAndRemoveContainer(instanceName)) {
-    prompts.error(`Could not remove the existing container — check: docker rm -f ${instanceName}`)
+    prompts.error(buildContainerRemovalFailedMessage(instanceName))
     return "not-started"
   }
 

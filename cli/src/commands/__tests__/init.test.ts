@@ -2267,7 +2267,7 @@ describe("runInit when the instance name is already in use", () => {
 
     expect(exitCode).toBe(0)
     expect(scripted.errors).toEqual([
-      "Could not remove the existing container — check: docker rm -f vault-cortex",
+      "Could not remove the container — check: docker rm -f vault-cortex",
     ])
     expect(recording.calls).toEqual(["inspect:vault-cortex", "inspect:vault-cortex"])
   })
