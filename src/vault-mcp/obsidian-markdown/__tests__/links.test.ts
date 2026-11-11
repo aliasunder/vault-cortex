@@ -801,6 +801,11 @@ describe("resolve", () => {
   it("leaves a link unresolved when no note matches even with case folded", () => {
     expect(links.resolve({ target: "missing", allPaths: ["Folder/Real.md"] })).toBeNull()
   })
+
+  it("folds a second path list of the same length afresh after resolving against a first", () => {
+    expect(links.resolve({ target: "real", allPaths: ["Folder/Real.md"] })).toBe("Folder/Real.md")
+    expect(links.resolve({ target: "real", allPaths: ["Others/Real.md"] })).toBe("Others/Real.md")
+  })
 })
 
 // ── resolveInExactCase ───────────────────────────────────────────
@@ -942,6 +947,17 @@ describe("resolveAsset", () => {
         allAssetPaths: ["Photos/Sunset.png", "more/photos/sunset.png"],
       }),
     ).toBe("more/photos/sunset.png")
+  })
+
+  it("folds a second path list of the same length afresh after resolving against a first", () => {
+    const target = "photos/sunset.png"
+
+    expect(links.resolveAsset({ target, allAssetPaths: ["Photos/Sunset.png"] })).toBe(
+      "Photos/Sunset.png",
+    )
+    expect(links.resolveAsset({ target, allAssetPaths: ["PHOTOS/sunset.png"] })).toBe(
+      "PHOTOS/sunset.png",
+    )
   })
 
   it("breaks a tie between two assets that differ only in case in byte order for a third spelling", () => {

@@ -403,22 +403,61 @@ const shortestOf = (paths: string[]): string | null => {
  *  nothing, so a link that resolves with its own letter case keeps its target. */
 type LetterCase = "exact" | "folded"
 
-/** The form of a note path that one pass compares. The folded form lowercases
- *  every letter, because note resolution runs only in memory, so nothing
- *  narrows it to ASCII. */
+/** A stored path beside the form of it that one resolution pass compares. */
+type ComparablePath = { storedPath: string; comparablePath: string }
+
+/** Folds each list once, on its first lookup, however many links resolve
+ *  against it. The cache is keyed by the list itself, so a caller must not
+ *  change a list after passing it in. */
+const createComparablePathsCache = (
+  comparableFormOf: (path: string) => string,
+): ((paths: readonly string[]) => readonly ComparablePath[]) => {
+  const comparablePathsByList = new WeakMap<readonly string[], readonly ComparablePath[]>()
+
+  return (paths) => {
+    const cachedComparablePaths = comparablePathsByList.get(paths)
+
+    if (cachedComparablePaths) return cachedComparablePaths
+
+    const comparablePaths = paths.map((storedPath) => {
+      return { storedPath, comparablePath: comparableFormOf(storedPath) }
+    })
+    comparablePathsByList.set(paths, comparablePaths)
+    return comparablePaths
+  }
+}
+
+/** The folded note form lowercases every letter, because note resolution runs
+ *  only in memory, so nothing narrows it to ASCII. */
+const lowercaseNotePath = (path: string): string => path.toLowerCase()
+
+const lowercaseNotePathsOf = createComparablePathsCache(lowercaseNotePath)
+
+/** The folded asset form lowercases ASCII letters only, because every asset
+ *  comparison has an SQL twin in the index (search/search-index.ts), and a
+ *  wider fold would let the two resolvers pick different files for one link. */
+const asciiFoldedAssetPathsOf = createComparablePathsCache(foldAsciiCase)
+
+const findStoredPathsWhere = (
+  comparablePaths: readonly ComparablePath[],
+  comparablePathMatches: (comparablePath: string) => boolean,
+): string[] => {
+  return comparablePaths
+    .filter(({ comparablePath }) => comparablePathMatches(comparablePath))
+    .map(({ storedPath }) => storedPath)
+}
+
+/** The form of a note path or link target that one pass compares. */
 const notePathForComparison = (path: string, letterCase: LetterCase): string => {
   switch (letterCase) {
     case "exact":
       return path
     case "folded":
-      return path.toLowerCase()
+      return lowercaseNotePath(path)
   }
 }
 
-/** The form of an asset path that one pass compares. The folded form
- *  lowercases ASCII letters only, because every asset comparison has an SQL
- *  twin in the index (search/search-index.ts), and a wider fold would let the
- *  two resolvers pick different files for one link. */
+/** The form of an asset path or link target that one pass compares. */
 const assetPathForComparison = (path: string, letterCase: LetterCase): string => {
   switch (letterCase) {
     case "exact":
@@ -447,8 +486,9 @@ const resolveNoteInLetterCase = (params: {
     // the native includes finds it without a call per path.
     if (letterCase === "exact") return allPaths.includes(comparablePath) ? [comparablePath] : []
 
-    return allPaths.filter(
-      (candidatePath) => notePathForComparison(candidatePath, letterCase) === comparablePath,
+    return findStoredPathsWhere(
+      lowercaseNotePathsOf(allPaths),
+      (lowercasePath) => lowercasePath === comparablePath,
     )
   }
 
@@ -473,9 +513,13 @@ const resolveNoteInLetterCase = (params: {
   // A basename match is any path that ends with the whole target, folders
   // included, so [[sub/Note]] reaches A/sub/Note.md. A path equal to the
   // target already returned at the exact tier.
-  const basenameMatches = allPaths.filter((candidatePath) => {
-    return notePathForComparison(candidatePath, letterCase).endsWith(`/${comparableTarget}`)
-  })
+  const comparableSuffix = `/${comparableTarget}`
+  const basenameMatches =
+    letterCase === "exact"
+      ? allPaths.filter((candidatePath) => candidatePath.endsWith(comparableSuffix))
+      : findStoredPathsWhere(lowercaseNotePathsOf(allPaths), (lowercasePath) => {
+          return lowercasePath.endsWith(comparableSuffix)
+        })
 
   // With multiple matches, Obsidian's heuristic prefers the shortest path;
   // shortestOf also breaks equal-length ties lexicographically, so the
@@ -512,7 +556,9 @@ const resolveInExactCase = (params: {
  *  is supplied — path from current file, including upward "../" segments.
  *  All three tiers run with exact letter case first, then again with letter
  *  case folded, so `[[real]]` reaches `Folder/Real.md` only when no note
- *  matches it exactly. Returns null if unresolvable. */
+ *  matches it exactly. Returns null if unresolvable. The folded forms of
+ *  `allPaths` are cached by the array, so the caller must not change it
+ *  after the call. */
 const resolve = (params: {
   target: string
   allPaths: readonly string[]
@@ -543,12 +589,17 @@ const resolveAssetInLetterCase = (params: {
   const comparableRelativeTarget =
     relativeTarget === null ? null : assetPathForComparison(relativeTarget, letterCase)
 
+  const asciiFoldedAssetPaths = asciiFoldedAssetPathsOf(allAssetPaths)
+
   // In the folded pass, two files that differ only in letter case both match
   // one link, so the exact tiers pick with shortestOf as the stem tiers do.
   const findPathsWhere = (comparablePathMatches: (comparablePath: string) => boolean): string[] => {
-    return allAssetPaths.filter((assetPath) => {
-      return comparablePathMatches(assetPathForComparison(assetPath, letterCase))
-    })
+    switch (letterCase) {
+      case "exact":
+        return allAssetPaths.filter(comparablePathMatches)
+      case "folded":
+        return findStoredPathsWhere(asciiFoldedAssetPaths, comparablePathMatches)
+    }
   }
 
   // ── Full-filename family: exact → relative → path suffix ──
@@ -571,7 +622,9 @@ const resolveAssetInLetterCase = (params: {
   // exact pass and COLLATE NOCASE in the folded one.
   const foldedTargetSuffix = foldAsciiCase(`/${target}`)
   const fullPathSuffixMatch = shortestOf(
-    allAssetPaths.filter((assetPath) => foldAsciiCase(assetPath).endsWith(foldedTargetSuffix)),
+    findStoredPathsWhere(asciiFoldedAssetPaths, (foldedPath) => {
+      return foldedPath.endsWith(foldedTargetSuffix)
+    }),
   )
 
   if (fullPathSuffixMatch) return fullPathSuffixMatch
@@ -596,9 +649,11 @@ const resolveAssetInLetterCase = (params: {
   // stem); a bare name matches on the filename stem only. Either way this is
   // the last tier: shortestOf returns null on no match — the unresolved case.
   if (target.includes("/")) {
+    // ASCII folding keeps every "." and "/", so stripping the extension from
+    // the folded path gives the folded stem.
     return shortestOf(
-      allAssetPaths.filter((assetPath) => {
-        return foldAsciiCase(stripExtension(assetPath)).endsWith(foldedTargetSuffix)
+      findStoredPathsWhere(asciiFoldedAssetPaths, (foldedPath) => {
+        return stripExtension(foldedPath).endsWith(foldedTargetSuffix)
       }),
     )
   }
@@ -631,7 +686,9 @@ const resolveAssetInLetterCase = (params: {
  *  again with ASCII letter case folded, so `![[Photo.PNG]]` reaches
  *  `photo.png` only when no file matches it exactly. The two path-suffix
  *  tiers fold ASCII case in the first pass too, so `![[photo.png]]` reaches
- *  the shorter of `A/Photo.PNG` and `B/sub/photo.png`. */
+ *  the shorter of `A/Photo.PNG` and `B/sub/photo.png`. The folded forms of
+ *  `allAssetPaths` are cached by the array, so the caller must not change it
+ *  after the call. */
 const resolveAsset = (params: {
   target: string
   allAssetPaths: readonly string[]
