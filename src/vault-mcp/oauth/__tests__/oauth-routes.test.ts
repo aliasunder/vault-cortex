@@ -13,6 +13,7 @@ import {
 import { createOAuthProvider } from "../oauth-provider.js"
 import type { OAuthProvider } from "../oauth-provider.js"
 import { createOAuthRoutes } from "../oauth-routes.js"
+import { renderUnknownClientPage } from "../unknown-client-page.js"
 import { logger, type Logger } from "../../../logger.js"
 
 type LogCall = {
@@ -879,9 +880,13 @@ describe("OAuth endpoint rate limiting", () => {
   // so invalid requests still count toward the window, and the pre-limit
   // status is each endpoint's own validation error.
   it("rate-limits /authorize after 5 requests from one client IP, with the SDK's 429 body and headers", async () => {
+    // An unknown client gets the recovery page, which counts like any request.
     for (let attempt = 0; attempt < 5; attempt++) {
       const response = await fetch(`${baseUrl}/authorize?client_id=unknown`)
-      expect(response.status).toBe(400)
+      expect({ status: response.status, type: response.headers.get("content-type") }).toEqual({
+        status: 400,
+        type: "text/html; charset=utf-8",
+      })
     }
     const sixth = await fetch(`${baseUrl}/authorize?client_id=unknown`)
     expect({
@@ -1517,6 +1522,67 @@ describe("OAuth refresh over HTTP", () => {
           data: { clientIp: "203.0.113.45", error: "Internal Server Error" },
         },
       ])
+    })
+
+    it.each([{ method: "GET" }, { method: "POST" }])(
+      "shows a person whose client registration is gone the recovery page on a $method request",
+      async ({ method }) => {
+        const logs: LogCall[] = []
+        recordingLogger(logs)
+        const { baseUrl } = await createRefreshTest()
+        const client = await registerClient(baseUrl, "203.0.113.47")
+        const params = { ...validAuthorizeParams(client), client_id: "swept-client" }
+        logs.length = 0
+
+        const response =
+          method === "GET"
+            ? await authorizeByGet(baseUrl, params, "203.0.113.47")
+            : await fetch(`${baseUrl}/authorize`, {
+                method: "POST",
+                headers: {
+                  "content-type": "application/x-www-form-urlencoded",
+                  forwarded: "for=203.0.113.47",
+                },
+                body: new URLSearchParams(params),
+                redirect: "manual",
+              })
+
+        expect({
+          status: response.status,
+          contentType: response.headers.get("content-type"),
+          cache: response.headers.get("cache-control"),
+          location: response.headers.get("location"),
+          html: await response.text(),
+        }).toEqual({
+          status: 400,
+          contentType: "text/html; charset=utf-8",
+          cache: "no-store",
+          location: null,
+          html: renderUnknownClientPage(),
+        })
+        expect(logs.filter((log) => log.message === "oauth_authorize_rejected")).toEqual([
+          {
+            level: "warn",
+            message: "oauth_authorize_rejected",
+            data: { clientIp: "203.0.113.47", reason: "unknown_client" },
+          },
+        ])
+      },
+    )
+
+    it("leaves a request that names no client to the SDK's JSON error", async () => {
+      const { baseUrl } = await createRefreshTest()
+      const client = await registerClient(baseUrl, "203.0.113.48")
+      const { client_id: _omitted, ...params } = validAuthorizeParams(client)
+
+      const outcome = await authorizeOutcome(await authorizeByGet(baseUrl, params, "203.0.113.48"))
+
+      expect(outcome).toEqual({
+        status: 400,
+        body: { error: "invalid_request", error_description: expect.any(String) },
+        location: null,
+        cache: "no-store",
+      })
     })
 
     it("still renders the consent page for a valid request", async () => {
