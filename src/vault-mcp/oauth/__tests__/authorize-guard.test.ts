@@ -124,6 +124,7 @@ describe("createAuthorizeGuard — redirects answered directly", () => {
     expect(warn).toHaveBeenCalledWith("oauth_authorize_error_answered", {
       clientIp: "127.0.0.1",
       error: "invalid_request",
+      errorDescription: "Invalid authorization request",
     })
   })
 

@@ -1574,7 +1574,7 @@ describe("OAuth refresh over HTTP", () => {
       })
     })
 
-    it("logs the rejection with the error code and client IP", async () => {
+    it("logs the rejection with the error code, its description and the client IP", async () => {
       const logs: LogCall[] = []
       recordingLogger(logs)
       const { baseUrl } = await createRefreshTest()
@@ -1593,7 +1593,12 @@ describe("OAuth refresh over HTTP", () => {
         {
           level: "warn",
           message: "oauth_authorize_error_answered",
-          data: { component: "oauth-routes", clientIp: "203.0.113.44", error: "invalid_target" },
+          data: {
+            component: "oauth-routes",
+            clientIp: "203.0.113.44",
+            error: "invalid_target",
+            errorDescription: "The resource parameter is not this server",
+          },
         },
       ])
     })
@@ -1623,7 +1628,8 @@ describe("OAuth refresh over HTTP", () => {
           data: {
             component: "oauth-routes",
             clientIp: "203.0.113.45",
-            error: "Internal Server Error",
+            error: "server_error",
+            errorDescription: "Internal Server Error",
           },
         },
       ])

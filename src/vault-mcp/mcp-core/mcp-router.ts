@@ -158,9 +158,10 @@ export const createMcpRouter = ({
   // Counts only 401 answers: a valid client's 404 (unknown session), 400 (no
   // session) and 405 (GET) never count.
   // - The library counts every request when it arrives and takes it back
-  //   when its response finishes with any status but 401. A client IP with
-  //   MCP_FAILED_AUTH_LIMIT requests in flight at once is therefore refused
-  //   its next one too, and the window resets every minute.
+  //   when its response finishes with any status but 401. A response the
+  //   client abandons never finishes, so its request counts until the
+  //   window resets each minute. A client IP with MCP_FAILED_AUTH_LIMIT
+  //   unfinished requests is therefore refused its next one too.
   // - Refusing before the token is checked is what bounds guessing, so a
   //   full bucket refuses a valid token from the same client IP for the
   //   rest of the window; see server.ts for why the limiter is on at all.

@@ -710,9 +710,9 @@ same routes refuse two kinds of request:
   the Streamable HTTP spec requires; MCP clients send no `Origin`, so only
   browser pages are refused
 - with an `MCP_AUTH_TOKEN` under 32 characters, any request from a client IP
-  whose **401** answers this minute and requests still in flight reach 30,
-  with **429** until the minute ends, valid tokens included; a generated
-  token leaves this limiter off
+  whose **401** answers and unfinished requests this minute reach 30, with
+  **429** until the minute ends, valid tokens included; a generated token
+  leaves this limiter off
 
 Both layers share the same HMAC key (`MCP_AUTH_TOKEN`) for JWT verification
 and `safeEqual`/`parseBearer` from `src/auth.ts`.

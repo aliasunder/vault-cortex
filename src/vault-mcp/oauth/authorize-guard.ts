@@ -22,6 +22,9 @@ type AuthorizeGuardOptions = {
 
 /** The client_id of a GET's query or a POST's form, when the request names one. */
 const requestedClientId = (req: Request): string | undefined => {
+  // The SDK answers any other method with a 405 before it reads a client_id.
+  if (req.method !== "GET" && req.method !== "POST") return undefined
+
   const params: unknown = req.method === "POST" ? req.body : req.query
   const clientId =
     typeof params === "object" && params !== null && "client_id" in params
@@ -81,6 +84,13 @@ export const createAuthorizeGuard = ({
 }: AuthorizeGuardOptions): Router => {
   const guard = Router()
 
+  // No /authorize answer may be cached. Set first, so the limiter's and the
+  // form parser's refusals carry it too.
+  guard.use((_req: Request, res: Response, next: NextFunction) => {
+    res.set("Cache-Control", "no-store")
+    next()
+  })
+
   // Replaces the SDK's own /authorize limiter, which sits behind this guard
   // and would otherwise never see a request the guard answers. The message
   // and header options are copied from the SDK's authorizationHandler, so
@@ -124,27 +134,33 @@ export const createAuthorizeGuard = ({
       clientIp: extractClientIp(req, trustForwardedHops),
       reason: "unknown_client",
     })
-    res.status(400).set("Cache-Control", "no-store").type("html").send(renderUnknownClientPage())
+    res.status(400).type("html").send(renderUnknownClientPage())
   })
 
   guard.use((req: Request, res: Response, next: NextFunction) => {
     // An own property on this response shadows Express's prototype method
-    // for this request only. The SDK calls res.redirect(302, url); Express
-    // also accepts (url) and (url, status), so the URL is whichever argument
-    // is the string.
+    // for this request only. The SDK calls res.redirect(302, url), and
+    // Express also accepts res.redirect(url), so the URL is whichever
+    // argument is the string.
     res.redirect = (...redirectArgs: ReadonlyArray<string | number>): void => {
       const redirectUrl = redirectArgs.find((argument) => typeof argument === "string")
       const { status, body } = redirectedErrorFromUrl(redirectUrl)
-      const clientIp = extractClientIp(req, trustForwardedHops)
 
-      // The provider has already logged why it refused (its reason and
-      // client ID); this line records what the visitor was answered.
-      if (body.error === SERVER_ERROR_CODE) {
-        logger.error("oauth_authorize_failed", { clientIp, error: body.error_description })
-      } else {
-        logger.warn("oauth_authorize_error_answered", { clientIp, error: body.error })
+      // The provider logs its own refusals with the client ID, but the SDK's
+      // parameter checks log nothing, so this line records the error and its
+      // description.
+      const answeredErrorFields = {
+        clientIp: extractClientIp(req, trustForwardedHops),
+        error: body.error,
+        errorDescription: body.error_description,
       }
-      res.status(status).set("Cache-Control", "no-store").json(body)
+
+      if (body.error === SERVER_ERROR_CODE) {
+        logger.error("oauth_authorize_failed", answeredErrorFields)
+      } else {
+        logger.warn("oauth_authorize_error_answered", answeredErrorFields)
+      }
+      res.status(status).json(body)
     }
     next()
   })
