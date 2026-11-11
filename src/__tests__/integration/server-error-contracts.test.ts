@@ -21,6 +21,7 @@ import {
 } from "./test-harness.js"
 import type { ToolResult } from "./test-harness.js"
 import {
+  buildEmptyStreamPdf,
   buildPasswordProtectedPdf,
   buildMinimalPdf,
   buildZeroPagePdf,
@@ -2413,6 +2414,26 @@ describe("unreadable PDF", () => {
       })
     },
   )
+
+  it("vault_read_file on a PDF with no extractable text", async () => {
+    const pdfContent = buildEmptyStreamPdf()
+    await plantPdf({ pdfPath: "Scanned.pdf", content: pdfContent })
+
+    const result = await callTool({
+      client,
+      name: "vault_read_file",
+      args: { path: "Scanned.pdf" },
+    })
+    expect(result).toEqual({
+      content: [
+        {
+          type: "text",
+          text: `[Error]: PDF has no extractable text: "Scanned.pdf" exists (${pdfContent.length} bytes, 1 pages) but contains no text content — it may be a scanned document or image-only PDF`,
+        },
+      ],
+      isError: true,
+    })
+  })
 
   it.each([{ raw: false }, { raw: true }])(
     "vault_read_file on a .pdf that holds no PDF with raw: $raw",
