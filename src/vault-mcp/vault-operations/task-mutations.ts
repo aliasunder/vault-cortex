@@ -308,6 +308,8 @@ const subtaskPositionsFrom = ({
 
 // ── Shared constants ────────────────────────────────────────────
 
+/** Matches a whole block ID: the characters tasks.BLOCK_LINK_RE reads after
+ *  the `^`, so an ID that passes is one the parser reads back. */
 const BLOCK_ID_RE = /^[a-zA-Z0-9-]+$/
 
 // ── Internal helpers ────────────────────────────────────────────
@@ -471,14 +473,14 @@ const isNonTaskCheckbox = ({
  *  position-counting purposes. */
 const isExcludedFromLane = ({
   line,
-  excluded,
+  insideFenceOrComment,
   statusRegistry,
 }: {
   line: string
-  excluded: boolean
+  insideFenceOrComment: boolean
   statusRegistry: ReadonlyMap<string, StatusClassification> | undefined
 }): boolean => {
-  if (excluded) return true
+  if (insideFenceOrComment) return true
 
   if (!statusRegistry) return false
 
@@ -503,10 +505,53 @@ const findFirstChildHeadingStart = ({
   return firstChildHeading?.startLine
 }
 
+/** A lane's top-level cards, as the line index each starts on, in order, and
+ *  the line of the lane's first child heading, if any. Sub-item blocks and
+ *  lines the index excludes (fence, comment, NON_TASK) are skipped, and the
+ *  cards under a child heading belong to that heading, not this lane. Both
+ *  insertion at a position and a card's reported position count these cards,
+ *  so the two always agree. */
+const findLaneCards = ({
+  lines,
+  heading,
+  statusRegistry,
+}: {
+  lines: readonly string[]
+  heading: HeadingInfo
+  statusRegistry: ReadonlyMap<string, StatusClassification> | undefined
+}): { cardStartIndices: readonly number[]; firstChildStart: number | undefined } => {
+  const firstChildStart = findFirstChildHeadingStart({ lines, heading })
+  const walkEnd = firstChildStart ?? heading.bodyEndLine
+  const fenceOrCommentLineIndices = findFenceOrCommentLineIndices(lines)
+  const cardStartIndices: number[] = []
+  // The walk starts at the heading's body, not its insert slot: the insert
+  // slot skips past a **Complete** marker, but cards above the marker are
+  // still lane cards. It jumps over each card's sub-item block, so its step
+  // varies.
+  let walkIndex = heading.bodyStartLine
+
+  while (walkIndex < walkEnd) {
+    const line = lines[walkIndex]
+
+    if (!line?.trim() || !tasks.isTaskLine(line)) {
+      walkIndex++
+      continue
+    }
+    const excludedFromLane = isExcludedFromLane({
+      line,
+      insideFenceOrComment: fenceOrCommentLineIndices.has(walkIndex),
+      statusRegistry,
+    })
+
+    if (!excludedFromLane) cardStartIndices.push(walkIndex)
+    walkIndex = findTaskBlockEnd(lines, walkIndex)
+  }
+  return { cardStartIndices, firstChildStart }
+}
+
 /** Body-line index for inserting at position N (1-based) among a lane's
- *  top-level cards — skipping sub-item blocks and fence/comment/NON_TASK
- *  lines. An N past the last card clamps to the lane's end site rather than
- *  its trailing-content position. */
+ *  top-level cards (see findLaneCards). An N past the last card clamps to the
+ *  lane's end site rather than its trailing-content position. */
 const headingInsertIndexAtPosition = ({
   lines,
   heading,
@@ -518,57 +563,17 @@ const headingInsertIndexAtPosition = ({
   position: number
   statusRegistry?: ReadonlyMap<string, StatusClassification> | undefined
 }): number => {
-  // Start from bodyStartLine (not taskInsertIndexUnderHeading) so the
-  // integer walk and positionOfTaskInLane count from the same window.
-  // The **Complete** marker skip only matters for the "bottom" append.
-  const sectionStart = heading.bodyStartLine
-  const sectionEnd = heading.bodyEndLine
-
-  // Cards under child headings belong to those headings, not this lane.
-  const firstChildStart = findFirstChildHeadingStart({ lines, heading })
-  const walkEnd = firstChildStart ?? sectionEnd
-  const fenceOrCommentLineIndices = findFenceOrCommentLineIndices(lines)
-
-  const cardStartIndices: number[] = []
-  // Variable-length jumps through the section: each card's sub-item block
-  // is skipped via findTaskBlockEnd, so the step size varies per iteration.
-  // lastCardBlockEnd tracks the end of the final card's block so an integer
-  // overshoot clamps to after the last card, not at the section's
-  // trailing-content position.
-  let walkIndex = sectionStart
-  let lastCardBlockEnd = -1
-
-  while (walkIndex < walkEnd) {
-    const line = lines[walkIndex]
-
-    if (!line?.trim() || !tasks.isTaskLine(line)) {
-      walkIndex++
-      continue
-    }
-    if (
-      isExcludedFromLane({
-        line,
-        excluded: fenceOrCommentLineIndices.has(walkIndex),
-        statusRegistry,
-      })
-    ) {
-      walkIndex = findTaskBlockEnd(lines, walkIndex)
-      continue
-    }
-    cardStartIndices.push(walkIndex)
-    const blockEnd = findTaskBlockEnd(lines, walkIndex)
-    lastCardBlockEnd = blockEnd
-    walkIndex = blockEnd
-  }
-
+  const { cardStartIndices, firstChildStart } = findLaneCards({ lines, heading, statusRegistry })
   const cardStartIndex = cardStartIndices[position - 1]
 
   if (cardStartIndex !== undefined) return cardStartIndex
 
-  // An overshoot lands after the last card when cards exist, before the
-  // first child heading when the lane's own level has none, and at the
+  // An overshoot lands after the last card's block when cards exist, before
+  // the first child heading when the lane's own level has none, and at the
   // lane's insert slot otherwise.
-  if (lastCardBlockEnd >= 0) return lastCardBlockEnd
+  const lastCardStart = cardStartIndices.at(-1)
+
+  if (lastCardStart !== undefined) return findTaskBlockEnd(lines, lastCardStart)
   return firstChildStart ?? taskInsertIndexUnderHeading({ lines, heading })
 }
 
@@ -906,11 +911,17 @@ const rejectNonTaskCheckbox = ({
 }): void => {
   if (!isNonTaskCheckbox({ taskLine, statusRegistry })) return
 
+  // The checkbox is read again only to name it in the error.
   const statusChar = CHECKBOX_CHAR_RE.exec(taskLine)?.[1]
   throw new Error(`checkbox "[${statusChar}]" is a NON_TASK status in the Tasks plugin registry`)
 }
 
-/** Classifies a note once so lane walks and ID checks never rescan its prefix per candidate. */
+/** The indices of the body lines that sit in a fenced code block or a `%%`
+ *  comment, from one pass over the note:
+ *  - a fence line counts as code;
+ *  - a line counts as comment when a comment is already open at its start,
+ *    the line that closes it included;
+ *  - a line outside an open comment counts as content, whatever comment it opens. */
 const findFenceOrCommentLineIndices = (bodyLines: readonly string[]): ReadonlySet<number> => {
   const fenceOrCommentLineIndices = new Set<number>()
   // Fence and comment state must flow through every line, including skipped card sub-items.
@@ -927,7 +938,7 @@ const findFenceOrCommentLineIndices = (bodyLines: readonly string[]): ReadonlySe
         continue
       }
     }
-    // A line outside a comment is classified by its fence state before its comment opener.
+    // Only a comment already open at the line's start makes it a comment line.
     const wasCommentOpen = commentOpen
     const commentResult = advanceComment(lineText, commentOpen)
     commentOpen = commentResult.commentOpen
@@ -937,6 +948,9 @@ const findFenceOrCommentLineIndices = (bodyLines: readonly string[]): ReadonlySe
   return fenceOrCommentLineIndices
 }
 
+/** Whether one body line sits in a fence or comment, by the rules of
+ *  findFenceOrCommentLineIndices. Each call passes over the whole note, so a
+ *  caller checking many lines calls findFenceOrCommentLineIndices once instead. */
 const isInsideFenceOrComment = (bodyLines: readonly string[], lineIndex: number): boolean =>
   findFenceOrCommentLineIndices(bodyLines).has(lineIndex)
 
@@ -1099,7 +1113,7 @@ const moveTaskBlock = ({
   }
 }
 
-/** 1-based position of a task among its lane's top-level cards. */
+/** 1-based position of a task among its lane's top-level cards (see findLaneCards). */
 const positionOfTaskInLane = ({
   lines,
   heading,
@@ -1111,45 +1125,15 @@ const positionOfTaskInLane = ({
   taskLineIndex: number
   statusRegistry?: ReadonlyMap<string, StatusClassification> | undefined
 }): number => {
-  // Scan from the heading's body start, not the insert slot — the insert
-  // slot skips past a **Complete** marker, but cards above the marker are
-  // still lane members for position-counting purposes.
-  const sectionStart = heading.bodyStartLine
-  const sectionEnd = heading.bodyEndLine
+  const { cardStartIndices } = findLaneCards({ lines, heading, statusRegistry })
+  const cardIndex = cardStartIndices.indexOf(taskLineIndex)
 
-  const firstChildStart = findFirstChildHeadingStart({ lines, heading })
-  const walkEnd = firstChildStart ?? sectionEnd
-  const fenceOrCommentLineIndices = findFenceOrCommentLineIndices(lines)
-
-  // Each card's sub-items are skipped via findTaskBlockEnd, so the
-  // step size varies per iteration — both counters must be mutable.
-  let walkIndex = sectionStart
-  let cardPosition = 0
-
-  while (walkIndex < walkEnd) {
-    const line = lines[walkIndex]
-
-    if (!line?.trim() || !tasks.isTaskLine(line)) {
-      walkIndex++
-      continue
-    }
-    if (
-      isExcludedFromLane({
-        line,
-        excluded: fenceOrCommentLineIndices.has(walkIndex),
-        statusRegistry,
-      })
-    ) {
-      walkIndex = findTaskBlockEnd(lines, walkIndex)
-      continue
-    }
-    cardPosition++
-    if (walkIndex === taskLineIndex) return cardPosition
-    walkIndex = findTaskBlockEnd(lines, walkIndex)
+  if (cardIndex === -1) {
+    throw new Error(
+      `task at body line index ${taskLineIndex} not found in the "${heading.text}" section (${cardStartIndices.length} cards scanned)`,
+    )
   }
-  throw new Error(
-    `task at body line index ${taskLineIndex} not found in the "${heading.text}" section (${cardPosition} cards scanned)`,
-  )
+  return cardIndex + 1
 }
 
 /** Appends checklist items under a task, after its existing sub-items. */
