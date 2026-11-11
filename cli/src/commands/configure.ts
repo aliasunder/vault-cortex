@@ -1,16 +1,16 @@
 import type { DockerRunner } from "../adapters/docker.js"
 import { envFile } from "../adapters/env-file.js"
 import type { Prompts } from "../adapters/prompts.js"
+import {
+  applyOptionalSettings,
+  describeStrandedPublicUrl,
+  withPublicUrlOverride,
+} from "../rules/env-edits.js"
 import { buildSettingsSavedWithoutRuntimeMessage, vaultCortexCommand } from "../rules/messages.js"
 import { portsOfOtherContainers } from "../rules/ports.js"
 import { containerStart } from "../steps/container-start.js"
 import { requireInitializedDir, resolveDeployment } from "../steps/deployment.js"
-import {
-  applyOptionalSettings,
-  askOptionalSettings,
-  describeStrandedPublicUrl,
-  withPublicUrlOverride,
-} from "../steps/optional-settings.js"
+import { askOptionalSettings } from "../steps/optional-settings.js"
 
 export type ConfigureFlags = {
   dir?: string

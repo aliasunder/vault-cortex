@@ -14,6 +14,7 @@ import {
   parseEnvValues,
   readEnvValue,
 } from "../rules/env-values.js"
+import type { InstanceIdentity } from "../rules/env-edits.js"
 import { describeEnvFix, vaultCortexCommand } from "../rules/messages.js"
 import {
   DEFAULT_PORT,
@@ -25,26 +26,7 @@ import {
   type PortRequest,
   type PortsInUse,
 } from "../rules/ports.js"
-import {
-  applyOptionalSettings,
-  describeStrandedPublicUrl,
-  withPublicUrlOverride,
-} from "./optional-settings.js"
 import { askFreePort, choosePort } from "./port-prompt.js"
-
-/** The .env values that tell one install on a machine apart from another. */
-export type InstanceIdentity = {
-  /**
-   * Read from the folder's existing .env, without surrounding quotes, when
-   * init runs again over it.
-   */
-  carried: Record<string, string>
-  /**
-   * Chosen in this run, by flag or prompt. A `http://localhost:<port>`
-   * PUBLIC_URL follows a chosen PORT.
-   */
-  chosen: Record<string, string>
-}
 
 export type InstanceIdentityFlags = {
   instanceName?: string
@@ -386,44 +368,4 @@ export const resolveInstanceIdentity = async (
     ...buildDeviceNameSetting(mode, instanceName),
   }
   return { kind: "ok", identity: { carried: {}, chosen }, portsInUse }
-}
-
-/**
- * Writes the identity into freshly generated .env content, before the
- * optional-settings chooser reads it, so the chooser shows the identity's port
- * as current. A `http://localhost:<port>` PUBLIC_URL follows a carried or a
- * chosen port; a carried PUBLIC_URL is the user's own and lands verbatim.
- */
-export const applyInstanceIdentity = (envContent: string, identity: InstanceIdentity): string => {
-  const carriedSettings = identity.carried.PUBLIC_URL
-    ? identity.carried
-    : withPublicUrlOverride({ overrides: identity.carried, envContent })
-  const withCarried = applyOptionalSettings(envContent, carriedSettings)
-  const chosenSettings = withPublicUrlOverride({
-    overrides: identity.chosen,
-    envContent: withCarried,
-  })
-  return applyOptionalSettings(withCarried, chosenSettings)
-}
-
-/**
- * Warns when --port changes a re-run's port but its carried PUBLIC_URL stays:
- * applyInstanceIdentity moves only a `http://localhost:<port>` URL, never a
- * custom one. Returns undefined when there is nothing to warn about.
- */
-export const describeStrandedCarriedPublicUrl = (
-  envContent: string,
-  identity: InstanceIdentity,
-): string | undefined => {
-  if (!identity.carried.PUBLIC_URL) return undefined
-  const withCarried = applyOptionalSettings(envContent, identity.carried)
-
-  return describeStrandedPublicUrl({
-    envContent: withCarried,
-    pickedOverrides: identity.chosen,
-    appliedOverrides: withPublicUrlOverride({
-      overrides: identity.chosen,
-      envContent: withCarried,
-    }),
-  })
 }

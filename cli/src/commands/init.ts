@@ -6,6 +6,13 @@ import { envFile, type EnvWriteStatus } from "../adapters/env-file.js"
 import type { Prompts } from "../adapters/prompts.js"
 import { generateToken } from "../adapters/token.js"
 import { expandTilde, validateVaultPath } from "../adapters/vault.js"
+import {
+  applyInstanceIdentity,
+  applyOptionalSettings,
+  describeStrandedCarriedPublicUrl,
+  describeStrandedPublicUrl,
+  withPublicUrlOverride,
+} from "../rules/env-edits.js"
 import { buildLocalEnv, buildRemoteEnv } from "../rules/env-templates.js"
 import {
   detectMode,
@@ -23,18 +30,9 @@ import {
 } from "../rules/messages.js"
 import { containerStart } from "../steps/container-start.js"
 import { DEFAULT_TARGET_DIR, resolveDeployment, type Deployment } from "../steps/deployment.js"
-import {
-  applyInstanceIdentity,
-  describeStrandedCarriedPublicUrl,
-  resolveInstanceIdentity,
-} from "../steps/instance-identity.js"
+import { resolveInstanceIdentity } from "../steps/instance-identity.js"
 import { captureObsidianToken } from "../steps/obsidian-sign-in.js"
-import {
-  applyOptionalSettings,
-  askOptionalSettings,
-  describeStrandedPublicUrl,
-  withPublicUrlOverride,
-} from "../steps/optional-settings.js"
+import { askOptionalSettings } from "../steps/optional-settings.js"
 
 export type InitFlags = {
   mode?: string
