@@ -7,7 +7,7 @@ import {
   type DockerRunner,
 } from "./docker.js"
 import { envFile } from "./env-file.js"
-import type { Deployment } from "./lifecycle.js"
+import type { Deployment } from "./deployment.js"
 import type { StartStatus } from "./messages.js"
 import type { Prompts } from "./prompts.js"
 

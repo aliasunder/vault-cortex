@@ -259,3 +259,19 @@ export const fetchOk: typeof fetch = async () => new Response(null, { status: 20
 export const fetchNever: typeof fetch = async () => {
   throw new Error("fetch must not be called")
 }
+
+/** Builds a mock fetch that returns a successful signin response. */
+export const fetchSigninSuccess = (token = "test-sync-token"): typeof fetch =>
+  (async () =>
+    new Response(JSON.stringify({ token }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    })) as typeof fetch
+
+/** Builds a mock fetch that returns an API error (200 with error field). */
+export const fetchApiError = (errorMessage: string): typeof fetch =>
+  (async () =>
+    new Response(JSON.stringify({ error: errorMessage }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    })) as typeof fetch

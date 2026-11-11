@@ -1,7 +1,7 @@
 import { readFileSync, writeFileSync } from "node:fs"
 
 import { containerStart } from "./container-start.js"
-import { requireInitializedDir, resolveDeployment } from "./lifecycle.js"
+import { requireInitializedDir, resolveDeployment } from "./deployment.js"
 import {
   applyOptionalSettings,
   askOptionalSettings,

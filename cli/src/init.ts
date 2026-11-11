@@ -2,7 +2,7 @@ import { existsSync } from "node:fs"
 import { join, resolve } from "node:path"
 
 import { buildLocalEnv, buildRemoteEnv } from "./env.js"
-import { captureObsidianToken } from "./get-sync-token.js"
+import { captureObsidianToken } from "./obsidian-sign-in.js"
 import {
   buildDaemonNotRunningMessage,
   buildDockerNotInstalledMessage,
@@ -20,7 +20,7 @@ import {
   describeStrandedCarriedPublicUrl,
   resolveInstanceIdentity,
 } from "./instance-identity.js"
-import { resolveDeployment, type Deployment } from "./lifecycle.js"
+import { DEFAULT_TARGET_DIR, resolveDeployment, type Deployment } from "./deployment.js"
 import {
   applyOptionalSettings,
   askOptionalSettings,
@@ -47,8 +47,6 @@ export type InitDeps = {
   docker: DockerRunner
   fetchFn: typeof fetch
 }
-
-const DEFAULT_TARGET_DIR = "./vault-cortex"
 
 const isMode = (value: string): value is Mode => value === "local" || value === "remote"
 
