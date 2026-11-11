@@ -159,6 +159,8 @@ export default defineConfig(
               group: [
                 "node:fs",
                 "node:fs/**",
+                "fs",
+                "fs/**",
                 "better-sqlite3",
                 "sqlite-vec",
                 "@modelcontextprotocol/**",
@@ -305,10 +307,18 @@ export default defineConfig(
         {
           patterns: [
             {
+              // Any path into the commands folder, such as "../commands/x".
               group: ["**/commands/**"],
               allowTypeImports: true,
               message:
                 "CLI steps never import a command — move what both need into a step (AGENTS.md → CLI layering)",
+            },
+            {
+              // "../program.js", "../main.js" and "../bin.js" are the wiring, which imports every layer.
+              regex: "^\\.\\./(program|main|bin)(\\.js)?$",
+              allowTypeImports: true,
+              message:
+                "CLI steps never import the wiring (program, main, bin) — the wiring imports the layers, never the reverse (AGENTS.md → CLI layering)",
             },
           ],
         },
@@ -338,6 +348,13 @@ export default defineConfig(
               allowTypeImports: true,
               message:
                 "CLI commands never import another command — move what both need into a step (AGENTS.md → CLI layering)",
+            },
+            {
+              // "../program.js", "../main.js" and "../bin.js" are the wiring, which imports every layer.
+              regex: "^\\.\\./(program|main|bin)(\\.js)?$",
+              allowTypeImports: true,
+              message:
+                "CLI commands never import the wiring (program, main, bin) — the wiring imports the layers, never the reverse (AGENTS.md → CLI layering)",
             },
           ],
         },
