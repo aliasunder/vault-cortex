@@ -16,6 +16,8 @@ type InstanceContainer = "none" | "own" | "foreign"
 
 type ContainerStartDeps = { prompts: Prompts; docker: DockerRunner; fetchFn: typeof fetch }
 
+const DEFAULT_HEALTH_WAIT_LABEL = "Waiting for the server to come up"
+
 /**
  * Looks up the container that holds the install's name. One running another
  * image is someone else's, so no command may stop, remove or stream it: this
@@ -79,16 +81,23 @@ const reportPublicUrlProbe = async (
  * 4. probes a remote PUBLIC_URL once, informationally.
  * Returns "running" once healthy, "starting" when the container launched but
  * the health wait timed out, and "not-started" when removal or docker run failed.
+ * healthWaitLabel, when given, replaces the health-wait spinner's default text.
  */
 const start = async (
   params: {
     deployment: Deployment
     instanceContainer: Exclude<InstanceContainer, "foreign">
     healthTimeoutMs?: number
+    healthWaitLabel?: string
   },
   deps: ContainerStartDeps,
 ): Promise<StartStatus> => {
-  const { deployment, instanceContainer, healthTimeoutMs } = params
+  const {
+    deployment,
+    instanceContainer,
+    healthTimeoutMs,
+    healthWaitLabel = DEFAULT_HEALTH_WAIT_LABEL,
+  } = params
   const { prompts, docker, fetchFn } = deps
   const { mode, instanceName, envFilePath, port } = deployment
 
@@ -120,7 +129,7 @@ const start = async (
   }
 
   const spinner = prompts.spinner()
-  spinner.start("Waiting for the server to come up")
+  spinner.start(healthWaitLabel)
   const timeoutMs = healthTimeoutMs ?? healthPollTimeoutMs(mode)
   const healthy = await pollHealth({ url: `http://127.0.0.1:${port}/healthz`, timeoutMs }, fetchFn)
 

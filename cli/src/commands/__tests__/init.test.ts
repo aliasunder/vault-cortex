@@ -801,7 +801,7 @@ describe("runInit remote flow", () => {
     expect(scripted.spinnerMessages).toEqual([
       "start: Signing in to Obsidian...",
       "stop: Signed in as user@example.com.",
-      "start: Waiting for the server to come up",
+      "start: Waiting for the server to come up (first run may take a moment)",
       "stop: Server is up — health check passed.",
       "start: Checking the public URL (https://vault.example.com/healthz)",
       "stop: No answer from https://vault.example.com/healthz yet.",

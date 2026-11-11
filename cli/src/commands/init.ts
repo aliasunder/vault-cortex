@@ -279,7 +279,14 @@ const offerDockerRun = async (deployment: Deployment, deps: InitDeps): Promise<S
   const startNow = await prompts.confirm(startQuestion, true)
 
   if (!startNow) return "not-started"
-  return containerStart.start({ deployment, instanceContainer }, deps)
+  return containerStart.start(
+    {
+      deployment,
+      instanceContainer,
+      healthWaitLabel: "Waiting for the server to come up (first run may take a moment)",
+    },
+    deps,
+  )
 }
 
 // Local flow: resolve vault path → resolve target dir → generate token →
