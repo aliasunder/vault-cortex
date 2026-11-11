@@ -1,6 +1,6 @@
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { join, relative } from "node:path"
 import { describe, expect, it, onTestFinished } from "vitest"
 
 import { runGetSyncToken } from "../get-sync-token.js"
@@ -52,7 +52,7 @@ describe("runGetSyncToken subcommand", () => {
     expect(scripted.errors).toEqual(["Could not capture the auth token."])
   })
 
-  it("writes the token to .env when --dir is set", async () => {
+  it("writes the token to the .env of a relative --dir and prints its absolute start command", async () => {
     const targetDir = makeTempTargetDir()
     writeFileSync(
       join(targetDir, ".env"),
@@ -61,7 +61,7 @@ describe("runGetSyncToken subcommand", () => {
     const scripted = createScriptedPrompts(["user@example.com", "password"])
 
     const exitCode = await runGetSyncToken(
-      { dir: targetDir },
+      { dir: relative(process.cwd(), targetDir) },
       {
         prompts: scripted.prompts,
         fetchFn: fetchSigninSuccess("new-sync-token"),
