@@ -216,8 +216,7 @@ export const describeApiFailure = (error: unknown): string => {
   if (error instanceof Error && error.name === "TimeoutError") {
     return "Obsidian's servers did not answer in time — try again."
   }
-  // The bare message, not describeError's "[Name]: message" log form —
-  // this string is shown on the page.
+  // The bare message, not the "[Name]: message" form that utils' describeError gives log lines — this string is shown on the page.
   const reason = error instanceof Error ? error.message : String(error)
   return `Could not reach Obsidian's servers (${reason}).`
 }
