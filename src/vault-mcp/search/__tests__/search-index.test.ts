@@ -5161,42 +5161,30 @@ describe("getOutgoingLinks", () => {
     )
   })
 
-  it("returns outgoing links with exists flag and kind", () => {
-    const links = index.getOutgoingLinks(
-      { path: "source.md", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
-      logger,
-    )
-    expect(links).toHaveLength(2)
-
-    const existing = links.find((link) => link.path === "target-exists.md")
-    expect(existing).toBeDefined()
-    expect(existing?.exists).toBe(true)
-    expect(existing?.kind).toBe("note")
-    expect(existing?.title).toBe("Target")
-  })
-
-  it("marks unresolved links as exists: false with kind note", () => {
-    const links = index.getOutgoingLinks(
-      { path: "source.md", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
-      logger,
-    )
-    const missing = links.find((link) => link.path === "NonExistent")
-    expect(missing).toBeDefined()
-    expect(missing?.exists).toBe(false)
-    expect(missing?.kind).toBe("note")
-    expect(missing?.title).toBeNull()
-    expect(missing?.bytes).toBeNull()
-  })
-
-  it("includes bytes for existing targets, null for broken links", () => {
-    const links = index.getOutgoingLinks(
-      { path: "source.md", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
-      logger,
-    )
-    const existing = links.find((link) => link.path === "target-exists.md")
-    expect(existing?.bytes).toBe(222)
-    const broken = links.find((link) => link.path === "NonExistent")
-    expect(broken?.bytes).toBeNull()
+  it("returns a resolved link with its title and bytes, and an unresolved one as a broken note", () => {
+    expect(
+      index.getOutgoingLinks(
+        { path: "source.md", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
+        logger,
+      ),
+    ).toEqual([
+      {
+        path: "NonExistent",
+        title: null,
+        exists: false,
+        kind: "note",
+        bytes: null,
+        daily_note_forward_ref: false,
+      },
+      {
+        path: "target-exists.md",
+        title: "Target",
+        exists: true,
+        kind: "note",
+        bytes: 222,
+        daily_note_forward_ref: false,
+      },
+    ])
   })
 
   it.each(["Daily Notes", "Daily Notes/", "Daily Notes///"])(
@@ -6351,8 +6339,8 @@ describe("brokenLinkCount", () => {
       index.brokenLinkCount(
         { dailyNotesFolder: "Daily Notes", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
         logger,
-      ).count,
-    ).toBe(0)
+      ),
+    ).toEqual({ count: 0, excludedCount: 1 })
   })
 
   it("still counts broken links outside the daily note folder", () => {
@@ -6368,8 +6356,8 @@ describe("brokenLinkCount", () => {
       index.brokenLinkCount(
         { dailyNotesFolder: "Daily Notes", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
         logger,
-      ).count,
-    ).toBe(2)
+      ),
+    ).toEqual({ count: 2, excludedCount: 0 })
   })
 
   it("excludes all broken links under the daily notes folder, not just dates", () => {
@@ -6381,12 +6369,12 @@ describe("brokenLinkCount", () => {
       }),
       logger,
     )
-    const result = index.brokenLinkCount(
-      { dailyNotesFolder: "Daily Notes", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
-      logger,
-    )
-    expect(result.count).toBe(1)
-    expect(result.excludedCount).toBe(1)
+    expect(
+      index.brokenLinkCount(
+        { dailyNotesFolder: "Daily Notes", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
+        logger,
+      ),
+    ).toEqual({ count: 1, excludedCount: 1 })
   })
 
   it("counts all broken links when no daily note exclusion is set", () => {
@@ -6398,9 +6386,9 @@ describe("brokenLinkCount", () => {
       }),
       logger,
     )
-    expect(
-      index.brokenLinkCount({ dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT }, logger).count,
-    ).toBe(2)
+    expect(index.brokenLinkCount({ dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT }, logger)).toEqual(
+      { count: 2, excludedCount: 0 },
+    )
   })
 
   // Bare dates as a wikilink and a markdown link, beside a date inside another
