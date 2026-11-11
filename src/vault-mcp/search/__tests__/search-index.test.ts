@@ -5328,6 +5328,47 @@ describe("getOutgoingLinks", () => {
     ).toEqual([brokenLink("07.10.2026", true), brokenLink("2026-10-07", false)])
   })
 
+  it("does not flag a bare date link whose daily note exists", () => {
+    index.upsertNote(
+      withBodyTags({ filePath: "2026-10-07.md", rawContent: "# Day\n", fileStat: testStat(1000) }),
+      logger,
+    )
+    upsertPlanLinkingTo("[[2026-10-07]] and [[missing]]")
+
+    expect(
+      index.getOutgoingLinks(
+        {
+          path: "plan.md",
+          dailyNotesFolder: "Daily Notes",
+          dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT,
+        },
+        logger,
+      ),
+    ).toEqual([
+      {
+        path: "2026-10-07.md",
+        title: "2026-10-07",
+        exists: true,
+        kind: "note",
+        bytes: 100,
+        daily_note_forward_ref: false,
+      },
+      brokenLink("missing", false),
+    ])
+  })
+
+  it("flags no bare name, but still the daily folder, when the format's file name is not a whole date", () => {
+    // The file name is only the day of the month, so "07" could be any month's note
+    upsertPlanLinkingTo("[[07]] and [[Daily Notes/2026/10/08]]")
+
+    expect(
+      index.getOutgoingLinks(
+        { path: "plan.md", dailyNotesFolder: "Daily Notes", dailyNotesFormat: "YYYY/MM/DD" },
+        logger,
+      ),
+    ).toEqual([brokenLink("07", false), brokenLink("Daily Notes/2026/10/08", true)])
+  })
+
   it("returns empty for notes with no outgoing links", () => {
     index.upsertNote(
       withBodyTags({

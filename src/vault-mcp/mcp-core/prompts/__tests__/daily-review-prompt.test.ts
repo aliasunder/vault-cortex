@@ -452,6 +452,42 @@ describe("daily-review handler", () => {
     )
   })
 
+  it("lists a bare date link in the format set in daily-notes.json as a daily note not created yet", async () => {
+    const vault = await mkdtemp(join(tmpdir(), "prompt-daily-format-"))
+    onTestFinished(() => rm(vault, { recursive: true, force: true }))
+    await mkdir(join(vault, ".obsidian"))
+    await mkdir(join(vault, "Journal"))
+    await mkdir(join(vault, "About Me"))
+    // Not Obsidian's default format, so a bare date in the default format stays broken
+    await writeFile(
+      join(vault, ".obsidian", "daily-notes.json"),
+      '{"folder":"Journal","format":"DD.MM.YYYY"}',
+    )
+    const dailyContent = "# 16.06.2026\n\n[[17.06.2026]] [[2026-06-17]]\n"
+    await writeFile(join(vault, "Journal", "16.06.2026.md"), dailyContent)
+    const search = createSearchIndex(":memory:")
+    search.upsertNote(
+      withBodyTags({
+        filePath: "Journal/16.06.2026.md",
+        rawContent: dailyContent,
+        fileStat: { mtimeMs: JUNE_16_MIDDAY_MS, size: Buffer.byteLength(dailyContent) },
+      }),
+      logger,
+    )
+    const handler = findCall(registerWithSearch(vault, search), PROMPT_NAMES.DAILY_REVIEW)[2]
+
+    const text = textOf(await handler({ date: "2026-06-16" }, fakeExtra))
+
+    expect(reviewSection(text, "Outgoing links")).toBe(
+      [
+        "- 17.06.2026 (daily note not created yet)",
+        "- 2026-06-17 (**broken** — target does not exist)",
+        "",
+        "1 broken link — the target note does not exist yet.",
+      ].join("\n"),
+    )
+  })
+
   it("reads a blank-folder daily note from the new-note folder and counts its missing links there as broken", async () => {
     const vault = await mkdtemp(join(tmpdir(), "prompt-daily-blank-folder-"))
     onTestFinished(() => rm(vault, { recursive: true, force: true }))
