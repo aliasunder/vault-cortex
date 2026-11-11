@@ -231,7 +231,7 @@ describe("moveNote — link rewriting forms", () => {
       updated_notes: ["src.md"],
       pruned_empty_folders: 0,
     })
-    expect(await readNote("src.md")).toBe("See [[Real]] here.\n")
+    expect(await readNote("src.md")).toBe("See [[Other/Real]] here.\n")
   })
 
   it("preserves an alias when rewriting a wikilink", async () => {

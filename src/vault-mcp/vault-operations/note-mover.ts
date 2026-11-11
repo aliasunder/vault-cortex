@@ -118,16 +118,28 @@ const classifyLinkForm = (params: {
   resolvedTarget: string
 }): LinkForm => {
   const { rawTarget, sourcePath, resolvedTarget } = params
+
+  // Links resolve whatever their letter case, so the form is read with case
+  // folded: [[folder/real]] for Folder/Real.md is a path-form link, and its
+  // rewrite keeps the folder.
+  const foldedTarget = rawTarget.toLowerCase()
+  const foldedResolvedTarget = resolvedTarget.toLowerCase()
+
   // The resolved path carries the file's real extension — ".md" for notes,
   // the asset's own otherwise — so one rule covers both kinds (a stem-form
   // asset link gets its extension appended, exactly like an extensionless
   // wikilink to a note). An extensionless file gives "", which every target
   // ends with, so nothing is appended.
-  const extension = posix.extname(resolvedTarget)
-  const targetWithExtension = rawTarget.endsWith(extension) ? rawTarget : `${rawTarget}${extension}`
+  const extension = posix.extname(foldedResolvedTarget)
+  const targetWithExtension = foldedTarget.endsWith(extension)
+    ? foldedTarget
+    : `${foldedTarget}${extension}`
 
-  if (targetWithExtension === resolvedTarget) return "absolute"
-  if (posix.join(posix.dirname(sourcePath), targetWithExtension) === resolvedTarget) {
+  if (targetWithExtension === foldedResolvedTarget) return "absolute"
+
+  const foldedSourceFolder = posix.dirname(sourcePath).toLowerCase()
+
+  if (posix.join(foldedSourceFolder, targetWithExtension) === foldedResolvedTarget) {
     return "relative"
   }
   return "basename"
@@ -200,10 +212,8 @@ const rewriteTarget = (
   // Follow the moved note to its new location; every other target (an
   // unmoved note, or an asset — assets never move) keeps its resolved path,
   // and the rewrite below only re-expresses how the link reaches it.
-  const desiredTarget =
-    targetKind === "note" && resolvedBefore === context.oldTargetPath
-      ? context.newTargetPath
-      : resolvedBefore
+  const linksToMovedNote = targetKind === "note" && resolvedBefore === context.oldTargetPath
+  const desiredTarget = linksToMovedNote ? context.newTargetPath : resolvedBefore
 
   // Resolves against the post-move vault from the source's new location —
   // shared by the "already resolves" check and the candidate verifier.
@@ -222,8 +232,17 @@ const rewriteTarget = (
     })
   }
 
-  // Already resolves correctly from the new location — leave it alone.
-  const resolvedAfter = resolveFromNewSource(rawTarget)
+  // A link that already resolves correctly from the new location is left
+  // alone. A link to the moved note qualifies only when it matches in its own
+  // letter case. After a case-only rename from Foo.md to foo.md, [[Foo]]
+  // still reaches foo.md with case folded, yet it is rewritten to [[foo]].
+  const resolvedAfter = linksToMovedNote
+    ? links.resolveInExactCase({
+        target: rawTarget,
+        allPaths: context.allNotePathsAfter,
+        sourcePath: context.newSourcePath,
+      })
+    : resolveFromNewSource(rawTarget)
 
   if (resolvedAfter === desiredTarget) return null
 

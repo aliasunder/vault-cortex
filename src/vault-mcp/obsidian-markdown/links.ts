@@ -471,6 +471,28 @@ const resolveNoteInLetterCase = (params: {
   return shortestOf(basenameMatches)
 }
 
+const noteTargetWithExtension = (target: string): string => {
+  return target.endsWith(".md") ? target : `${target}.md`
+}
+
+/** Resolves a link target the way `resolve` does, but only in the link's own
+ *  letter case, so `[[real]]` misses `Folder/Real.md`. A match means the link
+ *  already spells the path in that path's letter case. */
+const resolveInExactCase = (params: {
+  target: string
+  allPaths: readonly string[]
+  sourcePath?: string
+}): string | null => {
+  const { target, allPaths, sourcePath } = params
+
+  return resolveNoteInLetterCase({
+    targetWithExtension: noteTargetWithExtension(target),
+    allPaths,
+    sourcePath,
+    letterCase: "exact",
+  })
+}
+
 /** Resolves a link target to a vault-relative path using all known paths,
  *  covering Obsidian's three "New link format" modes: path from vault folder
  *  (exact), shortest path / basename, and — when the linking note's `sourcePath`
@@ -484,7 +506,7 @@ const resolve = (params: {
   sourcePath?: string
 }): string | null => {
   const { target, allPaths, sourcePath } = params
-  const targetWithExtension = target.endsWith(".md") ? target : `${target}.md`
+  const targetWithExtension = noteTargetWithExtension(target)
 
   return (
     resolveNoteInLetterCase({ targetWithExtension, allPaths, sourcePath, letterCase: "exact" }) ??
@@ -626,6 +648,7 @@ export const links = {
   extractFromFrontmatter,
   extractAll,
   resolve,
+  resolveInExactCase,
   stripExtension,
   resolveAsset,
 }
