@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { buildLocalEnv, buildRemoteEnv } from "../env.js"
+import { buildLocalEnv, buildRemoteEnv } from "../env-templates.js"
 
 describe("buildLocalEnv", () => {
   it("produces the full expected .env from the given answers", () => {

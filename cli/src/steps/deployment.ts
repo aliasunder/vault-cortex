@@ -1,7 +1,9 @@
 import { join, resolve } from "node:path"
 
-import type { DockerRunner, Mode } from "./docker.js"
-import { envFile } from "./env-file.js"
+import type { DockerRunner, Mode } from "../adapters/docker.js"
+import { envFile } from "../adapters/env-file.js"
+import type { Prompts } from "../adapters/prompts.js"
+import { expandTilde } from "../adapters/vault.js"
 import {
   detectMode,
   parseEnvValues,
@@ -10,10 +12,12 @@ import {
   readEnvPublicUrl,
   readEnvVaultPath,
   type EnvValues,
-} from "./env-values.js"
-import { buildDaemonUnavailableMessage, describeEnvFix, vaultCortexCommand } from "./messages.js"
-import type { Prompts } from "./prompts.js"
-import { expandTilde } from "./vault.js"
+} from "../rules/env-values.js"
+import {
+  buildDaemonUnavailableMessage,
+  describeEnvFix,
+  vaultCortexCommand,
+} from "../rules/messages.js"
 
 /** An init'd deployment on disk, reconstructed from its .env file. */
 export type Deployment = {

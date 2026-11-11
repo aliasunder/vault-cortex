@@ -1,3 +1,4 @@
+import type { Prompts } from "../adapters/prompts.js"
 import {
   DEFAULT_PORT,
   decidePort,
@@ -6,8 +7,7 @@ import {
   suggestFreePort,
   type PortRequest,
   type PortsInUse,
-} from "./ports.js"
-import type { Prompts } from "./prompts.js"
+} from "../rules/ports.js"
 
 type PortSettingResult = { kind: "ok"; settings: Record<string, string> } | { kind: "exit" }
 

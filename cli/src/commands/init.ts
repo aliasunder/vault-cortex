@@ -1,34 +1,39 @@
 import { existsSync } from "node:fs"
 import { join, resolve } from "node:path"
 
-import { containerStart } from "./container-start.js"
-import { DEFAULT_TARGET_DIR, resolveDeployment, type Deployment } from "./deployment.js"
-import type { DockerRunner, Mode } from "./docker.js"
-import { buildLocalEnv, buildRemoteEnv } from "./env.js"
-import { envFile, type FileWriteResult } from "./env-file.js"
-import { detectMode, parseEnvValues, readEnvObsidianToken, type EnvValues } from "./env-values.js"
+import type { DockerRunner, Mode } from "../adapters/docker.js"
+import { envFile, type FileWriteResult } from "../adapters/env-file.js"
+import type { Prompts } from "../adapters/prompts.js"
+import { generateToken } from "../adapters/token.js"
+import { expandTilde, validateVaultPath } from "../adapters/vault.js"
+import { buildLocalEnv, buildRemoteEnv } from "../rules/env-templates.js"
 import {
-  applyInstanceIdentity,
-  describeStrandedCarriedPublicUrl,
-  resolveInstanceIdentity,
-} from "./instance-identity.js"
+  detectMode,
+  parseEnvValues,
+  readEnvObsidianToken,
+  type EnvValues,
+} from "../rules/env-values.js"
 import {
   buildDaemonUnavailableMessage,
   buildLocalConnectMessage,
   buildRemoteConnectMessage,
   vaultCortexCommand,
   type StartStatus,
-} from "./messages.js"
-import { captureObsidianToken } from "./obsidian-sign-in.js"
+} from "../rules/messages.js"
+import { containerStart } from "../steps/container-start.js"
+import { DEFAULT_TARGET_DIR, resolveDeployment, type Deployment } from "../steps/deployment.js"
+import {
+  applyInstanceIdentity,
+  describeStrandedCarriedPublicUrl,
+  resolveInstanceIdentity,
+} from "../steps/instance-identity.js"
+import { captureObsidianToken } from "../steps/obsidian-sign-in.js"
 import {
   applyOptionalSettings,
   askOptionalSettings,
   describeStrandedPublicUrl,
   withPublicUrlOverride,
-} from "./optional-settings.js"
-import { generateToken } from "./token.js"
-import { expandTilde, validateVaultPath } from "./vault.js"
-import type { Prompts } from "./prompts.js"
+} from "../steps/optional-settings.js"
 
 export type InitFlags = {
   mode?: string

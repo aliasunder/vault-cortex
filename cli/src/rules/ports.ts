@@ -1,4 +1,4 @@
-import type { PublishedPort } from "./docker.js"
+import type { PublishedPort } from "../adapters/docker.js"
 
 /** Default host port — matches the container's internal port. */
 export const DEFAULT_PORT = 8000

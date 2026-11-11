@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest"
 
 import { captureObsidianToken } from "../obsidian-sign-in.js"
-import { createScriptedPrompts, fetchApiError, fetchSigninSuccess } from "./command-stubs.js"
+import {
+  createScriptedPrompts,
+  fetchApiError,
+  fetchSigninSuccess,
+} from "../../__tests__/command-stubs.js"
 
 /** Builds a mock fetch that returns an HTTP error status. */
 const fetchHttpError = (status: number): typeof fetch =>

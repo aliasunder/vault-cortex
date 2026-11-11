@@ -1,6 +1,6 @@
 import { styleText } from "node:util"
 
-import type { DaemonStatus } from "./docker.js"
+import type { DaemonStatus } from "../adapters/docker.js"
 
 export type StartStatus = "running" | "starting" | "not-started"
 

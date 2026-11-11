@@ -4,7 +4,7 @@ import { join } from "node:path"
 import { describe, expect, it } from "vitest"
 
 import { envFile } from "../env-file.js"
-import { parseEnvValues, readEnvObsidianToken } from "../env-values.js"
+import { parseEnvValues, readEnvObsidianToken } from "../../rules/env-values.js"
 
 const neverOverwrite = async (): Promise<boolean> => false
 const alwaysOverwrite = async (): Promise<boolean> => true

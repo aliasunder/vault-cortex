@@ -281,6 +281,16 @@ describe("generate-cli-notes.sh", () => {
       expect(repo.generateNotes()).toEqual(LISTED_CODE_CHANGE_ONLY)
     })
 
+    it("leaves out a commit that changes only tests inside a CLI layer folder", () => {
+      const repo = createCliReleaseRepo()
+      commitListedCodeChange(repo)
+      repo.commit("test(cli): cover a command", {
+        "cli/src/commands/__tests__/init.test.ts": "export const checks = 1\n",
+      })
+
+      expect(repo.generateNotes()).toEqual(LISTED_CODE_CHANGE_ONLY)
+    })
+
     it("leaves out a commit that changes nothing under cli/", () => {
       const repo = createCliReleaseRepo()
       commitListedCodeChange(repo)

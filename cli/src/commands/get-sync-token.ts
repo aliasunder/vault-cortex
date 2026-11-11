@@ -1,10 +1,10 @@
 import { join, resolve } from "node:path"
 
-import { envFile } from "./env-file.js"
-import { vaultCortexCommand } from "./messages.js"
-import { captureObsidianToken } from "./obsidian-sign-in.js"
-import type { Prompts } from "./prompts.js"
-import { expandTilde } from "./vault.js"
+import { envFile } from "../adapters/env-file.js"
+import type { Prompts } from "../adapters/prompts.js"
+import { expandTilde } from "../adapters/vault.js"
+import { vaultCortexCommand } from "../rules/messages.js"
+import { captureObsidianToken } from "../steps/obsidian-sign-in.js"
 
 export type GetSyncTokenFlags = {
   dir?: string

@@ -3,8 +3,8 @@ import {
   type DockerLogsParams,
   type DockerRunner,
   type DockerRunParams,
-} from "../docker.js"
-import type { Prompts, SelectOption } from "../prompts.js"
+} from "../adapters/docker.js"
+import type { Prompts, SelectOption } from "../adapters/prompts.js"
 
 /**
  * One canned reply for one interactive prompt, in ask order: string for

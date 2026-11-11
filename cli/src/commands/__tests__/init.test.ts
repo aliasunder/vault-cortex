@@ -4,11 +4,14 @@ import { join } from "node:path"
 import { describe, expect, it, onTestFinished, vi } from "vitest"
 
 import { runInit, validatePublicUrl } from "../init.js"
-import { LOCAL_IMAGE, pollHealth, type DockerRunner } from "../docker.js"
-import { buildDaemonNotRunningMessage, buildDockerNotInstalledMessage } from "../messages.js"
-import { parseEnvValues, readEnvInstanceName } from "../env-values.js"
+import { LOCAL_IMAGE, pollHealth, type DockerRunner } from "../../adapters/docker.js"
+import {
+  buildDaemonNotRunningMessage,
+  buildDockerNotInstalledMessage,
+} from "../../rules/messages.js"
+import { parseEnvValues, readEnvInstanceName } from "../../rules/env-values.js"
 
-vi.mock("../docker.js", { spy: true })
+vi.mock("../../adapters/docker.js", { spy: true })
 import {
   createRecordingDocker,
   createScriptedPrompts,
@@ -18,7 +21,7 @@ import {
   dockerReadyEmptyHost,
   fetchNever,
   fetchOk,
-} from "./command-stubs.js"
+} from "../../__tests__/command-stubs.js"
 
 const makeVault = (): string => {
   const vaultDir = mkdtempSync(join(tmpdir(), "vault-cli-vault-"))

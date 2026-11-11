@@ -1,4 +1,4 @@
-import type { Prompts } from "./prompts.js"
+import type { Prompts } from "../adapters/prompts.js"
 
 const OBSIDIAN_SIGNIN_URL = process.env.OBSIDIAN_SIGNIN_URL ?? "https://api.obsidian.md/user/signin"
 const SIGNIN_TIMEOUT_MS = 30_000

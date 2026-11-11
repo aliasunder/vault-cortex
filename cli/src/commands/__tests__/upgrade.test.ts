@@ -3,7 +3,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { describe, expect, it } from "vitest"
 
-import type { DockerRunner } from "../docker.js"
+import type { DockerRunner } from "../../adapters/docker.js"
 import { runUpgrade } from "../upgrade.js"
 import {
   createRecordingDocker,
@@ -12,7 +12,7 @@ import {
   dockerReady,
   fetchNever,
   fetchOk,
-} from "./command-stubs.js"
+} from "../../__tests__/command-stubs.js"
 
 const writeLocalEnv = (targetDir: string): void => {
   writeFileSync(

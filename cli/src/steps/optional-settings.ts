@@ -1,8 +1,8 @@
-import type { Mode } from "./docker.js"
-import { parseEnvValues, readEnvValue } from "./env-values.js"
+import type { Mode } from "../adapters/docker.js"
+import type { Prompts, SelectOption } from "../adapters/prompts.js"
+import { parseEnvValues, readEnvValue } from "../rules/env-values.js"
+import { DEFAULT_PORT, isValidPort, type PortsInUse } from "../rules/ports.js"
 import { askFreePort } from "./port-prompt.js"
-import { DEFAULT_PORT, isValidPort, type PortsInUse } from "./ports.js"
-import type { Prompts, SelectOption } from "./prompts.js"
 
 type OptionalSettingBase = {
   /** The .env variable name — doubles as the chooser's option value. */

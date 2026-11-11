@@ -4,7 +4,11 @@ import { join } from "node:path"
 import { describe, expect, it } from "vitest"
 
 import { runGetSyncToken } from "../get-sync-token.js"
-import { createScriptedPrompts, fetchApiError, fetchSigninSuccess } from "./command-stubs.js"
+import {
+  createScriptedPrompts,
+  fetchApiError,
+  fetchSigninSuccess,
+} from "../../__tests__/command-stubs.js"
 
 describe("runGetSyncToken subcommand", () => {
   it("prints the token to stdout when --dir is not set", async () => {

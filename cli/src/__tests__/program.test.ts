@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest"
 
 import { buildProgram } from "../program.js"
-import type { ConfigureFlags } from "../configure.js"
-import type { GetSyncTokenFlags } from "../get-sync-token.js"
-import type { InitFlags } from "../init.js"
-import type { DownFlags, LogsFlags, RestartFlags } from "../lifecycle.js"
-import type { UpgradeFlags } from "../upgrade.js"
+import type { ConfigureFlags } from "../commands/configure.js"
+import type { GetSyncTokenFlags } from "../commands/get-sync-token.js"
+import type { InitFlags } from "../commands/init.js"
+import type { DownFlags, LogsFlags, RestartFlags } from "../commands/lifecycle.js"
+import type { UpgradeFlags } from "../commands/upgrade.js"
 
 const buildCapturingProgram = () => {
   const initCalls: InitFlags[] = []

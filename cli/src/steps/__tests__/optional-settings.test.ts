@@ -6,7 +6,7 @@ import {
   describeStrandedPublicUrl,
   withPublicUrlOverride,
 } from "../optional-settings.js"
-import { createScriptedPrompts } from "./command-stubs.js"
+import { createScriptedPrompts } from "../../__tests__/command-stubs.js"
 
 describe("applyOptionalSettings", () => {
   it("replaces the value of an active line", () => {

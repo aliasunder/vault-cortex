@@ -1,17 +1,17 @@
 import { readFileSync, writeFileSync } from "node:fs"
 
-import { containerStart } from "./container-start.js"
-import { requireInitializedDir, resolveDeployment } from "./deployment.js"
-import { vaultCortexCommand } from "./messages.js"
+import type { DockerRunner } from "../adapters/docker.js"
+import type { Prompts } from "../adapters/prompts.js"
+import { vaultCortexCommand } from "../rules/messages.js"
+import { portsOfOtherContainers } from "../rules/ports.js"
+import { containerStart } from "../steps/container-start.js"
+import { requireInitializedDir, resolveDeployment } from "../steps/deployment.js"
 import {
   applyOptionalSettings,
   askOptionalSettings,
   describeStrandedPublicUrl,
   withPublicUrlOverride,
-} from "./optional-settings.js"
-import { portsOfOtherContainers } from "./ports.js"
-import type { DockerRunner } from "./docker.js"
-import type { Prompts } from "./prompts.js"
+} from "../steps/optional-settings.js"
 
 export type ConfigureFlags = {
   dir?: string

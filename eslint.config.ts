@@ -234,6 +234,99 @@ export default defineConfig(
       ],
     },
   },
+  // CLI layering (see AGENTS.md → CLI layering): adapters → rules → steps →
+  // commands, with bin, main and program at cli/src/ as wiring. Patterns match
+  // the specifier as written, so a sibling import is "./x.js" and an import
+  // from another layer carries that layer's folder ("../steps/x.js").
+  {
+    // Adapters wrap the outside world (Docker, the terminal, files) and import
+    // nothing internal, not even another adapter.
+    files: ["cli/src/adapters/**/*.ts"],
+    ignores: ["**/__tests__/**", "**/*.test.ts"],
+    rules: {
+      "@typescript-eslint/no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              regex: "^\\.\\.?/",
+              allowTypeImports: true,
+              message: "CLI adapters import nothing internal at runtime (AGENTS.md → CLI layering)",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    // Rules are pure decisions and text: other rules at runtime, adapters for
+    // their types only, and no I/O or prompt library.
+    files: ["cli/src/rules/**/*.ts"],
+    ignores: ["**/__tests__/**", "**/*.test.ts"],
+    rules: {
+      "@typescript-eslint/no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["**/adapters/**", "**/steps/**", "**/commands/**"],
+              allowTypeImports: true,
+              message:
+                "CLI rules are pure — import other rules, and adapters for types only (AGENTS.md → CLI layering)",
+            },
+            {
+              group: ["node:fs", "node:fs/**", "node:child_process", "@clack/prompts"],
+              allowTypeImports: true,
+              message:
+                "CLI rules do no I/O and ask no questions — that belongs in an adapter or a step (AGENTS.md → CLI layering)",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    // Steps are the shared workflow pieces commands compose; they never
+    // reach up into a command.
+    files: ["cli/src/steps/**/*.ts"],
+    ignores: ["**/__tests__/**", "**/*.test.ts"],
+    rules: {
+      "@typescript-eslint/no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["**/commands/**"],
+              allowTypeImports: true,
+              message:
+                "CLI steps never import a command — move what both need into a step (AGENTS.md → CLI layering)",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    // A command never imports another command: shared logic moves down into
+    // a step, so a fix lands in one place.
+    files: ["cli/src/commands/**/*.ts"],
+    ignores: ["**/__tests__/**", "**/*.test.ts"],
+    rules: {
+      "@typescript-eslint/no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              regex: "^\\./",
+              allowTypeImports: true,
+              message:
+                "CLI commands never import another command — move what both need into a step (AGENTS.md → CLI layering)",
+            },
+          ],
+        },
+      ],
+    },
+  },
   // Tool-surface boundaries (see AGENTS.md → Module layering): the registry
   // owns tool identity and annotations, and gating is derived from the enabled
   // set — not re-decided downstream.

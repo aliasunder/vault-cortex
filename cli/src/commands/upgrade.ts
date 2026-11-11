@@ -1,7 +1,7 @@
-import { containerStart } from "./container-start.js"
-import { LOCAL_IMAGE, REMOTE_IMAGE, type DockerRunner } from "./docker.js"
-import { ensureDaemonRunning, resolveDeployment } from "./deployment.js"
-import type { Prompts } from "./prompts.js"
+import { LOCAL_IMAGE, REMOTE_IMAGE, type DockerRunner } from "../adapters/docker.js"
+import type { Prompts } from "../adapters/prompts.js"
+import { containerStart } from "../steps/container-start.js"
+import { ensureDaemonRunning, resolveDeployment } from "../steps/deployment.js"
 
 export type UpgradeFlags = {
   dir?: string

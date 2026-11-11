@@ -5,11 +5,11 @@ import {
   pollHealth,
   probeHealth,
   type DockerRunner,
-} from "./docker.js"
-import { envFile } from "./env-file.js"
+} from "../adapters/docker.js"
+import { envFile } from "../adapters/env-file.js"
+import type { Prompts } from "../adapters/prompts.js"
+import type { StartStatus } from "../rules/messages.js"
 import type { Deployment } from "./deployment.js"
-import type { StartStatus } from "./messages.js"
-import type { Prompts } from "./prompts.js"
 
 /** Who holds the install's container name: nobody, a Vault Cortex container, or another app. */
 type InstanceContainer = "none" | "own" | "foreign"

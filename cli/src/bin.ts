@@ -2,7 +2,11 @@
 import { readFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 
-import { minimumNodeVersion, nodeVersionRefusalMessage, satisfiesMinimum } from "./node-version.js"
+import {
+  minimumNodeVersion,
+  nodeVersionRefusalMessage,
+  satisfiesMinimum,
+} from "./rules/node-version.js"
 
 const pkg: { version: string; engines: { node: string } } = JSON.parse(
   readFileSync(fileURLToPath(new URL("../package.json", import.meta.url)), "utf8"),

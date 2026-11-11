@@ -1,20 +1,20 @@
 import { basename, join } from "node:path"
 
-import { instanceVolumeNames, isVaultCortexImage, type DockerRunner, type Mode } from "./docker.js"
-import { envFile } from "./env-file.js"
-import { describeEnvFix, vaultCortexCommand } from "./messages.js"
+import {
+  instanceVolumeNames,
+  isVaultCortexImage,
+  type DockerRunner,
+  type Mode,
+} from "../adapters/docker.js"
+import { envFile } from "../adapters/env-file.js"
+import type { Prompts } from "../adapters/prompts.js"
 import {
   DEFAULT_INSTANCE_NAME,
   describeInvalidInstanceName,
   parseEnvValues,
   readEnvValue,
-} from "./env-values.js"
-import {
-  applyOptionalSettings,
-  describeStrandedPublicUrl,
-  withPublicUrlOverride,
-} from "./optional-settings.js"
-import { askFreePort, choosePort } from "./port-prompt.js"
+} from "../rules/env-values.js"
+import { describeEnvFix, vaultCortexCommand } from "../rules/messages.js"
 import {
   DEFAULT_PORT,
   buildPortsInUse,
@@ -23,8 +23,13 @@ import {
   portsOfOtherContainers,
   type PortRequest,
   type PortsInUse,
-} from "./ports.js"
-import type { Prompts } from "./prompts.js"
+} from "../rules/ports.js"
+import {
+  applyOptionalSettings,
+  describeStrandedPublicUrl,
+  withPublicUrlOverride,
+} from "./optional-settings.js"
+import { askFreePort, choosePort } from "./port-prompt.js"
 
 /** The .env values that tell one install on a machine apart from another. */
 export type InstanceIdentity = {

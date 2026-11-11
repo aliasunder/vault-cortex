@@ -19,7 +19,7 @@ describe("minimumNodeVersion", () => {
 
   it("parses the actual engines range in cli/package.json", () => {
     const manifest = JSON.parse(
-      readFileSync(fileURLToPath(new URL("../../package.json", import.meta.url)), "utf8"),
+      readFileSync(fileURLToPath(new URL("../../../package.json", import.meta.url)), "utf8"),
     ) as { engines: { node: string } }
 
     const minimum = minimumNodeVersion(manifest.engines.node)

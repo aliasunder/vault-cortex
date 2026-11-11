@@ -1,4 +1,4 @@
-import type { Mode } from "./docker.js"
+import type { Mode } from "../adapters/docker.js"
 import { DEFAULT_PORT, describeInvalidEnvPort, isValidPort } from "./ports.js"
 
 /**

@@ -14,7 +14,7 @@ export type RemoteEnvAnswers = {
 }
 
 // Run npm run sync:cli-env-blocks after editing deploy/<mode>/.env.example.
-// cli/src/__tests__/templates.test.ts checks that both surfaces list the same optional vars.
+// cli/src/rules/__tests__/templates.test.ts checks that both surfaces list the same optional vars.
 
 // ┌─────────────────────────────────────────────────────────────────────────┐
 // │ GENERATED — do not edit between sync markers.                          │

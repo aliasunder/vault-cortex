@@ -3,12 +3,12 @@ import { fileURLToPath } from "node:url"
 import { describe, expect, it } from "vitest"
 import { parse as parseYaml } from "yaml"
 
-import { loadConfig } from "../../../src/vault-mcp/config.js"
-import { instanceVolumeNames, REMOTE_IMAGE } from "../docker.js"
-import { buildLocalEnv, buildRemoteEnv } from "../env.js"
+import { loadConfig } from "../../../../src/vault-mcp/config.js"
+import { instanceVolumeNames, REMOTE_IMAGE } from "../../adapters/docker.js"
+import { buildLocalEnv, buildRemoteEnv } from "../env-templates.js"
 
 const readRepoFile = (repoRelativePath: string): string =>
-  readFileSync(fileURLToPath(new URL(`../../../${repoRelativePath}`, import.meta.url)), "utf8")
+  readFileSync(fileURLToPath(new URL(`../../../../${repoRelativePath}`, import.meta.url)), "utf8")
 
 // --- Env var consistency helpers ---
 

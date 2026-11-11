@@ -3,9 +3,9 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { describe, expect, it, onTestFinished, vi } from "vitest"
 
-import type { DockerLogsParams, DockerRunner } from "../docker.js"
+import type { DockerLogsParams, DockerRunner } from "../../adapters/docker.js"
 import { runDown, runLogs, runRestart, runStart } from "../lifecycle.js"
-import { buildDockerNotInstalledMessage } from "../messages.js"
+import { buildDockerNotInstalledMessage } from "../../rules/messages.js"
 import {
   createRecordingDocker,
   createScriptedPrompts,
@@ -14,7 +14,7 @@ import {
   dockerReady,
   fetchNever,
   fetchOk,
-} from "./command-stubs.js"
+} from "../../__tests__/command-stubs.js"
 
 // Creates a temp target dir and registers its removal at creation time, so
 // the suite self-cleans even when an assertion throws mid-test.
