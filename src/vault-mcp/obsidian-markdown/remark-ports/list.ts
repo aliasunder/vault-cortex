@@ -48,7 +48,6 @@ import type {
 } from "../remark-parse-types.js"
 
 const ASTERISK = "*"
-const UNDERSCORE = "_"
 const PLUS_SIGN = "+"
 const DASH = "-"
 const DOT = "."
@@ -90,15 +89,20 @@ export const isAsciiDigit = (character: string): boolean => character >= "0" && 
 
 type ListItemLines = {
   value: string[]
-  indent: number
+  /** The column the item's content starts at, after its bullet. A later line
+   *  indented this far continues the item. */
+  contentColumn: number
   /** Blank separators consumed after this item, outside its parsed content. */
   trail: string[]
 }
 
 type LineScan = {
-  nextIndex: number
+  /** The index of the line's line feed, or the end of `value`. */
+  lineEnd: number
   size: number
-  index: number
+  /** Where the item's content starts after a bullet, or the line's start
+   *  when the line has none. */
+  contentStart: number
   currentMarker: string | null
   indented: boolean
 }
@@ -109,6 +113,9 @@ export const list = function (
   value: string,
   silent?: boolean,
 ): TokenizerResult {
+  // The Obsidian parser runs remark in CommonMark mode, so this is always
+  // true. The `!commonmark` branches are upstream's, kept so the port reads
+  // against its source.
   const commonmark = this.options.commonmark
   const tokenizers = this.blockTokenizers
   const interruptors = this.interruptList
@@ -163,17 +170,17 @@ export const list = function (
   while (index < length) {
     const startIndex = index
     const scan = scanItemLine(value, index, item, commonmark)
-    const { nextIndex, currentMarker, indented } = scan
+    const { lineEnd, currentMarker, indented } = scan
     const prefixed = Boolean(currentMarker)
 
     if (currentMarker && marker !== currentMarker) break
 
-    index = prefixed ? scan.index : startIndex
+    index = scan.contentStart
 
-    const line = value.slice(startIndex, nextIndex)
-    const content = startIndex === index ? line : value.slice(index, nextIndex)
+    const line = value.slice(startIndex, lineEnd)
+    const content = value.slice(index, lineEnd)
 
-    if (currentMarker === ASTERISK || currentMarker === UNDERSCORE || currentMarker === DASH) {
+    if (currentMarker === ASTERISK || currentMarker === DASH) {
       if (tokenizers.thematicBreak?.call(this, eat, line, true)) break
     }
 
@@ -181,7 +188,7 @@ export const list = function (
 
     empty = !prefixed && !content.trim().length
     // Every branch below either ends the list or moves on to the next line
-    index = nextIndex + 1
+    index = lineEnd + 1
 
     if (indented && item) {
       item.value = item.value.concat(pendingBlankLines, line)
@@ -199,7 +206,7 @@ export const list = function (
         item.trail = [...pendingBlankLines]
       }
 
-      item = { value: [line], indent: scan.size, trail: [] }
+      item = { value: [line], contentColumn: scan.size, trail: [] }
       items.push(item)
       listLines = listLines.concat(pendingBlankLines, line)
       pendingBlankLines = []
@@ -207,8 +214,6 @@ export const list = function (
     }
 
     if (empty) {
-      // Upstream's rule outside CommonMark mode, which this parser never
-      // leaves; kept so the port reads against its source
       if (previousEmpty && !commonmark) break
 
       pendingBlankLines.push(line)
@@ -245,6 +250,8 @@ export const list = function (
 
     const trail = listItem.trail.join(LINE_FEED)
 
+    // The items' text, their trails and the line feed after every item but
+    // the last add up to the list's text, so the parser ends where the list does.
     eat(itemIndex === items.length - 1 ? trail : trail + LINE_FEED)
   })
 
@@ -307,7 +314,7 @@ const scanItemLine = (
 ): LineScan => {
   const length = value.length
   const lineFeedIndex = value.indexOf(LINE_FEED, lineStart)
-  const nextIndex = lineFeedIndex === -1 ? length : lineFeedIndex
+  const lineEnd = lineFeedIndex === -1 ? length : lineFeedIndex
   // The scan threads the index into the line and the column it reached, so
   // both are mutable parser state.
   let index = lineStart
@@ -327,7 +334,7 @@ const scanItemLine = (
     index += 1
   }
 
-  const indentedByItem = Boolean(item && size >= item.indent)
+  const indentedByItem = Boolean(item && size >= item.contentColumn)
   let currentMarker: string | null = null
 
   if (!indentedByItem) {
@@ -365,20 +372,25 @@ const scanItemLine = (
     }
   }
 
-  if (currentMarker) return { nextIndex, size, index, currentMarker, indented: indentedByItem }
+  if (currentMarker) {
+    return { lineEnd, size, contentStart: index, currentMarker, indented: indentedByItem }
+  }
 
   // `size` now includes a marker that turned out not to be a bullet (`**`,
-  // `1.x`), so such a line counts as indented under a one-column item
-  const indentedByColumns = Boolean(commonmark && item && (size >= item.indent || size > TAB_SIZE))
+  // `1.x`), as upstream's does. Under an item whose bullet ends its line (`-`
+  // alone, content column 1), such a line therefore counts as indented.
+  const indentedByColumns = Boolean(
+    commonmark && item && (size >= item.contentColumn || size > TAB_SIZE),
+  )
   const indented = indentedByItem || indentedByColumns
   const indentedByLeadingSpace = !commonmark && !indentedByItem && value.charAt(lineStart) === SPACE
 
   // A line without a bullet is handed back from its own start, so the
   // advance past a marker that was not a bullet is discarded
   return {
-    nextIndex,
+    lineEnd,
     size,
-    index: lineStart,
+    contentStart: lineStart,
     currentMarker,
     indented: indented || indentedByLeadingSpace,
   }
@@ -424,10 +436,11 @@ const removeListItemBullet = (
   const [bulletText, bulletIndent = "", bulletMarker = "", bulletSpacing = "", firstLineRest = ""] =
     bulletMatch
   const bullet = bulletIndent + bulletMarker + bulletSpacing
-  // The first nine numbered items may indent with one extra space, which is
-  // the case when the bullet did not get an extra final space. `Number`
-  // reads `1.` but not `1)` or `-`, so only dot-marked items widen, as in
-  // remark's list.js; Obsidian agrees.
+  // Copied unchanged from remark's normalListItem (lib/tokenize/list.js): a
+  // dot-numbered item below 10 whose bullet has an odd length (`1. `) is
+  // widened by one space, so its later lines may indent one column more.
+  // `Number` reads `1.` but not `1)` or `-`, so only dot-marked items widen.
+  // Obsidian agrees.
   const widenedMarker =
     Number(bulletMarker) < 10 && bullet.length % 2 === 1 ? SPACE + bulletMarker : bulletMarker
   const bulletAsSpaces = bulletIndent + SPACE.repeat(widenedMarker.length) + bulletSpacing
