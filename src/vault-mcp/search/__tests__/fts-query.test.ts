@@ -1,5 +1,13 @@
+import { execFileSync } from "node:child_process"
 import { describe, it, expect } from "vitest"
 import { sanitizeFtsQuery, sanitizeFtsQueryAnyTerm } from "../fts-query.js"
+
+/** A quadratic scan of a word this long runs for minutes; a linear one takes
+ *  milliseconds. */
+const LONG_WORD_LENGTH = 1_000_000
+
+/** Leaves room for the child's tsx start-up on a loaded machine. */
+const CHILD_DEADLINE_MS = 20_000
 
 describe("sanitizeFtsQuery", () => {
   const scenarios = [
@@ -215,6 +223,31 @@ describe("sanitizeFtsQuery", () => {
     (metacharacter) => {
       expect(sanitizeFtsQuery(`alpha${metacharacter}beta`)).toBe("alpha beta")
     },
+  )
+
+  it(
+    "sanitizes a million-character word within a child deadline",
+    () => {
+      const ftsQueryUrl = new URL("../fts-query.ts", import.meta.url).href
+      const output = execFileSync(
+        process.execPath,
+        [
+          "--import",
+          "tsx",
+          "--input-type=module",
+          "--eval",
+          `
+      import { sanitizeFtsQuery } from ${JSON.stringify(ftsQueryUrl)};
+      const query = 'a'.repeat(${LONG_WORD_LENGTH});
+      process.stdout.write(String(sanitizeFtsQuery(query) === query));
+    `,
+        ],
+        { encoding: "utf8", timeout: CHILD_DEADLINE_MS, killSignal: "SIGKILL" },
+      )
+
+      expect(output).toBe("true")
+    },
+    CHILD_DEADLINE_MS + 5_000,
   )
 })
 

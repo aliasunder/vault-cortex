@@ -30,9 +30,11 @@ const COMPOUND_JOINER_CHARACTER = `[${RegExp.escape(COMPOUND_JOINERS)}]`
 
 /** Matches compound terms — two or more bareword segments joined by
  *  punctuation — which FTS5 would otherwise reject as a syntax error
- *  (e.g. "fts5: syntax error near '.'" for mcpservers.org). */
+ *  (e.g. "fts5: syntax error near '.'" for mcpservers.org). The lookbehind
+ *  keeps a long run with no joiner from being rescanned at each of its
+ *  characters, which takes time quadratic in the run's length. */
 const COMPOUND_TERM_REGEX = new RegExp(
-  `${BAREWORD_CHARACTER}+(?:${COMPOUND_JOINER_CHARACTER}+${BAREWORD_CHARACTER}+)+`,
+  `(?<!${BAREWORD_CHARACTER})${BAREWORD_CHARACTER}+(?:${COMPOUND_JOINER_CHARACTER}+${BAREWORD_CHARACTER}+)+`,
   "g",
 )
 
