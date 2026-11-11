@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs"
+import { mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { describe, expect, it } from "vitest"
@@ -24,131 +24,77 @@ describe("read", () => {
   })
 })
 
-describe("buildFilesToWrite", () => {
-  it("returns only the .env file with owner-only permissions", () => {
-    const files = envFile.buildFilesToWrite("MCP_AUTH_TOKEN=abc\n")
-
-    expect(files).toEqual([{ name: ".env", content: "MCP_AUTH_TOKEN=abc\n", mode: 0o600 }])
-  })
-})
-
-describe("writeFiles", () => {
-  it("creates the target directory and writes all files", async () => {
+describe("write", () => {
+  it("creates the target directory and writes .env", async () => {
     const targetDir = join(mkdtempSync(join(tmpdir(), "vault-cli-")), "nested", "vault-cortex")
 
-    const results = await envFile.writeFiles(
-      {
-        targetDir: targetDir,
-        files: [{ name: ".env", content: "MCP_AUTH_TOKEN=abc\n" }],
-      },
+    const writeStatus = await envFile.write(
+      { targetDir, envContent: "MCP_AUTH_TOKEN=abc\n" },
       neverOverwrite,
     )
 
-    expect(results).toEqual([{ name: ".env", status: "created" }])
+    expect(writeStatus).toBe("created")
     expect(readFileSync(join(targetDir, ".env"), "utf8")).toBe("MCP_AUTH_TOKEN=abc\n")
   })
 
-  it("skips an existing identical file without consulting the conflict resolver", async () => {
+  it("skips an existing identical .env without consulting the conflict resolver", async () => {
     const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"))
     writeFileSync(join(targetDir, ".env"), "MCP_AUTH_TOKEN=abc\n")
     const failingResolver = async (): Promise<boolean> => {
       throw new Error("resolver must not be called for identical content")
     }
 
-    const results = await envFile.writeFiles(
-      {
-        targetDir: targetDir,
-        files: [{ name: ".env", content: "MCP_AUTH_TOKEN=abc\n" }],
-      },
+    const writeStatus = await envFile.write(
+      { targetDir, envContent: "MCP_AUTH_TOKEN=abc\n" },
       failingResolver,
     )
 
-    expect(results).toEqual([{ name: ".env", status: "unchanged" }])
+    expect(writeStatus).toBe("unchanged")
   })
 
-  it("keeps a differing existing file untouched when the resolver declines", async () => {
+  it("keeps a differing existing .env untouched when the resolver declines", async () => {
     const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"))
     writeFileSync(join(targetDir, ".env"), "MCP_AUTH_TOKEN=old\n")
 
-    const results = await envFile.writeFiles(
-      {
-        targetDir: targetDir,
-        files: [{ name: ".env", content: "MCP_AUTH_TOKEN=new\n" }],
-      },
+    const writeStatus = await envFile.write(
+      { targetDir, envContent: "MCP_AUTH_TOKEN=new\n" },
       neverOverwrite,
     )
 
-    expect(results).toEqual([{ name: ".env", status: "kept" }])
+    expect(writeStatus).toBe("kept")
     expect(readFileSync(join(targetDir, ".env"), "utf8")).toBe("MCP_AUTH_TOKEN=old\n")
   })
 
-  it("overwrites a differing existing file when the resolver approves", async () => {
+  it("overwrites a differing existing .env when the resolver approves", async () => {
     const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"))
     writeFileSync(join(targetDir, ".env"), "MCP_AUTH_TOKEN=old\n")
 
-    const results = await envFile.writeFiles(
-      {
-        targetDir: targetDir,
-        files: [{ name: ".env", content: "MCP_AUTH_TOKEN=new\n" }],
-      },
+    const writeStatus = await envFile.write(
+      { targetDir, envContent: "MCP_AUTH_TOKEN=new\n" },
       alwaysOverwrite,
     )
 
-    expect(results).toEqual([{ name: ".env", status: "overwritten" }])
+    expect(writeStatus).toBe("overwritten")
     expect(readFileSync(join(targetDir, ".env"), "utf8")).toBe("MCP_AUTH_TOKEN=new\n")
-  })
-
-  it("resolves conflicts per file — keeps one and creates another in the same run", async () => {
-    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"))
-    writeFileSync(join(targetDir, ".env"), "MCP_AUTH_TOKEN=old\n")
-
-    const results = await envFile.writeFiles(
-      {
-        targetDir: targetDir,
-        files: [
-          { name: "extra.txt", content: "hello\n" },
-          { name: ".env", content: "MCP_AUTH_TOKEN=new\n" },
-        ],
-      },
-      neverOverwrite,
-    )
-
-    expect(results).toEqual([
-      { name: "extra.txt", status: "created" },
-      { name: ".env", status: "kept" },
-    ])
-    expect(existsSync(join(targetDir, "extra.txt"))).toBe(true)
   })
 })
 
-describe("writeFiles permissions", () => {
-  it("creates .env owner-only (0600) via the file mode", async () => {
+describe("write permissions", () => {
+  it("creates .env owner-only (0600)", async () => {
     const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"))
 
-    await envFile.writeFiles(
-      {
-        targetDir: targetDir,
-        files: [{ name: ".env", content: "MCP_AUTH_TOKEN=abc\n", mode: 0o600 }],
-      },
-      neverOverwrite,
-    )
+    await envFile.write({ targetDir, envContent: "MCP_AUTH_TOKEN=abc\n" }, neverOverwrite)
 
     const fileMode = statSync(join(targetDir, ".env")).mode & 0o777
     expect(fileMode).toBe(0o600)
   })
 
-  it("tightens permissions when overwriting an existing wider-mode file", async () => {
+  it("tightens permissions when overwriting an existing wider-mode .env", async () => {
     const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"))
     const envPath = join(targetDir, ".env")
     writeFileSync(envPath, "MCP_AUTH_TOKEN=old\n", { mode: 0o644 })
 
-    await envFile.writeFiles(
-      {
-        targetDir: targetDir,
-        files: [{ name: ".env", content: "MCP_AUTH_TOKEN=new\n", mode: 0o600 }],
-      },
-      alwaysOverwrite,
-    )
+    await envFile.write({ targetDir, envContent: "MCP_AUTH_TOKEN=new\n" }, alwaysOverwrite)
 
     const fileMode = statSync(envPath).mode & 0o777
     expect(fileMode).toBe(0o600)

@@ -132,7 +132,7 @@ describe("runInit --yes (non-interactive local)", () => {
     expect(exitCode).toBe(1)
     expect(readFileSync(join(targetDir, ".env"), "utf8")).toBe("MCP_AUTH_TOKEN=existing\n")
     expect(scripted.errors).toEqual([
-      "Existing files differ (.env) — refusing to overwrite in --yes mode.",
+      "The existing .env differs — refusing to overwrite in --yes mode.",
     ])
   })
 })

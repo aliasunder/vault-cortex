@@ -1,18 +1,10 @@
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 
-type FileToWrite = {
-  /** Filename inside the target directory (e.g. ".env"). */
-  name: string
-  content: string
-  /** Unix permission bits for files holding secrets (e.g. 0o600 for .env). */
-  mode?: number
-}
+export type EnvWriteStatus = "created" | "unchanged" | "overwritten" | "kept"
 
-export type FileWriteResult = {
-  name: string
-  status: "created" | "unchanged" | "overwritten" | "kept"
-}
+/** .env holds the bearer token (and possibly a vault password), so only its owner may read it. */
+const ENV_FILE_MODE = 0o600
 
 /** Matches an active (uncommented) OBSIDIAN_AUTH_TOKEN line. */
 const OBSIDIAN_AUTH_TOKEN_LINE = /^OBSIDIAN_AUTH_TOKEN=/m
@@ -28,11 +20,6 @@ const read = (envFilePath: string): string | undefined => {
   if (!existsSync(envFilePath)) return undefined
   return readFileSync(envFilePath, "utf8")
 }
-
-const buildFilesToWrite = (envContent: string): FileToWrite[] => [
-  // .env holds the bearer token (and possibly a vault password) — owner-only.
-  { name: ".env", content: envContent, mode: 0o600 },
-]
 
 /**
  * Patches every active OBSIDIAN_AUTH_TOKEN line in an existing .env, since
@@ -72,51 +59,38 @@ const stripQuotedValues = (envFilePath: string): boolean => {
 }
 
 /**
- * Writes the files into targetDir (created if missing). Existing files
- * are never overwritten silently: identical content is skipped, and differing
- * content defers to the resolveConflict callback (interactive prompt, or a
- * constant `false` in non-interactive mode).
+ * Writes .env into targetDir (created if missing), readable by its owner
+ * only. An existing .env is never overwritten silently: identical content is
+ * skipped, and differing content defers to the resolveConflict callback
+ * (interactive prompt, or a constant `false` in non-interactive mode).
  */
-const writeFiles = async (
-  params: { targetDir: string; files: FileToWrite[] },
-  resolveConflict: (name: string) => Promise<boolean>,
-): Promise<FileWriteResult[]> => {
-  const { targetDir, files } = params
+const write = async (
+  params: { targetDir: string; envContent: string },
+  resolveConflict: () => Promise<boolean>,
+): Promise<EnvWriteStatus> => {
+  const { targetDir, envContent } = params
   mkdirSync(targetDir, { recursive: true })
+  const envFilePath = join(targetDir, ".env")
 
-  const results: FileWriteResult[] = []
-  for (const file of files) {
-    const filePath = join(targetDir, file.name)
-
-    if (!existsSync(filePath)) {
-      writeFileSync(filePath, file.content, { mode: file.mode })
-      results.push({ name: file.name, status: "created" })
-      continue
-    }
-    if (readFileSync(filePath, "utf8") === file.content) {
-      results.push({ name: file.name, status: "unchanged" })
-      continue
-    }
-    const overwrite = await resolveConflict(file.name)
-
-    if (!overwrite) {
-      results.push({ name: file.name, status: "kept" })
-      continue
-    }
-    // writeFileSync's mode only applies on creation — tighten explicitly
-    // when replacing an existing file.
-    writeFileSync(filePath, file.content)
-    if (file.mode !== undefined) chmodSync(filePath, file.mode)
-    results.push({ name: file.name, status: "overwritten" })
+  if (!existsSync(envFilePath)) {
+    writeFileSync(envFilePath, envContent, { mode: ENV_FILE_MODE })
+    return "created"
   }
-  return results
+  if (readFileSync(envFilePath, "utf8") === envContent) return "unchanged"
+  const overwrite = await resolveConflict()
+
+  if (!overwrite) return "kept"
+  // writeFileSync's mode only applies on creation — tighten explicitly
+  // when replacing an existing file.
+  writeFileSync(envFilePath, envContent)
+  chmodSync(envFilePath, ENV_FILE_MODE)
+  return "overwritten"
 }
 
 /** Reads and writes a deployment's .env file; parseEnvValues in env-values.ts parses what read returns. */
 export const envFile = {
   read,
-  buildFilesToWrite,
   patchObsidianToken,
   stripQuotedValues,
-  writeFiles,
+  write,
 }

@@ -2,7 +2,7 @@ import { existsSync } from "node:fs"
 import { join, resolve } from "node:path"
 
 import type { DockerRunner, Mode } from "../adapters/docker.js"
-import { envFile, type FileWriteResult } from "../adapters/env-file.js"
+import { envFile, type EnvWriteStatus } from "../adapters/env-file.js"
 import type { Prompts } from "../adapters/prompts.js"
 import { generateToken } from "../adapters/token.js"
 import { expandTilde, validateVaultPath } from "../adapters/vault.js"
@@ -158,11 +158,9 @@ const askVaultName = async (prompts: Prompts): Promise<string> => {
 /** Non-interactive conflict policy: always keep the existing file. */
 const keepExisting = async (): Promise<boolean> => false
 
-/** Interactive conflict policy: ask per differing file, defaulting to keep. */
-const confirmOverwrite =
-  (prompts: Prompts) =>
-  (name: string): Promise<boolean> =>
-    prompts.confirm(`${name} already exists and differs — overwrite?`, false)
+/** Interactive conflict policy: ask about a differing .env, defaulting to keep. */
+const confirmOverwrite = (prompts: Prompts) => (): Promise<boolean> =>
+  prompts.confirm(".env already exists and differs — overwrite?", false)
 
 /** The target folder's .env values, or undefined when it has no .env yet. */
 const readTargetEnvValues = (targetDir: string): EnvValues | undefined => {
@@ -225,26 +223,23 @@ const confirmReinitOverExistingEnv = async (
   return false
 }
 
-const reportWrites = (
-  params: { targetDir: string; results: FileWriteResult[] },
+const ENV_WRITE_VERBS: Readonly<Record<EnvWriteStatus, string>> = {
+  created: "created",
+  unchanged: "unchanged (already up to date)",
+  overwritten: "overwritten",
+  kept: "kept existing file (new content NOT written)",
+}
+
+const reportEnvWrite = (
+  params: { targetDir: string; writeStatus: EnvWriteStatus },
   prompts: Prompts,
 ): void => {
-  const { targetDir, results } = params
-  for (const result of results) {
-    const verb = {
-      created: "created",
-      unchanged: "unchanged (already up to date)",
-      overwritten: "overwritten",
-      kept: "kept existing file (new content NOT written)",
-    }[result.status]
-    prompts.log(`${targetDir}/${result.name} — ${verb}`)
-  }
+  prompts.log(`${params.targetDir}/.env — ${ENV_WRITE_VERBS[params.writeStatus]}`)
 }
 
 /** Whether this run's .env landed on disk, carrying its generated token. */
-const isEnvWritten = (results: ReadonlyArray<FileWriteResult>): boolean => {
-  const envResult = results.find((result) => result.name === ".env")
-  return envResult?.status === "created" || envResult?.status === "overwritten"
+const isEnvWritten = (writeStatus: EnvWriteStatus): boolean => {
+  return writeStatus === "created" || writeStatus === "overwritten"
 }
 
 /**
@@ -379,27 +374,22 @@ const runLocalInit = async (flags: InitFlags, deps: InitDeps): Promise<number> =
       appliedOverrides,
     }) ?? describeStrandedCarriedPublicUrl(templateEnvContent, identityResult.identity)
 
-  // Conflict policy: identical existing files are skipped silently;
-  // differing ones prompt per file (default keep). --yes never overwrites —
-  // any differing file becomes an exit-1 below, leaving it untouched.
-  const files = envFile.buildFilesToWrite(envContent)
+  // Conflict policy: an identical existing .env is skipped silently; a
+  // differing one prompts (default keep). --yes never overwrites — a
+  // differing .env becomes an exit-1 below, leaving it untouched.
   const resolveConflict = flags.yes ? keepExisting : confirmOverwrite(prompts)
-  const results = await envFile.writeFiles({ targetDir, files }, resolveConflict)
-  reportWrites({ targetDir, results }, prompts)
+  const writeStatus = await envFile.write({ targetDir, envContent }, resolveConflict)
+  reportEnvWrite({ targetDir, writeStatus }, prompts)
 
-  const keptConflicts = results.filter((result) => result.status === "kept")
-
-  if (flags.yes && keptConflicts.length > 0) {
-    prompts.error(
-      `Existing files differ (${keptConflicts.map((result) => result.name).join(", ")}) — refusing to overwrite in --yes mode.`,
-    )
+  if (flags.yes && writeStatus === "kept") {
+    prompts.error("The existing .env differs — refusing to overwrite in --yes mode.")
     return 1
   }
 
   // When an existing .env was kept, this run's generated token was never
   // saved — the connect message must point at the token (and PORT) actually
   // on disk, or a pasted token fails auth with no hint why.
-  const tokenWritten = isEnvWritten(results)
+  const tokenWritten = isEnvWritten(writeStatus)
 
   if (tokenWritten) prompts.log("Generated MCP auth token (saved to .env).")
   // Only a written .env carries the picked port, so a kept one needs no warning.
@@ -511,15 +501,14 @@ const runRemoteInit = async (flags: InitFlags, deps: InitDeps): Promise<number> 
     pickedOverrides: optionalOverrides,
     appliedOverrides,
   })
-  const files = envFile.buildFilesToWrite(envContent)
-  const results = await envFile.writeFiles({ targetDir, files }, confirmOverwrite(prompts))
-  reportWrites({ targetDir, results }, prompts)
+  const writeStatus = await envFile.write({ targetDir, envContent }, confirmOverwrite(prompts))
+  reportEnvWrite({ targetDir, writeStatus }, prompts)
 
   // Same kept-.env handling as the local flow: the server only reads config
   // from the .env on disk, so when an existing file was kept, this run's
   // generated token was never saved (printing it would fail auth) and PORT
   // may differ from the default.
-  const tokenWritten = isEnvWritten(results)
+  const tokenWritten = isEnvWritten(writeStatus)
 
   if (tokenWritten) prompts.log("Generated MCP auth token (saved to .env).")
   if (tokenWritten && publicUrlWarning) prompts.warn(publicUrlWarning)
