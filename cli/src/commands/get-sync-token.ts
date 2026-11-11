@@ -1,11 +1,11 @@
-import { join, resolve } from "node:path"
+import { join } from "node:path"
 
 import { envFile } from "../adapters/env-file.js"
 import type { Prompts } from "../adapters/prompts.js"
-import { expandTilde } from "../adapters/vault.js"
 import { applyOptionalSettings } from "../rules/env-edits.js"
 import { parseEnvValues } from "../rules/env-values.js"
-import { vaultCortexCommand } from "../rules/messages.js"
+import { startServerLine } from "../rules/messages.js"
+import { resolveTargetDir } from "../steps/deployment.js"
 import { captureObsidianToken } from "../steps/obsidian-sign-in.js"
 
 export type GetSyncTokenFlags = {
@@ -36,15 +36,15 @@ export const runGetSyncToken = async (
     return 1
   }
 
-  const envFilePath = flags.dir ? join(resolve(expandTilde(flags.dir)), ".env") : undefined
-
-  if (!envFilePath) {
+  if (!flags.dir) {
     prompts.log("Your OBSIDIAN_AUTH_TOKEN:")
     prompts.print(`\n  ${token}\n`)
     prompts.outro("Done.")
     return 0
   }
 
+  const targetDir = resolveTargetDir(flags.dir)
+  const envFilePath = join(targetDir, ".env")
   const envContent = envFile.read(envFilePath)
 
   // A local-mode .env has no OBSIDIAN_AUTH_TOKEN line, and the token belongs
@@ -57,10 +57,7 @@ export const runGetSyncToken = async (
     return 1
   }
   envFile.replace(envFilePath, applyOptionalSettings(envContent, { OBSIDIAN_AUTH_TOKEN: token }))
-  prompts.log(
-    `Token written to ${envFilePath}\n\n` +
-      `Start the server:\n  ${vaultCortexCommand("start", flags.dir)}`,
-  )
+  prompts.log(`Token written to ${envFilePath}\n\n${startServerLine(targetDir)}`)
   prompts.outro("Done.")
   return 0
 }

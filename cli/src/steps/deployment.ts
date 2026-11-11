@@ -37,6 +37,15 @@ export type Deployment = {
 /** Where init puts an install, and where every other command looks for one, without --dir. */
 export const DEFAULT_TARGET_DIR = "./vault-cortex"
 
+/**
+ * The absolute install folder for a --dir value. expandTilde runs first because
+ * resolve() treats a leading `~` as a literal path segment, so a quoted
+ * "~/path" would create a directory named "~".
+ */
+export const resolveTargetDir = (requestedDir: string = DEFAULT_TARGET_DIR): string => {
+  return resolve(expandTilde(requestedDir))
+}
+
 type InitializedDir = {
   targetDir: string
   envFilePath: string
@@ -58,7 +67,7 @@ export const requireInitializedDir = (
   requestedDir: string | undefined,
   prompts: Prompts,
 ): InitializedDir | undefined => {
-  const targetDir = resolve(expandTilde(requestedDir ?? DEFAULT_TARGET_DIR))
+  const targetDir = resolveTargetDir(requestedDir)
   const envFilePath = join(targetDir, ".env")
   const envContent = envFile.read(envFilePath)
 

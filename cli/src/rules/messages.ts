@@ -128,7 +128,7 @@ export const buildContainerRemovalFailedMessage = (instanceName: string): string
 // Start guidance prints `start`, not `upgrade` — telling a user who has never
 // started anything to run "upgrade" reads as updating something they don't
 // have. `start` runs the same re-create cycle and pulls the image on demand.
-const startServerLine = (targetDir: string): string => {
+export const startServerLine = (targetDir: string): string => {
   return `Start the server:\n  ${vaultCortexCommand("start", targetDir)}`
 }
 

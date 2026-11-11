@@ -1,10 +1,10 @@
-import { join, resolve } from "node:path"
+import { join } from "node:path"
 
 import type { DockerRunner, Mode } from "../adapters/docker.js"
 import { envFile, type EnvWriteStatus } from "../adapters/env-file.js"
 import type { Prompts } from "../adapters/prompts.js"
 import { generateToken } from "../adapters/token.js"
-import { expandTilde, validateVaultPath } from "../adapters/vault.js"
+import { validateVaultPath } from "../adapters/vault.js"
 import {
   applyInstanceIdentity,
   applyOptionalSettings,
@@ -28,7 +28,12 @@ import {
   type StartStatus,
 } from "../rules/messages.js"
 import { containerStart } from "../steps/container-start.js"
-import { DEFAULT_TARGET_DIR, resolveDeployment, type Deployment } from "../steps/deployment.js"
+import {
+  DEFAULT_TARGET_DIR,
+  resolveDeployment,
+  resolveTargetDir,
+  type Deployment,
+} from "../steps/deployment.js"
 import { resolveInstanceIdentity } from "../steps/instance-identity.js"
 import { captureObsidianToken } from "../steps/obsidian-sign-in.js"
 import { askOptionalSettings } from "../steps/optional-settings.js"
@@ -321,9 +326,7 @@ const runLocalInit = async (flags: InitFlags, deps: InitDeps): Promise<number> =
 
   const requestedTargetDir =
     flags.dir ?? (flags.yes ? DEFAULT_TARGET_DIR : await askTargetDir(prompts))
-  // expandTilde before resolve: resolve() treats a leading `~` as a literal
-  // path segment, so a quoted "~/path" would create a directory named "~".
-  const targetDir = resolve(expandTilde(requestedTargetDir))
+  const targetDir = resolveTargetDir(requestedTargetDir)
   const modeMismatch = describeModeMismatch({ targetDir, mode: "local" })
 
   if (modeMismatch) {
@@ -431,9 +434,7 @@ const runRemoteInit = async (flags: InitFlags, deps: InitDeps): Promise<number> 
   const { prompts, fetchFn } = deps
 
   const requestedTargetDir = flags.dir ?? (await askTargetDir(prompts))
-  // expandTilde before resolve: resolve() treats a leading `~` as a literal
-  // path segment, so a quoted "~/path" would create a directory named "~".
-  const targetDir = resolve(expandTilde(requestedTargetDir))
+  const targetDir = resolveTargetDir(requestedTargetDir)
   const modeMismatch = describeModeMismatch({ targetDir, mode: "remote" })
 
   if (modeMismatch) {
