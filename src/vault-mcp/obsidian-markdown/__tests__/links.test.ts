@@ -803,6 +803,34 @@ describe("resolve", () => {
   })
 })
 
+// ── resolveInExactCase ───────────────────────────────────────────
+
+describe("resolveInExactCase", () => {
+  it("leaves a link unresolved when it reaches a note only with case folded", () => {
+    const allPaths = ["Folder/Real.md", "Other/Note.md"]
+
+    // The folded resolver reaches the note, so the miss comes from letter case.
+    expect(links.resolve({ target: "real", allPaths })).toBe("Folder/Real.md")
+    expect(links.resolveInExactCase({ target: "real", allPaths })).toBeNull()
+  })
+
+  it("resolves a link in its own letter case through the source-relative tier", () => {
+    expect(
+      links.resolveInExactCase({
+        target: "../C/target",
+        allPaths: ["A/C/target.md", "A/B/note.md", "C/target.md"],
+        sourcePath: "A/B/note.md",
+      }),
+    ).toBe("A/C/target.md")
+  })
+
+  it("picks the exact-case note over a shorter note that differs only in letter case", () => {
+    expect(
+      links.resolveInExactCase({ target: "real", allPaths: ["Real.md", "deep/real.md"] }),
+    ).toBe("deep/real.md")
+  })
+})
+
 // ── stripExtension ───────────────────────────────────────────────
 
 describe("stripExtension", () => {
