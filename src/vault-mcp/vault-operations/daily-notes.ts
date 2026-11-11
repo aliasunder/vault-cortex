@@ -24,8 +24,8 @@ type DailyNotesConfig = {
   folder: string
   format: string
   /** The folder when it holds daily notes apart from other notes, for the
-   *  delete guard, orphan exclusion and forward references to notes inside
-   *  it. Null when the setting is the vault root or blank (Obsidian's
+   *  delete guard, orphan exclusion, and links to daily notes not yet
+   *  created inside it. Null when the setting is the vault root or blank (Obsidian's
    *  new-note folder), since treating those as daily-only would cover every
    *  other note there. */
   dedicatedFolder: string | null
@@ -111,7 +111,8 @@ const readDailyNotesFile = async (vaultPath: string): Promise<DailyNotesFileSett
     // Valid JSON can be `null` or a bare value, which has no keys to read.
     const settings = isRecord(parsedConfig) ? parsedConfig : {}
     // A whitespace-only folder stays `named`: reads use it as written, while
-    // the delete guard and orphan exclusion treat it as no folder.
+    // the delete guard and orphan exclusion treat it as no folder
+    // (pickDailyFolderToAdd in vault-folder-config.ts).
     const folderSetting: DailyNotesFolderSetting =
       typeof settings.folder === "string" && settings.folder.length > 0
         ? { kind: "named", folder: normalizeFolderSetting(settings.folder) }

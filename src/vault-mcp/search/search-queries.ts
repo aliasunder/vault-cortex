@@ -1697,9 +1697,7 @@ export const brokenLinkCount = (
     .all()
 
   // The same check as getOutgoingLinks' daily_note_forward_ref flag.
-  const count = brokenTargets.filter(
-    (brokenLink) => !isDailyNoteForwardRef(brokenLink.target),
-  ).length
+  const count = brokenTargets.filter(({ target }) => !isDailyNoteForwardRef(target)).length
   const excludedCount = brokenTargets.length - count
 
   logger.info("broken link count", {
