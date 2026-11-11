@@ -24,7 +24,10 @@ import { readdirOrNull, readFileTextPrefix, statOrNull } from "../../../utils/fs
 import type { SearchIndex } from "../search-index.js"
 import { watchVaultAndBuildIndex as startVaultWatcher } from "../file-watcher.js"
 import type { PdfExtractor, PdfIndexExtraction } from "../../vault-operations/pdf-extractor.js"
-import { createInProcessPdfExtractor } from "../../../__tests__/helpers/pdf-extractor.js"
+import {
+  createInProcessPdfExtractor,
+  unusedPdfExtractor,
+} from "../../../__tests__/helpers/pdf-extractor.js"
 import { atomicWriteFile } from "../../vault-operations/vault-filesystem.js"
 import { logger } from "../../../logger.js"
 import { inProcessBodyTagParser, withBodyTags } from "./body-tag-test-helpers.js"
@@ -1496,7 +1499,7 @@ describe("file watcher — obsolete events and embedding queues", () => {
           await releaseNewer.promise
           return { status: "extracted", result: { text: "newopal", totalPages: 1 } }
         })
-      const pdfExtractor: PdfExtractor = { ...createInProcessPdfExtractor(""), extractForIndex }
+      const pdfExtractor: PdfExtractor = { ...unusedPdfExtractor, extractForIndex }
       const { testVault, database, fire } = await createControlledWatcher(undefined, {
         pdfExtractor,
       })
@@ -1543,7 +1546,7 @@ describe("file watcher — obsolete events and embedding queues", () => {
     const extractForIndex = vi
       .fn<PdfExtractor["extractForIndex"]>()
       .mockResolvedValue({ status: "cancelled" })
-    const pdfExtractor: PdfExtractor = { ...createInProcessPdfExtractor(""), extractForIndex }
+    const pdfExtractor: PdfExtractor = { ...unusedPdfExtractor, extractForIndex }
     const { testVault, database, fire } = await createControlledWatcher(undefined, {
       pdfExtractor,
     })
@@ -1576,7 +1579,7 @@ describe("file watcher — obsolete events and embedding queues", () => {
       status: "extracted",
       result: { text: "oldquartz", totalPages: 1 },
     }))
-    const pdfExtractor: PdfExtractor = { ...createInProcessPdfExtractor(""), extractForIndex }
+    const pdfExtractor: PdfExtractor = { ...unusedPdfExtractor, extractForIndex }
     const { testVault, search, database, fire } = await createControlledWatcher(embedder, {
       maxFileBytes: 20,
       pdfExtractor,
@@ -1630,7 +1633,7 @@ describe("file watcher — obsolete events and embedding queues", () => {
         status: "extracted",
         result: { text: "oldquartz", totalPages: 1 },
       }))
-      const pdfExtractor: PdfExtractor = { ...createInProcessPdfExtractor(""), extractForIndex }
+      const pdfExtractor: PdfExtractor = { ...unusedPdfExtractor, extractForIndex }
       const { testVault, database, fire } = await createControlledWatcher(embedder, {
         pdfExtractor,
       })
