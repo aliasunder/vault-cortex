@@ -31,9 +31,8 @@ The foundations the planned work builds on:
 - One self-contained image for every deployment path — the MCP server
   and Obsidian Sync in a single container, runnable by any OCI runtime
   (Docker, Podman, nerdctl)
-- A guided CLI (`npx vault-cortex`) that walks through setup, boots the
-  server straight to the browser Sync sign-in when you have no Sync token,
-  and handles configuration, upgrades, restarts, and logs
+- A guided CLI (`npx vault-cortex`) that walks through setup and handles
+  configuration, upgrades, restarts, and logs
 - One-click Render and Railway deploys, with browser-based Obsidian Sync
   sign-in when no Sync token is configured
 
