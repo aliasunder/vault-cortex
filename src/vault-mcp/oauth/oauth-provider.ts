@@ -105,10 +105,11 @@ const REFRESH_TOKEN_KEY_LABEL = "refresh-token:"
 
 // A registration older than this that never signed in is swept:
 // - a client has signed in once the server has saved a refresh token for it;
-// - a consent request and an authorization code each live ten minutes, so no
-//   sign-in attempt outlives an hour, and in practice consent follows
-//   registration within two minutes. Clients register more than once per
-//   connect, and only one of those registrations signs in;
+// - consent follows registration within two minutes in practice, and a
+//   consent request and an authorization code each live ten minutes, so a
+//   sign-in the sweep cuts off is one that started unusually late. Clients
+//   register more than once per connect, and only one of those
+//   registrations signs in;
 // - the sweep runs only at boot and before a registration, and a swept
 //   client is told at /authorize how to reconnect;
 // - /register needs no sign-in, so the age bounds how much disk anyone can

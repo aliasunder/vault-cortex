@@ -8,7 +8,7 @@ import { metadataHandler } from "@modelcontextprotocol/sdk/server/auth/handlers/
 import type { OAuthProtectedResourceMetadata } from "@modelcontextprotocol/sdk/shared/auth.js"
 import { extractClientIp, safeEqual, tokenBindingForServer } from "../../auth.js"
 import { createAuthorizeGuard } from "./authorize-guard.js"
-import { renderConsentPage } from "./consent-page.js"
+import { renderAccessDeniedPage, renderConsentPage } from "./consent-page.js"
 import { VAULT_SCOPE, type OAuthProvider } from "./oauth-provider.js"
 import type { Logger } from "../../logger.js"
 
@@ -210,15 +210,13 @@ export const createOAuthRoutes = ({
 
       // Any action but an explicit Approve denies, so an unexpected form
       // value can never grant access.
+      // A denial needs no token, so it is answered on the server: a redirect
+      // to the client's registered address would let a page that submits
+      // this form send a visitor from this server's domain to any site.
       if (action !== "approve") {
         consentLogger.info("oauth_consent_denied_by_user")
         deletePendingRequest(requestId)
-        const redirectUrl = new URL(pendingRequest.params.redirectUri)
-        redirectUrl.searchParams.set("error", "access_denied")
-        if (pendingRequest.params.state) {
-          redirectUrl.searchParams.set("state", pendingRequest.params.state)
-        }
-        res.redirect(redirectUrl.toString())
+        res.set("Cache-Control", "no-store").type("html").send(renderAccessDeniedPage())
         return
       }
 

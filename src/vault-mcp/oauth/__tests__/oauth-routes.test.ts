@@ -14,6 +14,7 @@ import { createOAuthProvider } from "../oauth-provider.js"
 import type { OAuthProvider } from "../oauth-provider.js"
 import { createOAuthRoutes } from "../oauth-routes.js"
 import { renderUnknownClientPage } from "../unknown-client-page.js"
+import { renderAccessDeniedPage } from "../consent-page.js"
 import { logger, type Logger } from "../../../logger.js"
 
 type LogCall = {
@@ -532,21 +533,36 @@ describe("OAuth consent audit logging", () => {
     })
   })
 
-  it("logs oauth_consent_denied_by_user on deny action", async () => {
+  // A denial needs no token, so a page anyone serves could submit it; the
+  // answer therefore never redirects to the client's registered address.
+  it("answers a deny on the server with the access-denied page and no redirect", async () => {
     const { requestId, clientId } = await startPendingRequest()
     logs.length = 0
 
-    await fetch(`${baseUrl}/oauth/decide`, {
+    const response = await fetch(`${baseUrl}/oauth/decide`, {
       method: "POST",
       headers: { "content-type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({
         request_id: requestId,
-        token: AUTH_TOKEN,
+        token: "not-the-token",
         action: "deny",
       }),
       redirect: "manual",
     })
 
+    expect({
+      status: response.status,
+      location: response.headers.get("location"),
+      cache: response.headers.get("cache-control"),
+      contentType: response.headers.get("content-type"),
+      html: await response.text(),
+    }).toEqual({
+      status: 200,
+      location: null,
+      cache: "no-store",
+      contentType: "text/html; charset=utf-8",
+      html: renderAccessDeniedPage(),
+    })
     const event = logs.find((log) => log.message === "oauth_consent_denied_by_user")
     expect(event).toEqual({
       level: "info",

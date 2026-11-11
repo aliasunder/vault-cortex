@@ -30,8 +30,8 @@ export const renderUnknownClientPage = (): string => {
   <p>To reconnect, remove the server from your client and add it again, so the client registers afresh:</p>
   <ul>
     <li><strong>Claude Code:</strong> <code>claude mcp remove &lt;name&gt;</code>, then <code>claude mcp add</code> with the same address.</li>
-    <li><strong>claude.ai, Claude Desktop and the mobile apps:</strong> remove the connector under Settings → Connectors, then add it again.</li>
-    <li><strong>mcp-remote:</strong> delete <code>~/.mcp-auth</code> and restart the client.</li>
+    <li><strong>A connector in claude.ai, Claude Desktop or the mobile apps:</strong> remove it under Settings → Connectors, then add it again.</li>
+    <li><strong>A client set up through mcp-remote, such as Claude Desktop on a local server:</strong> delete <code>~/.mcp-auth</code> and restart the client.</li>
     <li><strong>Other clients:</strong> remove the server and add it again.</li>
   </ul>
 </div>

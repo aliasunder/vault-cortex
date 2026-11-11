@@ -47,11 +47,11 @@ describe("unknown client page", () => {
         step: "<code>claude mcp remove &lt;name&gt;</code>, then <code>claude mcp add</code> with the same address.",
       },
       {
-        client: "claude.ai, Claude Desktop and the mobile apps:",
-        step: "remove the connector under Settings → Connectors, then add it again.",
+        client: "A connector in claude.ai, Claude Desktop or the mobile apps:",
+        step: "remove it under Settings → Connectors, then add it again.",
       },
       {
-        client: "mcp-remote:",
+        client: "A client set up through mcp-remote, such as Claude Desktop on a local server:",
         step: "delete <code>~/.mcp-auth</code> and restart the client.",
       },
       {

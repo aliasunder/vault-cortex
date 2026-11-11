@@ -936,7 +936,9 @@ before returning the 429.
 **Authorization errors:** the SDK's `/authorize` handler reports a malformed
 request by redirecting to the client's registered address, which anyone can
 register. `oauth/authorize-guard.ts`, mounted ahead of it, answers each such
-error directly with a 400 (500 for a server error) and never redirects.
+error directly with a 400 (500 for a server error) and never redirects. A
+denied consent is answered with a page for the same reason: the denial
+needs no token, so a page anyone serves could submit it.
 
 **Registrations that never signed in:** every MCP client registers itself
 through `/register` on first connect, and some register more than once per
@@ -946,8 +948,10 @@ and before each new registration, logged as `oauth_clients_swept`:
 
 - A registration has signed in once the server has saved a refresh token
   for it, which sets its `signed_in_at` column
-- A consent request and an authorization code each live ten minutes, so a
-  row not signed in after an hour never finished consent
+- Consent follows registration within minutes, and a consent request and
+  an authorization code each live ten minutes, so a row not signed in after
+  an hour never finished consent, or started it unusually late; a late
+  sign-in the sweep cuts off reconnects through the `/authorize` page below
 - A client that has signed in is never swept, even after its grant is
   revoked or its last refresh token expires
 - Such a client cannot recover from a sweep on its own: it keeps presenting

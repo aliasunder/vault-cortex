@@ -312,8 +312,9 @@ while the owner decides are bounded:
 - **Errors never redirect** — a malformed authorization request (a wrong
   `response_type`, a missing PKCE challenge, a `resource` naming another
   server, parameters over the cap) is answered with a 400 on the server,
-  never with a redirect to the client's registered address, so a link on
-  this server's domain cannot send a visitor to a site a client registered
+  and a denied consent with a page, never with a redirect to the client's
+  registered address, so a link or form on this server's domain cannot
+  send a visitor to a site a client registered
 
 ### MCP endpoint
 
@@ -340,10 +341,11 @@ while the owner decides are bounded:
 - **Rate-limited** — 5 registrations per minute per client IP (an IPv6
   client by its /56), the same limit and key as `/authorize`
 - **Swept** — a registration that has not signed in within an hour is
-  deleted at the next boot or registration. A consent request and an
-  authorization code each live 10 minutes, so no sign-in attempt outlives
-  the hour; a client whose registration was swept is told at `/authorize`
-  how to reconnect
+  deleted at the next boot or registration. Consent follows registration
+  within minutes, and a consent request and an authorization code each live
+  10 minutes, so a sign-in the sweep cuts off is one that started late; a
+  client whose registration was swept is told at `/authorize` how to
+  reconnect
 
 ### Symlink safety
 
