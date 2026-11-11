@@ -11,11 +11,11 @@ import { posix } from "node:path"
  * attention on `x`/`y`/`width`/`height` noise and mental id-joins. This
  * transform keeps exactly what carries meaning and re-expresses it as
  * document structure: spatial grouping becomes heading nesting (up to a size
- * limit, see CANVAS_GROUP_CHECK_LIMIT), canvas position becomes reading order
+ * limit, see CANVAS_GROUP_PAIR_LIMIT), canvas position becomes reading order
  * (top-to-bottom, left-to-right), and edges become an `A → B (label)` list
- * with ids resolved to display names. Geometry is dropped entirely — it is presentation, and the
- * rendition is a reading surface, not a round-trippable format (callers
- * wanting fidelity request the raw source instead).
+ * with ids resolved to display names. Geometry is dropped entirely — it is
+ * presentation, and the rendition is a reading surface, not a round-trippable
+ * format (callers wanting fidelity request the raw source instead).
  *
  * The canvas-to-document idea has community precedent — e.g. the
  * Canvas2Document plugin (https://github.com/slnsys/obsidian-canvas2document)
@@ -106,8 +106,9 @@ const isContainedIn = (inner: CanvasNode, outer: CanvasNode): boolean =>
   inner.x + inner.width <= outer.x + outer.width &&
   inner.y + inner.height <= outer.y + outer.height
 
-/** The group that owns a node: the smallest-area group strictly containing
- *  it (groups nest, so the smallest container is the innermost). */
+/** The group that owns a node: the smallest-area group, other than one with
+ *  the node's own id, whose rectangle contains it, edges included (groups
+ *  nest, so the smallest container is the innermost). */
 const smallestContainingGroup = (
   node: CanvasNode,
   groups: readonly CanvasNode[],
@@ -173,17 +174,18 @@ const renderNode = (node: CanvasNode): string => {
   return `[${node.type}]`
 }
 
-// Nesting needs each node's owning group, which costs one containment check
-// per node per group: groups × (content nodes + groups) checks in all. 16
-// million checks covers 4,000 groups alone, or 2,000 groups beside 6,000
-// cards, far past a hand-made canvas, while a crafted canvas with more cannot
-// stall indexing.
-const CANVAS_GROUP_CHECK_LIMIT = 16_000_000
+// Nesting needs each node's owning group, so every node is tested against
+// every group: groups × (content nodes + groups) pairs in all. A pair costs at
+// most two containment checks, because a group inside another group is also
+// checked the other way. 16 million pairs covers 4,000 groups alone, or 2,000
+// groups beside 6,000 cards, far past a hand-made canvas, while a crafted
+// canvas with more cannot stall indexing.
+const CANVAS_GROUP_PAIR_LIMIT = 16_000_000
 
 /** True when a canvas with these counts is small enough to render with its
  *  group nesting; a larger one renders flat, in reading order. */
 export const canNestCanvasGroups = (counts: { contentNodes: number; groups: number }): boolean => {
-  return counts.groups * (counts.contentNodes + counts.groups) <= CANVAS_GROUP_CHECK_LIMIT
+  return counts.groups * (counts.contentNodes + counts.groups) <= CANVAS_GROUP_PAIR_LIMIT
 }
 
 const groupHeading = (group: CanvasNode, depth: number): string => {
@@ -264,8 +266,9 @@ const parseCanvasJson = (canvasJson: string): unknown => {
  * groups one level deeper), then a `Connections` edge list in `A → B (label)`
  * form with ids resolved to display names. A canvas too large for nesting
  * (see canNestCanvasGroups) keeps node content and group headings flat, in
- * reading order. Throws on
- * unparseable JSON. Every valid node is rendered once, even when IDs repeat.
+ * reading order. Throws on unparseable JSON. Every valid node is rendered
+ * once, even when IDs repeat; an edge to a repeated ID names the last such
+ * node in reading order.
  */
 export const linearizeCanvas = (canvasJson: string): string => {
   const parsed = parseCanvasJson(canvasJson)
@@ -309,8 +312,9 @@ export const linearizeCanvas = (canvasJson: string): string => {
 
 /** Extracts deduplicated vault-relative file paths from canvas `file`-type
  *  nodes. Text-node wikilinks are deliberately excluded — only explicit file
- *  references create graph edges (matching Obsidian's behavior). Throws on
- *  unparseable JSON. */
+ *  references create graph edges (matching Obsidian's behavior), though
+ *  Obsidian does update text-node links on a rename (see
+ *  extractCanvasCardTexts). Throws on unparseable JSON. */
 export const extractCanvasFileLinks = (canvasJson: string): string[] => {
   const parsed = parseCanvasJson(canvasJson)
 
