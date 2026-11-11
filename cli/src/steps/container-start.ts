@@ -1,6 +1,4 @@
 import {
-  healthPollTimeoutMs,
-  healthTimeoutMessage,
   isVaultCortexImage,
   pollHealth,
   probeHealth,
@@ -8,7 +6,12 @@ import {
 } from "../adapters/docker.js"
 import { envFile } from "../adapters/env-file.js"
 import type { Prompts } from "../adapters/prompts.js"
-import { buildContainerRemovalFailedMessage, type StartStatus } from "../rules/messages.js"
+import {
+  buildContainerRemovalFailedMessage,
+  healthPollTimeoutMs,
+  healthTimeoutMessage,
+  type StartStatus,
+} from "../rules/messages.js"
 import type { Deployment } from "./deployment.js"
 
 /** Who holds the install's container name: nobody, a Vault Cortex container, or another app. */

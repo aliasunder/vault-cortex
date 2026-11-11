@@ -397,36 +397,6 @@ export const probeHealth = async (
 }
 
 /**
- * Health-poll budget by deployment mode. Remote gets a longer window because
- * the container's init chain runs the first vault sync to completion before
- * the server boots — /healthz can legitimately take minutes to appear on a
- * fresh deploy (matches the 180s container health start period plus boot
- * margin).
- */
-export const healthPollTimeoutMs = (mode: Mode): number => {
-  return mode === "remote" ? 240_000 : 120_000
-}
-
-/** Health-poll failure message with the duration derived from the actual
- *  timeout, so mode-specific budgets can't drift out of the copy. Remote
- *  adds a first-sync hint: the container's init chain retries the first
- *  sync with no upper time bound, so an expired poll does not mean the
- *  server failed — it may flip healthy after the CLI stops waiting. */
-export const healthTimeoutMessage = (params: {
-  mode: Mode
-  timeoutMs: number
-  instanceName: string
-}): string => {
-  const { mode, timeoutMs, instanceName } = params
-  const baseMessage = `Server did not respond within ${timeoutMs / 60_000} minutes — check: docker logs ${instanceName}`
-
-  if (mode === "remote") {
-    return `${baseMessage} (a long first sync may still be running — the container keeps starting in the background)`
-  }
-  return baseMessage
-}
-
-/**
  * Polls the health endpoint until it responds OK or the timeout elapses.
  *
  * Native Date.now() rather than the server's Luxon convention: the published
