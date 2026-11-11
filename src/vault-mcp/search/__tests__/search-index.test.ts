@@ -5800,15 +5800,34 @@ describe("links that differ from their file only in letter case", () => {
     ).toBeNull()
   })
 
-  it("lets a file added later claim a stored link that differs from its path only in case", () => {
-    indexNote("source.md", "![[Photo.PNG]]\n")
+  // The source sits in a subfolder, so each link reaches the new file through
+  // one comparison only.
+  it.each([
+    { label: "a full path", target: "Photo.PNG", assetPath: "photo.png" },
+    { label: "a relative path", target: "../Photo.PNG", assetPath: "photo.png" },
+    {
+      label: "an extensionless path",
+      target: "Boards/trip route",
+      assetPath: "boards/Trip Route.canvas",
+    },
+    {
+      label: "an extensionless relative path",
+      target: "../Boards/trip route",
+      assetPath: "boards/Trip Route.canvas",
+    },
+  ])(
+    "lets a file added later claim $label stored in another letter case",
+    ({ target, assetPath }) => {
+      const sourcePath = "Notes/source.md"
+      indexNote(sourcePath, `[[${target}]]\n`)
 
-    index.upsertNonMdFile("photo.png", 100)
+      index.upsertNonMdFile(assetPath, 100)
 
-    expect(index.getOutgoingLinks({ path: "source.md" }, logger)).toEqual([
-      resolvedFileLink("photo.png"),
-    ])
-  })
+      expect(index.getOutgoingLinks({ path: sourcePath }, logger)).toEqual([
+        resolvedFileLink(assetPath),
+      ])
+    },
+  )
 })
 
 describe("brokenLinkCount", () => {
