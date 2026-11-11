@@ -24,9 +24,10 @@ type DailyNotesConfig = {
   folder: string
   format: string
   /** The folder when it holds daily notes apart from other notes, for the
-   *  delete guard, orphan exclusion and forward-reference counts. Null when
-   *  the setting is the vault root or blank (Obsidian's new-note folder),
-   *  since treating those as daily-only would cover every other note there. */
+   *  delete guard, orphan exclusion and forward references to notes inside
+   *  it. Null when the setting is the vault root or blank (Obsidian's
+   *  new-note folder), since treating those as daily-only would cover every
+   *  other note there. */
   dedicatedFolder: string | null
 }
 

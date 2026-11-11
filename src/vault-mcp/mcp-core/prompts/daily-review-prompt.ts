@@ -46,8 +46,8 @@ type OutgoingLink = {
 
 /** Formats a single outgoing link as a bullet, flagging broken targets. */
 const formatOutgoingLink = (link: OutgoingLink): string => {
-  // A link to a daily note not created yet is Obsidian's create-on-click
-  // navigation, not a broken link
+  // A link to a daily note not created yet resolves to that note once it
+  // exists, so it is not a broken link
   if (link.daily_note_forward_ref) return `- ${link.path} (daily note not created yet)`
   if (!link.exists) return `- ${link.path} (**broken** — target does not exist)`
 

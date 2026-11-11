@@ -384,9 +384,10 @@ export type OutgoingLinkEntry = {
    *  (.canvas, .base, images, etc.). Defaults to "note" for broken links. */
   kind: "note" | "file"
   bytes: number | null
-  /** True when the target is under the daily notes folder and the note
-   *  does not exist yet — a forward-reference ("create on click"
-   *  navigation), not a genuinely broken link. */
+  /** True when the link is broken and names a daily note not yet created:
+   *  a target under the daily notes folder, or a bare date in the daily-note
+   *  format. The link resolves to that note once it exists, so it is not
+   *  genuinely broken. */
   daily_note_forward_ref: boolean
 }
 
