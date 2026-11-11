@@ -195,17 +195,19 @@ const collectSectionSpans = (
   headings: readonly HeadingInfo[],
   preambleExists: boolean,
 ): SectionSpan[] => {
-  const topLevel = headings.reduce(
-    (shallowestLevel, heading) => Math.min(shallowestLevel, heading.level),
+  const shallowestLevel = headings.reduce(
+    (shallowestSoFar, heading) => Math.min(shallowestSoFar, heading.level),
     Infinity,
   )
-  const topLevelHeadingCount = headings.filter((heading) => heading.level === topLevel).length
+  const topLevelHeadingCount = headings.filter(
+    (heading) => heading.level === shallowestLevel,
+  ).length
 
   // A lone top-level heading that opens the note (the `# Title` wrapper
   // pattern) spans the whole body — preamble text or an earlier deeper
   // heading means it does not, so it keeps its Section line.
   const hasSingletonWrapper =
-    topLevelHeadingCount === 1 && headings[0]?.level === topLevel && !preambleExists
+    topLevelHeadingCount === 1 && headings[0]?.level === shallowestLevel && !preambleExists
 
   const sectionSpans: SectionSpan[] = []
   const ancestorStack: { text: string; level: number }[] = []
@@ -232,7 +234,7 @@ const collectSectionSpans = (
     // only); bodyEndLine would span the full subtree.
     const ownBodyEndLine = headings[headingIndex + 1]?.startLine ?? heading.bodyEndLine
 
-    const isTopLevelHeading = heading.level === topLevel
+    const isTopLevelHeading = heading.level === shallowestLevel
     // An empty headingPath suppresses the Section line in the chunk prefix.
     const skipSectionLine = isTopLevelHeading && hasSingletonWrapper
     sectionSpans.push({
@@ -309,9 +311,10 @@ const buildTableOfContentsText = (
  *
  *  Every prefix counts against the chunk token budget — the embedding and
  *  reranker windows truncate at 512 model tokens, so an unbudgeted prefix
- *  would push body tail content out of view. Short notes (< threshold)
- *  without a metadata prefix stay byte-identical to the historical behavior
- *  so their content hashes don't churn on upgrade. */
+ *  would push body tail content out of view. A short note (under
+ *  CHUNK_THRESHOLD_TOKENS) without a metadata prefix is always one chunk,
+ *  the title and then the stripped body; changing that form would change
+ *  every such note's content hash and re-embed it. */
 export const chunkContent = (params: {
   noteTitle: string
   bodyContent: string
@@ -336,8 +339,8 @@ export const chunkContent = (params: {
   const bodyTokenCount = approximateTokenCount(strippedBody)
 
   if (bodyTokenCount < CHUNK_THRESHOLD_TOKENS) {
-    // Only a metadata prefix tightens the single-chunk ceiling — without
-    // one, short-note behavior (and its content hashes) stays historical.
+    // Only a metadata prefix can split a short note; without one, the note
+    // keeps the one-chunk form described above.
     const exceedsBudgetWithPrefix =
       Boolean(metadataPrefix) && bodyTokenCount > budgetAfterPrefix(basePrefix)
 
@@ -395,10 +398,7 @@ export const chunkContent = (params: {
       // rides the TOC chunk, and the FTS leg indexes the full note text.
       if (!sectionSpanText) return []
 
-      const cappedPath =
-        sectionSpan.headingPath.length > 0
-          ? capHeadingPath(sectionSpan.headingPath, sectionLineBudget)
-          : sectionSpan.headingPath
+      const cappedPath = capHeadingPath(sectionSpan.headingPath, sectionLineBudget)
       const sectionLine = cappedPath.length > 0 ? `Section: ${cappedPath.join(" > ")}` : null
       const sectionPrefix = [noteTitle, sectionLine, metadataPrefix].filter(Boolean).join("\n")
 
