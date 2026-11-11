@@ -168,6 +168,45 @@ const nameInUseWithYesFlagMessage = (instanceName: string): string => {
 }
 
 /**
+ * How a new install goes on when its name is already in use:
+ * - --instance-name names the install whose data to reuse;
+ * - another app's container holds no install's data, so the install takes its own name;
+ * - otherwise the user picks.
+ */
+const chooseInUseNameAction = async (
+  params: {
+    requestedName: string
+    instanceNameFlagged: boolean
+    otherAppImage: string | undefined
+  },
+  prompts: Prompts,
+): Promise<string> => {
+  const { requestedName, instanceNameFlagged, otherAppImage } = params
+
+  if (instanceNameFlagged) {
+    prompts.log(`Reusing the data of the existing "${requestedName}" install.`)
+    return "reuse"
+  }
+  if (otherAppImage) return "own-name"
+  return prompts.select(
+    `An install named "${requestedName}" already exists on this machine (its container or data volumes are here). What should this install do?`,
+    [
+      {
+        value: "own-name",
+        label: "Give this install its own name",
+        hint: "a second vault, with its own container, data and port",
+      },
+      {
+        value: "reuse",
+        label: "Reuse the existing data — this is the same vault set up again",
+        hint: `replaces the "${requestedName}" container`,
+      },
+    ],
+    "own-name",
+  )
+}
+
+/**
  * Decides this install's name and port before init writes .env:
  * - a re-run over an existing .env keeps its name and port, plus a local
  *   PUBLIC_URL or a remote DEVICE_NAME (`carried`), and exits when the name
@@ -306,44 +345,14 @@ export const resolveInstanceIdentity = async (
     }
     prompts.warn(nameTakenMessage)
   }
-  if (flags.instanceName) {
-    prompts.log(`Reusing the data of the existing "${requestedName}" install.`)
-    const reusedPort = await choosePort(
-      {
-        request: requestReusedInstallPort(flags),
-        portsInUse: portsOutsideReusedInstall,
-        interactive: !flags.yes,
-      },
-      prompts,
-    )
-
-    if (reusedPort.kind === "exit") return { kind: "exit" }
-    const chosen = { ...flagSettings, ...reusedPort.settings }
-    return { kind: "ok", identity: { carried: {}, chosen }, portsInUse: portsOutsideReusedInstall }
-  }
-  if (flags.yes) {
+  if (flags.yes && !flags.instanceName) {
     prompts.error(nameInUseWithYesFlagMessage(requestedName))
     return { kind: "exit" }
   }
-
-  const choice = otherAppImage
-    ? "own-name"
-    : await prompts.select(
-        `An install named "${requestedName}" already exists on this machine (its container or data volumes are here). What should this install do?`,
-        [
-          {
-            value: "own-name",
-            label: "Give this install its own name",
-            hint: "a second vault, with its own container, data and port",
-          },
-          {
-            value: "reuse",
-            label: "Reuse the existing data — this is the same vault set up again",
-            hint: `replaces the "${requestedName}" container`,
-          },
-        ],
-        "own-name",
-      )
+  const choice = await chooseInUseNameAction(
+    { requestedName, instanceNameFlagged: Boolean(flags.instanceName), otherAppImage },
+    prompts,
+  )
 
   if (choice === "reuse") {
     const reusedPort = await choosePort(
