@@ -1037,11 +1037,10 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
    * can start:
    *
    * 1. The watcher goes live.
-   * 2. Each path whose latest held event is a deletion is removed, so a renamed
-   *    note's new path, held or arriving as a live event, claims the links that
-   *    pointed at the old one. reconcileHeldPaths removes an old path whose
-   *    latest held event is a change, before the batch reads any path. A file
-   *    that came back is read again by the batch.
+   * 2. Each path whose latest held event is a deletion is removed.
+   *    reconcileHeldPaths removes an old path whose latest held event is a
+   *    change, before the batch reads any path. A file that came back is read
+   *    again by the batch.
    * 3. Each held path gets a reserved event token. It comes after step 2,
    *    because removeFromIndex deletes the path's token.
    *
