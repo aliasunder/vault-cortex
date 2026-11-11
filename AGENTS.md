@@ -311,27 +311,33 @@ vault data API.
 what it depends on. `bin.ts`, `main.ts` and `program.ts` are the wiring and the
 only loose files.
 
-| Layer       | Holds                                                                                                                                             | May import at runtime        |
-| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------- |
-| `adapters/` | The outside world: Docker, the terminal prompts, `.env` file I/O, vault path, token                                                               | nothing internal             |
-| `rules/`    | Decisions and text, with no file, Docker or prompt I/O: `.env` parsing and typed getters, ports, messages, templates                              | other rules                  |
-| `steps/`    | Shared workflow pieces: deployment checks, the container start, the free-port question, instance identity, the settings chooser, Obsidian sign-in | rules, adapters, other steps |
-| `commands/` | One module per command (`lifecycle` holds start, restart, logs and down)                                                                          | steps, rules, adapters       |
+| Layer       | Holds                                                                                                                                                       | May import at runtime        |
+| ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------- |
+| `adapters/` | The outside world: Docker, the terminal prompts, `.env` file I/O, vault path, token                                                                         | nothing internal             |
+| `rules/`    | Decisions and text, with no file, Docker or prompt I/O: `.env` parsing, typed getters and text edits, ports, messages, templates                            | other rules                  |
+| `steps/`    | Workflow pieces commands compose: deployment checks, the container start, the free-port question, instance identity, the settings chooser, Obsidian sign-in | rules, adapters, other steps |
+| `commands/` | One module per command (`lifecycle` holds start, restart, logs and down)                                                                                    | steps, rules, adapters       |
 
 - **Shared logic moves down.** When two commands need the same step, it goes
-  in `steps/`, never in one command for the other to import. A message or
-  command line two modules print goes in `rules/messages.ts`
-  (`vaultCortexCommand` builds every `npx vault-cortex@latest …` line).
+  in `steps/`, never in one command for the other to import. A step can also
+  hold one command's sub-flow that is too large for the command's file, as
+  `instance-identity` does for init. A message or command line two modules
+  print goes in `rules/messages.ts` (`vaultCortexCommand` builds every
+  `npx vault-cortex@latest …` line outside the `.env` blocks synced from
+  `deploy/*/.env.example`).
 - **Pure decisions stay out of prompts.** A rule returns its decision as data
   (`decidePort`), and a step acts on it, so `--yes` and the interactive flow
   share one decision.
 - **Type-only imports cross any layer,** as in the server: `rules/` takes the
   `Mode`, `DaemonStatus` and `PublishedPort` types from `adapters/docker.ts`.
-- **Export style** follows the server's: the `.env` file adapter and the
-  container start step export one namespace object (`envFile`,
-  `containerStart`), the Docker and prompt adapters export a factory that
-  returns one (`createDockerRunner`, `createPrompts`), and every other module,
-  rules included, exports named functions.
+- **Export style** follows the server's test: a module that performs
+  operations (runs or removes a container, writes a file) exports one
+  namespace object, and a module that only decides, asks or reads exports
+  named functions. The `.env` file adapter and the container start step export
+  `envFile` and `containerStart`, the Docker and prompt adapters export a
+  factory that returns one (`createDockerRunner`, `createPrompts`), and the
+  other steps (the deployment gates, the questions, Obsidian sign-in) and
+  every rule export named functions.
 
 Lint enforces the direction: `eslint.config.ts` has one
 `no-restricted-imports` block per CLI folder, and every folder but `adapters/`
