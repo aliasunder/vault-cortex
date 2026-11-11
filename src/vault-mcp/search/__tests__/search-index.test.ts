@@ -5941,6 +5941,215 @@ describe("relative links (path from current file)", () => {
   })
 })
 
+// ── Link rows ───────────────────────────────────────────────────
+
+type LinkRow = {
+  source: string
+  target: string
+  link_text: string
+  link_kind: string
+  link_name: string
+}
+
+/** An on-disk index beside a second connection that reads its links table. */
+const createLinkRowsIndex = async () => {
+  const directory = await mkdtemp(join(tmpdir(), "link-rows-"))
+  onTestFinished(() => rm(directory, { recursive: true, force: true }))
+  const dbPath = join(directory, "index.db")
+  const searchIndex = createSearchIndex(dbPath)
+  const inspect = new Database(dbPath)
+  onTestFinished(() => {
+    inspect.close()
+  })
+  const readLinkRows = (): LinkRow[] => {
+    return inspect
+      .prepare<[], LinkRow>(
+        `SELECT source, target, link_text, link_kind, link_name FROM links
+         ORDER BY source, link_text, link_kind`,
+      )
+      .all()
+  }
+  return { searchIndex, inspect, readLinkRows }
+}
+
+const saveLinkTestNote = (search: SearchIndex, filePath: string, rawContent = "# Note\n"): void => {
+  search.upsertNote(withBodyTags({ filePath, rawContent, fileStat: testStat(1000) }), logger)
+}
+
+/** Saves a canvas as the file watcher does, registering the file before its content. */
+const saveLinkTestCanvas = (
+  search: SearchIndex,
+  filePath: string,
+  cards: ReadonlyArray<Record<string, unknown>>,
+): void => {
+  const nodes = cards.map((card, position) => ({
+    id: `card-${position}`,
+    x: 0,
+    y: position * 100,
+    width: 100,
+    height: 100,
+    ...card,
+  }))
+  search.upsertNonMdFile(filePath, 200)
+  search.upsertFileContent(
+    { filePath, rawContent: JSON.stringify({ nodes, edges: [] }), fileStat: testStat(5000, 200) },
+    logger,
+  )
+}
+
+describe("links table schema", () => {
+  /** Writes a links table in the shape an earlier release created, then opens it. */
+  const openOverOldLinksTable = async (): Promise<Database.Database> => {
+    const directory = await mkdtemp(join(tmpdir(), "old-links-"))
+    onTestFinished(() => rm(directory, { recursive: true, force: true }))
+    const dbPath = join(directory, "index.db")
+    const oldDb = new Database(dbPath)
+    oldDb.exec(`
+      CREATE TABLE links (
+        source TEXT NOT NULL, target TEXT NOT NULL, PRIMARY KEY (source, target)
+      );
+      CREATE INDEX idx_links_target ON links(target);
+    `)
+    oldDb.close()
+
+    createSearchIndex(dbPath)
+    const inspect = new Database(dbPath)
+    onTestFinished(() => {
+      inspect.close()
+    })
+    return inspect
+  }
+
+  it("recreates an old links table with the text, kind and name columns in its key", async () => {
+    const inspect = await openOverOldLinksTable()
+
+    const columns = inspect
+      .prepare<[], { name: string; pk: number; dflt_value: string | null }>(
+        "SELECT name, pk, dflt_value FROM pragma_table_info('links') ORDER BY cid",
+      )
+      .all()
+    expect(columns).toEqual([
+      { name: "source", pk: 1, dflt_value: null },
+      { name: "target", pk: 2, dflt_value: null },
+      { name: "link_text", pk: 3, dflt_value: "''" },
+      { name: "link_kind", pk: 4, dflt_value: "'link'" },
+      { name: "link_name", pk: 0, dflt_value: "''" },
+    ])
+  })
+
+  it("recreates an old links table with its target and name indexes", async () => {
+    const inspect = await openOverOldLinksTable()
+
+    const indexes = inspect
+      .prepare<[], { name: string }>("SELECT name FROM pragma_index_list('links') ORDER BY name")
+      .all()
+    expect(indexes.map((tableIndex) => tableIndex.name)).toEqual([
+      "idx_links_name",
+      "idx_links_target",
+      "sqlite_autoindex_links_1",
+    ])
+  })
+
+  it("keeps every row an earlier release's (source, target) insert writes", async () => {
+    const { inspect, readLinkRows } = await createLinkRowsIndex()
+
+    // After a downgrade, an earlier release inserts without the new columns,
+    // and OR IGNORE would silently skip any row that failed a constraint.
+    inspect.exec(`
+      INSERT OR IGNORE INTO links (source, target) VALUES ('a.md', 'b.md');
+      INSERT OR IGNORE INTO links (source, target) VALUES ('a.md', 'c.md');
+    `)
+    expect(readLinkRows()).toEqual([
+      { source: "a.md", target: "b.md", link_text: "", link_kind: "link", link_name: "" },
+      { source: "a.md", target: "c.md", link_text: "", link_kind: "link", link_name: "" },
+    ])
+  })
+})
+
+describe("link rows", () => {
+  /** sub/source.md reaches the root B.md through two spellings. */
+  const seedTwoSpellings = (search: SearchIndex): void => {
+    saveLinkTestNote(search, "B.md")
+    saveLinkTestNote(search, "sub/source.md", "# Source\n\n[[../B]] and [[B]]\n")
+  }
+
+  it("stores one row per link text when two texts reach one note", async () => {
+    const { searchIndex, readLinkRows } = await createLinkRowsIndex()
+    seedTwoSpellings(searchIndex)
+
+    expect(readLinkRows()).toEqual([
+      {
+        source: "sub/source.md",
+        target: "B.md",
+        link_text: "../B",
+        link_kind: "link",
+        link_name: "b",
+      },
+      {
+        source: "sub/source.md",
+        target: "B.md",
+        link_text: "B",
+        link_kind: "link",
+        link_name: "b",
+      },
+    ])
+  })
+
+  it("lists a source with two texts reaching the note once among its backlinks", () => {
+    seedTwoSpellings(index)
+
+    expect(index.getBacklinks({ path: "B.md" }, logger)).toEqual([
+      { path: "sub/source.md", title: "source", bytes: 100 },
+    ])
+  })
+
+  it("lists a note reached by two link texts once among the outgoing links", () => {
+    seedTwoSpellings(index)
+
+    expect(
+      index.getOutgoingLinks(
+        { path: "sub/source.md", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
+        logger,
+      ),
+    ).toEqual([
+      {
+        path: "B.md",
+        title: "B",
+        exists: true,
+        kind: "note",
+        bytes: 100,
+        daily_note_forward_ref: false,
+      },
+    ])
+  })
+
+  it("stores a canvas file card as a file-card row and a text-card link as a link row", async () => {
+    const { searchIndex, readLinkRows } = await createLinkRowsIndex()
+    saveLinkTestNote(searchIndex, "Note.md")
+    saveLinkTestCanvas(searchIndex, "board.canvas", [
+      { type: "file", file: "Plan.pdf" },
+      { type: "text", text: "[[Note]]" },
+    ])
+
+    expect(readLinkRows()).toEqual([
+      {
+        source: "board.canvas",
+        target: "Note.md",
+        link_text: "Note",
+        link_kind: "link",
+        link_name: "note",
+      },
+      {
+        source: "board.canvas",
+        target: "Plan.pdf",
+        link_text: "Plan.pdf",
+        link_kind: "file-card",
+        link_name: "plan.pdf",
+      },
+    ])
+  })
+})
+
 // ── brokenLinkCount ─────────────────────────────────────────────
 
 describe("links that differ from their file only in letter case", () => {

@@ -860,6 +860,40 @@ describe("stripExtension", () => {
   })
 })
 
+// ── pathToLinkName ───────────────────────────────────────────────
+
+describe("pathToLinkName", () => {
+  it("gives a link's text and its note's path one key", () => {
+    expect([links.pathToLinkName("../Projects/Plan"), links.pathToLinkName("Plan.md")]).toEqual([
+      "plan",
+      "plan",
+    ])
+  })
+
+  it("gives a capital Greek name with and without .md one key", () => {
+    expect([links.pathToLinkName("ΟΔΟΣ"), links.pathToLinkName("ΟΔΟΣ.md")]).toEqual([
+      "οδοσ",
+      "οδοσ",
+    ])
+  })
+
+  it("gives a name ending in a capital sigma and its lowercase spelling one key", () => {
+    expect([links.pathToLinkName("ΟΔΟΣ"), links.pathToLinkName("οδοσ")]).toEqual(["οδοσ", "οδοσ"])
+  })
+
+  it("keeps an uppercase .MD, which resolve does not treat as the note extension", () => {
+    expect(links.pathToLinkName("B.MD")).toBe("b.md")
+  })
+
+  it("strips only one trailing .md", () => {
+    expect(links.pathToLinkName("folder/Notes.md.md")).toBe("notes.md")
+  })
+
+  it("keeps a non-note file's extension", () => {
+    expect(links.pathToLinkName("assets/Photo.PNG")).toBe("photo.png")
+  })
+})
+
 // ── resolveAsset ─────────────────────────────────────────────────
 
 describe("resolveAsset", () => {

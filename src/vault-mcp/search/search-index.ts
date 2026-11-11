@@ -406,7 +406,7 @@ export type OutgoingLinkEntry = {
 //   2. links.resolve() maps each raw target to a vault-relative path by trying
 //      exact match → relative-to-source match → basename/shortest-path heuristic,
 //      first in the link's own letter case, then with letter case folded.
-//   3. upsertNote stores resolved links in the `links` table. Unresolved
+//   3. upsertNote stores each link's resolved target beside its text. Unresolved
 //      targets are stored as-is (raw text) for broken-link detection.
 //   4. When a new note is created, upsertNote re-resolves any stale
 //      unresolved targets that now match the new note's path or basename
@@ -414,6 +414,10 @@ export type OutgoingLinkEntry = {
 //   5. rebuildFromVault uses a two-pass approach: Pass 1 indexes all
 //      notes without links (skipLinks), Pass 2 extracts links with the
 //      complete path list so all targets can resolve.
+
+/** "link" is typed in a note or a Canvas text card and resolves like one;
+ *  "file-card" is a Canvas file card, stored as the exact path it names. */
+type LinkKind = "link" | "file-card"
 
 /** rebuildFromVault returns the indexed note count and the two passes that
  *  finish after it returns. Each pass logs its own failure, so a caller may
@@ -505,6 +509,15 @@ export const createSearchIndex = (
     db.exec("DROP TABLE notes_fts")
   }
 
+  // The links primary key gained columns, which ALTER TABLE cannot add to a key.
+  // A warm database whose links table lacks link_kind drops it, and the CREATE
+  // below rebuilds it with both indexes; rebuildFromVault refills it at startup.
+  const linkColumns = db.prepare<unknown[], { name: string }>("PRAGMA table_info(links)").all()
+
+  if (linkColumns.length > 0 && !linkColumns.some((column) => column.name === "link_kind")) {
+    db.exec("DROP TABLE links")
+  }
+
   db.exec(`
     CREATE TABLE IF NOT EXISTS notes (
       path        TEXT PRIMARY KEY,
@@ -529,13 +542,27 @@ export const createSearchIndex = (
       path UNINDEXED, title, content, metadata, tokenize='porter unicode61'
     );
 
+    -- One row per link text in a source, so two spellings that reach one file
+    -- re-resolve separately after a rename.
+    -- - link_text is the target as written, without heading or alias; a file
+    --   card's is its exact path.
+    -- - link_kind is 'link' for a link typed in a note or a Canvas text card,
+    --   and 'file-card' for a Canvas file card.
+    -- - link_name is links.pathToLinkName(link_text), the key an added file's
+    --   names are looked up by.
+    -- The defaults let an earlier release's (source, target) inserts succeed
+    -- after a downgrade, each row keeping a distinct key.
     CREATE TABLE IF NOT EXISTS links (
-      source TEXT NOT NULL,
-      target TEXT NOT NULL,
-      PRIMARY KEY (source, target)
+      source    TEXT NOT NULL,
+      target    TEXT NOT NULL,
+      link_text TEXT NOT NULL DEFAULT '',
+      link_kind TEXT NOT NULL DEFAULT 'link',
+      link_name TEXT NOT NULL DEFAULT '',
+      PRIMARY KEY (source, target, link_text, link_kind)
     );
 
     CREATE INDEX IF NOT EXISTS idx_links_target ON links(target);
+    CREATE INDEX IF NOT EXISTS idx_links_name ON links(link_name);
 
     CREATE TABLE IF NOT EXISTS non_md_files (
       path      TEXT PRIMARY KEY,
@@ -807,7 +834,16 @@ export const createSearchIndex = (
       @blockId, @heading, @folder, @depth, @parentLine, @parentBlockId)
   `)
   const deleteLinksStmt = db.prepare(`DELETE FROM links WHERE source = ?`)
-  const insertLinkStmt = db.prepare(`INSERT OR IGNORE INTO links (source, target) VALUES (?, ?)`)
+  const insertLinkStmt = db.prepare<{
+    source: string
+    target: string
+    linkText: string
+    linkKind: LinkKind
+    linkName: string
+  }>(
+    `INSERT OR IGNORE INTO links (source, target, link_text, link_kind, link_name)
+     VALUES (@source, @target, @linkText, @linkKind, @linkName)`,
+  )
   // Links whose target isn't a known note or non-md file — stored as raw text
   // because they were unresolved when indexed (e.g. a forward reference).
   // Used by both note and non-md re-resolution to find candidates to upgrade.
@@ -1412,6 +1448,30 @@ export const createSearchIndex = (
     )
   }
 
+  /** A note wins over a non-markdown file, and an unresolved link keeps its text as the target. */
+  const resolveLinkTarget = (params: {
+    linkText: string
+    notePaths: readonly string[]
+    sourcePath: string
+  }): string => {
+    const { linkText, notePaths, sourcePath } = params
+
+    return (
+      links.resolve({ target: linkText, allPaths: notePaths, sourcePath }) ??
+      resolveNonMarkdownFile({ target: linkText, sourcePath }) ??
+      linkText
+    )
+  }
+
+  const insertLink = (params: {
+    source: string
+    target: string
+    linkText: string
+    linkKind: LinkKind
+  }): void => {
+    insertLinkStmt.run({ ...params, linkName: links.pathToLinkName(params.linkText) })
+  }
+
   /** Indexes pre-statted non-markdown files into the non_md_files table.
    *  The caller owns entry filtering and stat (fs work stays out of the
    *  write transaction); this just writes the rows. */
@@ -1554,23 +1614,24 @@ export const createSearchIndex = (
         // as written. Resolving it like a link would send a Plan.pdf card
         // to a Plan.pdf.md note.
         for (const fileCardPath of canvasLinks.fileCardPaths) {
-          insertLinkStmt.run(params.filePath, fileCardPath)
+          insertLink({
+            source: params.filePath,
+            target: fileCardPath,
+            linkText: fileCardPath,
+            linkKind: "file-card",
+          })
         }
 
         // A link typed in a text card resolves as the same link in a note. A
         // canvas with no such link skips reading every note path from the table.
         const notePaths = canvasLinks.textCardLinks.length > 0 ? getNotePathsForCanvasLinks() : []
-        for (const rawTarget of canvasLinks.textCardLinks) {
-          const resolvedNotePath = links.resolve({
-            target: rawTarget,
-            allPaths: notePaths,
-            sourcePath: params.filePath,
+        for (const linkText of canvasLinks.textCardLinks) {
+          insertLink({
+            source: params.filePath,
+            target: resolveLinkTarget({ linkText, notePaths, sourcePath: params.filePath }),
+            linkText,
+            linkKind: "link",
           })
-          const resolvedTarget =
-            resolvedNotePath ??
-            resolveNonMarkdownFile({ target: rawTarget, sourcePath: params.filePath }) ??
-            rawTarget
-          insertLinkStmt.run(params.filePath, resolvedTarget)
         }
       }
     })()
@@ -1895,23 +1956,13 @@ export const createSearchIndex = (
       const pathList = allPaths.map((row) => row.path)
 
       deleteLinksStmt.run(note.path)
-      for (const rawTarget of links.extractAll(noteBody, frontmatter)) {
-        const resolved = links.resolve({
-          target: rawTarget,
-          allPaths: pathList,
-          sourcePath: note.path,
+      for (const linkText of links.extractAll(noteBody, frontmatter)) {
+        insertLink({
+          source: note.path,
+          target: resolveLinkTarget({ linkText, notePaths: pathList, sourcePath: note.path }),
+          linkText,
+          linkKind: "link",
         })
-
-        if (resolved !== null) {
-          insertLinkStmt.run(note.path, resolved)
-          continue
-        }
-
-        const resolvedNonMdPath = resolveNonMarkdownFile({
-          target: rawTarget,
-          sourcePath: note.path,
-        })
-        insertLinkStmt.run(note.path, resolvedNonMdPath ?? rawTarget)
       }
 
       // Re-resolve links still stored as raw text now that this note exists.
@@ -2783,23 +2834,17 @@ export const createSearchIndex = (
               // Re-parsing is pure, so this reads what Pass 1 read; Pass 1 already
               // warned about an unreadable block for this note
               const parsed = parseNoteSkippingUnreadableBlock(note.content)
-              for (const rawTarget of links.extractAll(parsed.content, parsed.data)) {
-                const resolved = links.resolve({
-                  target: rawTarget,
-                  allPaths: pathList,
-                  sourcePath: note.relativePath,
+              for (const linkText of links.extractAll(parsed.content, parsed.data)) {
+                insertLink({
+                  source: note.relativePath,
+                  target: resolveLinkTarget({
+                    linkText,
+                    notePaths: pathList,
+                    sourcePath: note.relativePath,
+                  }),
+                  linkText,
+                  linkKind: "link",
                 })
-
-                if (resolved !== null) {
-                  insertLinkStmt.run(note.relativePath, resolved)
-                  continue
-                }
-
-                const resolvedNonMdPath = resolveNonMarkdownFile({
-                  target: rawTarget,
-                  sourcePath: note.relativePath,
-                })
-                insertLinkStmt.run(note.relativePath, resolvedNonMdPath ?? rawTarget)
               }
             })()
           } catch (error) {

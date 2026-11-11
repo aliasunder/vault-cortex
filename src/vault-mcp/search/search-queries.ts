@@ -1521,8 +1521,9 @@ export const getBacklinks = (
   logger: Logger,
 ): BacklinkEntry[] => {
   assertLinkQueryPath(params.path)
+  // A source holds one row per link text, and two texts can reach one target.
   const sql = `
-    SELECT l.source as path,
+    SELECT DISTINCT l.source as path,
            COALESCE(n.title, f.basename) as title,
            COALESCE(n.bytes, f.bytes, 0) as bytes
     FROM links l
@@ -1566,8 +1567,9 @@ export const getOutgoingLinks = (
   assertLinkQueryPath(params.path)
   // Left-join against both notes and non_md_files to classify each link target:
   // notes → kind "note", non_md_files → kind "file", neither → broken (defaults to "note").
+  // DISTINCT lists a target once when two link texts in the source reach it.
   const sql = `
-    SELECT l.target as path,
+    SELECT DISTINCT l.target as path,
            n.title,
            CASE WHEN n.path IS NOT NULL THEN 1
                 WHEN f.path IS NOT NULL THEN 1
