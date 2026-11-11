@@ -1567,7 +1567,8 @@ export const getOutgoingLinks = (
   assertLinkQueryPath(params.path)
   // Left-join against both notes and non_md_files to classify each link target:
   // notes → kind "note", non_md_files → kind "file", neither → broken (defaults to "note").
-  // DISTINCT lists a target once when two link texts in the source reach it.
+  // DISTINCT lists a target once when two link texts in the source reach it;
+  // every other column comes from the target's own row.
   const sql = `
     SELECT DISTINCT l.target as path,
            n.title,

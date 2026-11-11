@@ -423,7 +423,7 @@ export type OutgoingLinkEntry = {
  *  "file-card" is a Canvas file card, stored as the exact path it names. */
 type LinkKind = "link" | "file-card"
 
-/** The key of a "link" row, which re-resolution reads and updates. */
+/** A "link" row's key without its link_kind, which re-resolution reads and updates. */
 type StoredLink = { source: string; target: string; linkText: string }
 
 /** rebuildFromVault returns the indexed note count and the two passes that
@@ -519,7 +519,8 @@ export const createSearchIndex = (
 
   // The links primary key gained columns, which ALTER TABLE cannot add to a key.
   // A warm database whose links table lacks link_kind drops it, and the CREATE
-  // below rebuilds it with both indexes; rebuildFromVault refills it at startup.
+  // below rebuilds it with idx_links_target and idx_links_name; rebuildFromVault
+  // refills it at startup.
   const linkColumns = db.prepare<unknown[], { name: string }>("PRAGMA table_info(links)").all()
 
   if (linkColumns.length > 0 && !linkColumns.some((column) => column.name === "link_kind")) {
@@ -556,10 +557,11 @@ export const createSearchIndex = (
     --   card's is its exact path.
     -- - link_kind is 'link' for a link typed in a note or a Canvas text card,
     --   and 'file-card' for a Canvas file card.
-    -- - link_name is links.pathToLinkName(link_text), the key an added file's
-    --   names are looked up by.
+    -- - link_name is links.pathToLinkName(link_text) ('Folder/Real' gives
+    --   'real'), the key an added file's names are looked up by.
     -- The defaults let an earlier release's (source, target) inserts succeed
-    -- after a downgrade, each row keeping a distinct key.
+    -- after a downgrade, each row keeping a distinct key. rebuildFromVault
+    -- clears those rows when this release starts again.
     CREATE TABLE IF NOT EXISTS links (
       source    TEXT NOT NULL,
       target    TEXT NOT NULL,
@@ -842,6 +844,7 @@ export const createSearchIndex = (
       @blockId, @heading, @folder, @depth, @parentLine, @parentBlockId)
   `)
   const deleteLinksStmt = db.prepare(`DELETE FROM links WHERE source = ?`)
+  // OR IGNORE keeps one row when a source writes the same link twice.
   const insertLinkStmt = db.prepare<{
     source: string
     target: string
@@ -860,8 +863,9 @@ export const createSearchIndex = (
     `SELECT source, target, link_text AS linkText FROM links
      WHERE link_name IN (SELECT value FROM json_each(?)) AND link_kind = 'link'`,
   )
-  // One (source, link_text, link_kind) resolves to one target, so the new
-  // target never collides with another row's key.
+  // Each (source, link_text, link_kind) is inserted with one target, so a
+  // source holds one row per link text and the new target never collides
+  // with another row's key.
   const updateLinkTargetStmt = db.prepare<{
     resolvedTarget: string
     source: string
@@ -1508,26 +1512,22 @@ export const createSearchIndex = (
     // Only the relative tiers read a link's source, and only its folder, so one
     // answer serves every link with the same text from the same folder.
     const resolvedTargets = new Map<string, string>()
-    for (const storedLink of storedLinks) {
-      const memoKey = `${posix.dirname(storedLink.source)}\0${storedLink.linkText}`
+    for (const { source, target, linkText } of storedLinks) {
+      const memoKey = JSON.stringify([posix.dirname(source), linkText])
       const resolvedTarget =
         resolvedTargets.get(memoKey) ??
-        resolveLinkTarget({
-          linkText: storedLink.linkText,
-          notePaths,
-          sourcePath: storedLink.source,
-        })
+        resolveLinkTarget({ linkText, notePaths, sourcePath: source })
       resolvedTargets.set(memoKey, resolvedTarget)
 
-      if (resolvedTarget === storedLink.target) continue
-      updateLinkTargetStmt.run({ resolvedTarget, ...storedLink })
+      if (resolvedTarget === target) continue
+      updateLinkTargetStmt.run({ resolvedTarget, source, target, linkText })
     }
   }
 
   /** Re-resolves the "link" rows that name a file new to the index: those can
    *  newly resolve to it, or move to it from a longer path with the same name. */
   const reResolveLinksNaming = (linkNames: readonly string[]): void => {
-    reResolveLinks(selectLinksByNameStmt.all(JSON.stringify([...new Set(linkNames)])))
+    reResolveLinks(selectLinksByNameStmt.all(JSON.stringify(linkNames)))
   }
 
   /** Re-resolves the "link" rows that pointed at a removed file. No other row
@@ -1537,8 +1537,10 @@ export const createSearchIndex = (
   }
 
   /** Indexes pre-statted non-markdown files into the non_md_files table.
-   *  The caller owns entry filtering and stat (fs work stays out of the
-   *  write transaction); this just writes the rows. */
+   *  - The caller owns entry filtering and stat (fs work stays out of the
+   *    write transaction); this just writes the rows.
+   *  - rebuildFromVault calls it after clearing the links table, so no stored
+   *    link needs re-resolving. */
   const indexNonMarkdownFiles = (
     files: ReadonlyArray<{ relativePath: string; bytes: number }>,
   ): number => {

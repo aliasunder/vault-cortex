@@ -546,7 +546,8 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
   }
 
   /** Removes a deleted file from the index — the asset table for non-md
-   *  files, the note tables (FTS, links, tasks, vectors) for notes. */
+   *  files, the note tables (FTS, links, tasks, vectors) for notes — and
+   *  re-resolves the links that pointed at it. */
   const removeFromIndex = (filePath: string): void => {
     const relativePath = relative(vaultPath, filePath)
 
