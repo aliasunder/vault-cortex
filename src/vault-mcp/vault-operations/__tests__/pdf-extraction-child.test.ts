@@ -267,5 +267,20 @@ describe("PDF extraction child admission", () => {
       },
     })
     expect(Buffer.byteLength(JSON.stringify(selectedWindow))).toBeLessThanOrEqual(102_400)
+    expect(
+      await request({
+        kind: "read",
+        requestId: 2,
+        path: "long.pdf",
+        maxFileBytes: 1_000_000,
+        startLine: 131,
+        limit: 1,
+      }),
+    ).toEqual({
+      kind: "failure",
+      requestId: 2,
+      name: "Error",
+      message: 'start line past the end: "long.pdf" renders to 130 lines',
+    })
   }, 15_000)
 })

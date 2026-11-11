@@ -2710,14 +2710,34 @@ describe("isolated PDF extraction error contracts", () => {
     const preloadPath = fileURLToPath(
       new URL("./helpers/kill-first-pdf-replacement.ts", import.meta.url),
     )
-    const { server, ownClient, serverPid, childPid, assertRecovery } = await startPdfFailureServer(
-      ["Start.pdf"],
+    const { server, ownClient, childPid, assertRecovery } = await startPdfFailureServer(
+      ["Stopped.pdf", "Start.pdf"],
       { NODE_OPTIONS: `--import=${JSON.stringify(preloadPath)}` },
     )
-    // The warmed child dies between jobs, so the next read starts the replacement the preload kills.
+    // The warmed child is reaped under an active read, so the next read must start a replacement.
+    signalPdfChild(childPid, "SIGSTOP")
+    const stopped = callTool({
+      client: ownClient,
+      name: "vault_read_file",
+      args: { path: "Stopped.pdf" },
+    })
+    const dispatched = await waitForExtractionLog({
+      stdout: server.stdout,
+      matches: (entry) =>
+        entry.message === "PDF extraction dispatched" &&
+        entry.path === "Stopped.pdf" &&
+        entry.kind === "read",
+    })
     signalPdfChild(childPid, "SIGKILL")
-    await vi.waitFor(async () => {
-      expect((await findPdfChildren(serverPid)).includes(childPid)).toBe(false)
+    expect(await stopped).toEqual(
+      expectedStoppedExtraction({ path: "Stopped.pdf", remedy: "split" }),
+    )
+    await waitForExtractionLog({
+      stdout: server.stdout,
+      matches: (entry) =>
+        entry.message === "PDF extraction reader discarded" &&
+        entry.extractionRequestId === dispatched.extractionRequestId &&
+        entry.signal === "SIGKILL",
     })
 
     expect(
