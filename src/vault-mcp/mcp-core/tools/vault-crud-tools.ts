@@ -1383,6 +1383,9 @@ Returns: JSON with moved_to (the new path), links_updated (count of link occurre
             vaultPath,
             notePath: newPath,
           })
+          // The index stores links under the listed spelling, so an old_path
+          // in another letter case finds no backlinks here. moveNote's
+          // filesystem scan finds them after it switches to that spelling.
           const backlinks = search.getBacklinks({ path: normalizedOldPath }, reqLogger)
           const [allNotePaths, allAssetPaths, protectedPaths] = await Promise.all([
             vaultFs.listNotes({ vaultPath }, reqLogger),

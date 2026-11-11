@@ -121,7 +121,9 @@ const classifyLinkForm = (params: {
 
   // Links resolve whatever their letter case, so the form is read with case
   // folded: [[folder/real]] for Folder/Real.md is a path-form link, and its
-  // rewrite keeps the folder.
+  // rewrite keeps the folder. For an asset link, toLowerCase folds more
+  // letters than the asset resolver does. That can only read a bare-name link
+  // as a path form, which costs a longer rewrite, never a broken one.
   const foldedTarget = rawTarget.toLowerCase()
   const foldedResolvedTarget = resolvedTarget.toLowerCase()
 
@@ -149,7 +151,8 @@ const classifyLinkForm = (params: {
  *  location, keeping the original link form. Falls back to vault-absolute if the
  *  shorter form would resolve elsewhere after the move. keepExtension controls
  *  the extension state: true keeps desiredTarget's extension (the original
- *  link carried it), false strips it back to the stem/extensionless form. */
+ *  link carried it), false strips it back to the stem/extensionless form.
+ *  The replacement takes desiredTarget's letter case, not the link's. */
 const buildReplacementTarget = (params: {
   form: LinkForm
   desiredTarget: string
@@ -233,11 +236,12 @@ const rewriteTarget = (
   }
 
   // A link that already resolves correctly from the new location is left
-  // alone. When the move changes the note's file name, a link to it qualifies
-  // only when it matches in its own letter case. After a rename from Foo.md
-  // to foo.md, [[Foo]] still reaches foo.md with case folded, yet it is
-  // rewritten to [[foo]]. A move that keeps the file name leaves [[real]]
-  // alone while it still reaches the note, as Obsidian does on a folder move.
+  // alone. When the move changes the note's file name, even only in letter
+  // case, a link to it qualifies only when it matches in its own letter case.
+  // After a rename from Foo.md to foo.md, [[Foo]] still reaches foo.md with
+  // case folded, yet it is rewritten to [[foo]]. A move that keeps the file
+  // name leaves [[real]] alone while it still reaches the note, as Obsidian
+  // does on a folder move.
   const fileNameChanges =
     posix.basename(context.oldTargetPath) !== posix.basename(context.newTargetPath)
   const resolvedAfter =
@@ -251,11 +255,13 @@ const rewriteTarget = (
 
   if (resolvedAfter === desiredTarget) return null
 
-  // The replacement keeps the original link's extension state — the
-  // extension is kept only when the original carried the resolved file's
-  // real extension, in any letter case, since ![[Photo.PNG]] resolves to
-  // photo.png (markdown links always keep theirs; a wikilink to a note never
-  // carries ".md"; a stem-form asset link stays extensionless).
+  // The replacement keeps the original link's extension state. The extension
+  // is kept only when the original carried the resolved file's real
+  // extension, in any letter case, since ![[Photo.PNG]] resolves to
+  // photo.png. As a result:
+  // - a markdown link always keeps its extension;
+  // - a wikilink to a note never carries ".md";
+  // - a stem-form asset link stays extensionless.
   const grammarWritesExtension = targetKind === "asset" || grammar === "markdown"
   const carriesResolvedExtension =
     originalExtension.toLowerCase() === posix.extname(desiredTarget).toLowerCase()
@@ -798,8 +804,9 @@ const moveNote = async (
     vaultPath,
     notePath: params.oldPath,
   })
-  // The destination doesn't exist yet, so newPath has no listed alias spelling
-  // — this canonical form is final, unlike oldPath, which is rebound below.
+  // The destination doesn't exist yet, so the file listing holds no other
+  // spelling of it. This canonical form is final, unlike oldPath, which is
+  // rebound below to the listing's spelling.
   const newPath = resolveVaultRelativePath({
     vaultPath,
     notePath: params.newPath,

@@ -875,9 +875,10 @@ export const createSearchIndex = (
     `SELECT path FROM non_md_files WHERE basename = ? COLLATE NOCASE ORDER BY length(path), path LIMIT 1`,
   )
   /** Suffix-path match: finds non-md files whose base_path ends with the target
-   *  (preserving folder segments). Mirrors links.resolve's basename tier which
-   *  checks `candidatePath.endsWith('/' + target)`. ESCAPE clause prevents `_`
-   *  and `%` in the target from acting as LIKE wildcards. */
+   *  (preserving folder segments). Mirrors links.resolveAsset's stem-suffix
+   *  tier. LIKE ignores ASCII letter case, so this and the full-path suffix
+   *  query below match in either letter case. ESCAPE clause prevents `_` and
+   *  `%` in the target from acting as LIKE wildcards. */
   const resolveNonMdByBasePathSuffixStmt = db.prepare<[string], { path: string }>(
     `SELECT path FROM non_md_files WHERE base_path LIKE '%/' || ? ESCAPE '\\' ORDER BY length(path), path LIMIT 1`,
   )
@@ -1263,8 +1264,9 @@ export const createSearchIndex = (
     `SELECT ${NOTE_METADATA_COLUMNS_SQL} FROM notes WHERE path = ?`,
   )
 
-  /** The case-sensitive walk over every tier that resolveNonMarkdownFile
-   *  describes. */
+  /** The first walk over every tier that resolveNonMarkdownFile describes. The
+   *  equality queries keep the link's letter case, and the two LIKE suffix
+   *  queries ignore ASCII letter case. */
   const resolveNonMarkdownFileInExactCase = (params: {
     target: string
     relativeTarget: string | null
@@ -1311,7 +1313,7 @@ export const createSearchIndex = (
     // Basename / suffix-path match (Obsidian's shortest-path resolution).
     // When the target includes folder segments (e.g. "views/Inventory"),
     // preserve them in the match — only strip to pure basename when the
-    // target is already a bare name. Mirrors links.resolve's endsWith check.
+    // target is already a bare name. Mirrors links.resolveAsset's endsWith check.
     if (target.includes("/")) {
       const basePathSuffixMatch = resolveNonMdByBasePathSuffixStmt.get(escapeLikeWildcards(target))
       return basePathSuffixMatch?.path ?? null
@@ -1322,12 +1324,14 @@ export const createSearchIndex = (
 
   /** The second, folded-case walk: the exact, relative and stem comparisons
    *  with ASCII letter case folded. The suffix tiers already fold, so their
-   *  miss in the case-sensitive walk stands and they are not repeated. */
+   *  miss in the first walk stands and they are not repeated. */
   const resolveNonMarkdownFileIgnoringCase = (params: {
     target: string
     relativeTarget: string | null
   }): string | null => {
     const { target, relativeTarget } = params
+
+    // ── Full-filename family: exact → relative ──
 
     const fullPathMatch = resolveNonMdByFullPathIgnoringCaseStmt.get(target)
 
@@ -1338,6 +1342,8 @@ export const createSearchIndex = (
 
       if (relativeFullPathMatch) return relativeFullPathMatch.path
     }
+
+    // ── Stem family: exact → relative → basename ──
 
     const basePathMatch = resolveNonMdByBasePathIgnoringCaseStmt.get(target)
 
@@ -1361,9 +1367,9 @@ export const createSearchIndex = (
    *  when no match is found. Handles both extensionless targets ([[Trip Route]]
    *  → Trip Route.canvas) and explicit-extension targets ([[photo.png]],
    *  ![img](attachments/photo.png)) in every form Obsidian resolves — exact
-   *  path, relative to the source note, and basename/shortest path. Mirrors
-   *  links.resolve's three-tier strategy but checks against non_md_files
-   *  instead of the notes table.
+   *  path, relative to the source note, and basename/shortest path. SQL twin
+   *  of links.resolveAsset, which runs the same tiers in the same order over
+   *  an array of paths.
    *
    *  Resolution tiers fall into two families by what they match against, and
    *  the full-filename family runs first:
@@ -1381,9 +1387,10 @@ export const createSearchIndex = (
    *    suffix, and the stem tiers hit any file whose extension-stripped name
    *    matches.
    *
-   *  All tiers run with exact letter case first. Only when every tier misses
-   *  do the exact, relative and stem comparisons run again with ASCII letter
-   *  case folded, mirroring links.resolveAsset. */
+   *  The exact, relative and stem tiers run with exact letter case first, and
+   *  the two path-suffix tiers ignore ASCII letter case, as LIKE does. Only
+   *  when every tier misses do the exact, relative and stem comparisons run
+   *  again with ASCII letter case folded. */
   const resolveNonMarkdownFile = (params: {
     target: string
     sourcePath?: string
@@ -1889,7 +1896,7 @@ export const createSearchIndex = (
       }
 
       // Re-resolve links still stored as raw text now that this note exists.
-      // Re-run resolveLink with each link's own source so every form upgrades
+      // Re-run links.resolve with each link's own source so every form upgrades
       // uniformly — basename, full path, and source-relative ("../") — covering
       // Obsidian's "link first, create the note later" workflow. Each standing
       // unresolved link already failed against every other indexed path, so it
