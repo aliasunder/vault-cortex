@@ -43,13 +43,13 @@ export const createOAuthRoutes = ({
   const { provider, getPendingRequest, approveRequest, deletePendingRequest } = oauthProvider
   const router = Router()
 
-  // 5 req/min per client IP on each flow endpoint (/authorize through its
-  // guard, /token, /register, /revoke, /oauth/decide — each mounts its own
-  // limiter), far tighter than the SDK's per-endpoint defaults: a complete
-  // OAuth flow touches each endpoint at most twice per minute, so 5/min
-  // absorbs reconnect storms while shutting down brute force. The SDK's
-  // handlers set windowMs and max, then spread this object over them, so
-  // these two keys replace the SDK's values.
+  // 5 req/min per client IP on each flow endpoint (/authorize, /token,
+  // /register, /revoke, /oauth/decide — each mounts its own limiter), far
+  // tighter than the SDK's per-endpoint defaults: a complete OAuth flow
+  // touches each endpoint at most twice per minute, so 5/min absorbs
+  // reconnect storms while shutting down brute force. The SDK's handlers set
+  // windowMs and max, then spread this object over them, so these two keys
+  // replace the SDK's values.
   const oauthRateLimitOptions = {
     windowMs: 60 * 1000,
     max: 5,

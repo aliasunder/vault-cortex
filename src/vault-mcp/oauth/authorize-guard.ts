@@ -80,8 +80,9 @@ export const createAuthorizeGuard = ({
 
   guard.use((req: Request, res: Response, next: NextFunction) => {
     const clientIp = extractClientIp(req, trustForwardedHops)
+
     // Own properties on this response shadow Express's prototype methods for
-    // this request only; the originals are kept to send the rewritten answers.
+    // this request only. The original json is kept to send every JSON answer.
     const sendJson = res.json.bind(res)
 
     // A browser reaches this page when the MCP client that opened the browser
