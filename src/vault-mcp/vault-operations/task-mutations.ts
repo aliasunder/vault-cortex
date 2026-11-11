@@ -1272,7 +1272,7 @@ const resolveRecurrenceSpawn = ({
 }
 
 /** The spawned line's index after every splice that follows its insert:
- *  the done-lane move (block removal, then reinsertion under the target
+ *  the lane move (block removal, then reinsertion under the target
  *  heading) and the checklist append. Tracked arithmetically, never by
  *  content search — a vault can hold two byte-identical recurring lines,
  *  and a search would find the wrong one.
@@ -1287,20 +1287,20 @@ const resolveRecurrenceSpawn = ({
  *    the card lands at the spawn's index and pushes it down by its length. */
 const spawnIndexAfterSplices = ({
   spawnIndex,
-  doneLaneMove,
+  laneMove,
   subtaskAppend,
 }: {
   spawnIndex: number
-  doneLaneMove?: { moveStart: number; movedBlockLength: number; insertAt: number } | undefined
+  laneMove?: { moveStart: number; movedBlockLength: number; insertAt: number } | undefined
   subtaskAppend?: { insertIndex: number; lineCount: number } | undefined
 }): number => {
   const indexAfterRemoval =
-    !doneLaneMove || spawnIndex < doneLaneMove.moveStart
+    !laneMove || spawnIndex < laneMove.moveStart
       ? spawnIndex
-      : spawnIndex - doneLaneMove.movedBlockLength
-  const doneLaneInsertShift =
-    doneLaneMove && doneLaneMove.insertAt <= indexAfterRemoval ? doneLaneMove.movedBlockLength : 0
-  const indexAfterMove = indexAfterRemoval + doneLaneInsertShift
+      : spawnIndex - laneMove.movedBlockLength
+  const laneInsertShift =
+    laneMove && laneMove.insertAt <= indexAfterRemoval ? laneMove.movedBlockLength : 0
+  const indexAfterMove = indexAfterRemoval + laneInsertShift
 
   const subtaskAppendShift =
     subtaskAppend && subtaskAppend.insertIndex <= indexAfterMove ? subtaskAppend.lineCount : 0
@@ -1786,45 +1786,45 @@ const createTask = async (params: CreateTaskParams, logger: Logger): Promise<Cre
 // ── updateTask ──────────────────────────────────────────────────
 
 /** The four date fields an update can set (a string) or clear (null), in
- *  the order their `changes` entries are reported. */
-const dateFieldParams = ({
+ *  the order their `changes` entries are reported. `taskField` names the
+ *  field on a parsed task and in the submitted-fields record. */
+const dateFieldValues = ({
   due,
   scheduled,
   start,
   created,
-}: UpdateTaskParams): ReadonlyArray<{ field: DateFieldKey; value: string | null | undefined }> => [
-  { field: "due", value: due },
-  { field: "scheduled", value: scheduled },
-  { field: "start", value: start },
-  { field: "created", value: created },
+}: UpdateTaskParams): ReadonlyArray<{
+  field: DateFieldKey
+  taskField: "dueDate" | "scheduledDate" | "startDate" | "createdDate"
+  value: string | null | undefined
+}> => [
+  { field: "due", taskField: "dueDate", value: due },
+  { field: "scheduled", taskField: "scheduledDate", value: scheduled },
+  { field: "start", taskField: "startDate", value: start },
+  { field: "created", taskField: "createdDate", value: created },
 ]
 
 /** The field values an update submitted, for the round-trip check against
  *  what the written line parses back as. A field left undefined was not
  *  submitted; null clears it and is checked as such. */
-const submittedTaskFields = ({
-  description,
-  priority,
-  due,
-  scheduled,
-  start,
-  created,
-  taskId,
-  dependsOn,
-  recurrence,
-  onCompletion,
-}: UpdateTaskParams): SubmittedTaskFields => ({
-  ...(description !== undefined && { description }),
-  ...(priority !== undefined && { priority }),
-  ...(due !== undefined && { dueDate: due }),
-  ...(scheduled !== undefined && { scheduledDate: scheduled }),
-  ...(start !== undefined && { startDate: start }),
-  ...(created !== undefined && { createdDate: created }),
-  ...(taskId !== undefined && { taskId }),
-  ...(dependsOn !== undefined && { dependsOn }),
-  ...(recurrence !== undefined && { recurrence }),
-  ...(onCompletion !== undefined && { onCompletion }),
-})
+const submittedTaskFields = (params: UpdateTaskParams): SubmittedTaskFields => {
+  const { description, priority, taskId, dependsOn, recurrence, onCompletion } = params
+  const submittedDates = Object.fromEntries(
+    dateFieldValues(params)
+      .filter(({ value }) => value !== undefined)
+      .map(({ taskField, value }) => [taskField, value]),
+  )
+
+  return {
+    ...(description !== undefined && { description }),
+    ...(priority !== undefined && { priority }),
+    ...submittedDates,
+    ...(taskId !== undefined && { taskId }),
+    ...(dependsOn !== undefined && { dependsOn }),
+    ...(recurrence !== undefined && { recurrence }),
+    ...(onCompletion !== undefined && { onCompletion }),
+  }
+}
 
 /** Refuses an update before the note is read: it must name exactly one
  *  task, change at least one field, and carry only values the task line
@@ -1850,7 +1850,6 @@ const assertUpdateTaskParams = (params: UpdateTaskParams): void => {
     assignBlockId,
   } = params
 
-  // Exactly one identifier required
   const identifierCount = [blockId, line].filter(Boolean).length
 
   if (identifierCount === 0) {
@@ -1860,31 +1859,34 @@ const assertUpdateTaskParams = (params: UpdateTaskParams): void => {
     throw new Error("blockId and line are mutually exclusive")
   }
 
-  // At least one mutation required
-  const hasMutation =
-    status !== undefined ||
-    priority !== undefined ||
-    recurrence !== undefined ||
-    onCompletion !== undefined ||
-    heading !== undefined ||
-    description !== undefined ||
-    due !== undefined ||
-    scheduled !== undefined ||
-    start !== undefined ||
-    created !== undefined ||
-    taskId !== undefined ||
-    dependsOn !== undefined ||
-    addSubtasks !== undefined ||
-    assignBlockId !== undefined ||
-    position !== undefined
+  // Listed in the order the error message names them.
+  const mutationParams = {
+    status,
+    priority,
+    recurrence,
+    onCompletion,
+    heading,
+    position,
+    description,
+    due,
+    scheduled,
+    start,
+    created,
+    taskId,
+    dependsOn,
+    addSubtasks,
+    assignBlockId,
+  }
+  const hasMutation = Object.values(mutationParams).some((value) => value !== undefined)
 
   if (!hasMutation) {
-    throw new Error(
-      "at least one mutation (status, priority, recurrence, onCompletion, heading, position, description, due, scheduled, start, created, taskId, dependsOn, addSubtasks, or assignBlockId) is required",
+    const mutationNames = new Intl.ListFormat("en", { type: "disjunction" }).format(
+      Object.keys(mutationParams),
     )
+    throw new Error(`at least one mutation (${mutationNames}) is required`)
   }
 
-  for (const { field, value } of dateFieldParams(params)) {
+  for (const { field, value } of dateFieldValues(params)) {
     // null clears the date and undefined leaves it as it is; only a string sets one
     if (typeof value === "string") {
       assertTaskDate(value, field)
@@ -1926,9 +1928,10 @@ type EditedTaskLine = {
 
 /** Applies the field, block-id and description edits to the task line.
  *  The description edit runs last because every field edit splits the
- *  line at the description/metadata boundary, and a signifier in the NEW
- *  description text would shift that boundary; with the old description
- *  still in place, the boundary stays put. */
+ *  line at the description/metadata boundary, and a field signifier (such
+ *  as `📅 2026-05-01`) in the NEW description text would shift that
+ *  boundary; with the old description still in place, the boundary stays
+ *  put. */
 const editTaskLine = ({
   params,
   originalTaskLine,
@@ -1953,30 +1956,7 @@ const editTaskLine = ({
     assignBlockId: newBlockId,
   } = params
 
-  const descriptionEdit: LineEdit | undefined =
-    newDescription !== undefined
-      ? {
-          apply: (taskLine: string) => {
-            return tasks.replaceTaskLineDescription({ taskLine, newDescription })
-          },
-          // The after-value previews the swap on the ORIGINAL line. The
-          // field edits below never move the description/metadata
-          // boundary (the old description is still in place while they
-          // run), so this preview parses the same as the final line.
-          change: formatChange({
-            field: "description",
-            before: taskBefore.description,
-            after: tasks.describeTaskLine(
-              tasks.replaceTaskLineDescription({
-                taskLine: originalTaskLine,
-                newDescription,
-              }),
-            ),
-          }),
-        }
-      : undefined
-
-  const lineEdits: LineEdit[] = [
+  const fieldEdits: LineEdit[] = [
     ...(status
       ? [
           {
@@ -2014,7 +1994,7 @@ const editTaskLine = ({
           },
         ]
       : []),
-    ...dateFieldParams(params).flatMap(({ field, value }) => {
+    ...dateFieldValues(params).flatMap(({ field, taskField, value }) => {
       if (value === undefined) return []
       return [
         {
@@ -2028,7 +2008,7 @@ const editTaskLine = ({
           },
           change: formatChange({
             field,
-            before: taskBefore[`${field}Date`],
+            before: taskBefore[taskField],
             after: value,
           }),
         },
@@ -2126,44 +2106,60 @@ const editTaskLine = ({
           },
         ]
       : []),
-    ...(descriptionEdit ? [descriptionEdit] : []),
   ]
-  const editedLine = lineEdits.reduce((taskLine, edit) => edit.apply(taskLine), originalTaskLine)
-  // Deduplicate tags that appear in both the description and the metadata
-  // tail — the round-trip artifact of the parser's tag re-append.
+  const lineWithFieldEdits = fieldEdits.reduce(
+    (taskLine, edit) => edit.apply(taskLine),
+    originalTaskLine,
+  )
+  const editedLine =
+    newDescription !== undefined
+      ? tasks.replaceTaskLineDescription({ taskLine: lineWithFieldEdits, newDescription })
+      : lineWithFieldEdits
+
+  // The parser shows tags from the metadata tail at the end of the
+  // description, so a description written back from a read repeats them.
+  // Remove the tail's copies.
   const tagDedup = tasks.deduplicateDescriptionTags(editedLine)
   const mutatedLine = tagDedup.taskLine
+  const fieldChanges = fieldEdits.map((edit) => edit.change)
 
-  // The description edit's after-value previews the swap on the original
-  // line, which predates dedup. When dedup strips a metadata tag, the
-  // preview re-appends it via describeTaskLine, showing a doubled tag the
-  // written line doesn't have. Recompute from the post-dedup line.
-  const descriptionChangedAndDeduped = newDescription && tagDedup.deduplicatedTags.length > 0
+  if (newDescription === undefined) {
+    return { mutatedLine, lineChanges: fieldChanges, deduplicatedTags: tagDedup.deduplicatedTags }
+  }
 
-  const lineChanges = descriptionChangedAndDeduped
-    ? lineEdits.map((edit) => {
-        if (edit === descriptionEdit) {
-          return formatChange({
-            field: "description",
-            before: taskBefore.description,
-            after: tasks.describeTaskLine(mutatedLine),
-          })
-        }
-        return edit.change
-      })
-    : lineEdits.map((edit) => edit.change)
+  // The description entry's after-value:
+  // - previews the new description on the original line, since the field
+  //   edits never move the description/metadata boundary;
+  // - reads the written line after a dedup, since the parser would show the
+  //   removed tail tag again on the preview.
+  const describedLine =
+    tagDedup.deduplicatedTags.length > 0
+      ? mutatedLine
+      : tasks.replaceTaskLineDescription({ taskLine: originalTaskLine, newDescription })
+  const descriptionChange = formatChange({
+    field: "description",
+    before: taskBefore.description,
+    after: tasks.describeTaskLine(describedLine),
+  })
 
-  return { mutatedLine, lineChanges, deduplicatedTags: tagDedup.deduplicatedTags }
+  return {
+    mutatedLine,
+    lineChanges: [...fieldChanges, descriptionChange],
+    deduplicatedTags: tagDedup.deduplicatedTags,
+  }
 }
 
-/** Where the note lives, and how its body lines map to file lines on the
- *  note as read and as it will be written: the rewritten properties block
- *  can have a different number of lines. */
+/** Where the note lives, and where its body starts on the note as read
+ *  and as it will be written: the rewritten properties block can have a
+ *  different number of lines. */
 type NoteWriteTarget = {
   path: string
   fullPath: string
   properties: Record<string, unknown>
+  /** The count of lines above the body, which is also the body's 0-based
+   *  start, so body index i sits on file line `readBodyStartLine + i + 1`. */
   readBodyStartLine: number
+  /** The same count on the note as written. */
   writtenBodyStartLine: number
 }
 
@@ -2209,6 +2205,8 @@ const deleteTaskOnCompletion = async (
       ? `on_completion: task and ${childCount} ${childLabel} removed (🏁 delete)`
       : "on_completion: task removed (🏁 delete)"
 
+  // A spawn written below the task keeps the task's indentation, so the
+  // deleted block ends where the spawn starts.
   const spawnFinalIndex = recurrenceOnNextLine ? spawnInsertIndex - deleteCount : spawnInsertIndex
 
   const nextOccurrence: NextOccurrencePosition | undefined =
@@ -2241,9 +2239,9 @@ const deleteTaskOnCompletion = async (
 
   const headingBefore = headings.findLast((heading) => heading.startLine < taskLineIndex)
 
-  // The task is gone from the written file, so its line is the one it held
-  // just before removal: below the spawn when one was written above it,
-  // and offset by the properties block as read
+  // The task is gone from the written file, so this is the line it held
+  // just before removal: counted on the note as read, plus one for a spawn
+  // written above it.
   const deletedTaskLine = note.readBodyStartLine + taskLineIndex + 1
 
   logger.info("task deleted on completion", {
@@ -2262,9 +2260,10 @@ const deleteTaskOnCompletion = async (
     heading: headingBefore?.text,
     next_occurrence: nextOccurrence,
     changes,
-    // Round-trip advisories are about a line that no longer exists —
-    // drop them. Recurrence advisories ("rule unreadable, no spawn")
-    // matter because the caller needs to know the chain broke.
+    // Every other advisory describes the removed line or checklist items
+    // this write never adds, so they are dropped. A recurrence advisory
+    // ("rule unreadable, no spawn") stays: the caller needs to know the
+    // chain broke.
     ...(recurrenceSpawn.kind === "advisory" && {
       advisories: [recurrenceSpawn.advisory],
     }),
@@ -2323,11 +2322,11 @@ const resolveTargetLane = ({
  *     (deleteTaskOnCompletion), or move the task to its lane and append
  *     its checklist items, then write the note.
  *
- *  Line numbers change at two of those boundaries. The task is found and
- *  its prior values read on the note as read; the spawn shifts every line
- *  below it; and lines reported for tasks that survive the write are
- *  counted on the note as written, whose rewritten properties block can
- *  have a different number of lines. */
+ *  Line numbers shift twice. The spawn shifts every line below it, and the
+ *  rewritten properties block can have a different number of lines. So
+ *  the task is found and its prior values read on the note as read, and
+ *  lines reported for tasks that survive the write are counted on the note
+ *  as written. */
 const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<UpdateTaskResult> => {
   const {
     vaultPath,
@@ -2379,8 +2378,6 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
 
     const isKanbanBoard = Boolean(parsed.data["kanban-plugin"])
 
-    // Resolve format config early — the status registry is needed for
-    // extractTasks so taskBefore.status reflects custom classifications.
     const pluginConfig = await readTaskFormatConfig(vaultPath, logger)
     const formatConfig = {
       ...pluginConfig,
@@ -2394,7 +2391,7 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
     // plain bullet a sub-task while the index lists it as top-level.
     const taskFileLine = note.readBodyStartLine + taskLineIndex + 1
     const taskBefore = tasks
-      .extractTasks(fileContent, formatConfig.statusRegistry)
+      .extractTasks(fileContent, statusRegistry)
       .find((task) => task.line === taskFileLine)
 
     // locateTaskLine and rejectNonTaskCheckbox apply extractTasks' exclusions
@@ -2407,7 +2404,7 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
 
     // A sub-task's placement is its parent's — neither a heading move
     // nor a position reorder applies.
-    if (targetHeadingParam && isSubtask) {
+    if (targetHeadingParam !== undefined && isSubtask) {
       throw new Error(
         "cannot move a sub-task to a heading — the parent's heading determines placement",
       )
@@ -2415,7 +2412,7 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
     if (position && isSubtask) {
       throw new Error("cannot reposition a sub-task — the parent's position determines placement")
     }
-    // Indent, not depth: the plugin copies an id from any indented line inside
+    // Indent, not depth: the Kanban plugin copies an id from any indented line inside
     // a card, including a task under a plain bullet or a NON_TASK card, which
     // the index lists at depth 0.
     const isIndentedKanbanLine = isKanbanBoard && tasks.getStructuralIndent(originalTaskLine) > 0
@@ -2441,11 +2438,13 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
       today,
     })
 
-    // On an indented board line a string assignBlockId was refused above, so
-    // a new trailing id can only come from description text ending in ` ^id`:
-    // - text keeping the line's own id is allowed;
-    // - after assignBlockId null the line keeps no id, so text restoring the
-    //   old one is refused, since `changes` reports that id removed.
+    // On an indented board line, description text ending in ` ^id` is
+    // refused unless that id is the one the line keeps. The kept id depends
+    // on assignBlockId:
+    // - a string was refused above;
+    // - null keeps no id, so text restoring the old one is refused, since
+    //   `changes` reports that id removed;
+    // - an absent assignBlockId keeps the line's own id.
     const writtenBlockId = trailingBlockIdOf(mutatedLine)
     const keptBlockId = newBlockId === null ? undefined : (taskBefore.blockId ?? undefined)
     const addsBlockIdToIndentedKanbanLine =
@@ -2476,7 +2475,7 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
     // with recurrenceOnNextLine — matching how the plugin writes the pair.
     // Below-placement puts the spawn between the completed line and its
     // checklist, so the checklist belongs to the spawn from then on (in
-    // Obsidian too) and the later done-lane move takes the completed line
+    // Obsidian too) and a later lane move takes the completed line
     // alone. The spawn never rides that move: the next instance stays in
     // the source lane.
     const spawnInsertIndex = formatConfig.recurrenceOnNextLine ? taskLineIndex + 1 : taskLineIndex
@@ -2484,17 +2483,16 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
       recurrenceSpawn.kind === "spawn"
         ? linesWithEdits.toSpliced(spawnInsertIndex, 0, recurrenceSpawn.spawnedLine)
         : linesWithEdits
-    const completedIndexAfterSpawn =
-      recurrenceSpawn.kind === "spawn" && !formatConfig.recurrenceOnNextLine
-        ? taskLineIndex + 1
-        : taskLineIndex
+    const spawnWrittenAbove = recurrenceSpawn.kind === "spawn" && !formatConfig.recurrenceOnNextLine
+    const completedIndexAfterSpawn = spawnWrittenAbove ? taskLineIndex + 1 : taskLineIndex
 
     // The spawn insert shifts every heading below it by one line — the lane
     // move must see re-parsed positions or it lands on a stale boundary.
     const headingsAfterSpawn =
       recurrenceSpawn.kind === "spawn" ? parseHeadings(linesWithSpawn) : headings
 
-    const roundTripAndSubtaskAdvisories = [
+    const advisories = [
+      ...(recurrenceSpawn.kind === "advisory" ? [recurrenceSpawn.advisory] : []),
       ...roundTripAdvisories({
         taskLine: mutatedLine,
         priorTaskLine: originalTaskLine,
@@ -2507,17 +2505,13 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
       ...tagDedupAdvisories,
     ]
 
-    const advisories = [
-      ...(recurrenceSpawn.kind === "advisory" ? [recurrenceSpawn.advisory] : []),
-      ...roundTripAndSubtaskAdvisories,
-    ]
-
     // onCompletion "delete": the Tasks plugin removes the completed
     // instance when the field says "delete". Only on a genuine transition
     // to done — not on updates to an already-done task, and not on
     // cancellation. When onCompletion is submitted in the same call, the
-    // submitted value takes precedence — setting "keep" while completing a
-    // "delete" task must not delete the task.
+    // submitted value takes precedence, a null that clears it included —
+    // setting "keep" while completing a "delete" task must not delete the
+    // task.
     const effectiveOnCompletion =
       onCompletion !== undefined ? onCompletion : taskBefore.onCompletion
     const shouldDeleteOnCompletion =
@@ -2554,10 +2548,10 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
       taskLineIndex: completedIndexAfterSpawn,
     })
 
-    // Pre-spawn position for accurate before/after reporting — the spawn
-    // may add a card to the lane, inflating the count. Applies to every
-    // move path when an integer position is requested and the task has a
-    // heading to count against.
+    // A spawn can add a card to the task's lane, so the position reported
+    // as `before` is counted on the lines before the spawn. That count is
+    // taken when a spawn was written and any position is requested, for a
+    // task under a heading.
     const preSpawnHeading =
       recurrenceSpawn.kind === "spawn" && position
         ? headings.findLast((heading) => heading.startLine < taskLineIndex)
@@ -2567,11 +2561,10 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
           lines: linesWithEdits,
           heading: preSpawnHeading,
           taskLineIndex,
-          statusRegistry: formatConfig.statusRegistry,
+          statusRegistry,
         })
       : undefined
 
-    const noMoveChanges: string[] = []
     // Gate on presence, not truthiness — an empty-string heading text
     // ("## ") is a valid lane name and must trigger the move.
     const moved =
@@ -2581,14 +2574,14 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
             taskLineIndex: completedIndexAfterSpawn,
             targetLane,
             headings: headingsAfterSpawn,
-            statusRegistry: formatConfig.statusRegistry,
+            statusRegistry,
             ...(position && { position }),
             ...(beforePositionInLane !== undefined && { beforePosition: beforePositionInLane }),
           })
         : {
             lines: linesWithSpawn,
             taskLineIndex: completedIndexAfterSpawn,
-            changes: noMoveChanges,
+            changes: [],
             movedBlockLength: undefined,
           }
 
@@ -2600,7 +2593,7 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
           taskLineIndex: moved.taskLineIndex,
           descriptions: addSubtasks,
           bodyStartLine: note.writtenBodyStartLine,
-          statusRegistry: formatConfig.statusRegistry,
+          statusRegistry,
         })
       : {
           lines: moved.lines,
@@ -2621,20 +2614,15 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
             insertAt: moved.taskLineIndex,
           }
         : undefined
-    const spawnFinalIndex =
-      recurrenceSpawn.kind === "spawn"
-        ? spawnIndexAfterSplices({
-            spawnIndex: spawnInsertIndex,
-            doneLaneMove: moveSplice,
-            subtaskAppend: withSubtasks.checklistSplice,
-          })
-        : undefined
-
     const nextOccurrence: NextOccurrencePosition | undefined =
-      recurrenceSpawn.kind === "spawn" && spawnFinalIndex !== undefined
+      recurrenceSpawn.kind === "spawn"
         ? buildNextOccurrencePosition({
             bodyStartLine: note.writtenBodyStartLine,
-            spawnIndex: spawnFinalIndex,
+            spawnIndex: spawnIndexAfterSplices({
+              spawnIndex: spawnInsertIndex,
+              laneMove: moveSplice,
+              subtaskAppend: withSubtasks.checklistSplice,
+            }),
             recurrenceSpawn,
           })
         : undefined
@@ -2654,12 +2642,16 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
         : []),
     ].filter((change) => change !== undefined)
 
-    // Write atomically
+    const finalTaskLine = resultLines[finalTaskIndex]
+
+    if (!finalTaskLine) {
+      throw new Error(`task line index ${finalTaskIndex} out of bounds`)
+    }
+
     const serialized = stringifyNote(resultLines.join("\n"), note.properties)
     await atomicWriteFile({ filePath: note.fullPath, content: serialized }, logger)
 
     const finalLine = note.writtenBodyStartLine + finalTaskIndex + 1
-    const finalTaskLine = resultLines[finalTaskIndex] ?? mutatedLine
     const finalBlockId = trailingBlockIdOf(finalTaskLine)
     const finalHeading = parseHeadings(resultLines).findLast(
       (heading) => heading.startLine < finalTaskIndex,
