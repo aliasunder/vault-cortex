@@ -3854,12 +3854,12 @@ describe("markdown path requirement", () => {
   })
 
   it("getOutgoingLinks rejects a path without .md or .canvas extension", () => {
-    expect(() =>
+    expect(() => {
       index.getOutgoingLinks(
         { path: "Projects/Plan", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
         logger,
-      ),
-    ).toThrow(/^path must end in "\.md" or "\.canvas" \(received "Projects\/Plan"\)$/)
+      )
+    }).toThrow(/^path must end in "\.md" or "\.canvas" \(received "Projects\/Plan"\)$/)
   })
 })
 
@@ -5240,6 +5240,90 @@ describe("getOutgoingLinks", () => {
     },
   )
 
+  /** A broken outgoing link, flagged or not as a daily-note forward ref. */
+  const brokenLink = (path: string, dailyNoteForwardRef: boolean): OutgoingLinkEntry => ({
+    path,
+    title: null,
+    exists: false,
+    kind: "note",
+    bytes: null,
+    daily_note_forward_ref: dailyNoteForwardRef,
+  })
+
+  const upsertPlanLinkingTo = (rawContent: string): void => {
+    index.upsertNote(
+      withBodyTags({ filePath: "plan.md", rawContent, fileStat: testStat(1000) }),
+      logger,
+    )
+  }
+
+  it("flags a bare date link in the daily-note format beside a daily folder", () => {
+    upsertPlanLinkingTo("[[2026-10-07]] and [[missing]]")
+
+    expect(
+      index.getOutgoingLinks(
+        {
+          path: "plan.md",
+          dailyNotesFolder: "Daily Notes",
+          dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT,
+        },
+        logger,
+      ),
+    ).toEqual([brokenLink("2026-10-07", true), brokenLink("missing", false)])
+  })
+
+  it("flags a markdown link to a bare date with its .md extension", () => {
+    upsertPlanLinkingTo("[next](2026-10-07.md) and [[missing]]")
+
+    expect(
+      index.getOutgoingLinks(
+        {
+          path: "plan.md",
+          dailyNotesFolder: "Daily Notes",
+          dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT,
+        },
+        logger,
+      ),
+    ).toEqual([brokenLink("2026-10-07.md", true), brokenLink("missing", false)])
+  })
+
+  it("does not flag a date link inside a folder other than the daily folder", () => {
+    upsertPlanLinkingTo("[[Meetings/2026-10-07]] and [[2026-10-08]]")
+
+    expect(
+      index.getOutgoingLinks(
+        {
+          path: "plan.md",
+          dailyNotesFolder: "Daily Notes",
+          dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT,
+        },
+        logger,
+      ),
+    ).toEqual([brokenLink("2026-10-08", true), brokenLink("Meetings/2026-10-07", false)])
+  })
+
+  it("flags a bare date link when the daily folder setting is the vault root or blank", () => {
+    upsertPlanLinkingTo("[[2026-10-07]] and [[missing]]")
+
+    expect(
+      index.getOutgoingLinks(
+        { path: "plan.md", dailyNotesFolder: null, dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
+        logger,
+      ),
+    ).toEqual([brokenLink("2026-10-07", true), brokenLink("missing", false)])
+  })
+
+  it("flags only the bare dates written in the vault's daily-note format", () => {
+    upsertPlanLinkingTo("[[07.10.2026]] and [[2026-10-07]]")
+
+    expect(
+      index.getOutgoingLinks(
+        { path: "plan.md", dailyNotesFolder: "Daily Notes", dailyNotesFormat: "DD.MM.YYYY" },
+        logger,
+      ),
+    ).toEqual([brokenLink("07.10.2026", true), brokenLink("2026-10-07", false)])
+  })
+
   it("returns empty for notes with no outgoing links", () => {
     index.upsertNote(
       withBodyTags({
@@ -6265,6 +6349,39 @@ describe("brokenLinkCount", () => {
     expect(
       index.brokenLinkCount({ dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT }, logger).count,
     ).toBe(2)
+  })
+
+  // Bare dates as a wikilink and a markdown link, beside a date inside another
+  // folder and an ordinary name that both stay broken.
+  const BARE_DATE_LINKS =
+    "# Plan\n\n[[2026-10-07]] and [next](2026-10-08.md) and [[Meetings/2026-10-09]] and [[missing]].\n"
+
+  it("excludes bare date links in the daily-note format beside a daily folder", () => {
+    index.upsertNote(
+      withBodyTags({ filePath: "plan.md", rawContent: BARE_DATE_LINKS, fileStat: testStat(1000) }),
+      logger,
+    )
+
+    expect(
+      index.brokenLinkCount(
+        { dailyNotesFolder: "Daily Notes", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
+        logger,
+      ),
+    ).toEqual({ count: 2, excludedCount: 2 })
+  })
+
+  it("excludes bare date links when the daily folder setting is the vault root or blank", () => {
+    index.upsertNote(
+      withBodyTags({ filePath: "plan.md", rawContent: BARE_DATE_LINKS, fileStat: testStat(1000) }),
+      logger,
+    )
+
+    expect(
+      index.brokenLinkCount(
+        { dailyNotesFolder: null, dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
+        logger,
+      ),
+    ).toEqual({ count: 2, excludedCount: 2 })
   })
 })
 
