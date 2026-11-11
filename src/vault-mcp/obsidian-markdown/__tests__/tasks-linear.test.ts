@@ -85,6 +85,7 @@ const readGrammar = (): Grammar => {
         for (const candidate of taskBody.matchAll(new RegExp(FIRST_METADATA_SIGNIFIER_RE.source, "gu"))) {
           const tail = parseTaskMetadata(taskBody.slice(candidate.index));
           const tailDescription = tail.description.replace(HASHTAG_RE, "").trim();
+
           if (tailDescription === "") return candidate.index;
         }
         return -1;
@@ -99,13 +100,51 @@ const readGrammar = (): Grammar => {
 }
 
 /** Freezes the suffix grammar used before the delimiter scan. */
-const legacyDataview = (inner: string): RegExp =>
-  new RegExp(`(?:(?=[^\\]]+\\])\\[|(?=[^)]+\\))\\() *${inner} *[)\\]](?: *,)?$`)
+const legacyDataview = (inner: string): RegExp => {
+  return new RegExp(`(?:(?=[^\\]]+\\])\\[|(?=[^)]+\\))\\() *${inner} *[)\\]](?: *,)?$`)
+}
 
 const consumedMatch = (match: RegExpExecArray | null): unknown => {
   if (!match) return null
   return { index: match.index, text: match[0], value: (match[1] ?? match[2])?.trim() }
 }
+
+/** The same seed replays the same draws, so a failing corpus input can be reproduced. */
+const createSeededDraw = (seed: number): ((bound: number) => number) => {
+  // Each draw advances the state, so it is mutable.
+  let state = seed
+
+  return (bound) => {
+    state = (Math.imul(state, 1664525) + 1013904223) >>> 0
+    return state % bound
+  }
+}
+
+/** The field matcher corpora build their random payloads from these characters.
+ *  They cover both bracket kinds, the field separators, every line terminator,
+ *  a surrogate pair, a backslash and a tab. */
+const FIELD_PAYLOAD_ALPHABET = [
+  "[",
+  "(",
+  "]",
+  ")",
+  " ",
+  "!",
+  "a",
+  ":",
+  "0",
+  ",",
+  "\n",
+  "\r",
+  "\u2028",
+  "\u2029",
+  "😀",
+  "\\",
+  "\t",
+]
+/** Each field matcher is checked against this many random inputs. PARSER_CORPUS_CASES
+ *  overrides the count for a deeper local run. */
+const FIELD_CORPUS_CASES = Number(process.env.PARSER_CORPUS_CASES ?? 10_000)
 
 describe("task recognizer compatibility", () => {
   it("preserves trailing tags over fixed-seed punctuation and whitespace variants", () => {
@@ -193,12 +232,7 @@ describe("task recognizer compatibility", () => {
 
   it("preserves metadata boundaries over fixed-seed bodies and every literal task fixture", () => {
     const grammar = readGrammar()
-    // The generator advances once per draw so a failure has a reproducible body.
-    let state = 0x7535eed
-    const draw = (bound: number): number => {
-      state = (Math.imul(state, 1664525) + 1013904223) >>> 0
-      return state % bound
-    }
+    const draw = createSeededDraw(0x7535eed)
     const fragments = [
       "Work",
       "Prefer ⏫ arrows in prose",
@@ -213,7 +247,7 @@ describe("task recognizer compatibility", () => {
       "#x[priority::high]",
       "[ priority:: high]",
       "⏫",
-      "🔺️",
+      "🔺\uFE0F",
       "🔁 every week",
       "🏁 keep",
       "🆔 abc",
@@ -348,6 +382,11 @@ describe("task recognizer compatibility", () => {
 
     expect(grammar.metadataStart("⏫ #📅")).toBe(0)
     expect(grammar.metadataStart("📅")).toBe(-1)
+  })
+
+  it("starts the tail inside a leading hashtag whose text parses as fields", () => {
+    const grammar = readGrammar()
+
     expect(grammar.metadataStart("#📅2026-01-02 (repeat:: every day)")).toBe(1)
   })
 
@@ -432,14 +471,9 @@ describe("task recognizer compatibility", () => {
     process.stdout.write(`Task metadata edit timings ${output}\n`)
   }, 15_000)
 
-  it("preserves spans and consumed captures over fixed-seed field variants", () => {
+  it("preserves Dataview field spans and consumed captures over fixed-seed variants", () => {
     const grammar = readGrammar()
-    /** The generator's state advances once per draw, making failures reproducible. */
-    let state = 0x739afb02
-    const draw = (bound: number): number => {
-      state = (Math.imul(state, 1664525) + 1013904223) >>> 0
-      return state % bound
-    }
+    const draw = createSeededDraw(0x739afb02)
     const variants = [
       { inner: "completion:: *(\\d{4}-\\d{2}-\\d{2})", value: "2026-01-02" },
       { inner: "cancelled:: *(\\d{4}-\\d{2}-\\d{2})", value: "2026-01-02" },
@@ -456,26 +490,6 @@ describe("task recognizer compatibility", () => {
         value: "a , b  , c ",
       },
     ]
-    const alphabet = [
-      "[",
-      "(",
-      "]",
-      ")",
-      " ",
-      "!",
-      "a",
-      ":",
-      "0",
-      ",",
-      "\n",
-      "\r",
-      "\u2028",
-      "\u2029",
-      "😀",
-      "\\",
-      "\t",
-    ]
-    const count = Number(process.env.PARSER_CORPUS_CASES ?? 10_000)
 
     for (const variant of variants) {
       const oldPattern = legacyDataview(variant.inner)
@@ -489,18 +503,19 @@ describe("task recognizer compatibility", () => {
         ? grammar.repeat
         : grammar.dataview(fieldGrammar)
 
-      for (let index = 0; index < count; index += 1) {
+      for (let index = 0; index < FIELD_CORPUS_CASES; index += 1) {
         const payload = Array.from(
           { length: draw(70) },
-          () => alphabet[draw(alphabet.length)],
+          () => FIELD_PAYLOAD_ALPHABET[draw(FIELD_PAYLOAD_ALPHABET.length)],
         ).join("")
         const open = index % 2 === 0 ? "[" : "("
         const close = open === "[" ? "]" : ")"
         const value = index % 3 === 0 ? variant.value : payload
+        const trailingComma = index % 4 === 0 ? " ," : ""
         const input =
           index % 5 === 0
             ? payload
-            : `${payload}${open} ${key}${" ".repeat(draw(4))}${value}${close}${index % 4 === 0 ? " ," : ""}`
+            : `${payload}${open} ${key}${" ".repeat(draw(4))}${value}${close}${trailingComma}`
 
         expect({ input, match: consumedMatch(matcher.exec(input)) }).toEqual({
           input,
@@ -508,15 +523,25 @@ describe("task recognizer compatibility", () => {
         })
       }
     }
+  })
+
+  it("preserves emoji recurrence spans and consumed captures over fixed-seed variants", () => {
+    const grammar = readGrammar()
+    const draw = createSeededDraw(0x739afb02)
+
     /** Matches the emoji recurrence suffix, with the whitespace outside its value capture. */
     const oldEmoji = /🔁\uFE0F? *([a-zA-Z0-9, !]+)$/
 
-    for (let index = 0; index < count; index += 1) {
-      const payload = Array.from({ length: draw(90) }, () => alphabet[draw(alphabet.length)]).join(
-        "",
-      )
+    for (let index = 0; index < FIELD_CORPUS_CASES; index += 1) {
+      const payload = Array.from(
+        { length: draw(90) },
+        () => FIELD_PAYLOAD_ALPHABET[draw(FIELD_PAYLOAD_ALPHABET.length)],
+      ).join("")
       const input = `text 🔁${index % 2 === 0 ? "\uFE0F" : ""}${" ".repeat(draw(8))}${index % 3 === 0 ? "every week" : payload}`
-      expect(consumedMatch(grammar.emoji.exec(input))).toEqual(consumedMatch(oldEmoji.exec(input)))
+      expect({ input, match: consumedMatch(grammar.emoji.exec(input)) }).toEqual({
+        input,
+        match: consumedMatch(oldEmoji.exec(input)),
+      })
     }
   })
 
@@ -556,7 +581,7 @@ describe("task recognizer compatibility", () => {
       "   ",
       "   text",
       "\ttext",
-      " text",
+      "\u00a0text",
       "😀",
       "x\rtext",
       "x\u2028text",
@@ -581,28 +606,27 @@ describe("task recognizer compatibility", () => {
     }
   })
 
-  it("keeps fields left of recurrence and reads both Dataview captures", () => {
-    for (const recurrence of [
-      "🔁   every week",
-      "[repeat::   every week ]",
-      "(repeat::   every week )",
-    ]) {
-      const input = `- [ ]   Work 📅 2026-01-02 ${recurrence} ^work`
-      expect(tasks.describeTaskLine(input)).toBe("Work")
-      expect(
-        tasks.extractTasks(input).map(({ description, recurrence, dueDate, blockId }) => ({
-          description,
-          recurrence,
-          dueDate,
-          blockId,
-        })),
-      ).toEqual([
-        { description: "Work", recurrence: "every week", dueDate: "2026-01-02", blockId: "work" },
-      ])
-      expect(
-        tasks.diffTaskRoundTrip({ taskLine: input, priorTaskLine: input, submitted: {} }),
-      ).toEqual([])
-    }
+  it.each([
+    { label: "an emoji", recurrenceField: "🔁   every week" },
+    { label: "a bracketed Dataview", recurrenceField: "[repeat::   every week ]" },
+    { label: "a parenthesized Dataview", recurrenceField: "(repeat::   every week )" },
+  ])("keeps fields left of $label recurrence field and reads its rule", ({ recurrenceField }) => {
+    const input = `- [ ]   Work 📅 2026-01-02 ${recurrenceField} ^work`
+
+    expect(tasks.describeTaskLine(input)).toBe("Work")
+    expect(
+      tasks.extractTasks(input).map(({ description, recurrence, dueDate, blockId }) => ({
+        description,
+        recurrence,
+        dueDate,
+        blockId,
+      })),
+    ).toEqual([
+      { description: "Work", recurrence: "every week", dueDate: "2026-01-02", blockId: "work" },
+    ])
+    expect(
+      tasks.diffTaskRoundTrip({ taskLine: input, priorTaskLine: input, submitted: {} }),
+    ).toEqual([])
   })
 
   it("bounds task, recurrence and Dataview adversaries in a child process", () => {
@@ -618,11 +642,11 @@ describe("task recognizer compatibility", () => {
       import assert from 'node:assert/strict';
       import { tasks } from ${JSON.stringify(parserUrl)};
       const fixtures = [
-        { name: 'task-u2028', sizes: [10000,20000,40000], input: n => '- [ ]' + ' '.repeat(n) + '\\u2028x', rejected: true },
-        { name: 'task-u2029', sizes: [10000,20000,40000], input: n => '- [ ]' + ' '.repeat(n) + '\\u2029x', rejected: true },
-        { name: 'emoji-recurrence', sizes: [20000,40000,80000], input: n => '- [ ] x 🔁' + ' '.repeat(n) + '?', rejected: false },
-        { name: 'dataview-recurrence', sizes: [1000,2000,4000], input: n => '- [ ] x [repeat::' + ' '.repeat(n) + '?]', rejected: false },
-        { name: 'dataview-lookahead', sizes: [25000,50000,100000], input: n => '- [ ] ' + '('.repeat(n), rejected: false }
+        { name: 'task-u2028', sizes: [10000,20000,40000], input: size => '- [ ]' + ' '.repeat(size) + '\\u2028x', rejected: true },
+        { name: 'task-u2029', sizes: [10000,20000,40000], input: size => '- [ ]' + ' '.repeat(size) + '\\u2029x', rejected: true },
+        { name: 'emoji-recurrence', sizes: [20000,40000,80000], input: size => '- [ ] x 🔁' + ' '.repeat(size) + '?', rejected: false },
+        { name: 'dataview-recurrence', sizes: [1000,2000,4000], input: size => '- [ ] x [repeat::' + ' '.repeat(size) + '?]', rejected: false },
+        { name: 'dataview-lookahead', sizes: [25000,50000,100000], input: size => '- [ ] ' + '('.repeat(size), rejected: false }
       ];
       const measurements = [];
       for (const fixture of fixtures) {
@@ -636,7 +660,7 @@ describe("task recognizer compatibility", () => {
             assert.deepEqual(tasks.diffTaskRoundTrip({taskLine:input, priorTaskLine:input, submitted:{}}), []);
           };
           check();
-          const samples = Array.from({length:5}, () => { const start=performance.now(); check(); return performance.now()-start; }).sort((a,b)=>a-b);
+          const samples = Array.from({length:5}, () => { const start=performance.now(); check(); return performance.now()-start; }).toSorted((first,second)=>first-second);
           medians.push(samples[2]);
         }
         assert.ok(medians.every(value => value < 250), fixture.name + ' exceeded 250ms ' + medians);
