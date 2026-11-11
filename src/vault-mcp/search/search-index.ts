@@ -408,9 +408,13 @@ export type OutgoingLinkEntry = {
 //      first in the link's own letter case, then with letter case folded.
 //   3. upsertNote stores each link's resolved target beside its text. Unresolved
 //      targets are stored as-is (raw text) for broken-link detection.
-//   4. When a new note is created, upsertNote re-resolves any stale
-//      unresolved targets that now match the new note's path or basename
-//      (handles Obsidian's "link first, create later" workflow).
+//   4. Each link re-resolves from its text when the files it could name change:
+//      - adding a file new to the index re-resolves the links whose name
+//        matches it, covering Obsidian's "link first, create later" workflow
+//        and a shorter path that now wins the name;
+//      - removing a file re-resolves the links that pointed at it.
+//      A rename therefore ends where a rebuild would put each link, whichever
+//      of its two events arrives first.
 //   5. rebuildFromVault uses a two-pass approach: Pass 1 indexes all
 //      notes without links (skipLinks), Pass 2 extracts links with the
 //      complete path list so all targets can resolve.
@@ -418,6 +422,9 @@ export type OutgoingLinkEntry = {
 /** "link" is typed in a note or a Canvas text card and resolves like one;
  *  "file-card" is a Canvas file card, stored as the exact path it names. */
 type LinkKind = "link" | "file-card"
+
+/** The key of a "link" row, which re-resolution reads and updates. */
+type StoredLink = { source: string; target: string; linkText: string }
 
 /** rebuildFromVault returns the indexed note count and the two passes that
  *  finish after it returns. Each pass logs its own failure, so a caller may
@@ -495,8 +502,9 @@ export const createSearchIndex = (
   // Caveat: the timeout doesn't protect a deferred transaction that reads
   // before its first write — its pinned WAL snapshot goes stale on a
   // concurrent commit and the write-lock upgrade fails instantly with
-  // SQLITE_BUSY_SNAPSHOT. Write-first wraps (upsertNote, removeNote) are
-  // covered; a read-first wrap needs the .immediate() variant.
+  // SQLITE_BUSY_SNAPSHOT. Write-first wraps (removeNote, upsertNonMdFile,
+  // removeNonMdFile) are covered; a read-first wrap needs the .immediate()
+  // variant, which upsertNote uses.
   db.pragma("busy_timeout = 5000")
   sqliteVec.load(db)
 
@@ -844,18 +852,29 @@ export const createSearchIndex = (
     `INSERT OR IGNORE INTO links (source, target, link_text, link_kind, link_name)
      VALUES (@source, @target, @linkText, @linkKind, @linkName)`,
   )
-  // Links whose target isn't a known note or non-md file — stored as raw text
-  // because they were unresolved when indexed (e.g. a forward reference).
-  // Used by both note and non-md re-resolution to find candidates to upgrade.
-  const selectUnresolvedLinksStmt = db.prepare<unknown[], { source: string; target: string }>(
-    `SELECT source, target FROM links WHERE target NOT IN (SELECT path FROM notes) AND target NOT IN (SELECT path FROM non_md_files)`,
+  const selectLinksToTargetStmt = db.prepare<[string], StoredLink>(
+    `SELECT source, target, link_text AS linkText FROM links WHERE target = ? AND link_kind = 'link'`,
   )
-  // Upgrade one raw link to its resolved path. OR REPLACE drops a pre-existing
-  // (source, resolved) row so re-resolution can't hit a PK collision.
-  const updateLinkTargetStmt = db.prepare(
-    `UPDATE OR REPLACE links SET target = @resolved WHERE source = @source AND target = @rawTarget`,
+  /** Takes the link names as a JSON array. */
+  const selectLinksByNameStmt = db.prepare<[string], StoredLink>(
+    `SELECT source, target, link_text AS linkText FROM links
+     WHERE link_name IN (SELECT value FROM json_each(?)) AND link_kind = 'link'`,
+  )
+  // One (source, link_text, link_kind) resolves to one target, so the new
+  // target never collides with another row's key.
+  const updateLinkTargetStmt = db.prepare<{
+    resolvedTarget: string
+    source: string
+    target: string
+    linkText: string
+  }>(
+    `UPDATE links SET target = @resolvedTarget
+     WHERE source = @source AND target = @target AND link_text = @linkText AND link_kind = 'link'`,
   )
   const selectAllNotePathsStmt = db.prepare<unknown[], { path: string }>(`SELECT path FROM notes`)
+  const selectNotePathStmt = db.prepare<[string], { path: string }>(
+    `SELECT path FROM notes WHERE path = ?`,
+  )
   const selectAllBodyTagsStmt = db.prepare<[], { path: string; body_tags: string }>(
     `SELECT path, body_tags FROM notes`,
   )
@@ -886,6 +905,11 @@ export const createSearchIndex = (
   const upsertNonMdFileStmt = db.prepare(
     `INSERT OR REPLACE INTO non_md_files (path, base_path, basename, bytes) VALUES (?, ?, ?, ?)`,
   )
+  const insertNewNonMdFileStmt = db.prepare(
+    `INSERT INTO non_md_files (path, base_path, basename, bytes) VALUES (?, ?, ?, ?)
+     ON CONFLICT (path) DO NOTHING`,
+  )
+  const updateNonMdFileBytesStmt = db.prepare(`UPDATE non_md_files SET bytes = ? WHERE path = ?`)
   const deleteNonMdFileStmt = db.prepare(`DELETE FROM non_md_files WHERE path = ?`)
   /** Direct path match for targets that already include a non-md extension
    *  (e.g. `[[photo.png]]`, `![[diagram.svg]]`). */
@@ -1472,6 +1496,46 @@ export const createSearchIndex = (
     insertLinkStmt.run({ ...params, linkName: links.pathToLinkName(params.linkText) })
   }
 
+  /** Re-resolves "link" rows from their text and updates each row whose target
+   *  changes. Call it inside the write that added or removed a file, after that
+   *  write's own changes. */
+  const reResolveLinks = (storedLinks: readonly StoredLink[]): void => {
+    if (storedLinks.length === 0) return
+
+    // Read here rather than from the canvas note cache, so the paths include
+    // the note the triggering write just added or removed.
+    const notePaths = selectAllNotePathsStmt.all().map((note) => note.path)
+    // Only the relative tiers read a link's source, and only its folder, so one
+    // answer serves every link with the same text from the same folder.
+    const resolvedTargets = new Map<string, string>()
+    for (const storedLink of storedLinks) {
+      const memoKey = `${posix.dirname(storedLink.source)}\0${storedLink.linkText}`
+      const resolvedTarget =
+        resolvedTargets.get(memoKey) ??
+        resolveLinkTarget({
+          linkText: storedLink.linkText,
+          notePaths,
+          sourcePath: storedLink.source,
+        })
+      resolvedTargets.set(memoKey, resolvedTarget)
+
+      if (resolvedTarget === storedLink.target) continue
+      updateLinkTargetStmt.run({ resolvedTarget, ...storedLink })
+    }
+  }
+
+  /** Re-resolves the "link" rows that name a file new to the index: those can
+   *  newly resolve to it, or move to it from a longer path with the same name. */
+  const reResolveLinksNaming = (linkNames: readonly string[]): void => {
+    reResolveLinks(selectLinksByNameStmt.all(JSON.stringify([...new Set(linkNames)])))
+  }
+
+  /** Re-resolves the "link" rows that pointed at a removed file. No other row
+   *  can change: the remaining files rank against each link as they did. */
+  const reResolveLinksTo = (removedPath: string): void => {
+    reResolveLinks(selectLinksToTargetStmt.all(removedPath))
+  }
+
   /** Indexes pre-statted non-markdown files into the non_md_files table.
    *  The caller owns entry filtering and stat (fs work stays out of the
    *  write transaction); this just writes the rows. */
@@ -1486,63 +1550,37 @@ export const createSearchIndex = (
     return files.length
   }
 
-  /** Adds a single non-markdown file to the index and re-resolves any
-   *  unresolved links that now match it. Called by the file watcher on
-   *  add/change. Mirrors how a new note re-resolves links written before it
-   *  existed: updates the link target from the raw text to the resolved non-md path. */
+  /** Adds or updates one non-markdown file. Called by the file watcher on add
+   *  and change. A path new to the index re-resolves the links that name it. */
   const upsertNonMdFile = (filePath: string, bytes: number): void => {
     const basePath = links.stripExtension(filePath)
     const baseFilename = links.stripExtension(basename(filePath))
-    upsertNonMdFileStmt.run(filePath, basePath, baseFilename, bytes)
 
-    // Re-resolve unresolved links that now match this non-md file — upgrade
-    // raw targets (e.g. "Trip Route") to resolved paths ("Trip Route.canvas").
-    const foldedFilePath = filePath.toLowerCase()
-    const foldedBasePath = basePath.toLowerCase()
-    const foldedBaseFilename = baseFilename.toLowerCase()
-    const matchesNewFile = (link: { source: string; target: string }): boolean => {
-      const foldedTarget = link.target.toLowerCase()
-      const foldedRelativeTarget = posix.join(posix.dirname(link.source), link.target).toLowerCase()
-      const targetSuffix = `/${foldedTarget}`
+    // The insert comes first so the transaction takes the write lock before it
+    // reads (see the busy_timeout comment above), and its change count tells
+    // a new path from a changed file.
+    db.transaction(() => {
+      const isNewFile =
+        insertNewNonMdFileStmt.run(filePath, basePath, baseFilename, bytes).changes > 0
 
-      // toLowerCase folds every letter, while the resolver's LIKE and NOCASE
-      // queries fold only ASCII letters, so every comparison here keeps every
-      // link the resolver could match, in either of its letter-case passes.
-      // The resolver then decides the match and its case.
-      const matchesFullFilename =
-        foldedFilePath === foldedTarget ||
-        foldedFilePath === foldedRelativeTarget ||
-        foldedFilePath.endsWith(targetSuffix)
-      const matchesStem =
-        foldedBasePath === foldedTarget ||
-        foldedBasePath === foldedRelativeTarget ||
-        foldedBasePath.endsWith(targetSuffix) ||
-        foldedBaseFilename === foldedTarget
-
-      return matchesFullFilename || matchesStem
-    }
-    const unresolvedLinks = selectUnresolvedLinksStmt.all()
-    for (const link of unresolvedLinks) {
-      if (!matchesNewFile(link)) continue
-
-      const resolvedPath = resolveNonMarkdownFile({ target: link.target, sourcePath: link.source })
-
-      if (resolvedPath !== null) {
-        updateLinkTargetStmt.run({
-          resolved: resolvedPath,
-          source: link.source,
-          rawTarget: link.target,
-        })
+      if (!isNewFile) {
+        updateNonMdFileBytesStmt.run(bytes, filePath)
+        return
       }
-    }
+
+      // A link names the file by its full filename ([[photo.png]]) or by its
+      // stem ([[Trip Route]] for Trip Route.canvas), the basename column.
+      reResolveLinksNaming([links.pathToLinkName(filePath), links.pathToLinkName(baseFilename)])
+    })()
   }
 
-  /** Removes a non-markdown file from the index. Called by the file watcher
-   *  on unlink. Links that resolved to this file become broken automatically
-   *  at query time — getOutgoingLinks shows exists: false, brokenLinkCount
-   *  includes them. Same behavior as removeNote for deleted .md files. */
+  /** Removes a non-markdown file. Called by the file watcher on unlink. The
+   *  links that resolved to it re-resolve, to another file or to their text. */
   const removeNonMdFile = (filePath: string): void => {
-    deleteNonMdFileStmt.run(filePath)
+    db.transaction(() => {
+      deleteNonMdFileStmt.run(filePath)
+      reResolveLinksTo(filePath)
+    })()
   }
 
   // ── File content indexing ─────────────────────────────────────
@@ -1883,9 +1921,11 @@ export const createSearchIndex = (
     // All index writes commit or roll back together — a mid-sequence throw
     // must not leave notes/FTS/tasks/links mutually inconsistent. The
     // `skipLinks` return exits the transaction callback (return commits,
-    // throw rolls back), so code after the wrap's `)()` runs on both paths
-    // — no link-phase work may live there.
+    // throw rolls back), so code after the wrap runs on both paths
+    // — no link-phase work may live there. The wrap is immediate because it
+    // reads whether the note is new before its first write.
     db.transaction(() => {
+      const isNewNote = !selectNotePathStmt.get(note.path)
       const upsertedNoteRow = upsertNotesStmt.get(
         note.path,
         note.title,
@@ -1965,35 +2005,10 @@ export const createSearchIndex = (
         })
       }
 
-      // Re-resolve links still stored as raw text now that this note exists.
-      // Re-run links.resolve with each link's own source so every form upgrades
-      // uniformly — basename, full path, and source-relative ("../") — covering
-      // Obsidian's "link first, create the note later" workflow. Each standing
-      // unresolved link already failed against every other indexed path, so it
-      // can only newly resolve to this note — resolving against [note.path]
-      // alone gives the same answer without an O(unresolved × notes) sweep
-      // on every write.
-      const unresolvedLinks = selectUnresolvedLinksStmt.all()
-
-      // links.resolve caches a list's folded paths by the array, so the sweep
-      // reuses one list instead of building a new one for every link.
-      const newNotePathList = [note.path]
-      for (const link of unresolvedLinks) {
-        const resolved = links.resolve({
-          target: link.target,
-          allPaths: newNotePathList,
-          sourcePath: link.source,
-        })
-
-        if (resolved !== null) {
-          updateLinkTargetStmt.run({
-            resolved,
-            source: link.source,
-            rawTarget: link.target,
-          })
-        }
-      }
-    })()
+      // An edit leaves the set of paths, and so every other link's answer,
+      // unchanged; a new path can claim the links that name it.
+      if (isNewNote) reResolveLinksNaming([links.pathToLinkName(note.path)])
+    }).immediate()
 
     cachedNotePathsForCanvasLinks = undefined
     const sourceVersion = Symbol()
@@ -2387,7 +2402,8 @@ export const createSearchIndex = (
   }
 
   /** Removes a note from the notes table, FTS index, links, tasks, vectors,
-   *  and — for memory files — the entry-granular index. A watcher rename
+   *  and — for memory files — the entry-granular index. Links that resolved
+   *  to the note re-resolve, to another file or to their text. A watcher rename
    *  arrives as unlink+add, so a renamed memory file behaves as delete+create:
    *  its entries re-enter as new rows and re-embed once in the background. */
   const removeNote = (filePath: string): void => {
@@ -2400,6 +2416,7 @@ export const createSearchIndex = (
 
       if (removedNoteRow) deleteFtsStmt.run(removedNoteRow.rowid)
       deleteLinksStmt.run(filePath)
+      reResolveLinksTo(filePath)
       deleteTasksStmt.run(filePath)
       if (deleteVectorsForNoteStmt && deleteChunksForNoteStmt) {
         deleteVectorsForNoteStmt.run(filePath)
