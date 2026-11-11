@@ -1197,7 +1197,7 @@ const formatDependsOn = (dependsOn: readonly string[], format: "emoji" | "datavi
 // due → done → cancelled), which buildTaskLine uses to assemble lines and
 // updateTaskLineDate uses to find the insertion point.
 
-/** The six date-field keys in the Tasks plugin's canonical ordering. */
+/** The six date-field keys, in the order buildTaskLine writes them. */
 type DateFieldKey = "created" | "start" | "scheduled" | "due" | "done" | "cancelled"
 
 /** The write side of the date fields, in line order. DATE_FIELD_PARSERS holds
@@ -1263,8 +1263,8 @@ const formatDateField = ({
 }
 
 /** Sets or clears a date field on a task line. Strips existing values in
- *  both formats; inserts the new value at the correct position per the
- *  Tasks-plugin field ordering convention. A null date clears the field. */
+ *  both formats and inserts the new value where buildTaskLine writes that
+ *  field. A null date clears the field. */
 const updateTaskLineDate = (params: {
   taskLine: string
   field: DateFieldKey
@@ -1275,9 +1275,9 @@ const updateTaskLineDate = (params: {
 
   if (!fieldInfo) throw new Error(`unknown date field: ${params.field}`)
 
-  // Later fields in the canonical order: the remaining dates, then
-  // task_id and depends_on — a new date is inserted ahead of the first one
-  // present so the line keeps the order the create path writes.
+  // Later fields in the written order: the remaining dates, then task_id
+  // and depends_on — a new date is inserted ahead of the first one present
+  // so the line keeps the order buildTaskLine writes.
   const fieldIndex = DATE_FIELDS_IN_LINE_ORDER.findIndex((entry) => entry.key === params.field)
   const laterFieldRegexes = [
     ...DATE_FIELDS_IN_LINE_ORDER.slice(fieldIndex + 1).map((entry) => entry.inlineRegex),
@@ -1329,8 +1329,8 @@ const updateTaskLineTaskId = ({
 }
 
 /** Sets or clears the 🔁 / `[repeat:: ]` recurrence rule on a task line.
- *  A new rule is inserted after the priority and before the dates — the
- *  plugin's field order. The rule text is written verbatim; callers
+ *  A new rule is inserted after the priority and before the dates, where
+ *  buildTaskLine writes it. The rule text is written verbatim; callers
  *  validate it parses before writing. */
 const updateTaskLineRecurrence = ({
   taskLine,
@@ -1360,7 +1360,7 @@ const updateTaskLineRecurrence = ({
 }
 
 /** Sets or clears 🏁 / `[onCompletion:: ]`, replacing every duplicate action.
- *  New actions follow recurrence and precede dates — the plugin's field order. */
+ *  New actions follow recurrence and precede dates, where buildTaskLine writes them. */
 const updateTaskLineOnCompletion = ({
   taskLine,
   onCompletion,
@@ -2071,7 +2071,8 @@ type BuildTaskLineParams = {
   indent?: string | undefined
 }
 
-/** Assembles a complete task line in the correct field ordering:
+/** Assembles a complete task line. Every update function keeps this field
+ *  order, which the Tasks plugin reads back in any order:
  *  description → priority → 🔁 recurrence → 🏁 onCompletion → ➕ created →
  *  🛫 start → ⏳ scheduled → 📅 due → 🆔 task_id → ⛔ depends_on → ^block_id */
 const buildTaskLine = (params: BuildTaskLineParams, config: TaskFormatConfig): string => {
