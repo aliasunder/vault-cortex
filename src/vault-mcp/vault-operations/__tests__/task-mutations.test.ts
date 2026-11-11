@@ -2355,7 +2355,9 @@ kanban-plugin: board
 
     it("reports a description ending in a block-id lookalike as the written line parses it", async () => {
       const vault = await createVault()
-      await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
+      // The task line has nothing after its description, so the new
+      // description placed on it alone would end in "^c1" as a block id.
+      await writeTestNote(vault, "tasks.md", "---\ntitle: Tasks\n---\n\n- [ ] Bare task\n")
 
       // The priority edit appends metadata after the new description, so the
       // written line holds "^c1" mid-line as text, not as a trailing block id.
@@ -2364,7 +2366,7 @@ kanban-plugin: board
           statusRegistry: DEFAULT_STATUS_REGISTRY,
           vaultPath: vault,
           path: "tasks.md",
-          blockId: "walk-dog",
+          line: 5,
           description: "Renamed ^c1",
           priority: "high",
         },
@@ -2373,15 +2375,12 @@ kanban-plugin: board
 
       expect(result).toEqual({
         path: "tasks.md",
-        line: 6,
+        line: 5,
         description: "Renamed ^c1",
-        block_id: "walk-dog",
-        changes: ["priority: (none) → high", "description: Walk the dog → Renamed ^c1"],
+        changes: ["priority: (none) → high", "description: Bare task → Renamed ^c1"],
       })
       const content = await readTestNote(vault, "tasks.md")
-      expect(content).toBe(
-        "---\ntitle: Tasks\n---\n\n- [ ] Buy groceries ➕ 2026-07-01\n- [ ] Renamed ^c1 ⏫ ➕ 2026-07-02 ^walk-dog\n- [x] Done task ➕ 2026-07-01 ✅ 2026-07-10\n",
-      )
+      expect(content).toBe("---\ntitle: Tasks\n---\n\n- [ ] Renamed ^c1 ⏫\n")
     })
 
     it("replaces an existing block_id", async () => {
@@ -2497,6 +2496,7 @@ kanban-plugin: board
         },
         logger,
       )
+      const contentBefore = await readTestNote(vault, "board.md")
 
       await expect(
         taskMutations.updateTask(
@@ -2514,6 +2514,8 @@ kanban-plugin: board
           "cannot move a sub-task to a heading — the parent's heading determines placement",
         ),
       )
+      const contentAfter = await readTestNote(vault, "board.md")
+      expect(contentAfter).toBe(contentBefore)
     })
 
     it("errors on a malformed date in update", async () => {
