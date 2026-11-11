@@ -977,9 +977,9 @@ const moveTaskBlock = ({
   const targetLane = targetHeading.text
   const currentHeading = headings.findLast((heading) => heading.startLine < taskLineIndex)
   const currentLane = currentHeading?.text ?? "(before first heading)"
-  // A task above the first heading is in no lane. Comparing currentLane
-  // instead would match a heading whose text is the placeholder.
-  const isSameLane = currentHeading?.text === targetLane
+  // Both headings come from the same parse, so identity tells a card in a
+  // later lane of the same name apart from one already in the target lane.
+  const isSameLane = currentHeading === targetHeading
 
   if (isSameLane && !position) return { lines, taskLineIndex, changes: [] }
 
@@ -1001,9 +1001,16 @@ const moveTaskBlock = ({
     )
   }
 
-  // Removing a task block removes no heading, so the target keeps its place
-  // in the heading order.
-  const headingAfterRemoval = headingsAfterRemoval[headings.indexOf(targetHeading)]
+  // The block can hold an indented heading, which leaves the parse with it,
+  // so the target is found again by where its line moved to, not by its
+  // place in the heading order.
+  const targetStartAfterRemoval =
+    targetHeading.startLine > taskLineIndex
+      ? targetHeading.startLine - taskBlock.length
+      : targetHeading.startLine
+  const headingAfterRemoval = headingsAfterRemoval.find((heading) => {
+    return heading.startLine === targetStartAfterRemoval
+  })
 
   if (!headingAfterRemoval) {
     throw new Error(`heading "${targetLane}" not found after line removal`)
