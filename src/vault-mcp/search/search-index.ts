@@ -3027,6 +3027,9 @@ export const createSearchIndex = (
       // The pass finishes the other files after an embedding failure, then rejects so a caller
       // awaiting completion sees the failure.
       const embeddingFailures: unknown[] = []
+      // Counts the files whose text reached the index, so the summary reports coverage rather
+      // than the schedule.
+      let publishedFiles = 0
       for (const file of pdfPlaceholders) {
         const scheduledVersion = pdfVersionsForExtraction.get(file.relativePath)
 
@@ -3039,6 +3042,7 @@ export const createSearchIndex = (
         const sourceVersion = publishPdfText(file, result.text)
 
         if (!sourceVersion) continue
+        publishedFiles += 1
         try {
           await embedFileContent({ filePath: file.relativePath, sourceVersion }, logger)
         } catch (error) {
@@ -3050,7 +3054,8 @@ export const createSearchIndex = (
         }
       }
       logger.info("PDF content pass complete", {
-        files: pdfPlaceholders.length,
+        scheduledFiles: pdfPlaceholders.length,
+        publishedFiles,
         durationMs: Math.round(performance.now() - passStart),
       })
 
