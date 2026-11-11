@@ -1,10 +1,29 @@
-import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs"
+import {
+  chmodSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { describe, expect, it, onTestFinished } from "vitest"
+import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest"
 
 import { envFile } from "../env-file.js"
 import { parseEnvValues, readEnvObsidianToken } from "../../rules/env-values.js"
+
+// Spy mode keeps the real fs, so a test can delete the .env right after the
+// adapter reads it.
+vi.mock("node:fs", { spy: true })
+
+// A test that fails before the adapter's fs call leaves its once-implementation
+// queued; mockReset drops it and puts the real function back.
+afterEach(() => {
+  vi.mocked(readFileSync).mockReset()
+  vi.mocked(chmodSync).mockReset()
+})
 
 const neverOverwrite = async (): Promise<boolean> => false
 const alwaysOverwrite = async (): Promise<boolean> => true
@@ -17,6 +36,17 @@ const makeTempDir = (): string => {
     rmSync(tempDir, { recursive: true, force: true })
   })
   return tempDir
+}
+
+// Simulates another process removing the .env between the adapter's read and
+// its write. The once-implementation is used up before it runs, so the inner
+// readFileSync call reaches the real fs.
+const deleteEnvAfterNextRead = (envPath: string): void => {
+  vi.mocked(readFileSync).mockImplementationOnce((...readArgs) => {
+    const envText = readFileSync(...readArgs)
+    unlinkSync(envPath)
+    return envText
+  })
 }
 
 describe("read", () => {
@@ -109,12 +139,48 @@ describe("write permissions", () => {
     const fileMode = statSync(envPath).mode & 0o777
     expect(fileMode).toBe(0o600)
   })
+
+  it("recreates .env owner-only, before the chmod, when it is deleted while the resolver decides", async () => {
+    const targetDir = makeTempDir()
+    const envPath = join(targetDir, ".env")
+    writeFileSync(envPath, "MCP_AUTH_TOKEN=old\n", { mode: 0o600 })
+    const deleteThenApprove = async (): Promise<boolean> => {
+      unlinkSync(envPath)
+      return true
+    }
+    // The chmod that follows the write would hide a wider mode, so record the
+    // mode the token was written with before letting the real chmod run.
+    const modesBeforeChmod: number[] = []
+    vi.mocked(chmodSync).mockImplementationOnce((chmodPath, chmodMode) => {
+      modesBeforeChmod.push(statSync(chmodPath).mode & 0o777)
+      chmodSync(chmodPath, chmodMode)
+    })
+
+    const writeStatus = await envFile.write(
+      { targetDir, envContent: "MCP_AUTH_TOKEN=new\n" },
+      deleteThenApprove,
+    )
+
+    expect(writeStatus).toBe("overwritten")
+    expect(readFileSync(envPath, "utf8")).toBe("MCP_AUTH_TOKEN=new\n")
+    expect(modesBeforeChmod).toEqual([0o600])
+    expect(statSync(envPath).mode & 0o777).toBe(0o600)
+  })
 })
 
 describe("replace", () => {
   it("rewrites an existing .env and keeps its owner-only permissions", () => {
     const envPath = join(makeTempDir(), ".env")
     writeFileSync(envPath, "MCP_AUTH_TOKEN=old\n", { mode: 0o600 })
+
+    envFile.replace(envPath, "MCP_AUTH_TOKEN=new\n")
+
+    expect(readFileSync(envPath, "utf8")).toBe("MCP_AUTH_TOKEN=new\n")
+    expect(statSync(envPath).mode & 0o777).toBe(0o600)
+  })
+
+  it("creates a missing .env owner-only", () => {
+    const envPath = join(makeTempDir(), ".env")
 
     envFile.replace(envPath, "MCP_AUTH_TOKEN=new\n")
 
@@ -214,6 +280,20 @@ describe("patchObsidianToken", () => {
   })
 })
 
+describe("patchObsidianToken permissions", () => {
+  it("recreates .env owner-only when it is deleted after the read", () => {
+    const envPath = join(makeTempDir(), ".env")
+    writeFileSync(envPath, "OBSIDIAN_AUTH_TOKEN=old-token\n", { mode: 0o600 })
+    deleteEnvAfterNextRead(envPath)
+
+    const result = envFile.patchObsidianToken(envPath, "new-token")
+
+    expect(result).toBe(true)
+    expect(readFileSync(envPath, "utf8")).toBe("OBSIDIAN_AUTH_TOKEN=new-token\n")
+    expect(statSync(envPath).mode & 0o777).toBe(0o600)
+  })
+})
+
 describe("stripQuotedValues", () => {
   it("returns false when the file does not exist", () => {
     const missingPath = join(tmpdir(), "vault-cli-no-such-env", ".env")
@@ -291,5 +371,19 @@ describe("stripQuotedValues", () => {
     envFile.stripQuotedValues(envPath)
 
     expect(readFileSync(envPath, "utf8")).toBe("VAULT_NAME=My 'Cool' Vault\n")
+  })
+})
+
+describe("stripQuotedValues permissions", () => {
+  it("recreates .env owner-only when it is deleted after the read", () => {
+    const envPath = join(makeTempDir(), ".env")
+    writeFileSync(envPath, 'VAULT_NAME="My Vault"\n', { mode: 0o600 })
+    deleteEnvAfterNextRead(envPath)
+
+    const result = envFile.stripQuotedValues(envPath)
+
+    expect(result).toBe(true)
+    expect(readFileSync(envPath, "utf8")).toBe("VAULT_NAME=My Vault\n")
+    expect(statSync(envPath).mode & 0o777).toBe(0o600)
   })
 })

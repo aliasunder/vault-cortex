@@ -3,7 +3,12 @@ import { join } from "node:path"
 
 export type EnvWriteStatus = "created" | "unchanged" | "overwritten" | "kept"
 
-/** .env holds the bearer token (and possibly a vault password), so only its owner may read it. */
+/**
+ * .env holds the bearer token (and possibly a vault password), so only its
+ * owner may read it. Every .env write passes this mode: Node applies it only
+ * when the write creates the file, so a .env deleted after its read comes back
+ * owner-only.
+ */
 const ENV_FILE_MODE = 0o600
 
 /** Matches an active (uncommented) OBSIDIAN_AUTH_TOKEN line. */
@@ -23,7 +28,7 @@ const read = (envFilePath: string): string | undefined => {
 
 /** Replaces an existing .env's text; the file keeps its permissions. */
 const replace = (envFilePath: string, envContent: string): void => {
-  writeFileSync(envFilePath, envContent)
+  writeFileSync(envFilePath, envContent, { mode: ENV_FILE_MODE })
 }
 
 /**
@@ -41,7 +46,7 @@ const patchObsidianToken = (envFilePath: string, token: string): boolean => {
     EVERY_OBSIDIAN_AUTH_TOKEN_LINE,
     () => `OBSIDIAN_AUTH_TOKEN=${token}`,
   )
-  writeFileSync(envFilePath, patched)
+  writeFileSync(envFilePath, patched, { mode: ENV_FILE_MODE })
   return true
 }
 
@@ -59,7 +64,7 @@ const stripQuotedValues = (envFilePath: string): boolean => {
   const sanitized = content.replace(QUOTED_ENV_VALUE, "$1$3$4")
 
   if (sanitized === content) return false
-  writeFileSync(envFilePath, sanitized)
+  writeFileSync(envFilePath, sanitized, { mode: ENV_FILE_MODE })
   return true
 }
 
@@ -85,9 +90,9 @@ const write = async (
   const overwrite = await resolveConflict()
 
   if (!overwrite) return "kept"
-  // writeFileSync's mode only applies on creation — tighten explicitly
-  // when replacing an existing file.
-  writeFileSync(envFilePath, envContent)
+  // The mode covers a .env deleted while the resolver waited. It applies only
+  // on creation, so chmod tightens a file that still exists.
+  writeFileSync(envFilePath, envContent, { mode: ENV_FILE_MODE })
   chmodSync(envFilePath, ENV_FILE_MODE)
   return "overwritten"
 }
