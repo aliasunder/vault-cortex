@@ -577,7 +577,7 @@ When no embedder is configured (`EMBEDDING_ENABLED=false`), no vectors are index
 2. **Pass 2** — extract links (with the complete path list for resolution), then index canvas, text, HTML and script content; PDFs receive filename/current-metadata rows
 3. **Pass 3 (background)** — embed notes, then non-PDF file content. Until a note's vectors exist, search finds it by keyword only
 4. **Body-tag pass (background)** — parse each note's body tags again in the body-tag worker thread and write the ones that changed (see **Body tags column**)
-5. **PDF pass (after listen)** — extract one PDF at a time, publish still-current text, then embed that publication before completing the file
+5. **PDF pass (after listen)** — extract one PDF at a time and publish its still-current text, then embed the published PDFs
 
 **Startup order:** `watchVaultAndBuildIndex` starts the file watcher before the rebuild, so a change that lands while the rebuild reads the vault is neither missed nor replaced by the rebuild's older read:
 
@@ -602,7 +602,7 @@ Vector tables persist across restarts and rebuilds (only FTS, notes, links, task
 - Note, file-content and memory-entry writers check the captured version before model work and after each model await. Obsolete jobs skip derived writes, note/file tail pruning and later memory batches.
 - The watcher assigns an event token before reading each file and checks it before indexing. Unlink or a newer event invalidates earlier reads; embedding stays serialized per path to limit model concurrency.
 - Model inference runs synchronously on the server's one JavaScript thread, so background embedding yields to requests. Each background model call (a chunk, or a 16-entry memory batch) waits while a tool call or prompt is running, for at most 5 seconds (`BACKGROUND_EMBED_MAX_WAIT_MS`).
-- Notes and non-PDF files reach the keyword index before their embedding is queued, so a wait delays only their vector results. The PDF pass embeds each PDF before extracting the next, so a wait there also delays later PDFs' keyword results.
+- Notes and files reach the keyword index before their embedding is queued, and the PDF pass publishes every PDF's text before embedding any, so a wait delays only vector results.
 
 **Embedding pipeline:** Controlled by `EMBEDDING_ENABLED` (default: `true`). Markdown syntax is stripped before embedding (`plaintext.ts`). Short notes (under 500 body tokens) stay a single title-prefixed chunk. Longer notes split into per-heading sections via `chunker.ts`:
 

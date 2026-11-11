@@ -3065,6 +3065,10 @@ export const createSearchIndex = (
       const passStart = performance.now()
       // Finish other files after an embedding failure, then reject completion so eval cannot score it.
       const embeddingFailures: unknown[] = []
+      // Every PDF's text is published before any PDF is embedded. Each
+      // embedding waits while a tool call runs, so embedding inside this loop
+      // would also hold back the next PDF's keyword text.
+      const publishedPdfs: Array<{ relativePath: string; sourceVersion: symbol }> = []
       for (const file of pdfPlaceholders) {
         const scheduledVersion = pdfVersionsForExtraction.get(file.relativePath)
 
@@ -3112,12 +3116,15 @@ export const createSearchIndex = (
         const sourceVersion = publishPdfText()
 
         if (!sourceVersion) continue
+        publishedPdfs.push({ relativePath: file.relativePath, sourceVersion })
+      }
+      for (const { relativePath, sourceVersion } of publishedPdfs) {
         try {
-          await embedFileContent({ filePath: file.relativePath, sourceVersion }, logger)
+          await embedFileContent({ filePath: relativePath, sourceVersion }, logger)
         } catch (error) {
           embeddingFailures.push(error)
           logger.error("PDF embedding failed", {
-            path: file.relativePath,
+            path: relativePath,
             ...describeErrorForLog(error),
           })
         }

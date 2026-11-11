@@ -3930,6 +3930,37 @@ describe("rebuildFromVault deferred PDF content", () => {
     }
   }
 
+  it("publishes every PDF's text before embedding any of them", async () => {
+    const fixture = await createPdfRebuildFixture()
+    await writeFile(join(fixture.vaultPath, "Healthy.PDF"), "healthy disk bytes")
+    fixture.extractForIndex.mockImplementation(async ({ path }) => ({
+      text: path === fixture.path ? "New newcobalt" : "Second healthyamber",
+      totalPages: 1,
+    }))
+    const rebuilt = await fixture.rebuild()
+    await rebuilt.embedding
+    fixture.embedder.embedText.mockClear()
+    const heldEmbedding = Promise.withResolvers<Float32Array>()
+    fixture.embedder.embedText.mockImplementationOnce(() => heldEmbedding.promise)
+    const pass = rebuilt.startPdfPass()
+    onTestFinished(async () => {
+      heldEmbedding.resolve(fixture.vectorFor("healthyamber"))
+      await Promise.allSettled([pass])
+    })
+
+    await vi.waitFor(() => {
+      expect(fixture.keywordPaths("newcobalt OR healthyamber")).toEqual([
+        { path: "Healthy.PDF" },
+        { path: "Report.PDF" },
+      ])
+    })
+    expect(fixture.embedder.embedText).toHaveBeenCalledTimes(1)
+
+    heldEmbedding.resolve(fixture.vectorFor("healthyamber"))
+    await pass
+    expect(fixture.embedder.embedText).toHaveBeenCalledTimes(2)
+  })
+
   it("skips deferred extraction after a failed PDF placeholder write and continues other PDFs", async () => {
     const fixture = await createPdfRebuildFixture()
     await writeFile(join(fixture.vaultPath, "Healthy.PDF"), "healthy disk bytes")
