@@ -237,14 +237,12 @@ point it at `http://localhost:8000`. Set `PUBLIC_URL` to the tunnel URL
 with a proxy in front, that's what lets OAuth rate limiting tell clients
 apart (otherwise they all share the tunnel's budget).
 
-Once the tunnel is working, stop publishing port 8000 to the internet: in
-`docker-compose.yml`, change the `ports` line to
-`"127.0.0.1:${PORT:-8000}:8000"` and restart. The tunnel runs on the same
-machine and reaches `localhost:8000`, so nothing else needs the port, and a
-firewall rule alone is not enough, because Docker publishes ports past the
-host firewall. While the port stays open, anyone reaching it directly can
-write their own `X-Forwarded-For` header and pick their own rate-limit
-budget. See [Hardening](#hardening-recommended) below.
+Once the tunnel is working, stop publishing port 8000 to the internet, as
+[Close port 8000](#hardening-recommended) describes. The tunnel runs on the
+same machine and reaches `localhost:8000`, so nothing else needs the port.
+Set `TRUST_PROXY_HOPS=1` only after the port is closed: while it stays open,
+anyone reaching it directly can write their own `X-Forwarded-For` header
+and pick their own rate-limit budget.
 
 ### API Gateway (AWS — no domain needed)
 
@@ -261,17 +259,18 @@ requests/month for 12 months — effectively free for personal use.
 
 Create an HTTP API in API Gateway with a route that proxies to
 `http://<your-server-ip>:8000/{proxy+}`. Set `PUBLIC_URL` to the API Gateway
-URL and `TRUST_PROXY_HOPS=1` in `.env`, and leave `TRUST_FORWARDED_HOPS` at
-its default of `0` while port 8000 is reachable from the internet. The
+URL in `.env`, and leave `TRUST_PROXY_HOPS` and `TRUST_FORWARDED_HOPS` at
+their default of `0` while port 8000 is reachable from the internet. The
 gateway reports each visitor through the
-[RFC 7239](https://www.rfc-editor.org/rfc/rfc7239) `Forwarded` header, but
-anyone reaching port 8000 directly can write that header too and pick their
-own OAuth rate-limit budget, so the server reads it only once the gateway is
-the only way in. Until then every visitor shares one budget, the gateway's
-address, and one client's burst of sign-ins can block another's for a
-minute. The project's [full cloud deployment](../../DEPLOY.md) closes port
-8000 behind a locked tunnel and then sets `TRUST_FORWARDED_HOPS=1`; it also
-adds a Lambda authorizer for an extra auth layer.
+[RFC 7239](https://www.rfc-editor.org/rfc/rfc7239) `Forwarded` header and
+sends no `X-Forwarded-For`, but anyone reaching port 8000 directly can write
+either header and pick their own OAuth rate-limit budget, so the server
+reads neither until the gateway is the only way in. Until then every visitor
+through the gateway shares one budget, the gateway's address, and one
+client's burst of sign-ins can block another's for a minute. The project's
+[full cloud deployment](../../DEPLOY.md) closes port 8000 behind a locked
+tunnel and then sets `TRUST_FORWARDED_HOPS=1`; it also adds a Lambda
+authorizer for an extra auth layer.
 
 > **Need a VPS?** Any provider works — [AWS Lightsail](https://aws.amazon.com/lightsail/),
 > DigitalOcean, Hetzner, etc. A 2 GiB instance handles semantic search fine for
@@ -299,12 +298,11 @@ in `.env` — with a proxy in front, that's what lets OAuth rate limiting tell
 clients apart (otherwise they all share the proxy's budget).
 
 The proxy runs on the same machine and reaches `localhost:8000`, so stop
-publishing port 8000 to the internet: in `docker-compose.yml`, change the
-`ports` line to `"127.0.0.1:${PORT:-8000}:8000"` and restart. A firewall
-rule alone is not enough, because Docker publishes ports past the host
-firewall, and while the port stays open anyone reaching it directly can
-write their own `X-Forwarded-For` header and pick their own rate-limit
-budget.
+publishing port 8000 to the internet, as
+[Close port 8000](#hardening-recommended) describes. Set `TRUST_PROXY_HOPS=1`
+only after the port is closed: while it stays open, anyone reaching it
+directly can write their own `X-Forwarded-For` header and pick their own
+rate-limit budget.
 
 ### Direct access (testing only)
 
@@ -783,15 +781,19 @@ MCP requests require your token or an OAuth session; health checks and the
 sign-in pages are public. These optional measures add defense-in-depth:
 
 - **Close port 8000** — once a tunnel or reverse proxy on the same machine
-  handles HTTPS, publish the port on that machine only: change the `ports`
-  line in `docker-compose.yml` to `"127.0.0.1:${PORT:-8000}:8000"`, for
-  each install's `PORT`, and restart. A rule in your provider's firewall
-  (provider panel, AWS security groups, infrastructure-as-code) still
-  protects the rest of the server, but on its own it does not close a
-  published port, because Docker publishes ports past the host firewall.
-  All traffic then flows through the encrypted path, and only the proxy you
-  chose can set the client IP that `TRUST_PROXY_HOPS` and
-  `TRUST_FORWARDED_HOPS` read.
+  handles HTTPS, publish the port on that machine only. With Compose, change
+  the `ports` line in `docker-compose.yml` to
+  `"127.0.0.1:${PORT:-8000}:8000"`, for each install's `PORT`, and run
+  `docker compose up -d`; a restart keeps the old mapping. With `docker run`,
+  re-create the container with `-p 127.0.0.1:8000:8000` in place of
+  `-p 8000:8000`. The CLI publishes the port on every interface and has no
+  loopback option, so move a CLI install to one of those two commands for
+  this step. A rule in your provider's firewall (provider panel, AWS
+  security groups, infrastructure-as-code) still protects the rest of the
+  server, but on its own it does not close a published port, because Docker
+  publishes ports past the host firewall. All traffic then flows through the
+  encrypted path, and only the proxy you chose can set the client IP that
+  `TRUST_PROXY_HOPS` and `TRUST_FORWARDED_HOPS` read.
 
 - **Restrict SSH access** — limit SSH to a VPN or trusted IPs instead of the
   open internet. [Tailscale](https://tailscale.com/) (free for personal use)
