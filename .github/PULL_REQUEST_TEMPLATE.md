@@ -4,7 +4,7 @@
 
 ## Type of change
 
-- [ ] New feature (a tool, a parameter, or a change to what a tool does)
+- [ ] New feature (a tool, a prompt, a setting, a parameter, or a change to what a tool does)
 - [ ] Bug fix
 - [ ] Refactoring
 - [ ] Documentation

@@ -173,8 +173,8 @@ truth. Key points:
 
 ## Pull Request Process
 
-**Before a feature PR:** a new feature (a tool, a parameter, a change to what
-a tool does) starts as a
+**Before a feature PR:** a new feature (a tool, a prompt, a setting, a
+parameter, a change to what a tool does) starts as a
 [feature request](https://github.com/aliasunder/vault-cortex/issues/new?template=feature_request.yml),
 so the design is agreed with the maintainer before you write code. A bug fix
 can go straight to a PR. A feature PR ships with the tests
