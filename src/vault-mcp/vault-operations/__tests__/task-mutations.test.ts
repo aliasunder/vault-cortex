@@ -1591,6 +1591,28 @@ kanban-plugin: board
       expect(content).toBe(KANBAN_BOARD)
     })
 
+    it("errors when a parent and a heading whose text is empty are both provided", async () => {
+      const vault = await createVault()
+      await writeTestNote(vault, "board.md", KANBAN_BOARD)
+
+      await expect(
+        taskMutations.createTask(
+          {
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
+            vaultPath: vault,
+            path: "board.md",
+            description: "Conflicting",
+            blockId: "conflicting",
+            parentBlockId: "active-task",
+            heading: "",
+          },
+          logger,
+        ),
+      ).rejects.toThrow(new Error("parent and heading are mutually exclusive"))
+      const content = await readTestNote(vault, "board.md")
+      expect(content).toBe(KANBAN_BOARD)
+    })
+
     it("errors when a subtasks item is whitespace-only", async () => {
       const vault = await createVault()
       await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
@@ -2331,6 +2353,37 @@ kanban-plugin: board
       expect(content).toBe(SIMPLE_NOTE)
     })
 
+    it("reports a description ending in a block-id lookalike as the written line parses it", async () => {
+      const vault = await createVault()
+      await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
+
+      // The priority edit appends metadata after the new description, so the
+      // written line holds "^c1" mid-line as text, not as a trailing block id.
+      const result = await taskMutations.updateTask(
+        {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
+          vaultPath: vault,
+          path: "tasks.md",
+          blockId: "walk-dog",
+          description: "Renamed ^c1",
+          priority: "high",
+        },
+        logger,
+      )
+
+      expect(result).toEqual({
+        path: "tasks.md",
+        line: 6,
+        description: "Renamed ^c1",
+        block_id: "walk-dog",
+        changes: ["priority: (none) → high", "description: Walk the dog → Renamed ^c1"],
+      })
+      const content = await readTestNote(vault, "tasks.md")
+      expect(content).toBe(
+        "---\ntitle: Tasks\n---\n\n- [ ] Buy groceries ➕ 2026-07-01\n- [ ] Renamed ^c1 ⏫ ➕ 2026-07-02 ^walk-dog\n- [x] Done task ➕ 2026-07-01 ✅ 2026-07-10\n",
+      )
+    })
+
     it("replaces an existing block_id", async () => {
       const vault = await createVault()
       await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
@@ -2420,6 +2473,39 @@ kanban-plugin: board
             path: "board.md",
             line: created.line,
             heading: "Done",
+          },
+          logger,
+        ),
+      ).rejects.toThrow(
+        new Error(
+          "cannot move a sub-task to a heading — the parent's heading determines placement",
+        ),
+      )
+    })
+
+    it("errors when a heading whose text is empty is set on a sub-task", async () => {
+      const vault = await createVault()
+      await writeTestNote(vault, "board.md", KANBAN_WITH_SUBITEMS)
+
+      const created = await taskMutations.createTask(
+        {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
+          vaultPath: vault,
+          path: "board.md",
+          description: "Sub for empty heading test",
+          parentBlockId: "parent",
+        },
+        logger,
+      )
+
+      await expect(
+        taskMutations.updateTask(
+          {
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
+            vaultPath: vault,
+            path: "board.md",
+            line: created.line,
+            heading: "",
           },
           logger,
         ),
