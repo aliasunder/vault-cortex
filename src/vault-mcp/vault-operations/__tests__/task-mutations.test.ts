@@ -1994,6 +1994,26 @@ kanban-plugin: board
       expect(content).toBe(SIMPLE_NOTE)
     })
 
+    it("errors when the description contains a Unicode line separator", async () => {
+      const vault = await createVault()
+      await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
+
+      await expect(
+        taskMutations.createTask(
+          {
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
+            vaultPath: vault,
+            path: "tasks.md",
+            description: "Line one\u2028Line two",
+            blockId: "two-lines",
+          },
+          logger,
+        ),
+      ).rejects.toThrow(new Error("description must be a single line"))
+      const content = await readTestNote(vault, "tasks.md")
+      expect(content).toBe(SIMPLE_NOTE)
+    })
+
     it("errors when a subtasks item contains a line break", async () => {
       const vault = await createVault()
       await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
@@ -2577,6 +2597,39 @@ kanban-plugin: board
       )
     })
 
+    it("indents add_subtasks like the first checklist item when a blank line sits above it", async () => {
+      const vault = await createVault()
+      await writeTestNote(
+        vault,
+        "tasks.md",
+        "---\ntitle: Tasks\n---\n\n- [ ] Walk the dog ➕ 2026-07-02 ^walk-dog\n\n    - [x] Find the leash\n- [ ] Buy groceries ➕ 2026-07-01\n",
+      )
+
+      const result = await taskMutations.updateTask(
+        {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
+          vaultPath: vault,
+          path: "tasks.md",
+          blockId: "walk-dog",
+          addSubtasks: ["Lock the door"],
+        },
+        logger,
+      )
+
+      expect(result).toEqual({
+        block_id: "walk-dog",
+        path: "tasks.md",
+        line: 5,
+        description: "Walk the dog",
+        subtasks: [{ line: 8, description: "Lock the door" }],
+        changes: ["subtasks: 1 → 2"],
+      })
+      const content = await readTestNote(vault, "tasks.md")
+      expect(content).toBe(
+        "---\ntitle: Tasks\n---\n\n- [ ] Walk the dog ➕ 2026-07-02 ^walk-dog\n\n    - [x] Find the leash\n    - [ ] Lock the door\n- [ ] Buy groceries ➕ 2026-07-01\n",
+      )
+    })
+
     it("assigns a block_id to a task without one", async () => {
       const vault = await createVault()
       await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
@@ -2980,6 +3033,26 @@ kanban-plugin: board
             path: "tasks.md",
             blockId: "walk-dog",
             description: "Walk the dog\nthen feed it",
+          },
+          logger,
+        ),
+      ).rejects.toThrow(new Error("description must be a single line"))
+      const content = await readTestNote(vault, "tasks.md")
+      expect(content).toBe(SIMPLE_NOTE)
+    })
+
+    it("errors when the new description contains a Unicode paragraph separator", async () => {
+      const vault = await createVault()
+      await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
+
+      await expect(
+        taskMutations.updateTask(
+          {
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
+            vaultPath: vault,
+            path: "tasks.md",
+            blockId: "walk-dog",
+            description: "Walk the dog\u2029then feed it",
           },
           logger,
         ),

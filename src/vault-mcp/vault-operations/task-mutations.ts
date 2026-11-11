@@ -401,10 +401,13 @@ const subtaskIndentUnder = ({
   parentLineIndex: number
 }): string => {
   const blockEnd = findTaskBlockEnd(lines, parentLineIndex)
-  const firstChildIndex = parentLineIndex + 1
-  const firstChild = firstChildIndex < blockEnd ? lines[firstChildIndex] : undefined
+  // A blank line can sit between the parent and its first child, so the child
+  // is the block's first non-blank line.
+  const firstChild = lines
+    .slice(parentLineIndex + 1, blockEnd)
+    .find((blockLine) => blockLine.trim() !== "")
 
-  if (firstChild?.trim()) return readListItemPrefix(firstChild)
+  if (firstChild) return readListItemPrefix(firstChild)
 
   const parentLine = lines[parentLineIndex]
 
@@ -525,10 +528,10 @@ const findLaneCards = ({
   const walkEnd = firstChildStart ?? heading.bodyEndLine
   const fenceOrCommentLineIndices = findFenceOrCommentLineIndices(lines)
   const cardStartIndices: number[] = []
-  // The walk starts at the heading's body, not its insert slot: the insert
-  // slot skips past a **Complete** marker, but cards above the marker are
-  // still lane cards. It jumps over each card's sub-item block, so its step
-  // varies.
+  // The walk starts at the heading's body. Starting at the insert slot would
+  // find the same cards, because that slot skips only blank lines and a
+  // **Complete** marker that leads the section. The walk jumps over each
+  // card's sub-item block, so its step varies.
   let walkIndex = heading.bodyStartLine
 
   while (walkIndex < walkEnd) {
@@ -1454,10 +1457,9 @@ const assertRecurrenceRuleGrammar = (recurrenceText: string | null | undefined):
   }
 }
 
-/** Matches CR/LF anywhere in a string — a task is one file line, so a line
- *  break in its text would split the metadata onto a line the parser never
- *  reads as part of the task. */
-const TASK_TEXT_LINE_BREAK_PATTERN = /[\r\n]/
+/** Matches CR, LF, U+2028 or U+2029, each of which ends the parser's task
+ *  line, so task text holding one would not be read back as a task. */
+const TASK_TEXT_LINE_BREAK_PATTERN = /[\r\n\u2028\u2029]/u
 
 /** Rejects a task date param that isn't in YYYY-MM-DD form or names a day the
  *  calendar lacks. Both messages open with "invalid date", which the
