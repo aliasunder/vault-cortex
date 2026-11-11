@@ -5818,10 +5818,11 @@ describe("links that differ from their file only in letter case", () => {
   })
 
   // The source sits in a subfolder, so each link reaches the new file through
-  // one comparison only.
+  // one comparison only. The link and the file name each carry a capital the
+  // other lacks, so that comparison matches only with both sides folded.
   it.each([
-    { label: "a full path", target: "Photo.PNG", assetPath: "photo.png" },
-    { label: "a relative path", target: "../Photo.PNG", assetPath: "photo.png" },
+    { label: "a full path", target: "photo.PNG", assetPath: "Photo.png" },
+    { label: "a relative path", target: "../photo.PNG", assetPath: "Photo.png" },
     {
       label: "an extensionless path",
       target: "Boards/trip route",
