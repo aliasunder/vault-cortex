@@ -130,15 +130,17 @@ describe("vault-orientation live orphan folders", () => {
   })
 
   it("excludes a bare date link in the format set in daily-notes.json", async () => {
-    // Not Obsidian's default format, so a bare date in the default format stays broken
+    // Not Obsidian's default format, so a bare date in the default format stays
+    // broken. Two dates in the set format make the counts differ from what the
+    // default format would give.
     const { readSurveySections } = await setupOrphanPrompt({
       settings: '{"folder":"Journal","format":"DD.MM.YYYY"}',
       paths: ["source.md", "other.md"],
-      noteContents: { "source.md": "[[08.10.2026]] [[2026-10-08]]" },
+      noteContents: { "source.md": "[[08.10.2026]] [[09.10.2026]] [[2026-10-08]]" },
     })
 
     expect((await readSurveySections()).stats).toBe(
-      "2 notes across 0 folders, 0 tags, 0 property keys. 2 untagged. 2 without properties. 1 broken link (excludes 1 forward-ref to daily notes).",
+      "2 notes across 0 folders, 0 tags, 0 property keys. 2 untagged. 2 without properties. 1 broken link (excludes 2 forward-refs to daily notes).",
     )
   })
 
