@@ -2,7 +2,7 @@ import { readFileSync, writeFileSync } from "node:fs"
 
 import type { DockerRunner } from "../adapters/docker.js"
 import type { Prompts } from "../adapters/prompts.js"
-import { vaultCortexCommand } from "../rules/messages.js"
+import { buildSettingsSavedWithoutRuntimeMessage, vaultCortexCommand } from "../rules/messages.js"
 import { portsOfOtherContainers } from "../rules/ports.js"
 import { containerStart } from "../steps/container-start.js"
 import { requireInitializedDir, resolveDeployment } from "../steps/deployment.js"
@@ -80,12 +80,9 @@ export const runConfigure = async (flags: ConfigureFlags, deps: ConfigureDeps): 
   const restartDaemonStatus = docker.daemonStatus()
 
   if (restartDaemonStatus !== "running") {
-    // Settings are already saved, so both non-running states degrade to the
-    // hint; restart itself prints the full install/start guidance when run.
+    // Settings are already saved, so both non-running states degrade to the hint.
     prompts.warn(
-      restartDaemonStatus === "not-installed"
-        ? `No container runtime found — settings saved.\n${restartHint}`
-        : `Container runtime not running — settings saved.\n${restartHint}`,
+      buildSettingsSavedWithoutRuntimeMessage({ daemonStatus: restartDaemonStatus, restartHint }),
     )
     prompts.outro("Done.")
     return 0

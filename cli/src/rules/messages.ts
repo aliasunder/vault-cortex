@@ -100,6 +100,25 @@ export const buildDaemonUnavailableMessage = (params: {
   }
 }
 
+/**
+ * The short warning configure gives when its settings are saved but no
+ * runtime is up to apply them. The command it points at prints the full
+ * install or start guidance when run.
+ */
+export const buildSettingsSavedWithoutRuntimeMessage = (params: {
+  daemonStatus: Exclude<DaemonStatus, "running">
+  restartHint: string
+}): string => {
+  const { daemonStatus, restartHint } = params
+
+  switch (daemonStatus) {
+    case "not-installed":
+      return `No container runtime found — settings saved.\n${restartHint}`
+    case "not-running":
+      return `Container runtime not running — settings saved.\n${restartHint}`
+  }
+}
+
 type CliCommand = "init" | "start" | "restart" | "configure" | "upgrade" | "down" | "get-sync-token"
 
 /**
