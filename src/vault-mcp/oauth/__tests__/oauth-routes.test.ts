@@ -1453,16 +1453,22 @@ describe("OAuth refresh over HTTP", () => {
       return rest
     }
 
+    // The SDK's own refusals describe the request with its schema library's
+    // issue list, so only the descriptions this server writes are pinned.
+    const SDK_DESCRIPTION = expect.any(String)
+
     it.each([
       {
         label: "a wrong response_type",
         malform: (params: Record<string, string>) => ({ ...params, response_type: "token" }),
         error: "invalid_request",
+        description: SDK_DESCRIPTION,
       },
       {
         label: "a missing code_challenge",
         malform: withoutCodeChallenge,
         error: "invalid_request",
+        description: SDK_DESCRIPTION,
       },
       {
         label: "a plain code_challenge_method",
@@ -1471,6 +1477,7 @@ describe("OAuth refresh over HTTP", () => {
           code_challenge_method: "plain",
         }),
         error: "invalid_request",
+        description: SDK_DESCRIPTION,
       },
       {
         label: "a resource naming another server",
@@ -1479,13 +1486,15 @@ describe("OAuth refresh over HTTP", () => {
           resource: "https://other.example/mcp",
         }),
         error: "invalid_target",
+        description: "The resource parameter is not this server",
       },
       {
         label: "parameters over 8 KB",
         malform: (params: Record<string, string>) => ({ ...params, state: "s".repeat(9000) }),
         error: "invalid_request",
+        description: "Authorization request parameters are too large",
       },
-    ])("answers $label with a 400 and no Location", async ({ malform, error }) => {
+    ])("answers $label with a 400 and no Location", async ({ malform, error, description }) => {
       const { baseUrl } = await createRefreshTest()
       const client = await registerClient(baseUrl, "203.0.113.40")
       const params = malform(validAuthorizeParams(client))
@@ -1494,7 +1503,7 @@ describe("OAuth refresh over HTTP", () => {
 
       expect(outcome).toEqual({
         status: 400,
-        body: { error, error_description: expect.any(String) },
+        body: { error, error_description: description },
         location: null,
         cache: "no-store",
       })
@@ -1621,13 +1630,15 @@ describe("OAuth refresh over HTTP", () => {
     })
 
     it.each([{ method: "GET" }, { method: "POST" }])(
-      "shows a person whose client registration is gone the recovery page on a $method request",
+      "shows a person whose client registration is gone the recovery page on a $method request, echoing nothing from it",
       async ({ method }) => {
         const logs: LogCall[] = []
         recordingLogger(logs)
         const { baseUrl } = await createRefreshTest()
         const client = await registerClient(baseUrl, "203.0.113.47")
-        const params = { ...validAuthorizeParams(client), client_id: "swept-client" }
+        // The page must equal the one rendered without input, so this
+        // client_id's markup cannot appear on it.
+        const params = { ...validAuthorizeParams(client), client_id: "<b>swept-client</b>" }
         logs.length = 0
 
         const response =

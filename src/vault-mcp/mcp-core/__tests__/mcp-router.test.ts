@@ -991,12 +991,74 @@ describe("createMcpRouter — failed sign-in limiter", () => {
       cacheControl: "no-store",
       rateLimit: "30",
     })
+    expect(mockedLogger.warn).toHaveBeenCalledTimes(1)
     expect(mockedLogger.warn).toHaveBeenCalledWith("mcp_auth_rate_limited", {
       clientIp: FORWARDED_IP,
     })
   })
 
-  it("refuses a valid token from the exhausted client IP until the window resets, and still serves another IP", async () => {
+  it("counts wrong tokens on GET and DELETE in the same bucket as POST", async () => {
+    const harness = await setupHarness({
+      authMiddleware: tokenAuth,
+      config: TRUSTED_PROXY_CONFIG,
+      failedAuthLimiterEnabled: true,
+    })
+    const wrongTokenHeaders = { ...baseHeaders, authorization: "Bearer wrong-token" }
+    const statuses: number[] = []
+
+    // Ten wrong tokens on each method, sequential so each count is settled.
+    for (const method of ["POST", "GET", "DELETE"]) {
+      for (let attempt = 0; attempt < 10; attempt++) {
+        const response = await fetch(harness.url(), {
+          method,
+          headers: wrongTokenHeaders,
+          ...(method === "POST" ? { body: JSON.stringify(initializeBody) } : {}),
+        })
+        await response.arrayBuffer()
+        statuses.push(response.status)
+      }
+    }
+    const refused = await initialize(harness, { authorization: "Bearer wrong-token" })
+    await refused.arrayBuffer()
+
+    expect({ statuses, thirtyFirst: refused.status }).toEqual({
+      statuses: Array(30).fill(401),
+      thirtyFirst: 429,
+    })
+  })
+
+  it("counts every IPv6 address in one /56 as a single client", async () => {
+    const harness = await setupHarness({
+      authMiddleware: tokenAuth,
+      config: TRUSTED_PROXY_CONFIG,
+      failedAuthLimiterEnabled: true,
+    })
+    await statusesOf(
+      harness,
+      { authorization: "Bearer wrong-token", "x-forwarded-for": "2001:db8:0:1::1" },
+      30,
+    )
+
+    // 2001:db8:0:ff:: shares the first 56 bits with 2001:db8:0:1::;
+    // 2001:db8:0:100:: does not.
+    const sameSubnet = await initialize(harness, {
+      authorization: "Bearer wrong-token",
+      "x-forwarded-for": "2001:db8:0:ff::2",
+    })
+    await sameSubnet.arrayBuffer()
+    const otherSubnet = await initialize(harness, {
+      authorization: "Bearer wrong-token",
+      "x-forwarded-for": "2001:db8:0:100::1",
+    })
+    await otherSubnet.arrayBuffer()
+
+    expect({ sameSubnet: sameSubnet.status, otherSubnet: otherSubnet.status }).toEqual({
+      sameSubnet: 429,
+      otherSubnet: 401,
+    })
+  })
+
+  it("refuses a valid token from the exhausted client IP and still serves another IP", async () => {
     const harness = await setupHarness({
       authMiddleware: tokenAuth,
       config: TRUSTED_PROXY_CONFIG,

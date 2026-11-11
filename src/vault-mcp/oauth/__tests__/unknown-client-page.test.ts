@@ -11,15 +11,37 @@ const readClientSteps = (html: string): Array<{ client: string; step: string }> 
   }))
 }
 
+/** The browser title's text. */
+const TITLE_PATTERN = /<title>([^<]*)<\/title>/
 /** The page's heading text. */
 const HEADING_PATTERN = /<h1>([^<]*)<\/h1>/
+/** Each paragraph's text, in page order. */
+const PARAGRAPH_PATTERN = /<p>([^<]*)<\/p>/g
 
 describe("unknown client page", () => {
-  it("names the recovery step for each supported client, in order", () => {
+  it("titles the browser tab with the page's heading", () => {
     const html = renderUnknownClientPage()
 
-    expect(HEADING_PATTERN.exec(html)?.[1]).toBe(UNKNOWN_CLIENT_TITLE)
-    expect(readClientSteps(html)).toEqual([
+    expect({
+      title: TITLE_PATTERN.exec(html)?.[1],
+      heading: HEADING_PATTERN.exec(html)?.[1],
+    }).toEqual({
+      title: `${UNKNOWN_CLIENT_TITLE} — Vault Cortex`,
+      heading: UNKNOWN_CLIENT_TITLE,
+    })
+  })
+
+  it("explains why the registration is gone and that the client must register again", () => {
+    const html = renderUnknownClientPage()
+
+    expect([...html.matchAll(PARAGRAPH_PATTERN)].map((match) => match[1])).toEqual([
+      "The server no longer has this client's registration. That happens when the server's data was reset, or when a sign-in was started but never finished.",
+      "To reconnect, remove the server from your client and add it again, so the client registers afresh:",
+    ])
+  })
+
+  it("names the recovery step for each supported client, in order", () => {
+    expect(readClientSteps(renderUnknownClientPage())).toEqual([
       {
         client: "Claude Code:",
         step: "<code>claude mcp remove &lt;name&gt;</code>, then <code>claude mcp add</code> with the same address.",
@@ -37,10 +59,5 @@ describe("unknown client page", () => {
         step: "remove the server and add it again.",
       },
     ])
-  })
-
-  it("takes no input, so nothing from the request can appear on the page", () => {
-    expect(renderUnknownClientPage.length).toBe(0)
-    expect(renderUnknownClientPage()).toBe(renderUnknownClientPage())
   })
 })

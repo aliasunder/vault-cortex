@@ -556,11 +556,10 @@ describe("MCP endpoint Origin check", () => {
 })
 
 describe("MCP endpoint failed sign-in limiter", () => {
-  // 64 hex characters, the length `openssl rand -hex 32` and the CLI generate,
-  // against a token under the 32-character gate. (TOKEN_A is 33 characters,
-  // so the other suites run with the limiter off.)
-  const GENERATED_TOKEN = "a".repeat(64)
-  const SHORT_TOKEN = "short-token"
+  // The limiter is on only for a token under 32 characters. (TOKEN_A is 33
+  // characters, so the other suites run with the limiter off.)
+  const LIMITER_WARNING =
+    "MCP_AUTH_TOKEN is shorter than 32 characters, so failed sign-in attempts on /mcp are rate-limited; a generated token needs no limiter"
 
   const wrongTokenStatuses = async (port: number, count: number): Promise<number[]> => {
     const statuses: number[] = []
@@ -571,23 +570,43 @@ describe("MCP endpoint failed sign-in limiter", () => {
     return statuses
   }
 
-  it("answers the 31st wrong token in a minute with 429 and warns at boot when the token is short", async () => {
-    const server = await startServer(await freePort(), { MCP_AUTH_TOKEN: SHORT_TOKEN })
+  /** The limiter warnings in the server's structured log. Only lines naming
+   *  the warning are parsed, so a request line still being written is never
+   *  read half-complete. */
+  const limiterWarnings = (stdout: string): Record<string, unknown>[] => {
+    return stdout
+      .split("\n")
+      .filter((line) => line.includes(LIMITER_WARNING))
+      .map((line): Record<string, unknown> => JSON.parse(line))
+  }
+
+  it("answers the 31st wrong token in a minute with 429 and warns once at boot when the token is 31 characters", async () => {
+    const server = await startServer(await freePort(), { MCP_AUTH_TOKEN: "s".repeat(31) })
     onTestFinished(server.cleanup)
 
     expect(await wrongTokenStatuses(server.port, 30)).toEqual(Array(30).fill(401))
     expect(await mcpStatusWithBearer(server.port, "wrong-31")).toBe(429)
-    expect(server.stdout()).toContain(
-      '"message":"MCP_AUTH_TOKEN is shorter than 32 characters, so failed sign-in attempts on /mcp are rate-limited; a generated token needs no limiter"',
-    )
+    expect(limiterWarnings(server.stdout())).toEqual([
+      {
+        timestamp: expect.any(String),
+        level: "warn",
+        name: "vault-cortex",
+        message: LIMITER_WARNING,
+        source: expect.stringMatching(/^server\.ts:\d+$/),
+      },
+    ])
   })
 
-  it("never rate-limits and never warns when the token is a generated one", async () => {
-    const server = await startServer(await freePort(), { MCP_AUTH_TOKEN: GENERATED_TOKEN })
+  it.each([
+    // The length `openssl rand -hex 32` and the CLI generate
+    { label: "a generated 64-character", token: "a".repeat(64) },
+    { label: "a 32-character", token: "b".repeat(32) },
+  ])("never rate-limits and never warns when the token is $label one", async ({ token }) => {
+    const server = await startServer(await freePort(), { MCP_AUTH_TOKEN: token })
     onTestFinished(server.cleanup)
 
     expect(await wrongTokenStatuses(server.port, 31)).toEqual(Array(31).fill(401))
-    expect(server.stdout()).not.toContain("failed sign-in attempts on /mcp are rate-limited")
+    expect(limiterWarnings(server.stdout())).toEqual([])
   })
 })
 

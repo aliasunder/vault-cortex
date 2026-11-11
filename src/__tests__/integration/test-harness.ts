@@ -245,7 +245,6 @@ export const startServer = async (
 
   try {
     await Promise.race([started, earlyExit.promise, startTimeout.promise])
-    clearTimeout(startTimeoutTimer)
     // "server started" proves this child bound the port; /healthz confirms
     // it also answers HTTP requests.
     await Promise.race([pollHealthz(port, bootStepTimeoutMs), earlyExit.promise])
