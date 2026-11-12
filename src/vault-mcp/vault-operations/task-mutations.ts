@@ -435,18 +435,22 @@ const taskInsertIndexUnderHeading = ({
   return heading.bodyStartLine
 }
 
-/** Appends after the last non-blank line in the section body so new tasks
- *  land without trailing blank-line gaps. Falls back to bodyStartLine for
- *  empty sections. */
+/** Appends after the last non-blank line of the lane's own lines so new tasks
+ *  land without trailing blank-line gaps. Falls back to bodyStartLine for an
+ *  empty lane. */
 const taskAppendIndexUnderHeading = ({
   lines,
   heading,
+  laneEndLine,
 }: {
   lines: readonly string[]
   heading: HeadingInfo
+  /** The line the lane's own lines end before: its first child heading, or
+   *  the end of the heading's section. */
+  laneEndLine: number
 }): number => {
-  const sectionLines = lines.slice(heading.bodyStartLine, heading.bodyEndLine)
-  const lastContentOffset = sectionLines.findLastIndex((line) => line.trim() !== "")
+  const laneLines = lines.slice(heading.bodyStartLine, laneEndLine)
+  const lastContentOffset = laneLines.findLastIndex((laneLine) => laneLine.trim() !== "")
 
   if (lastContentOffset === -1) return heading.bodyStartLine
   return heading.bodyStartLine + lastContentOffset + 1
@@ -613,15 +617,11 @@ const headingInsertIndex = ({
   // "bottom" — append after the lane's own content, bounded at the first
   // child heading so the card doesn't land inside a nested section.
   const firstChildStart = findFirstChildHeadingStart({ headings, heading })
-
-  if (firstChildStart !== undefined) {
-    const sectionLines = lines.slice(heading.bodyStartLine, firstChildStart)
-    const lastContentOffset = sectionLines.findLastIndex((sectionLine) => sectionLine.trim() !== "")
-    return lastContentOffset >= 0
-      ? heading.bodyStartLine + lastContentOffset + 1
-      : heading.bodyStartLine
-  }
-  return taskAppendIndexUnderHeading({ lines, heading })
+  return taskAppendIndexUnderHeading({
+    lines,
+    heading,
+    laneEndLine: firstChildStart ?? heading.bodyEndLine,
+  })
 }
 
 /** Resolves the effective insertion position for a new task under a heading.
