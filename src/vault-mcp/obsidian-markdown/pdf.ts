@@ -1,6 +1,52 @@
 import { getMeta, extractTextItems, extractLinks } from "unpdf"
 import type { StructuredTextItem } from "unpdf"
+import type { PDFPageProxy } from "unpdf/pdfjs"
 import { createPdfDocumentProxy } from "./pdf-engine.js"
+
+// Page cap for index extraction. It binds only when this many pages stay under the byte cap
+// (sparse or image-heavy pages), so index time stays bounded for any page count.
+export const MAX_INDEXED_PDF_PAGES = 500
+// Byte cap for index extraction, measured on the markdown text. It equals the search index's cap
+// on a file's text (MAX_INDEXED_CONTENT_BYTES in search-index.ts), because reading past what the
+// index keeps is wasted work; a test pins the two together.
+export const MAX_INDEXED_PDF_BYTES = 102_400
+
+/** pdfjs refuses a Node Buffer, so it gets a plain view over the same bytes; the byte range
+ *  excludes any other Buffer sharing the same pool. */
+export const toPdfData = (buffer: Buffer): Uint8Array => {
+  return new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength)
+}
+
+type PageTextContent = Awaited<ReturnType<PDFPageProxy["getTextContent"]>>
+
+/** unpdf's own item mapping reads every page at once, so this per-page copy of it lets index
+ *  extraction stop at its budget. */
+const structuredPageItems = (content: PageTextContent): StructuredTextItem[] => {
+  const toStructuredItem = (
+    textItem: Extract<PageTextContent["items"][number], { str: string }>,
+  ): StructuredTextItem => {
+    const [, , verticalBasisX, verticalBasisY, xCoordinate, yCoordinate] = textItem.transform
+    const direction = textItem.dir
+    const isKnownDirection = direction === "ltr" || direction === "rtl" || direction === "ttb"
+
+    if (!isKnownDirection) throw new Error("PDF text has an invalid direction")
+
+    return {
+      str: textItem.str,
+      x: xCoordinate,
+      y: yCoordinate,
+      width: textItem.width,
+      height: textItem.height,
+      // The transformed vertical unit vector's length gives the font size even for rotated text.
+      fontSize: Math.hypot(verticalBasisX, verticalBasisY),
+      fontFamily: content.styles[textItem.fontName]?.fontFamily ?? "",
+      dir: direction,
+      hasEOL: textItem.hasEOL,
+    }
+  }
+
+  return content.items.filter((textItem) => "str" in textItem).map(toStructuredItem)
+}
 
 /** Rounds a font size to one decimal place — used as the bucketing key for
  *  heading-level detection. Both the map builder (`buildHeadingLevels`) and
@@ -477,13 +523,73 @@ const reconstructPdfMarkdown = (params: {
   ].join("\n")
 }
 
-/** Result of PDF text extraction — text is the markdown rendition,
- *  totalPages is preserved so callers can include it in error messages
- *  (e.g. scanned-PDF diagnostics that guide users toward raw mode). */
+/** Result of PDF text extraction. `text` is the markdown rendition; `totalPages` lets a caller
+ *  say in an error message that a scanned PDF has pages but no text, and point at the page-image
+ *  read (`raw: true` on vault_read_file). */
 export type PdfTextResult = Readonly<{
   text: string
   totalPages: number
 }>
+
+/** Reads pages in order until the markdown rendition reaches MAX_INDEXED_PDF_BYTES or the page
+ *  count reaches MAX_INDEXED_PDF_PAGES. The returned text can run past the byte cap by the last
+ *  page read; the caller cuts it. Every page read so far is rendered again after each page, so
+ *  the work grows with the square of the pages read; the byte cap stops a text-heavy PDF after a
+ *  few pages, and the page cap bounds a sparse one. */
+export const extractPdfIndexText = async (pdfData: Uint8Array): Promise<PdfTextResult> => {
+  const proxy = await createPdfDocumentProxy(pdfData)
+  try {
+    const meta = await getMeta(proxy)
+    const totalPages = proxy.numPages
+    const pageLimit = Math.min(totalPages, MAX_INDEXED_PDF_PAGES)
+    const itemsByPage: StructuredTextItem[][] = []
+    const pdfLinks: string[] = []
+    // Both are reassigned each page: the loop can end on either cap, and a prefix with no visible
+    // text never ends it on the byte cap, however large its links footer, because the result
+    // would be empty.
+    let rendition = ""
+    let hasContent = false
+    for (let pageNumber = 1; pageNumber <= pageLimit; pageNumber += 1) {
+      const page = await proxy.getPage(pageNumber)
+      try {
+        const pageItems = structuredPageItems(await page.getTextContent())
+        itemsByPage.push(pageItems)
+        hasContent ||= pageItems.some(hasVisibleText)
+
+        const annotations = await page.getAnnotations()
+        for (const annotation of annotations) {
+          const isWebLink =
+            annotation.subtype === "Link" &&
+            typeof annotation.url === "string" &&
+            annotation.url.length > 0
+
+          if (isWebLink) {
+            pdfLinks.push(annotation.url)
+          }
+        }
+      } finally {
+        page.cleanup()
+      }
+
+      // Every page read so far is rendered again, because headings are ranked across all pages
+      // read and the links footer grows; the rendition is the measured budget.
+      rendition = reconstructPdfMarkdown({
+        title: meta.info.Title,
+        totalPages,
+        itemsByPage,
+        pdfLinks,
+      })
+      const reachedByteBudget =
+        hasContent && Buffer.byteLength(rendition, "utf8") >= MAX_INDEXED_PDF_BYTES
+
+      if (reachedByteBudget) break
+    }
+    // The title and link footer render without visible text, so hasContent comes from the items.
+    return { text: hasContent ? rendition : "", totalPages }
+  } finally {
+    await proxy.loadingTask.destroy()
+  }
+}
 
 /**
  * Extracts structured text from a PDF buffer — creates a pdfjs proxy,

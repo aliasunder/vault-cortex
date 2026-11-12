@@ -148,7 +148,7 @@
     "eslint-config-prettier": "10.1.8",
     "husky": "9.1.7",
     "jiti": "2.7.0",
-    "knip": "6.44.1",
+    "knip": "6.44.2",
     "lint-staged": "17.6.0",
     "markdownlint-cli2": "0.24.0",
     "node-pty": "1.1.0",
