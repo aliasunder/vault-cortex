@@ -291,10 +291,9 @@ const readAssetContent = async (
 ): Promise<AssetReadResult> => {
   const { path, raw, startLine, limit } = params
   const fileKind = getFileKind(path)
+  const isPdfTextRead = fileKind === "pdf" && !raw
 
-  if (fileKind === "pdf" && !raw) {
-    return params.pdfExtractor.readText({ path, startLine, limit }, logger)
-  }
+  if (isPdfTextRead) return params.pdfExtractor.readText({ path, startLine, limit }, logger)
 
   const asset = await vaultFs.readAsset(
     { vaultPath: params.vaultPath, path, maxBytes: params.maxFileBytes },

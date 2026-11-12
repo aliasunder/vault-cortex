@@ -1,9 +1,9 @@
 import { z } from "zod"
 
-const requestId = z.number().int().nonnegative()
+const requestIdSchema = z.number().int().nonnegative()
 
 const requestFields = {
-  requestId,
+  requestId: requestIdSchema,
   vaultPath: z.string(),
   path: z.string(),
   maxFileBytes: z.number().nonnegative(),
@@ -41,13 +41,17 @@ export const pdfReplySchema = z.discriminatedUnion("kind", [
   }),
   z.object({
     kind: z.literal("index-result"),
-    requestId,
+    requestId: requestIdSchema,
     result: z.object({ text: z.string(), totalPages: z.number() }),
   }),
-  z.object({ kind: z.literal("read-result"), requestId, result: textResultSchema }),
+  z.object({
+    kind: z.literal("read-result"),
+    requestId: requestIdSchema,
+    result: textResultSchema,
+  }),
   z.object({
     kind: z.literal("failure"),
-    requestId,
+    requestId: requestIdSchema,
     /** The error's class name, so the parent rebuilds the error the tool boundary would have seen. */
     name: z.string(),
     message: z.string(),

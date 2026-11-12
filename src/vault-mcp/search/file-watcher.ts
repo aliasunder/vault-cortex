@@ -158,6 +158,15 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
   const pdfGate = Promise.withResolvers<undefined>()
   const pendingPdfJobs = new Set<Promise<unknown>>()
 
+  const trackPdfJob = (pdfJob: Promise<unknown>): void => {
+    pendingPdfJobs.add(pdfJob)
+    // Both outcomes remove the settled job without creating a detached rejection.
+    void pdfJob.then(
+      () => pendingPdfJobs.delete(pdfJob),
+      () => pendingPdfJobs.delete(pdfJob),
+    )
+  }
+
   const startPdfPass = async (): Promise<void> => {
     pdfGate.resolve(undefined)
     await Promise.all(pendingPdfJobs)
@@ -181,6 +190,10 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
    *   drops what it read.
    */
   const currentEvents = new Map<string, symbol>()
+
+  const isEventSuperseded = (relativePath: string, eventToken: symbol): boolean => {
+    return currentEvents.get(relativePath) !== eventToken
+  }
 
   /** Each path's body-tag parse that has not finished. A newer event or a
    *  removal for the path aborts it, because its result would be dropped as
@@ -225,7 +238,7 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
     }
     const nonMdStat = await readNonMdFileStat()
 
-    if (currentEvents.get(relativePath) !== eventToken) return { status: "superseded" }
+    if (isEventSuperseded(relativePath, eventToken)) return { status: "superseded" }
     // Vanished between the event and the stat: the unlink event that follows
     // removes any existing row.
     if (nonMdStat.status === "missing") return { status: "vanished" }
@@ -245,12 +258,7 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
       return { status: "failed" }
     }
 
-    // Canvas files are always read — link extraction is unconditional.
-    // PDF, text, HTML and script files are only read when file content FTS is enabled.
     const fileKind = getFileKind(filePath)
-    const isCanvas = fileKind === "canvas"
-    const isIndexableNonCanvas =
-      search.fileContentIndexingEnabled && CONTENT_INDEXED_FILE_KINDS.has(fileKind)
 
     /** Writes the file's text to the content index and queues its embedding. Returns the
      *  embedding's completion, which never rejects: the job logs its own failure and clears only
@@ -312,17 +320,19 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
       )
 
       // Over the byte cap, the PDF keeps its name row and gets no text or vectors.
-      if (fileStat.size > maxFileBytes) return { status: "file-indexed" }
+      const tooLargeToExtract = fileStat.size > maxFileBytes
+
+      if (tooLargeToExtract) return { status: "file-indexed" }
       await pdfGate.promise
 
-      if (currentEvents.get(relativePath) !== eventToken) return { status: "superseded" }
+      if (isEventSuperseded(relativePath, eventToken)) return { status: "superseded" }
       const extraction = await pdfExtractor.extractForIndex(
         { path: relativePath, coalesce: true },
         logger,
       )
 
       if (extraction.status === "cancelled") return { status: "superseded" }
-      if (currentEvents.get(relativePath) !== eventToken) return { status: "superseded" }
+      if (isEventSuperseded(relativePath, eventToken)) return { status: "superseded" }
       await publishFileContent(extraction.result.text)
       return { status: "file-indexed" }
     }
@@ -371,7 +381,7 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
     const indexChangedTextFile = async (): Promise<ChangeIndexResult> => {
       const contentToIndex = await readContentToIndex()
 
-      if (currentEvents.get(relativePath) !== eventToken) return { status: "superseded" }
+      if (isEventSuperseded(relativePath, eventToken)) return { status: "superseded" }
 
       // Rejected text loses its indexed content but keeps the file row.
       if (contentToIndex === null) {
@@ -384,6 +394,12 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
       void publishFileContent(contentToIndex)
       return { status: "file-indexed" }
     }
+
+    // Canvas files are always read — link extraction is unconditional.
+    // PDF, text, HTML and script files are only read when file content FTS is enabled.
+    const isCanvas = fileKind === "canvas"
+    const isIndexableNonCanvas =
+      search.fileContentIndexingEnabled && CONTENT_INDEXED_FILE_KINDS.has(fileKind)
 
     if (isCanvas || isIndexableNonCanvas) {
       try {
@@ -455,7 +471,7 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
 
       // A newer event or a removal during the read would drop the parse's
       // result, so this check runs before parsing
-      if (currentEvents.get(relativePath) !== eventToken) return { status: "superseded" }
+      if (isEventSuperseded(relativePath, eventToken)) return { status: "superseded" }
       if (!noteSource) return { status: "vanished" }
 
       const { content, fileStat } = noteSource
@@ -466,7 +482,7 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
       // with such an event, so that check discards it
       const parseResult = await parseNoteBodyTags(content)
 
-      if (currentEvents.get(relativePath) !== eventToken) return { status: "superseded" }
+      if (isEventSuperseded(relativePath, eventToken)) return { status: "superseded" }
 
       // A worker that cannot start, or a parser the server's shutdown closed,
       // says nothing about the note, so the note keeps its stored tags, as it
@@ -531,14 +547,7 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
     if (params.filePath.endsWith(".md")) return indexChangedNote(params)
     const indexing = indexChangedNonMdFile(params)
 
-    if (getFileKind(params.filePath) === "pdf") {
-      pendingPdfJobs.add(indexing)
-      // Both outcomes remove the settled job without creating a detached rejection.
-      void indexing.then(
-        () => pendingPdfJobs.delete(indexing),
-        () => pendingPdfJobs.delete(indexing),
-      )
-    }
+    if (getFileKind(params.filePath) === "pdf") trackPdfJob(indexing)
     return indexing
   }
 
@@ -1031,16 +1040,12 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
       concurrency: INDEXING_FILE_READ_CONCURRENCY,
       mapper: indexHeldPath,
     })
-    const pdfs = Promise.all(pdfReads.map(indexHeldPath))
-    pendingPdfJobs.add(pdfs)
+    const heldPdfIndexing = Promise.all(pdfReads.map(indexHeldPath))
     // Held PDFs wait for listen in the background, so startup can return.
-    void pdfs.then(
-      () => pendingPdfJobs.delete(pdfs),
-      (error: unknown) => {
-        pendingPdfJobs.delete(pdfs)
-        logger.error("failed to apply held PDF changes", { error: describeError(error) })
-      },
-    )
+    trackPdfJob(heldPdfIndexing)
+    void heldPdfIndexing.catch((error: unknown) => {
+      logger.error("failed to apply held PDF changes", { error: describeError(error) })
+    })
   }
 
   /** Checks each held path against the disk, removes the missing ones, then
@@ -1223,11 +1228,12 @@ export const watchVaultAndBuildIndex = async (
       heldChangesDeadline,
     })
   }
+
   // Startup completion covers rebuild PDFs and held changes, including PDFs queued after the deadline.
   // Later live watcher events finish independently.
-  const pdfStart = Promise.withResolvers<undefined>()
-  const pdfs = (async (): Promise<void> => {
-    await pdfStart.promise
+  const pdfGate = Promise.withResolvers<undefined>()
+  const startupPdfWork = (async (): Promise<void> => {
+    await pdfGate.promise
     const initiallyRegisteredWatcherPdfs = holdingWatcher.startPdfPass()
     await Promise.all([rebuildResult.startPdfPass(), initiallyRegisteredWatcherPdfs])
     // A startup deadline can return before the held batch has queued its PDFs.
@@ -1236,12 +1242,12 @@ export const watchVaultAndBuildIndex = async (
   })()
   // Logged here so a caller may leave the pass unawaited; the rebuild's own pass logs its
   // failure too, under its own message.
-  pdfs.catch((error: unknown) => {
+  startupPdfWork.catch((error: unknown) => {
     logger.error("startup PDF work failed", { error: describeError(error) })
   })
   const startPdfPass = (): Promise<void> => {
-    pdfStart.resolve(undefined)
-    return pdfs
+    pdfGate.resolve(undefined)
+    return startupPdfWork
   }
   return { ...rebuildResult, startPdfPass }
 }
