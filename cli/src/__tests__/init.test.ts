@@ -2870,6 +2870,32 @@ describe("runInit re-run keeps the instance identity", () => {
     ])
   })
 
+  it("keeps the BIND_ADDRESS that a carried network PUBLIC_URL needs", async () => {
+    const vaultDir = makeVault()
+    const targetDir = makeTargetDir()
+    mkdirSync(targetDir, { recursive: true })
+    writeFileSync(
+      join(targetDir, ".env"),
+      `MCP_AUTH_TOKEN=old\nVAULT_PATH=${vaultDir}\nBIND_ADDRESS=0.0.0.0\nPUBLIC_URL=http://192.168.1.20:8000\n`,
+    )
+    const scripted = createScriptedPrompts([true, [], true, false])
+
+    const exitCode = await runInit(
+      { mode: "local", vaultPath: vaultDir, dir: targetDir },
+      {
+        prompts: scripted.prompts,
+        docker: dockerWithExisting(["vault-cortex"]),
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(exitCode).toBe(0)
+    const addressLines = readEnvLines(targetDir).filter((line) => {
+      return line.startsWith("PUBLIC_URL=") || line.startsWith("BIND_ADDRESS=")
+    })
+    expect(addressLines).toEqual(["PUBLIC_URL=http://192.168.1.20:8000", "BIND_ADDRESS=0.0.0.0"])
+  })
+
   it("refuses a re-run whose --instance-name renames the install, and keeps its file", async () => {
     const vaultDir = makeVault()
     const targetDir = makeTargetDir()
@@ -3092,6 +3118,39 @@ describe("runInit re-run keeps the instance identity", () => {
       "INSTANCE_NAME=work",
       "PORT=8001",
       "DEVICE_NAME=work-sync",
+    ])
+  })
+
+  it("keeps a remote install's loopback BIND_ADDRESS instead of the template's every-address default", async () => {
+    const targetDir = makeTargetDir()
+    mkdirSync(targetDir, { recursive: true })
+    writeFileSync(
+      join(targetDir, ".env"),
+      "MCP_AUTH_TOKEN=old\nOBSIDIAN_AUTH_TOKEN=sync-token\nVAULT_NAME=Work\nPUBLIC_URL=https://work.example.com\nBIND_ADDRESS=127.0.0.1\n",
+    )
+    const scripted = createScriptedPrompts([
+      true, // re-run setup anyway
+      "https://work.example.com",
+      "Work",
+      false, // don't generate a new token
+      false, // no encryption
+      [], // no optional settings
+      true, // overwrite the existing file
+      false, // don't start now
+    ])
+
+    const exitCode = await runInit(
+      { mode: "remote", dir: targetDir },
+      {
+        prompts: scripted.prompts,
+        docker: dockerWithExisting(["vault-cortex"]),
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(readEnvLines(targetDir).filter((line) => line.startsWith("BIND_ADDRESS="))).toEqual([
+      "BIND_ADDRESS=127.0.0.1",
     ])
   })
 

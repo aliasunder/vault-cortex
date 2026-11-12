@@ -56,11 +56,13 @@ type InstanceIdentityResult =
 /**
  * Identity lines an existing install keeps through a re-run of init. A local
  * PUBLIC_URL is the OAuth issuer and follows its port; a remote one is asked
- * again in the same run, so it is not carried.
+ * again in the same run, so it is not carried. BIND_ADDRESS is kept too,
+ * because a carried network PUBLIC_URL needs it and a reset could publish the
+ * server wider than the user chose.
  */
 const CARRIED_SETTINGS: Readonly<Record<Mode, ReadonlyArray<string>>> = {
-  local: ["INSTANCE_NAME", "PORT", "PUBLIC_URL"],
-  remote: ["INSTANCE_NAME", "PORT", "DEVICE_NAME"],
+  local: ["INSTANCE_NAME", "PORT", "BIND_ADDRESS", "PUBLIC_URL"],
+  remote: ["INSTANCE_NAME", "PORT", "BIND_ADDRESS", "DEVICE_NAME"],
 }
 
 const readCarriedIdentity = (envFilePath: string, mode: Mode): Record<string, string> => {
@@ -215,10 +217,10 @@ const nameInUseWithYesFlagMessage = (instanceName: string): string => {
 
 /**
  * Decides this install's name and port before init writes .env:
- * - a re-run over an existing .env keeps its name and port, plus a local
- *   PUBLIC_URL or a remote DEVICE_NAME (`carried`), and exits when the name
- *   or port is invalid (--port replaces the port) or --instance-name gives a
- *   different name;
+ * - a re-run over an existing .env keeps its name, port and BIND_ADDRESS, plus
+ *   a local PUBLIC_URL or a remote DEVICE_NAME (`carried`), and exits when the
+ *   name or port is invalid (--port replaces the port) or --instance-name gives
+ *   a different name;
  * - --instance-name and --port set them directly;
  * - a new install whose name is already in use on the machine asks for its own
  *   name and port, or confirms reuse of the existing data for the same vault.
