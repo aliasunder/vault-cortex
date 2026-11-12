@@ -1927,6 +1927,30 @@ describe("moveNote — guards", () => {
     expect(await readNote("Hub.md")).toBe("Links [[foo]].\n")
   })
 
+  it("leaves a link already in the new casing alone on a case-only rename", async () => {
+    const { vault, writeFixture, moveNote, readNote } = setupVault()
+    await writeFixture("Foo.md", "# Foo\n")
+    await writeFixture("Hub.md", "Old [[Foo]], new [[foo]].\n")
+    forceCaseOnlyRenameDetection(vault)
+
+    const result = await moveNote({
+      oldPath: "Foo.md",
+      newPath: "foo.md",
+      backlinkSources: ["Hub.md"],
+    })
+
+    // The old-casing link is the control: rewriting it proves the rename
+    // reached the link rewrite, so the count of one is the new-casing link
+    // being skipped
+    expect(result).toEqual({
+      moved_to: "foo.md",
+      links_updated: 1,
+      updated_notes: ["Hub.md"],
+      pruned_empty_folders: 0,
+    })
+    expect(await readNote("Hub.md")).toBe("Old [[foo]], new [[foo]].\n")
+  })
+
   it("points a Canvas file card and text card at the new casing on a case-only rename", async () => {
     const { vault, writeFixture, moveNote, readNote } = setupVault()
     await writeFixture("Foo.md", "# Foo\n")
