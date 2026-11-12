@@ -1,10 +1,27 @@
 version: 2
 updates:
   - package-ecosystem: npm
-    directory: /
+    directories:
+      - /
+      - /cli
     schedule:
       interval: weekly
     groups:
+      # The CLI's dependencies are pinned in cli/package.json (what npx
+      # installs) and in the root devDependencies (what the CLI builds and
+      # tests against). This group keeps the two copies in step:
+      # - A group spans every directory in the entry, so one version-update
+      #   PR edits both copies and the cli dependency pinning test passes
+      #   without a hand edit.
+      # - Groups apply to version updates only (Dependabot's default). A
+      #   security update arrives as one PR per copy, and the other copy is
+      #   still edited by hand.
+      # - Dependabot assigns a dependency to the first group it matches, so
+      #   this group stays above production and development.
+      cli:
+        patterns:
+          - "@clack/prompts"
+          - commander
       production:
         dependency-type: production
       development:
