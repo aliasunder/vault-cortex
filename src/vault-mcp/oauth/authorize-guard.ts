@@ -1,19 +1,33 @@
 /** The /authorize guard — mounted ahead of the SDK's authorization handler.
- *  It counts every request against the endpoint's rate limit, then turns
- *  each error redirect the SDK would send into a direct response. */
+ *  It counts every request against the endpoint's rate limit, shows a page
+ *  when the client's registration is gone, then turns each error redirect
+ *  the SDK would send into a direct response. */
 
-import { Router } from "express"
+import express, { Router } from "express"
 import type { NextFunction, Request, Response } from "express"
 import { rateLimit, type Options as RateLimitOptions } from "express-rate-limit"
 import { TooManyRequestsError } from "@modelcontextprotocol/sdk/server/auth/errors.js"
+import type { OAuthRegisteredClientsStore } from "@modelcontextprotocol/sdk/server/auth/clients.js"
 import { extractClientIp } from "../../auth.js"
 import type { Logger } from "../../logger.js"
+import { renderUnknownClientPage } from "./unknown-client-page.js"
 
 type AuthorizeGuardOptions = {
   /** The window, limit, key and 429 handler every OAuth endpoint shares. */
   rateLimitOptions: Partial<RateLimitOptions>
+  clientsStore: OAuthRegisteredClientsStore
   trustForwardedHops: number
   logger: Logger
+}
+
+/** The client_id of a GET's query or a POST's form, when the request names one. */
+const requestedClientId = (req: Request): string | undefined => {
+  const params: unknown = req.method === "POST" ? req.body : req.query
+  const clientId =
+    typeof params === "object" && params !== null && "client_id" in params
+      ? params.client_id
+      : undefined
+  return typeof clientId === "string" && clientId ? clientId : undefined
 }
 
 /** The redirect the SDK builds, read back as the response it becomes. */
@@ -59,6 +73,7 @@ const redirectedErrorFromUrl = (redirectUrl: string | undefined): RedirectedErro
  *  instead (RFC 9700 §4.11.2 permits refusing to redirect). */
 export const createAuthorizeGuard = ({
   rateLimitOptions,
+  clientsStore,
   trustForwardedHops,
   logger,
 }: AuthorizeGuardOptions): Router => {
@@ -77,6 +92,29 @@ export const createAuthorizeGuard = ({
       ).toResponseObject(),
     }),
   )
+
+  // The SDK's handler parses the form itself; its parser finds the body
+  // already read and keeps it.
+  guard.use(express.urlencoded({ extended: false }))
+
+  // A browser reaches this page when the client it sits in front of holds
+  // a client_id the server no longer stores: the server's data was reset,
+  // or the registration never signed in and was swept. The SDK would answer
+  // a JSON error the person cannot act on. A request that names no client
+  // is left to the SDK, whose JSON error is read by a client, not a person.
+  guard.use(async (req: Request, res: Response, next: NextFunction) => {
+    const clientId = requestedClientId(req)
+
+    if (!clientId || (await clientsStore.getClient(clientId))) {
+      next()
+      return
+    }
+    logger.warn("oauth_authorize_rejected", {
+      clientIp: extractClientIp(req, trustForwardedHops),
+      reason: "unknown_client",
+    })
+    res.status(400).set("Cache-Control", "no-store").type("html").send(renderUnknownClientPage())
+  })
 
   guard.use((req: Request, res: Response, next: NextFunction) => {
     // An own property on this response shadows Express's prototype method

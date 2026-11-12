@@ -121,12 +121,18 @@ export const createOAuthRoutes = ({
   )
 
   // Ahead of the SDK's /authorize handler: it carries that endpoint's rate
-  // limit (the SDK's own is off below, so a request is counted once) and
+  // limit (the SDK's own is off below, so a request is counted once), shows
+  // a person whose client registration is gone how to reconnect, and
   // answers every error the SDK would otherwise redirect to the client's
   // registered address.
   router.use(
     "/authorize",
-    createAuthorizeGuard({ rateLimitOptions: oauthRateLimitOptions, trustForwardedHops, logger }),
+    createAuthorizeGuard({
+      rateLimitOptions: oauthRateLimitOptions,
+      clientsStore: provider.clientsStore,
+      trustForwardedHops,
+      logger,
+    }),
   )
 
   // SDK-managed OAuth routes — /.well-known/*, /authorize, /token, /register, /revoke

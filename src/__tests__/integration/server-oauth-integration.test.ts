@@ -501,6 +501,31 @@ describe("authorization errors answered directly", () => {
       expect(readSecurityHeaders(response)).toEqual(EXPECTED_SECURITY_HEADERS)
     },
   )
+
+  it("shows the recovery page when the client's registration is gone", async () => {
+    const port = await freePort()
+    const server = await startServer(port, { MCP_AUTH_TOKEN: TOKEN_A })
+    onTestFinished(() => server.cleanup())
+    const authorizeUrl = new URL(`http://127.0.0.1:${port}/authorize`)
+    authorizeUrl.search = new URLSearchParams({ client_id: "registration-swept" }).toString()
+
+    const response = await fetch(authorizeUrl, { redirect: "manual" })
+
+    expect({
+      status: response.status,
+      contentType: response.headers.get("content-type"),
+      location: response.headers.get("location"),
+      cacheControl: response.headers.get("cache-control"),
+      heading: /<h1>([^<]*)<\/h1>/.exec(await response.text())?.[1],
+    }).toEqual({
+      status: 400,
+      contentType: "text/html; charset=utf-8",
+      location: null,
+      cacheControl: "no-store",
+      heading: "This sign-in can't continue",
+    })
+    expect(readSecurityHeaders(response)).toEqual(EXPECTED_SECURITY_HEADERS)
+  })
 })
 
 // ── Expired access token challenge ─────────────────────────────

@@ -937,9 +937,9 @@ and before each new registration, logged as `oauth_clients_swept`:
 - A client that has signed in is never swept, even after its grant is
   revoked or its last refresh token expires
 - Such a client cannot recover from a sweep on its own: it keeps presenting
-  its `client_id`, `/authorize` rejects an unknown one with `invalid_client`
-  in the browser, where the client never sees the error, and the user has
-  to clear the sign-in saved in the client app by hand
+  its `client_id`, and `/authorize` answers an unknown one in the browser,
+  where the client never sees the error, with a page that tells the user
+  how to clear the sign-in saved in the client app
 - Signing a client in requires entering `MCP_AUTH_TOKEN` on the consent
   page, so only the owner adds rows that stay
 - The per-IP `/register` rate limit bounds how fast rows that never sign in

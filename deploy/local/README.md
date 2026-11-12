@@ -380,12 +380,12 @@ in the main README.
 
 ## Troubleshooting
 
-**`invalid_client` / "Invalid client_id" when connecting.** Your MCP client
-saved login details from a previous server at this address, and the new server
-doesn't recognize them. Recreating the server (`docker compose down -v`, or
-scaffolding a fresh instance) resets `oauth.db`, so the cached `client_id` no
-longer exists and `/authorize` rejects it. Clear the client's stored
-authorization for this server and reconnect so it registers fresh:
+**"This sign-in can't continue" in the browser when connecting.** Your MCP
+client saved login details from a previous server at this address, and the new
+server doesn't recognize them. Recreating the server (`docker compose down -v`,
+or scaffolding a fresh instance) resets `oauth.db`, so the cached `client_id` no
+longer exists. The sign-in page itself lists these steps. Clear the client's
+stored authorization for this server and reconnect so it registers fresh:
 
 - **Claude Code:** `claude mcp remove <name>`, then
   `claude mcp add --scope user --transport http <name> http://localhost:<port>/mcp`.
