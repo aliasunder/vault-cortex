@@ -206,6 +206,22 @@ describe("port publishing in the compose templates", () => {
   })
 })
 
+describe("port publishing in the MCP registry manifest", () => {
+  it("server.json publishes the registry install's port on loopback", () => {
+    const serverJson: { packages: Array<{ runtimeArguments: unknown[] }> } = JSON.parse(
+      readRepoFile("server.json"),
+    )
+
+    expect(serverJson.packages[0].runtimeArguments[0]).toEqual({
+      type: "named",
+      name: "-p",
+      description:
+        "Publish the container's port 8000 on the host's loopback address, so only this machine can reach it. Use 8000:8000 to reach it from other machines.",
+      value: "127.0.0.1:8000:8000",
+    })
+  })
+})
+
 describe("hosted platform templates", () => {
   describe("render.yaml", () => {
     it("runs the image with the single-volume boot variables fixed", () => {

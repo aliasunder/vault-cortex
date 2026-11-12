@@ -113,11 +113,6 @@ describe("buildLocalConnectMessage", () => {
       bridgeArgs: '["-y", "mcp-remote", "http://127.0.0.1:8000/mcp",\n',
     },
     {
-      label: "an https address",
-      publicUrl: "https://vault.home.example",
-      bridgeArgs: '["-y", "mcp-remote", "https://vault.home.example/mcp",\n',
-    },
-    {
       label: "a plain-http network address, with --allow-http",
       publicUrl: "http://192.168.1.20:8000",
       bridgeArgs: '["-y", "mcp-remote", "http://192.168.1.20:8000/mcp", "--allow-http",\n',
@@ -126,6 +121,37 @@ describe("buildLocalConnectMessage", () => {
     const message = buildLocalConnectMessage({ ...localDefaults, publicUrl })
 
     expect(message).toContain(`"args": ${bridgeArgs}`)
+  })
+
+  it("tells every client to connect directly to an https PUBLIC_URL, with no mcp-remote bridge", () => {
+    const message = buildLocalConnectMessage({
+      ...localDefaults,
+      publicUrl: "https://vault.home.example",
+    })
+
+    expect(message).toContain(
+      "  3. done — the client holds auto-refreshing access tokens; the token\n" +
+        "     never sits in client config\n" +
+        "\n" +
+        "Reachable over https from any MCP client — Claude Desktop, claude.ai (web\n" +
+        "and mobile), opencode, Cursor — from any device.\n" +
+        "\n" +
+        "── Non-OAuth",
+    )
+    expect(message).not.toContain("mcp-remote")
+    expect(message).not.toContain("can't reach a localhost or home-network address")
+  })
+
+  it("routes an upper-case HTTPS PUBLIC_URL to the https guidance", () => {
+    const message = buildLocalConnectMessage({
+      ...localDefaults,
+      publicUrl: "HTTPS://vault.home.example",
+    })
+
+    expect(message).toContain(
+      "Reachable over https from any MCP client — Claude Desktop, claude.ai (web\n",
+    )
+    expect(message).not.toContain("mcp-remote")
   })
 
   it("shows 'The server is running.' when startStatus is running", () => {
