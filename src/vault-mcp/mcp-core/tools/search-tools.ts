@@ -6,6 +6,7 @@ import type { ToolRegistrationContext } from "./tool-helpers.js"
 import { readEffectiveOrphanExcludeFolders } from "../../vault-operations/vault-folder-config.js"
 import { readDailyNotesConfig } from "../../vault-operations/daily-notes.js"
 import { getExtensionsOfKind } from "../../obsidian-markdown/file-kinds.js"
+import { MAX_INDEXED_PDF_PAGES } from "../../obsidian-markdown/pdf.js"
 import {
   MAX_INDEXED_CONTENT_BYTES,
   MAX_INDEXED_HTML_OR_SCRIPT_BYTES,
@@ -99,7 +100,7 @@ Example: vault_search({ query: "decision", filters: { modified: { after: "2026-0
     ? `vault notes and file content (canvas, PDF, the text formats ${textExtensions}, the visible text of HTML pages, and ${scriptExtensions} scripts)`
     : "vault notes"
   const fileContentLimitsSentence = config.fileToolsEnabled
-    ? ` Each file's first ${indexedPrefixKiB} KiB of text is searched; a page or script over ${nameOnlyLimitMiB} MiB is found by its name only${scriptMatchClause}.`
+    ? ` Files contribute their first ${indexedPrefixKiB} KiB of text; PDFs also stop after ${MAX_INDEXED_PDF_PAGES} pages. PDFs over ${config.maxFileBytes} bytes or whose text extraction fails are found by name only; PDF content becomes searchable after startup. A page or script over ${nameOnlyLimitMiB} MiB is found by its name only${scriptMatchClause}.`
     : ""
   const searchResultFieldsText = config.fileToolsEnabled
     ? `path, title, snippet, score, ${tagsFieldsText}, folder (a note's top-level folder; a file's full parent folder), type, kind, extension, created, modified, bytes`

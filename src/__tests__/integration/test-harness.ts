@@ -339,12 +339,18 @@ export const callTool = async ({
   client,
   name,
   args = {},
+  timeoutMs,
 }: {
   client: Client
   name: string
   args?: Record<string, unknown>
+  timeoutMs?: number
 }): Promise<ToolResult> => {
-  const result = await client.callTool({ name, arguments: args })
+  const result = await client.callTool(
+    { name, arguments: args },
+    undefined,
+    timeoutMs === undefined ? undefined : { timeout: timeoutMs },
+  )
 
   if (!isContentResult(result)) {
     throw new Error("unexpected toolResult response — server returned no content array")

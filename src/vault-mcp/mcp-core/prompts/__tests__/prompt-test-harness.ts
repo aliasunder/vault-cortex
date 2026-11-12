@@ -12,6 +12,7 @@ import { createSearchIndex, type SearchIndex } from "../../../search/search-inde
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { logger, type Logger } from "../../../../logger.js"
 import { withBodyTags } from "../../../search/__tests__/body-tag-test-helpers.js"
+import { stubSearchIndex } from "../../__tests__/helpers/stub-search-index.js"
 
 // ── Types ───────────────────────────────────────────────────────
 
@@ -100,7 +101,7 @@ export const captureRegistration = (config = loadConfig({})): RegisterPromptCall
   registerPrompts({
     server: server as unknown as McpServer,
     vaultPath: "/test-vault",
-    search: {} as SearchIndex,
+    search: stubSearchIndex(),
     logger,
     config,
   })
@@ -277,3 +278,4 @@ export { PROMPT_NAMES } from "../../prompt-definitions.js"
 export { loadConfig } from "../../../config.js"
 export { createSearchIndex, type SearchIndex } from "../../../search/search-index.js"
 export { logger } from "../../../../logger.js"
+export { stubSearchIndex } from "../../__tests__/helpers/stub-search-index.js"

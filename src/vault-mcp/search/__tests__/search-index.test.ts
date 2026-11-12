@@ -1,4 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach, onTestFinished } from "vitest"
+import type { Mock } from "vitest"
+import { createHash } from "node:crypto"
 import { mkdtemp, rm, writeFile, mkdir, symlink, readFile } from "node:fs/promises"
 import { dirname, join } from "node:path"
 import { tmpdir } from "node:os"
@@ -18,9 +20,14 @@ import { links } from "../../obsidian-markdown/links.js"
 import { logger } from "../../../logger.js"
 import { readFileTextPrefix, statOrNull } from "../../../utils/fs.js"
 import { decodeTextBuffer } from "../../../utils/decode-text-buffer.js"
-import { extractPdfText } from "../../obsidian-markdown/pdf.js"
+import { extractPdfText, type PdfTextResult } from "../../obsidian-markdown/pdf.js"
 import { buildPdf } from "../../obsidian-markdown/__tests__/pdf-fixture.js"
 import type { BodyTagParser, BodyTagParseResult } from "../body-tag-parser.js"
+import type { PdfExtractor } from "../../vault-operations/pdf-extractor.js"
+import {
+  createHeldPdfExtractor,
+  createInProcessPdfExtractor,
+} from "../../../__tests__/helpers/pdf-extractor.js"
 import { inProcessBodyTagParser, withBodyTags } from "./body-tag-test-helpers.js"
 
 vi.mock("node:fs/promises", { spy: true })
@@ -98,15 +105,34 @@ const seedEmbeddingSource = (
   )
 }
 
-const createEmbeddingRaceIndex = async (sourceKind: "note" | "file") => {
+/** Lets every already-queued callback run. A background model call starts
+ *  after the job's wait for foreground work, so a test that holds a model
+ *  call lets the job reach it first. */
+const letQueuedWorkRun = async (): Promise<void> => {
+  await setImmediateAsync()
+  await setImmediateAsync()
+}
+
+/** A fake embedder whose calls the test can read back */
+type RecordingEmbedder = {
+  embedText: Mock<(text: string) => Promise<Float32Array>>
+  embedBatch: Mock<(texts: readonly string[]) => Promise<Float32Array[]>>
+}
+
+/** Every text gets the same vector, for tests that count model calls only */
+const createSameVectorEmbedder = (): RecordingEmbedder => ({
+  embedText: vi.fn((_text: string) => Promise.resolve(new Float32Array(384).fill(0.1))),
+  embedBatch: vi.fn((texts: readonly string[]) => {
+    return Promise.resolve(texts.map(() => new Float32Array(384).fill(0.1)))
+  }),
+})
+
+const createEmbeddingRaceIndex = async (
+  sourceKind: "note" | "file",
+  embedder: RecordingEmbedder = createSameVectorEmbedder(),
+) => {
   const dir = await mkdtemp(join(tmpdir(), "embedding-race-"))
   onTestFinished(() => rm(dir, { recursive: true, force: true }))
-  const embedder = {
-    embedText: vi.fn().mockResolvedValue(new Float32Array(384).fill(0.1)),
-    embedBatch: vi.fn().mockImplementation((texts: string[]) => {
-      return Promise.resolve(texts.map(() => new Float32Array(384).fill(0.1)))
-    }),
-  }
   const dbPath = join(dir, "index.db")
   const searchIndex = createSearchIndex(dbPath, embedder, undefined, { fileToolsEnabled: true })
   const inspect = new Database(dbPath)
@@ -3864,6 +3890,674 @@ describe("markdown path requirement", () => {
   })
 })
 
+describe("rebuildFromVault deferred PDF content", () => {
+  const createPdfRebuildFixture = async () => {
+    const directory = await mkdtemp(join(tmpdir(), "pdf-rebuild-state-"))
+    onTestFinished(() => rm(directory, { recursive: true, force: true }))
+    const vaultPath = join(directory, "vault")
+    await mkdir(vaultPath)
+    const path = "Report.PDF"
+    await writeFile(join(vaultPath, path), "old disk bytes")
+    await writeFile(join(vaultPath, "decoy.txt"), "Decoy controlsun")
+    const vectorFor = (text: string): Float32Array => {
+      const vector = new Float32Array(384)
+
+      if (text.includes("newcobalt") || text === "futuremeaning") {
+        vector[1] = 1
+        return vector
+      }
+      if (text.includes("oldquartz")) {
+        vector[0] = 1
+        return vector
+      }
+      vector[2] = 1
+      return vector
+    }
+    const embedder = {
+      embedText: vi.fn(async (text: string) => vectorFor(text)),
+      embedBatch: vi.fn(async (texts: readonly string[]) => texts.map(vectorFor)),
+    }
+    const databasePath = join(directory, "index.db")
+    const firstIndex = createSearchIndex(databasePath, embedder, undefined, {
+      fileToolsEnabled: true,
+    })
+    for (const file of [
+      { path, content: "Old oldquartz" },
+      { path: "decoy.txt", content: "Decoy controlsun" },
+    ]) {
+      const sourceVersion = firstIndex.upsertFileContent(
+        {
+          filePath: file.path,
+          rawContent: file.content,
+          fileStat: testStat(1000, 14),
+        },
+        logger,
+      )
+      await firstIndex.embedFileContent({ filePath: file.path, sourceVersion }, logger)
+    }
+    const database = new Database(databasePath)
+    sqliteVec.load(database)
+    onTestFinished(() => {
+      database.close()
+    })
+    expect(
+      database
+        .prepare("SELECT file_path, chunk_text FROM file_content_chunks ORDER BY file_path")
+        .all(),
+    ).toEqual([
+      { file_path: path, chunk_text: "Report\n\nOld oldquartz" },
+      { file_path: "decoy.txt", chunk_text: "decoy\n\nDecoy controlsun" },
+    ])
+    expect(database.prepare("SELECT COUNT(*) AS count FROM file_content_vectors").get()).toEqual({
+      count: 2,
+    })
+    await writeFile(join(vaultPath, path), "changed disk bytes")
+    const search = createSearchIndex(databasePath, embedder, undefined, { fileToolsEnabled: true })
+    const extractForIndex = vi.fn<PdfExtractor["extractForIndex"]>()
+    // Index requests wait for startIndexing, as they do in the real extractor.
+    const indexingStarted = Promise.withResolvers<undefined>()
+    const startIndexing = (): void => indexingStarted.resolve(undefined)
+    const pdfExtractor: PdfExtractor = {
+      extractForIndex: async (params, requestLogger) => {
+        await indexingStarted.promise
+        return extractForIndex(params, requestLogger)
+      },
+      readText: async () => {
+        throw new Error("index test must not read a PDF asset")
+      },
+      close: async () => {},
+      startIndexing,
+    }
+    const rebuild = (maxFileBytes = 1000) =>
+      search.rebuildFromVault(
+        {
+          vaultPath,
+          bodyTagParser: inProcessBodyTagParser,
+          pdfExtractor,
+          maxFileBytes,
+        },
+        logger,
+      )
+    const fileRows = () =>
+      database.prepare("SELECT path, content, bytes FROM file_content ORDER BY path").all()
+    const targetChunks = () =>
+      database.prepare("SELECT chunk_text FROM file_content_chunks WHERE file_path = ?").all(path)
+    const keywordPaths = (query: string) =>
+      database
+        .prepare("SELECT path FROM file_content_fts WHERE file_content_fts MATCH ? ORDER BY path")
+        .all(query)
+    return {
+      vaultPath,
+      path,
+      search,
+      database,
+      embedder,
+      extractForIndex,
+      startIndexing,
+      rebuild,
+      fileRows,
+      targetChunks,
+      keywordPaths,
+      vectorFor,
+    }
+  }
+
+  it("publishes every PDF's text before embedding any of them", async () => {
+    const fixture = await createPdfRebuildFixture()
+    await writeFile(join(fixture.vaultPath, "Healthy.PDF"), "healthy disk bytes")
+    fixture.extractForIndex.mockImplementation(async ({ path }) => ({
+      status: "extracted",
+      result: {
+        text: path === fixture.path ? "New newcobalt" : "Second healthyamber",
+        totalPages: 1,
+      },
+    }))
+    const rebuilt = await fixture.rebuild()
+    await rebuilt.embedding
+    fixture.embedder.embedText.mockClear()
+    const heldEmbedding = Promise.withResolvers<Float32Array>()
+    fixture.embedder.embedText.mockImplementationOnce(() => heldEmbedding.promise)
+    fixture.startIndexing()
+    const pass = rebuilt.pdfPass
+    onTestFinished(async () => {
+      heldEmbedding.resolve(fixture.vectorFor("healthyamber"))
+      await Promise.allSettled([pass])
+    })
+
+    await vi.waitFor(() => {
+      expect(fixture.keywordPaths("newcobalt OR healthyamber")).toEqual([
+        { path: "Healthy.PDF" },
+        { path: "Report.PDF" },
+      ])
+    })
+    expect(fixture.embedder.embedText).toHaveBeenCalledTimes(1)
+
+    heldEmbedding.resolve(fixture.vectorFor("healthyamber"))
+    await pass
+    expect(fixture.embedder.embedText).toHaveBeenCalledTimes(2)
+  })
+
+  it("skips deferred extraction after a failed PDF placeholder write and continues other PDFs", async () => {
+    const fixture = await createPdfRebuildFixture()
+    await writeFile(join(fixture.vaultPath, "Healthy.PDF"), "healthy disk bytes")
+    fixture.database.exec(`
+      CREATE TRIGGER reject_pdf_placeholder BEFORE INSERT ON file_content
+      WHEN NEW.path = 'Report.PDF' AND NEW.content = ''
+      BEGIN
+        SELECT RAISE(ABORT, 'controlled PDF placeholder failure');
+      END;
+    `)
+    const warnSpy = vi.spyOn(logger, "warn")
+    onTestFinished(() => warnSpy.mockRestore())
+    fixture.extractForIndex.mockResolvedValue({
+      status: "extracted",
+      result: { text: "New newcobalt", totalPages: 1 },
+    })
+
+    const rebuilt = await fixture.rebuild()
+    await rebuilt.embedding
+    expect(warnSpy).toHaveBeenCalledExactlyOnceWith("skipped malformed file during rebuild", {
+      path: fixture.path,
+      error: "[SqliteError]: controlled PDF placeholder failure",
+    })
+    fixture.startIndexing()
+    await rebuilt.pdfPass
+
+    expect(fixture.extractForIndex).toHaveBeenCalledExactlyOnceWith({ path: "Healthy.PDF" }, logger)
+    expect(fixture.fileRows()).toEqual([
+      { path: "Healthy.PDF", content: "New newcobalt", bytes: 18 },
+      { path: "decoy.txt", content: "Decoy controlsun", bytes: 16 },
+    ])
+    expect(fixture.keywordPaths("oldquartz")).toEqual([])
+    expect(fixture.keywordPaths("newcobalt")).toEqual([{ path: "Healthy.PDF" }])
+    expect(fixture.targetChunks()).toEqual([])
+  })
+
+  it("keeps a failed PDF publication filename-only and indexes the remaining PDFs", async () => {
+    const fixture = await createPdfRebuildFixture()
+    await writeFile(join(fixture.vaultPath, "Survivor.PDF"), "healthy disk bytes")
+    fixture.database.exec(`
+      CREATE TRIGGER reject_pdf_publication BEFORE INSERT ON file_content
+      WHEN NEW.path = 'Report.PDF' AND NEW.content != ''
+      BEGIN
+        SELECT RAISE(ABORT, 'controlled PDF publication failure');
+      END;
+    `)
+    const warnSpy = vi.spyOn(logger, "warn")
+    onTestFinished(() => warnSpy.mockRestore())
+    fixture.extractForIndex.mockResolvedValue({
+      status: "extracted",
+      result: { text: "New newcobalt", totalPages: 1 },
+    })
+    const rebuilt = await fixture.rebuild()
+    await rebuilt.embedding
+
+    fixture.startIndexing()
+    await rebuilt.pdfPass
+
+    expect(warnSpy).toHaveBeenCalledExactlyOnceWith("PDF content pass could not publish file", {
+      path: fixture.path,
+      error: "[SqliteError]: controlled PDF publication failure",
+    })
+    expect(fixture.extractForIndex).toHaveBeenCalledTimes(2)
+    expect(fixture.extractForIndex).toHaveBeenNthCalledWith(1, { path: fixture.path }, logger)
+    expect(fixture.extractForIndex).toHaveBeenNthCalledWith(2, { path: "Survivor.PDF" }, logger)
+    expect(fixture.fileRows()).toEqual([
+      { path: fixture.path, content: "", bytes: 18 },
+      { path: "Survivor.PDF", content: "New newcobalt", bytes: 18 },
+      { path: "decoy.txt", content: "Decoy controlsun", bytes: 16 },
+    ])
+    expect(fixture.keywordPaths("Report")).toEqual([{ path: fixture.path }])
+    expect(fixture.keywordPaths("oldquartz")).toEqual([])
+    expect(fixture.keywordPaths("newcobalt")).toEqual([{ path: "Survivor.PDF" }])
+    expect(fixture.targetChunks()).toEqual([])
+    expect(
+      fixture.database
+        .prepare("SELECT file_path, chunk_text FROM file_content_chunks ORDER BY file_path")
+        .all(),
+    ).toEqual([
+      { file_path: "Survivor.PDF", chunk_text: "Survivor\n\nNew newcobalt" },
+      { file_path: "decoy.txt", chunk_text: "decoy\n\nDecoy controlsun" },
+    ])
+  })
+
+  it("clears persisted old text and vectors before extraction and awaits the fresh PDF embedding", async () => {
+    const fixture = await createPdfRebuildFixture()
+    const extraction = Promise.withResolvers<PdfTextResult>()
+    const extractionStarted = Promise.withResolvers<undefined>()
+    const embedding = Promise.withResolvers<Float32Array>()
+    const embeddingStarted = Promise.withResolvers<undefined>()
+    const pendingPasses: Promise<unknown>[] = []
+    onTestFinished(async () => {
+      extraction.resolve({ text: "New newcobalt", totalPages: 1 })
+      embedding.resolve(fixture.vectorFor("newcobalt"))
+      await Promise.allSettled(pendingPasses)
+    })
+    fixture.extractForIndex.mockImplementation(async () => {
+      extractionStarted.resolve(undefined)
+      return { status: "extracted", result: await extraction.promise }
+    })
+    const rebuilt = await fixture.rebuild()
+    await rebuilt.embedding
+    expect(fixture.extractForIndex).not.toHaveBeenCalled()
+    expect(fixture.fileRows()).toEqual([
+      { path: "Report.PDF", content: "", bytes: 18 },
+      { path: "decoy.txt", content: "Decoy controlsun", bytes: 16 },
+    ])
+    expect(fixture.keywordPaths("Report")).toEqual([{ path: "Report.PDF" }])
+    expect(fixture.keywordPaths("oldquartz")).toEqual([])
+    expect(fixture.targetChunks()).toEqual([])
+    expect(
+      fixture.database.prepare("SELECT COUNT(*) AS count FROM file_content_vectors").get(),
+    ).toEqual({ count: 1 })
+    const pendingResult = await fixture.search.hybridSearch({ query: "futuremeaning" }, logger)
+    expect(pendingResult.results.map(({ path, snippet }) => ({ path, snippet }))).toEqual([
+      { path: "decoy.txt", snippet: "decoy Decoy controlsun" },
+    ])
+    const completed = vi.fn()
+    fixture.startIndexing()
+    const pass = rebuilt.pdfPass
+    pendingPasses.push(pass)
+    const observeCompletion = async (): Promise<void> => {
+      await pass
+      completed()
+    }
+    void observeCompletion()
+    await extractionStarted.promise
+    expect(fixture.extractForIndex).toHaveBeenCalledExactlyOnceWith({ path: fixture.path }, logger)
+    expect(fixture.keywordPaths("oldquartz")).toEqual([])
+    fixture.embedder.embedText.mockImplementationOnce(async () => {
+      embeddingStarted.resolve(undefined)
+      return embedding.promise
+    })
+    extraction.resolve({ text: "New newcobalt", totalPages: 1 })
+    await embeddingStarted.promise
+    expect(completed).not.toHaveBeenCalled()
+    expect(fixture.keywordPaths("newcobalt")).toEqual([{ path: fixture.path }])
+    expect(fixture.targetChunks()).toEqual([])
+    embedding.resolve(fixture.vectorFor("newcobalt"))
+    await pass
+    expect(fixture.fileRows()).toEqual([
+      { path: "Report.PDF", content: "New newcobalt", bytes: 18 },
+      { path: "decoy.txt", content: "Decoy controlsun", bytes: 16 },
+    ])
+    expect(fixture.targetChunks()).toEqual([{ chunk_text: "Report\n\nNew newcobalt" }])
+    const freshResult = await fixture.search.hybridSearch(
+      { query: "futuremeaning", limit: 1 },
+      logger,
+    )
+    expect(freshResult.results.map(({ path, snippet }) => ({ path, snippet }))).toEqual([
+      { path: fixture.path, snippet: "Report New newcobalt" },
+    ])
+  })
+
+  it.each([
+    { label: "at", maxFileBytes: 18, extracted: true },
+    { label: "above", maxFileBytes: 17, extracted: false },
+  ])(
+    "keeps current filename metadata for a PDF $label the input byte limit",
+    async ({ maxFileBytes, extracted }) => {
+      const fixture = await createPdfRebuildFixture()
+      fixture.extractForIndex.mockResolvedValue({
+        status: "extracted",
+        result: { text: "New newcobalt", totalPages: 1 },
+      })
+      const rebuilt = await fixture.rebuild(maxFileBytes)
+      await rebuilt.embedding
+      expect(fixture.extractForIndex).not.toHaveBeenCalled()
+      expect(fixture.targetChunks()).toEqual([])
+      expect(fixture.keywordPaths("oldquartz")).toEqual([])
+      fixture.startIndexing()
+      await rebuilt.pdfPass
+      expect(fixture.extractForIndex).toHaveBeenCalledTimes(extracted ? 1 : 0)
+      expect(fixture.fileRows()).toEqual([
+        { path: fixture.path, content: extracted ? "New newcobalt" : "", bytes: 18 },
+        { path: "decoy.txt", content: "Decoy controlsun", bytes: 16 },
+      ])
+      expect(fixture.keywordPaths("Report")).toEqual([{ path: fixture.path }])
+      expect(
+        fixture.database.prepare("SELECT COUNT(*) AS count FROM file_content_vectors").get(),
+      ).toEqual({ count: extracted ? 2 : 1 })
+    },
+  )
+
+  it("keeps a rebuild PDF whose extraction was cancelled filename-only without warning", async () => {
+    const fixture = await createPdfRebuildFixture()
+    const warnSpy = vi.spyOn(logger, "warn")
+    onTestFinished(() => warnSpy.mockRestore())
+    fixture.extractForIndex.mockResolvedValue({ status: "cancelled" })
+    const rebuilt = await fixture.rebuild()
+    await rebuilt.embedding
+    fixture.startIndexing()
+    await rebuilt.pdfPass
+
+    expect(fixture.extractForIndex).toHaveBeenCalledExactlyOnceWith({ path: fixture.path }, logger)
+    expect(warnSpy).not.toHaveBeenCalled()
+    expect(fixture.fileRows()).toEqual([
+      { path: fixture.path, content: "", bytes: 18 },
+      { path: "decoy.txt", content: "Decoy controlsun", bytes: 16 },
+    ])
+    expect(fixture.targetChunks()).toEqual([])
+  })
+
+  it("leaves a resource-budget failure filename-only without restoring persisted text or vectors", async () => {
+    const fixture = await createPdfRebuildFixture()
+    const warnSpy = vi.spyOn(logger, "warn")
+    onTestFinished(() => warnSpy.mockRestore())
+    const failure = Object.assign(new Error("controlled extraction budget"), {
+      pdfFailure: "pdf-resource",
+    })
+    const extraction = Promise.withResolvers<PdfTextResult>()
+    const started = Promise.withResolvers<undefined>()
+    const pendingPasses: Promise<unknown>[] = []
+    onTestFinished(async () => {
+      extraction.resolve({ text: "", totalPages: 1 })
+      await Promise.allSettled(pendingPasses)
+    })
+    fixture.extractForIndex.mockImplementation(async () => {
+      started.resolve(undefined)
+      return { status: "extracted", result: await extraction.promise }
+    })
+    const rebuilt = await fixture.rebuild()
+    await rebuilt.embedding
+    expect(fixture.keywordPaths("oldquartz")).toEqual([])
+    expect(fixture.targetChunks()).toEqual([])
+    fixture.startIndexing()
+    const pass = rebuilt.pdfPass
+    pendingPasses.push(pass)
+    await started.promise
+    expect(fixture.keywordPaths("Report")).toEqual([{ path: fixture.path }])
+    expect(fixture.keywordPaths("oldquartz")).toEqual([])
+    expect(fixture.targetChunks()).toEqual([])
+    extraction.reject(failure)
+    await pass
+    expect(warnSpy).toHaveBeenCalledExactlyOnceWith("PDF content pass could not index file", {
+      path: fixture.path,
+      error: "[Error]: controlled extraction budget",
+    })
+    expect(fixture.extractForIndex).toHaveBeenCalledExactlyOnceWith({ path: fixture.path }, logger)
+    expect(fixture.fileRows()).toEqual([
+      { path: fixture.path, content: "", bytes: 18 },
+      { path: "decoy.txt", content: "Decoy controlsun", bytes: 16 },
+    ])
+    expect(fixture.keywordPaths("Report")).toEqual([{ path: fixture.path }])
+    expect(fixture.targetChunks()).toEqual([])
+    expect(
+      fixture.database.prepare("SELECT COUNT(*) AS count FROM file_content_vectors").get(),
+    ).toEqual({ count: 1 })
+  })
+
+  it.each([{ outcome: "newer edit" }, { outcome: "unlink" }])(
+    "discards a scheduled PDF extraction after a $outcome while it waited for the extractor",
+    async ({ outcome }) => {
+      const fixture = await createPdfRebuildFixture()
+      fixture.extractForIndex.mockResolvedValue({
+        status: "extracted",
+        result: { text: "Stale delayedamber", totalPages: 1 },
+      })
+      const rebuilt = await fixture.rebuild()
+      await rebuilt.embedding
+      fixture.search.removeFileContent({ filePath: fixture.path }, logger)
+      if (outcome === "newer edit") {
+        const sourceVersion = fixture.search.upsertFileContent(
+          {
+            filePath: fixture.path,
+            rawContent: "Newer newcobalt",
+            fileStat: testStat(2000, 16),
+          },
+          logger,
+        )
+        await fixture.search.embedFileContent({ filePath: fixture.path, sourceVersion }, logger)
+      } else {
+        await rm(join(fixture.vaultPath, fixture.path))
+        fixture.search.removeNonMdFile(fixture.path)
+      }
+      fixture.startIndexing()
+      await rebuilt.pdfPass
+
+      // The request was queued at the rebuild, so the extractor serves it; the pass then drops
+      // its result because the name-only row it was scheduled for is gone.
+      expect(fixture.extractForIndex).toHaveBeenCalledExactlyOnceWith(
+        { path: fixture.path },
+        logger,
+      )
+      expect(fixture.fileRows()).toEqual([
+        ...(outcome === "newer edit"
+          ? [{ path: fixture.path, content: "Newer newcobalt", bytes: 16 }]
+          : []),
+        { path: "decoy.txt", content: "Decoy controlsun", bytes: 16 },
+      ])
+      expect(fixture.keywordPaths("delayedamber")).toEqual([])
+      expect(fixture.keywordPaths("oldquartz")).toEqual([])
+      expect(fixture.targetChunks()).toEqual(
+        outcome === "newer edit" ? [{ chunk_text: "Report\n\nNewer newcobalt" }] : [],
+      )
+    },
+  )
+
+  it.each([{ outcome: "newer edit" }, { outcome: "unlink" }])(
+    "rejects delayed PDF publication after a $outcome",
+    async ({ outcome }) => {
+      const fixture = await createPdfRebuildFixture()
+      const extraction = Promise.withResolvers<PdfTextResult>()
+      const started = Promise.withResolvers<undefined>()
+      const pendingPasses: Promise<unknown>[] = []
+      onTestFinished(async () => {
+        extraction.resolve({ text: "Stale delayedamber", totalPages: 1 })
+        await Promise.allSettled(pendingPasses)
+      })
+      fixture.extractForIndex.mockImplementation(async () => {
+        started.resolve(undefined)
+        return { status: "extracted", result: await extraction.promise }
+      })
+      const rebuilt = await fixture.rebuild()
+      await rebuilt.embedding
+      fixture.startIndexing()
+      const pass = rebuilt.pdfPass
+      pendingPasses.push(pass)
+      await started.promise
+      fixture.search.removeFileContent({ filePath: fixture.path }, logger)
+      if (outcome === "newer edit") {
+        await writeFile(join(fixture.vaultPath, fixture.path), "newer disk bytes")
+        const sourceVersion = fixture.search.upsertFileContent(
+          {
+            filePath: fixture.path,
+            rawContent: "Newer newcobalt",
+            fileStat: testStat(2000, 16),
+          },
+          logger,
+        )
+        await fixture.search.embedFileContent({ filePath: fixture.path, sourceVersion }, logger)
+      } else {
+        await rm(join(fixture.vaultPath, fixture.path))
+        fixture.search.removeNonMdFile(fixture.path)
+      }
+      const beforeRelease = fixture.fileRows()
+      const chunksBeforeRelease = fixture.targetChunks()
+      fixture.embedder.embedText.mockClear()
+      extraction.resolve({ text: "Stale delayedamber", totalPages: 1 })
+      await pass
+      expect(fixture.fileRows()).toEqual(beforeRelease)
+      expect(fixture.targetChunks()).toEqual(chunksBeforeRelease)
+      expect(fixture.keywordPaths("delayedamber")).toEqual([])
+      expect(fixture.keywordPaths("oldquartz")).toEqual([])
+      expect(fixture.embedder.embedText).not.toHaveBeenCalled()
+      expect(fixture.targetChunks()).toEqual(
+        outcome === "newer edit" ? [{ chunk_text: "Report\n\nNewer newcobalt" }] : [],
+      )
+    },
+  )
+  it.each([{ outcome: "newer edit" }, { outcome: "unlink" }])(
+    "rejects a delayed PDF embedding after a $outcome",
+    async ({ outcome }) => {
+      const fixture = await createPdfRebuildFixture()
+      const model = Promise.withResolvers<Float32Array>()
+      const started = Promise.withResolvers<undefined>()
+      const pendingPasses: Promise<unknown>[] = []
+      onTestFinished(async () => {
+        model.resolve(fixture.vectorFor("newcobalt"))
+        await Promise.allSettled(pendingPasses)
+      })
+      fixture.extractForIndex.mockResolvedValue({
+        status: "extracted",
+        result: { text: "Intermediate delayedamber", totalPages: 1 },
+      })
+      const rebuilt = await fixture.rebuild()
+      await rebuilt.embedding
+      fixture.embedder.embedText.mockImplementationOnce(async () => {
+        started.resolve(undefined)
+        return model.promise
+      })
+      fixture.startIndexing()
+      const pass = rebuilt.pdfPass
+      pendingPasses.push(pass)
+      await started.promise
+      expect(fixture.keywordPaths("delayedamber")).toEqual([{ path: fixture.path }])
+      fixture.search.removeFileContent({ filePath: fixture.path }, logger)
+      if (outcome === "newer edit") {
+        await writeFile(join(fixture.vaultPath, fixture.path), "newer disk bytes")
+        const sourceVersion = fixture.search.upsertFileContent(
+          {
+            filePath: fixture.path,
+            rawContent: "Newer newcobalt",
+            fileStat: testStat(2000, 16),
+          },
+          logger,
+        )
+        await fixture.search.embedFileContent({ filePath: fixture.path, sourceVersion }, logger)
+      } else {
+        await rm(join(fixture.vaultPath, fixture.path))
+        fixture.search.removeNonMdFile(fixture.path)
+      }
+      model.resolve(fixture.vectorFor("newcobalt"))
+      await pass
+      expect(fixture.keywordPaths("oldquartz")).toEqual([])
+      expect(fixture.keywordPaths("delayedamber")).toEqual([])
+      expect(fixture.targetChunks()).toEqual(
+        outcome === "newer edit" ? [{ chunk_text: "Report\n\nNewer newcobalt" }] : [],
+      )
+      expect(
+        fixture.database.prepare("SELECT COUNT(*) AS count FROM file_content_vectors").get(),
+      ).toEqual({ count: outcome === "newer edit" ? 2 : 1 })
+    },
+  )
+})
+
+describe("rebuildFromVault PDF embedding completion", () => {
+  it("indexes later PDFs after an embedding failure and rejects pass completion", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "pdf-rebuild-embedding-error-"))
+    onTestFinished(() => rm(directory, { recursive: true, force: true }))
+    await writeFile(join(directory, "report.pdf"), "controlled bytes")
+    await writeFile(join(directory, "survivor.pdf"), "other controlled bytes")
+    const embedder = {
+      embedText: vi.fn(async (text: string): Promise<Float32Array> => {
+        if (text.includes("newcobalt")) throw new Error("controlled PDF embedding failure")
+
+        const vector = new Float32Array(384)
+        vector[0] = 1
+        return vector
+      }),
+      embedBatch: vi.fn(async (): Promise<Float32Array[]> => {
+        throw new Error("unexpected batch")
+      }),
+    }
+    const search = createSearchIndex(":memory:", embedder, undefined, { fileToolsEnabled: true })
+    const pdfExtractor: PdfExtractor = {
+      extractForIndex: vi.fn<PdfExtractor["extractForIndex"]>(async ({ path }) => ({
+        status: "extracted",
+        result: {
+          text: path === "report.pdf" ? "New newcobalt" : "Healthy healthycontinuation",
+          totalPages: 1,
+        },
+      })),
+      readText: async () => {
+        throw new Error("index test must not read a PDF asset")
+      },
+      close: async () => {},
+      startIndexing: () => {},
+    }
+    const rebuilt = await search.rebuildFromVault(
+      {
+        vaultPath: directory,
+        bodyTagParser: inProcessBodyTagParser,
+        pdfExtractor,
+        maxFileBytes: 1000,
+      },
+      logger,
+    )
+    await rebuilt.embedding
+
+    await expect(rebuilt.pdfPass).rejects.toThrow(
+      new AggregateError(
+        [new Error("controlled PDF embedding failure")],
+        "PDF embedding pass failed",
+      ),
+    )
+    expect(pdfExtractor.extractForIndex).toHaveBeenCalledTimes(2)
+    expect(pdfExtractor.extractForIndex).toHaveBeenCalledWith({ path: "report.pdf" }, logger)
+    expect(pdfExtractor.extractForIndex).toHaveBeenCalledWith({ path: "survivor.pdf" }, logger)
+    expect(embedder.embedText).toHaveBeenCalledTimes(2)
+    expect(embedder.embedText).toHaveBeenCalledWith("report\n\nNew newcobalt")
+    expect(embedder.embedText).toHaveBeenCalledWith("survivor\n\nHealthy healthycontinuation")
+    const { results } = await search.hybridSearch({ query: "healthycontinuation" }, logger)
+    expect(results.map((result) => result.path)).toEqual(["survivor.pdf"])
+  })
+
+  it("logs the pass's failure before any caller awaits it and still rejects its promise", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "pdf-rebuild-unawaited-error-"))
+    onTestFinished(() => rm(directory, { recursive: true, force: true }))
+    await writeFile(join(directory, "report.pdf"), "controlled bytes")
+    const embeddingError = new Error("controlled PDF embedding failure")
+    const embedder = {
+      embedText: vi.fn(async (): Promise<Float32Array> => {
+        throw embeddingError
+      }),
+      embedBatch: vi.fn(async (): Promise<Float32Array[]> => {
+        throw new Error("unexpected batch")
+      }),
+    }
+    const search = createSearchIndex(":memory:", embedder, undefined, { fileToolsEnabled: true })
+    const pdfExtractor: PdfExtractor = {
+      extractForIndex: vi.fn<PdfExtractor["extractForIndex"]>(async () => ({
+        status: "extracted",
+        result: { text: "New newcobalt", totalPages: 1 },
+      })),
+      readText: async () => {
+        throw new Error("index test must not read a PDF asset")
+      },
+      close: async () => {},
+      startIndexing: () => {},
+    }
+    const rebuildLogger = { ...logger, error: vi.fn() }
+    const rebuilt = await search.rebuildFromVault(
+      {
+        vaultPath: directory,
+        bodyTagParser: inProcessBodyTagParser,
+        pdfExtractor,
+        maxFileBytes: 1000,
+      },
+      rebuildLogger,
+    )
+    await rebuilt.embedding
+
+    const pass = rebuilt.pdfPass
+    await vi.waitFor(() => {
+      expect(rebuildLogger.error).toHaveBeenCalledWith("PDF content pass failed", {
+        error: "[AggregateError]: PDF embedding pass failed",
+      })
+    })
+
+    expect(rebuildLogger.error).toHaveBeenCalledTimes(2)
+    expect(rebuildLogger.error).toHaveBeenNthCalledWith(1, "PDF embedding failed", {
+      path: "report.pdf",
+      error: "[Error]: controlled PDF embedding failure",
+    })
+    await expect(pass).rejects.toThrow(
+      new AggregateError([embeddingError], "PDF embedding pass failed"),
+    )
+  })
+})
+
 describe("rebuildFromVault bounded I/O", () => {
   it.each([
     { operation: "size", extension: ".png", table: "non_md_files", decoyName: "healthy.md" },
@@ -3958,7 +4652,12 @@ describe("rebuildFromVault bounded I/O", () => {
       const database = new Database(dbPath, { readonly: true })
       openDatabases.push(database)
       const rebuilding = search.rebuildFromVault(
-        { vaultPath, bodyTagParser: inProcessBodyTagParser },
+        {
+          vaultPath,
+          bodyTagParser: inProcessBodyTagParser,
+          pdfExtractor: createInProcessPdfExtractor(vaultPath),
+          maxFileBytes: 10_000_000,
+        },
         logger,
       )
       pendingRebuilds.push(rebuilding)
@@ -3971,6 +4670,7 @@ describe("rebuildFromVault bounded I/O", () => {
       releaseGate.resolve(undefined)
       const rebuilt = await rebuilding
       await rebuilt.embedding
+      await rebuilt.pdfPass
 
       expect(Math.max(...activeCounts)).toBe(16)
       expect(activePaths.size).toBe(0)
@@ -3991,7 +4691,7 @@ describe("rebuildFromVault bounded I/O", () => {
     },
   )
 
-  it("bounds PDF extraction to four operations and indexes its fifth item", async () => {
+  it("defers PDF extraction until started, then indexes five PDFs one at a time", async () => {
     const directory = await mkdtemp(join(tmpdir(), "rebuild-pdf-bound-"))
     const vaultPath = join(directory, "vault")
     const releaseGate = Promise.withResolvers<undefined>()
@@ -4023,7 +4723,7 @@ describe("rebuildFromVault bounded I/O", () => {
       startedMarkers.add(marker)
       activeMarkers.add(marker)
       activeCounts.push(activeMarkers.size)
-      if (activeMarkers.size === 4) boundReached.resolve(undefined)
+      if (activeMarkers.size === 1) boundReached.resolve(undefined)
       await releaseGate.promise
       activeMarkers.delete(marker)
       return { text: "pdfquartz", totalPages: 1 }
@@ -4033,21 +4733,33 @@ describe("rebuildFromVault bounded I/O", () => {
     const search = createSearchIndex(dbPath, undefined, undefined, { fileToolsEnabled: true })
     const database = new Database(dbPath, { readonly: true })
     openDatabases.push(database)
+    const pdfExtractor = createHeldPdfExtractor(vaultPath)
     const rebuilding = search.rebuildFromVault(
-      { vaultPath, bodyTagParser: inProcessBodyTagParser },
+      {
+        vaultPath,
+        bodyTagParser: inProcessBodyTagParser,
+        pdfExtractor,
+        maxFileBytes: 10_000_000,
+      },
       logger,
     )
     pendingRebuilds.push(rebuilding)
+    const rebuilt = await rebuilding
+    expect(extractSpy).not.toHaveBeenCalled()
+    pdfExtractor.startIndexing()
+    const { pdfPass } = rebuilt
+    pendingRebuilds.push(pdfPass)
     await boundReached.promise
     await setImmediateAsync()
 
-    expect(activeMarkers.size).toBe(4)
-    expect(startedMarkers.size).toBe(4)
+    expect(activeMarkers.size).toBe(1)
+    expect(startedMarkers.size).toBe(1)
     releaseGate.resolve(undefined)
-    const rebuilt = await rebuilding
+    await pdfPass
     await rebuilt.embedding
+    await rebuilt.pdfPass
 
-    expect(Math.max(...activeCounts)).toBe(4)
+    expect(Math.max(...activeCounts)).toBe(1)
     expect(activeMarkers.size).toBe(0)
     expect(startedMarkers.size).toBe(5)
     expect(database.prepare("SELECT path FROM file_content ORDER BY path").all()).toEqual(
@@ -4098,10 +4810,16 @@ describe("rebuildFromVault filesystem failures", () => {
       warnSpy.mockRestore()
     })
     const rebuilt = await search.rebuildFromVault(
-      { vaultPath, bodyTagParser: inProcessBodyTagParser },
+      {
+        vaultPath,
+        bodyTagParser: inProcessBodyTagParser,
+        pdfExtractor: createInProcessPdfExtractor(vaultPath),
+        maxFileBytes: 10_000_000,
+      },
       logger,
     )
     await rebuilt.embedding
+    await rebuilt.pdfPass
 
     expect(rebuilt.count).toBe(1)
     expect(warnSpy).toHaveBeenCalledExactlyOnceWith("skipped unstattable file during rebuild", {
@@ -4129,10 +4847,16 @@ describe("rebuildFromVault filesystem failures", () => {
     ).toEqual([{ path: "image.png", exists: false }])
     statSpy.mockRestore()
     const recovered = await search.rebuildFromVault(
-      { vaultPath, bodyTagParser: inProcessBodyTagParser },
+      {
+        vaultPath,
+        bodyTagParser: inProcessBodyTagParser,
+        pdfExtractor: createInProcessPdfExtractor(vaultPath),
+        maxFileBytes: 10_000_000,
+      },
       logger,
     )
     await recovered.embedding
+    await recovered.pdfPass
     search.upsertNote(
       withBodyTags({
         filePath: "source.md",
@@ -4168,10 +4892,16 @@ describe("rebuildFromVault filesystem failures", () => {
       warnSpy.mockRestore()
     })
     const rebuilt = await search.rebuildFromVault(
-      { vaultPath, bodyTagParser: inProcessBodyTagParser },
+      {
+        vaultPath,
+        bodyTagParser: inProcessBodyTagParser,
+        pdfExtractor: createInProcessPdfExtractor(vaultPath),
+        maxFileBytes: 10_000_000,
+      },
       logger,
     )
     await rebuilt.embedding
+    await rebuilt.pdfPass
 
     expect(rebuilt.count).toBe(1)
     expect(prefixReadSpy).toHaveBeenCalledWith({ path: filePath, maxBytes: 102_400 })
@@ -4208,15 +4938,23 @@ describe("rebuildFromVault filesystem failures", () => {
         warnSpy.mockRestore()
       })
       const rebuilt = await search.rebuildFromVault(
-        { vaultPath, bodyTagParser: inProcessBodyTagParser },
+        {
+          vaultPath,
+          bodyTagParser: inProcessBodyTagParser,
+          pdfExtractor: createInProcessPdfExtractor(vaultPath),
+          maxFileBytes: 10_000_000,
+        },
         logger,
       )
       await rebuilt.embedding
+      await rebuilt.pdfPass
 
       expect(rebuilt.count).toBe(1)
       expect(readSpy).toHaveBeenCalledWith(filePath, ...(fileName.endsWith(".pdf") ? [] : ["utf8"]))
       expect(warnSpy).toHaveBeenCalledExactlyOnceWith(
-        `skipped unreadable ${sourceKind} during rebuild`,
+        sourceKind === "PDF"
+          ? "PDF content pass could not index file"
+          : `skipped unreadable ${sourceKind} during rebuild`,
         { path: fileName, error: "[Error]: controlled read failure" },
       )
       expect(
@@ -4246,10 +4984,16 @@ describe("rebuildFromVault filesystem failures", () => {
       warnSpy.mockRestore()
     })
     const rebuilt = await search.rebuildFromVault(
-      { vaultPath, bodyTagParser: inProcessBodyTagParser },
+      {
+        vaultPath,
+        bodyTagParser: inProcessBodyTagParser,
+        pdfExtractor: createInProcessPdfExtractor(vaultPath),
+        maxFileBytes: 10_000_000,
+      },
       logger,
     )
     await rebuilt.embedding
+    await rebuilt.pdfPass
 
     expect(rebuilt.count).toBe(1)
     // Read as bytes, so the strict UTF-8 check sees them
@@ -4287,10 +5031,16 @@ describe("rebuildFromVault filesystem failures", () => {
       warnSpy.mockRestore()
     })
     const rebuilt = await search.rebuildFromVault(
-      { vaultPath, bodyTagParser: inProcessBodyTagParser },
+      {
+        vaultPath,
+        bodyTagParser: inProcessBodyTagParser,
+        pdfExtractor: createInProcessPdfExtractor(vaultPath),
+        maxFileBytes: 10_000_000,
+      },
       logger,
     )
     await rebuilt.embedding
+    await rebuilt.pdfPass
 
     expect(warnSpy).toHaveBeenCalledExactlyOnceWith("skipped unreadable file during rebuild", {
       path: "huge.html",
@@ -4321,11 +5071,17 @@ describe("rebuildFromVault filesystem failures", () => {
       warnSpy.mockRestore()
     })
     const rebuilt = await search.rebuildFromVault(
-      { vaultPath, bodyTagParser: inProcessBodyTagParser },
+      {
+        vaultPath,
+        bodyTagParser: inProcessBodyTagParser,
+        pdfExtractor: createInProcessPdfExtractor(vaultPath),
+        maxFileBytes: 10_000_000,
+      },
       logger,
     )
     await rebuilt.embedding
-    expect(warnSpy).toHaveBeenCalledExactlyOnceWith("skipped unreadable PDF during rebuild", {
+    await rebuilt.pdfPass
+    expect(warnSpy).toHaveBeenCalledExactlyOnceWith("PDF content pass could not index file", {
       path: "broken.pdf",
       error: "[Error]: PDF reader could not start",
       cause: "[Error]: controlled PDF failure",
@@ -4337,10 +5093,16 @@ describe("rebuildFromVault filesystem failures", () => {
     ).toEqual(["healthy.md"])
     expect((await search.hybridSearch({ query: "recoveredopal" }, logger)).results).toEqual([])
     const recovered = await search.rebuildFromVault(
-      { vaultPath, bodyTagParser: inProcessBodyTagParser },
+      {
+        vaultPath,
+        bodyTagParser: inProcessBodyTagParser,
+        pdfExtractor: createInProcessPdfExtractor(vaultPath),
+        maxFileBytes: 10_000_000,
+      },
       logger,
     )
     await recovered.embedding
+    await recovered.pdfPass
     expect(
       (await search.hybridSearch({ query: "recoveredopal" }, logger)).results.map(
         (entry) => entry.path,
@@ -4369,7 +5131,12 @@ describe("rebuildFromVault", () => {
 
   it("indexes all visible .md files", async () => {
     const { count } = await index.rebuildFromVault(
-      { vaultPath: vaultDir, bodyTagParser: inProcessBodyTagParser },
+      {
+        vaultPath: vaultDir,
+        bodyTagParser: inProcessBodyTagParser,
+        pdfExtractor: createInProcessPdfExtractor(vaultDir),
+        maxFileBytes: 10_000_000,
+      },
       logger,
     )
     expect(count).toBe(2)
@@ -4377,7 +5144,12 @@ describe("rebuildFromVault", () => {
 
   it("skips hidden directories", async () => {
     const { count: indexedCount } = await index.rebuildFromVault(
-      { vaultPath: vaultDir, bodyTagParser: inProcessBodyTagParser },
+      {
+        vaultPath: vaultDir,
+        bodyTagParser: inProcessBodyTagParser,
+        pdfExtractor: createInProcessPdfExtractor(vaultDir),
+        maxFileBytes: 10_000_000,
+      },
       logger,
     )
     expect(indexedCount).toBe(2)
@@ -4395,7 +5167,12 @@ describe("rebuildFromVault", () => {
       logger,
     )
     await index.rebuildFromVault(
-      { vaultPath: vaultDir, bodyTagParser: inProcessBodyTagParser },
+      {
+        vaultPath: vaultDir,
+        bodyTagParser: inProcessBodyTagParser,
+        pdfExtractor: createInProcessPdfExtractor(vaultDir),
+        maxFileBytes: 10_000_000,
+      },
       logger,
     )
     const results = index.fullTextSearch({ query: "stale" }, logger)
@@ -4404,7 +5181,12 @@ describe("rebuildFromVault", () => {
 
   it("makes indexed notes searchable", async () => {
     await index.rebuildFromVault(
-      { vaultPath: vaultDir, bodyTagParser: inProcessBodyTagParser },
+      {
+        vaultPath: vaultDir,
+        bodyTagParser: inProcessBodyTagParser,
+        pdfExtractor: createInProcessPdfExtractor(vaultDir),
+        maxFileBytes: 10_000_000,
+      },
       logger,
     )
     const results = index.fullTextSearch({ query: "burnout" }, logger)
@@ -4421,7 +5203,12 @@ describe("rebuildFromVault", () => {
     )
 
     const { count } = await index.rebuildFromVault(
-      { vaultPath: vaultDir, bodyTagParser: inProcessBodyTagParser },
+      {
+        vaultPath: vaultDir,
+        bodyTagParser: inProcessBodyTagParser,
+        pdfExtractor: createInProcessPdfExtractor(vaultDir),
+        maxFileBytes: 10_000_000,
+      },
       logger,
     )
 
@@ -4455,7 +5242,12 @@ describe("rebuildFromVault", () => {
 
     taskInsertPoison.arm()
     const { count } = await poisonedIndex.rebuildFromVault(
-      { vaultPath: vaultDir, bodyTagParser: inProcessBodyTagParser },
+      {
+        vaultPath: vaultDir,
+        bodyTagParser: inProcessBodyTagParser,
+        pdfExtractor: createInProcessPdfExtractor(vaultDir),
+        maxFileBytes: 10_000_000,
+      },
       logger,
     )
     taskInsertPoison.disarm()
@@ -4484,7 +5276,12 @@ describe("rebuildFromVault", () => {
 
     taskInsertPoison.arm()
     const { count } = await poisonedIndex.rebuildFromVault(
-      { vaultPath: vaultDir, bodyTagParser: inProcessBodyTagParser },
+      {
+        vaultPath: vaultDir,
+        bodyTagParser: inProcessBodyTagParser,
+        pdfExtractor: createInProcessPdfExtractor(vaultDir),
+        maxFileBytes: 10_000_000,
+      },
       logger,
     )
     taskInsertPoison.disarm()
@@ -4512,7 +5309,12 @@ describe("rebuildFromVault", () => {
     await writeFile(join(vaultDir, "linker.md"), "See [[alpha]], then [[beta]].\n", "utf8")
 
     const { count } = await linkFailureIndex.rebuildFromVault(
-      { vaultPath: vaultDir, bodyTagParser: inProcessBodyTagParser },
+      {
+        vaultPath: vaultDir,
+        bodyTagParser: inProcessBodyTagParser,
+        pdfExtractor: createInProcessPdfExtractor(vaultDir),
+        maxFileBytes: 10_000_000,
+      },
       logger,
     )
 
@@ -4570,10 +5372,16 @@ describe("rebuildFromVault", () => {
       "utf8",
     )
     const firstBuild = await memoryIndex.rebuildFromVault(
-      { vaultPath: vaultDir, bodyTagParser: inProcessBodyTagParser },
+      {
+        vaultPath: vaultDir,
+        bodyTagParser: inProcessBodyTagParser,
+        pdfExtractor: createInProcessPdfExtractor(vaultDir),
+        maxFileBytes: 10_000_000,
+      },
       logger,
     )
     await firstBuild.embedding
+    await firstBuild.pdfPass
     const rowsAfterFirstBuild = selectStoredRows()
     // The first build stored rows for the note, so keeping them below is not vacuous.
     // Chunks are checked by path only, because their text is the chunker's concern.
@@ -4598,11 +5406,17 @@ describe("rebuildFromVault", () => {
     onTestFinished(() => warnSpy.mockRestore())
     taskInsertPoison.arm()
     const secondBuild = await memoryIndex.rebuildFromVault(
-      { vaultPath: vaultDir, bodyTagParser: inProcessBodyTagParser },
+      {
+        vaultPath: vaultDir,
+        bodyTagParser: inProcessBodyTagParser,
+        pdfExtractor: createInProcessPdfExtractor(vaultDir),
+        maxFileBytes: 10_000_000,
+      },
       logger,
     )
     taskInsertPoison.disarm()
     await secondBuild.embedding
+    await secondBuild.pdfPass
 
     // The warning and the empty search prove the second build skipped the note
     expect(warnSpy).toHaveBeenCalledExactlyOnceWith(
@@ -4622,7 +5436,12 @@ describe("rebuildFromVault", () => {
     await writeFile(join(vaultDir, "kept.md"), content, "utf8")
 
     const { count } = await index.rebuildFromVault(
-      { vaultPath: vaultDir, bodyTagParser: inProcessBodyTagParser },
+      {
+        vaultPath: vaultDir,
+        bodyTagParser: inProcessBodyTagParser,
+        pdfExtractor: createInProcessPdfExtractor(vaultDir),
+        maxFileBytes: 10_000_000,
+      },
       logger,
     )
 
@@ -4639,7 +5458,12 @@ describe("rebuildFromVault", () => {
       "utf8",
     )
     const { count } = await index.rebuildFromVault(
-      { vaultPath: vaultDir, bodyTagParser: inProcessBodyTagParser },
+      {
+        vaultPath: vaultDir,
+        bodyTagParser: inProcessBodyTagParser,
+        pdfExtractor: createInProcessPdfExtractor(vaultDir),
+        maxFileBytes: 10_000_000,
+      },
       logger,
     )
     expect(count).toBe(3)
@@ -4663,7 +5487,12 @@ describe("rebuildFromVault", () => {
     await writeFile(join(vaultDir, "broken.md"), brokenContent, "utf8")
     await writeFile(join(vaultDir, "linker.md"), "# Linker\n\nSee [[broken]].\n", "utf8")
     await index.rebuildFromVault(
-      { vaultPath: vaultDir, bodyTagParser: inProcessBodyTagParser },
+      {
+        vaultPath: vaultDir,
+        bodyTagParser: inProcessBodyTagParser,
+        pdfExtractor: createInProcessPdfExtractor(vaultDir),
+        maxFileBytes: 10_000_000,
+      },
       logger,
     )
     // The note is in the notes table, so the link resolves to it; the title
@@ -4696,7 +5525,12 @@ describe("rebuildFromVault", () => {
     )
     await writeFile(join(vaultDir, "z-target.md"), "# Z Target\n\nBody.\n", "utf8")
     await index.rebuildFromVault(
-      { vaultPath: vaultDir, bodyTagParser: inProcessBodyTagParser },
+      {
+        vaultPath: vaultDir,
+        bodyTagParser: inProcessBodyTagParser,
+        pdfExtractor: createInProcessPdfExtractor(vaultDir),
+        maxFileBytes: 10_000_000,
+      },
       logger,
     )
     const backlinks = index.getBacklinks({ path: "z-target.md" }, logger)
@@ -4711,7 +5545,12 @@ describe("rebuildFromVault", () => {
     )
     await writeFile(join(vaultDir, "Trip Route.canvas"), "{}", "utf8")
     await index.rebuildFromVault(
-      { vaultPath: vaultDir, bodyTagParser: inProcessBodyTagParser },
+      {
+        vaultPath: vaultDir,
+        bodyTagParser: inProcessBodyTagParser,
+        pdfExtractor: createInProcessPdfExtractor(vaultDir),
+        maxFileBytes: 10_000_000,
+      },
       logger,
     )
 
@@ -4751,7 +5590,12 @@ describe("rebuildFromVault", () => {
     )
     await writeFile(join(vaultDir, "photo.png"), "png-bytes", "utf8")
     await index.rebuildFromVault(
-      { vaultPath: vaultDir, bodyTagParser: inProcessBodyTagParser },
+      {
+        vaultPath: vaultDir,
+        bodyTagParser: inProcessBodyTagParser,
+        pdfExtractor: createInProcessPdfExtractor(vaultDir),
+        maxFileBytes: 10_000_000,
+      },
       logger,
     )
 
@@ -4793,7 +5637,12 @@ describe("rebuildFromVault", () => {
     )
     await writeFile(join(vaultDir, "canvases/Dashboard.canvas"), "{}", "utf8")
     await index.rebuildFromVault(
-      { vaultPath: vaultDir, bodyTagParser: inProcessBodyTagParser },
+      {
+        vaultPath: vaultDir,
+        bodyTagParser: inProcessBodyTagParser,
+        pdfExtractor: createInProcessPdfExtractor(vaultDir),
+        maxFileBytes: 10_000_000,
+      },
       logger,
     )
 
@@ -4834,7 +5683,12 @@ describe("rebuildFromVault", () => {
     )
     await writeFile(join(vaultDir, "views/Inventory.base"), "filters: []\n", "utf8")
     await index.rebuildFromVault(
-      { vaultPath: vaultDir, bodyTagParser: inProcessBodyTagParser },
+      {
+        vaultPath: vaultDir,
+        bodyTagParser: inProcessBodyTagParser,
+        pdfExtractor: createInProcessPdfExtractor(vaultDir),
+        maxFileBytes: 10_000_000,
+      },
       logger,
     )
 
@@ -4871,7 +5725,12 @@ describe("rebuildFromVault", () => {
     await writeFile(join(vaultDir, "source.md"), "# Source\n\nSee [[views/Inventory]].\n", "utf8")
     await writeFile(join(vaultDir, "other/Inventory.canvas"), "{}", "utf8")
     await index.rebuildFromVault(
-      { vaultPath: vaultDir, bodyTagParser: inProcessBodyTagParser },
+      {
+        vaultPath: vaultDir,
+        bodyTagParser: inProcessBodyTagParser,
+        pdfExtractor: createInProcessPdfExtractor(vaultDir),
+        maxFileBytes: 10_000_000,
+      },
       logger,
     )
 
@@ -4890,7 +5749,12 @@ describe("rebuildFromVault", () => {
     await writeFile(join(vaultDir, "source.md"), "# Source\n\nSee [[a_b/c]].\n", "utf8")
     await writeFile(join(vaultDir, "foo/aXb/c.canvas"), "{}", "utf8")
     await index.rebuildFromVault(
-      { vaultPath: vaultDir, bodyTagParser: inProcessBodyTagParser },
+      {
+        vaultPath: vaultDir,
+        bodyTagParser: inProcessBodyTagParser,
+        pdfExtractor: createInProcessPdfExtractor(vaultDir),
+        maxFileBytes: 10_000_000,
+      },
       logger,
     )
 
@@ -4908,7 +5772,12 @@ describe("rebuildFromVault", () => {
     )
     await writeFile(join(vaultDir, "Route.canvas"), "{}", "utf8")
     await index.rebuildFromVault(
-      { vaultPath: vaultDir, bodyTagParser: inProcessBodyTagParser },
+      {
+        vaultPath: vaultDir,
+        bodyTagParser: inProcessBodyTagParser,
+        pdfExtractor: createInProcessPdfExtractor(vaultDir),
+        maxFileBytes: 10_000_000,
+      },
       logger,
     )
 
@@ -4944,7 +5813,12 @@ describe("rebuildFromVault", () => {
     await writeFile(join(vaultDir, "source.md"), "# Source\n\nSee [[config]].\n", "utf8")
     await writeFile(join(vaultDir, ".obsidian/config.json"), "{}", "utf8")
     await index.rebuildFromVault(
-      { vaultPath: vaultDir, bodyTagParser: inProcessBodyTagParser },
+      {
+        vaultPath: vaultDir,
+        bodyTagParser: inProcessBodyTagParser,
+        pdfExtractor: createInProcessPdfExtractor(vaultDir),
+        maxFileBytes: 10_000_000,
+      },
       logger,
     )
 
@@ -4961,7 +5835,12 @@ describe("rebuildFromVault", () => {
     )
     await writeFile(join(vaultDir, "photo.png"), "binary", "utf8")
     await index.rebuildFromVault(
-      { vaultPath: vaultDir, bodyTagParser: inProcessBodyTagParser },
+      {
+        vaultPath: vaultDir,
+        bodyTagParser: inProcessBodyTagParser,
+        pdfExtractor: createInProcessPdfExtractor(vaultDir),
+        maxFileBytes: 10_000_000,
+      },
       logger,
     )
 
@@ -4998,7 +5877,12 @@ describe("rebuildFromVault", () => {
     await writeFile(join(vaultDir, "Report.pdf"), "binary", "utf8")
     await writeFile(join(vaultDir, "source.md"), "# Source\n\nSee [[Report]].\n", "utf8")
     await index.rebuildFromVault(
-      { vaultPath: vaultDir, bodyTagParser: inProcessBodyTagParser },
+      {
+        vaultPath: vaultDir,
+        bodyTagParser: inProcessBodyTagParser,
+        pdfExtractor: createInProcessPdfExtractor(vaultDir),
+        maxFileBytes: 10_000_000,
+      },
       logger,
     )
 
@@ -5030,7 +5914,12 @@ describe("rebuildFromVault", () => {
     await writeFile(join(vaultDir, "source.md"), "# Source\n\n![[sunset.png]]\n", "utf8")
     await writeFile(join(vaultDir, "photos", "Sunset.png"), "binary", "utf8")
     await index.rebuildFromVault(
-      { vaultPath: vaultDir, bodyTagParser: inProcessBodyTagParser },
+      {
+        vaultPath: vaultDir,
+        bodyTagParser: inProcessBodyTagParser,
+        pdfExtractor: createInProcessPdfExtractor(vaultDir),
+        maxFileBytes: 10_000_000,
+      },
       logger,
     )
 
@@ -5064,7 +5953,12 @@ describe("rebuildFromVault", () => {
     await symlink("real/original.md", join(vaultDir, "linked.md"))
 
     const { count } = await index.rebuildFromVault(
-      { vaultPath: vaultDir, bodyTagParser: inProcessBodyTagParser },
+      {
+        vaultPath: vaultDir,
+        bodyTagParser: inProcessBodyTagParser,
+        pdfExtractor: createInProcessPdfExtractor(vaultDir),
+        maxFileBytes: 10_000_000,
+      },
       logger,
     )
     expect(count).toBe(4)
@@ -5082,7 +5976,12 @@ describe("rebuildFromVault", () => {
     await writeFile(join(vaultDir, "source.md"), "# Source\n\nSee [[Board]].\n", "utf8")
 
     await index.rebuildFromVault(
-      { vaultPath: vaultDir, bodyTagParser: inProcessBodyTagParser },
+      {
+        vaultPath: vaultDir,
+        bodyTagParser: inProcessBodyTagParser,
+        pdfExtractor: createInProcessPdfExtractor(vaultDir),
+        maxFileBytes: 10_000_000,
+      },
       logger,
     )
 
@@ -5108,7 +6007,12 @@ describe("rebuildFromVault", () => {
     await symlink(join(outsideDir, "external.md"), join(vaultDir, "linked-external.md"))
 
     const { count } = await index.rebuildFromVault(
-      { vaultPath: vaultDir, bodyTagParser: inProcessBodyTagParser },
+      {
+        vaultPath: vaultDir,
+        bodyTagParser: inProcessBodyTagParser,
+        pdfExtractor: createInProcessPdfExtractor(vaultDir),
+        maxFileBytes: 10_000_000,
+      },
       logger,
     )
     expect(count).toBe(3)
@@ -5124,7 +6028,12 @@ describe("rebuildFromVault", () => {
     await symlink("nonexistent/target.md", join(vaultDir, "broken.md"))
 
     const { count } = await index.rebuildFromVault(
-      { vaultPath: vaultDir, bodyTagParser: inProcessBodyTagParser },
+      {
+        vaultPath: vaultDir,
+        bodyTagParser: inProcessBodyTagParser,
+        pdfExtractor: createInProcessPdfExtractor(vaultDir),
+        maxFileBytes: 10_000_000,
+      },
       logger,
     )
     expect(count).toBe(3) // 2 baseline + valid-link.md (broken.md filtered)
@@ -5142,7 +6051,12 @@ describe("rebuildFromVault", () => {
     await symlink(join(vaultDir, "realdir"), join(vaultDir, "dirlink.md"))
 
     const { count } = await index.rebuildFromVault(
-      { vaultPath: vaultDir, bodyTagParser: inProcessBodyTagParser },
+      {
+        vaultPath: vaultDir,
+        bodyTagParser: inProcessBodyTagParser,
+        pdfExtractor: createInProcessPdfExtractor(vaultDir),
+        maxFileBytes: 10_000_000,
+      },
       logger,
     )
     expect(count).toBe(4) // 2 baseline + valid-link.md + inner.md (dirlink.md filtered)
@@ -6867,7 +7781,12 @@ describe("links that differ from their file only in letter case", () => {
     await writeFile(join(vaultDir, "source.md"), CASE_DIFFERENT_LINKS, "utf8")
 
     await index.rebuildFromVault(
-      { vaultPath: vaultDir, bodyTagParser: inProcessBodyTagParser },
+      {
+        vaultPath: vaultDir,
+        bodyTagParser: inProcessBodyTagParser,
+        pdfExtractor: createInProcessPdfExtractor(vaultDir),
+        maxFileBytes: 10_000_000,
+      },
       logger,
     )
 
@@ -8517,7 +9436,12 @@ It has multiple sentences to verify chunking works correctly.
       )
 
       const { count, embedding } = await embeddingIndex.rebuildFromVault(
-        { vaultPath: vaultDir, bodyTagParser: inProcessBodyTagParser },
+        {
+          vaultPath: vaultDir,
+          bodyTagParser: inProcessBodyTagParser,
+          pdfExtractor: createInProcessPdfExtractor(vaultDir),
+          maxFileBytes: 10_000_000,
+        },
         logger,
       )
       await embedding
@@ -8543,7 +9467,12 @@ It has multiple sentences to verify chunking works correctly.
 
       const warnSpy = vi.spyOn(logger, "warn")
       const { count, embedding } = await embeddingIndex.rebuildFromVault(
-        { vaultPath: vaultDir, bodyTagParser: inProcessBodyTagParser },
+        {
+          vaultPath: vaultDir,
+          bodyTagParser: inProcessBodyTagParser,
+          pdfExtractor: createInProcessPdfExtractor(vaultDir),
+          maxFileBytes: 10_000_000,
+        },
         logger,
       )
       await embedding
@@ -8582,7 +9511,12 @@ It has multiple sentences to verify chunking works correctly.
       )
 
       const { embedding } = await embeddingIndex.rebuildFromVault(
-        { vaultPath: vaultDir, bodyTagParser: inProcessBodyTagParser },
+        {
+          vaultPath: vaultDir,
+          bodyTagParser: inProcessBodyTagParser,
+          pdfExtractor: createInProcessPdfExtractor(vaultDir),
+          maxFileBytes: 10_000_000,
+        },
         logger,
       )
       await embedding
@@ -8620,10 +9554,16 @@ It has multiple sentences to verify chunking works correctly.
       await writeFile(join(vaultDir, "ephemeral.txt"), "Transient file body.")
 
       const firstRebuild = await embeddingIndex.rebuildFromVault(
-        { vaultPath: vaultDir, bodyTagParser: inProcessBodyTagParser },
+        {
+          vaultPath: vaultDir,
+          bodyTagParser: inProcessBodyTagParser,
+          pdfExtractor: createInProcessPdfExtractor(vaultDir),
+          maxFileBytes: 10_000_000,
+        },
         logger,
       )
       await firstRebuild.embedding
+      await firstRebuild.pdfPass
 
       const inspectDb = new Database(dbPath, { readonly: true })
       sqliteVec.load(inspectDb)
@@ -8639,10 +9579,16 @@ It has multiple sentences to verify chunking works correctly.
 
       await rm(join(vaultDir, "ephemeral.txt"))
       const secondRebuild = await embeddingIndex.rebuildFromVault(
-        { vaultPath: vaultDir, bodyTagParser: inProcessBodyTagParser },
+        {
+          vaultPath: vaultDir,
+          bodyTagParser: inProcessBodyTagParser,
+          pdfExtractor: createInProcessPdfExtractor(vaultDir),
+          maxFileBytes: 10_000_000,
+        },
         logger,
       )
       await secondRebuild.embedding
+      await secondRebuild.pdfPass
 
       expect(selectChunkCountStmt.get("ephemeral.txt")?.count).toBe(0)
       const fileVectors = inspectDb
@@ -9118,10 +10064,16 @@ describe("canvas note catalog reuse", () => {
       await writeFile(join(directory, canvasName), canvasWithTarget("Target"))
     const search = createSearchIndex(":memory:", undefined, undefined, { fileToolsEnabled: true })
     const rebuilt = await search.rebuildFromVault(
-      { vaultPath: directory, bodyTagParser: inProcessBodyTagParser },
+      {
+        vaultPath: directory,
+        bodyTagParser: inProcessBodyTagParser,
+        pdfExtractor: createInProcessPdfExtractor(directory),
+        maxFileBytes: 10_000_000,
+      },
       logger,
     )
     await rebuilt.embedding
+    await rebuilt.pdfPass
     expect(rebuilt.count).toBe(2)
     expect(scans).toHaveBeenCalledTimes(1)
     expect(search.getBacklinks({ path: "Target.md" }, logger).map((link) => link.path)).toEqual(
@@ -9158,7 +10110,12 @@ describe("canvas note catalog reuse", () => {
     })
     await expect(
       search.rebuildFromVault(
-        { vaultPath: directory, bodyTagParser: inProcessBodyTagParser },
+        {
+          vaultPath: directory,
+          bodyTagParser: inProcessBodyTagParser,
+          pdfExtractor: createInProcessPdfExtractor(directory),
+          maxFileBytes: 10_000_000,
+        },
         rebuildLogger,
       ),
     ).rejects.toThrow(failure)
@@ -9168,13 +10125,335 @@ describe("canvas note catalog reuse", () => {
     expect(scans).toHaveBeenCalledTimes(1)
     expect(outgoingPaths(search)).toEqual(["Target.canvas"])
     const recovered = await search.rebuildFromVault(
-      { vaultPath: directory, bodyTagParser: inProcessBodyTagParser },
+      {
+        vaultPath: directory,
+        bodyTagParser: inProcessBodyTagParser,
+        pdfExtractor: createInProcessPdfExtractor(directory),
+        maxFileBytes: 10_000_000,
+      },
       logger,
     )
     await recovered.embedding
+    await recovered.pdfPass
     saveCanvas(search, "Target")
     expect(outgoingPaths(search)).toEqual(["Target.md"])
   })
+})
+
+describe("vectors reused by chunk text", () => {
+  /** A vector unique to each text, so a row holding another text's vector fails */
+  const vectorForText = (text: string): Float32Array => {
+    const digest = createHash("sha256").update(text).digest()
+    return Float32Array.from({ length: 384 }, (_, position) => (digest[position % 32] ?? 0) / 255)
+  }
+
+  const createTextVectorEmbedder = (): RecordingEmbedder => ({
+    embedText: vi.fn((text: string) => Promise.resolve(vectorForText(text))),
+    embedBatch: vi.fn((texts: readonly string[]) => Promise.resolve(texts.map(vectorForText))),
+  })
+
+  /** A section of distinct words, long enough that a note of several sections
+   *  is split into one chunk per section */
+  const section = (name: string): string => {
+    const words = Array.from({ length: 130 }, (_, wordIndex) => `${name}word${String(wordIndex)}`)
+    return `## ${name}\n\n${words.join(" ")}\n`
+  }
+
+  const noteOf = (sectionNames: readonly string[]): string => {
+    return sectionNames.map(section).join("\n")
+  }
+
+  type StoredChunkRow = { id: number; chunk_index: number; chunk_text: string; embedding: Buffer }
+
+  const readStoredChunks = (
+    fixture: Awaited<ReturnType<typeof createEmbeddingRaceIndex>>,
+    sourceKind: "note" | "file",
+  ): StoredChunkRow[] => {
+    const chunkTable = sourceKind === "note" ? "note_chunks" : "file_content_chunks"
+    const vectorTable = sourceKind === "note" ? "note_vectors" : "file_content_vectors"
+    return fixture.inspect
+      .prepare<[], StoredChunkRow>(
+        `SELECT chunk.id, chunk.chunk_index, chunk.chunk_text, vector.embedding
+         FROM ${chunkTable} AS chunk
+         JOIN ${vectorTable} AS vector ON vector.chunk_id = chunk.id
+         ORDER BY chunk.chunk_index`,
+      )
+      .all()
+  }
+
+  /** Each stored row paired with its own vector and with the vector its text should have */
+  const vectorsAgainstText = (rows: readonly StoredChunkRow[]) => ({
+    stored: rows.map((row) => ({ index: row.chunk_index, vector: row.embedding })),
+    expected: rows.map((row) => ({
+      index: row.chunk_index,
+      vector: Buffer.from(vectorForText(row.chunk_text).buffer),
+    })),
+  })
+
+  const saveAndEmbed = async (
+    fixture: Awaited<ReturnType<typeof createEmbeddingRaceIndex>>,
+    content: string,
+  ): Promise<void> => {
+    await fixture.embed(content, fixture.upsert(content))
+  }
+
+  const sourceKinds = [
+    { label: "note", sourceKind: "note" },
+    { label: "file", sourceKind: "file" },
+  ] as const
+
+  it.each(sourceKinds)(
+    "$label: a top insertion calls the model only for new text, and every row keeps its own text's vector",
+    async ({ sourceKind }) => {
+      const embedder = createTextVectorEmbedder()
+      const fixture = await createEmbeddingRaceIndex(sourceKind, embedder)
+      await saveAndEmbed(fixture, noteOf(["alpha", "beta", "gamma", "delta", "epsilon"]))
+      const textsBefore = new Set(
+        readStoredChunks(fixture, sourceKind).map((row) => row.chunk_text),
+      )
+      embedder.embedText.mockClear()
+
+      await saveAndEmbed(fixture, noteOf(["zeta", "alpha", "beta", "gamma", "delta", "epsilon"]))
+
+      const rowsAfter = readStoredChunks(fixture, sourceKind)
+      const newTexts = rowsAfter
+        .map((row) => row.chunk_text)
+        .filter((text) => !textsBefore.has(text))
+      expect(newTexts.length).toBeLessThan(rowsAfter.length - 1)
+      expect(embedder.embedText).toHaveBeenCalledTimes(newTexts.length)
+      for (const text of newTexts) expect(embedder.embedText).toHaveBeenCalledWith(text)
+      const { stored, expected } = vectorsAgainstText(rowsAfter)
+      expect(stored).toEqual(expected)
+    },
+  )
+
+  it.each(sourceKinds)(
+    "$label: two new chunks with identical text call the model once and both hold its vector",
+    async ({ sourceKind }) => {
+      const embedder = createTextVectorEmbedder()
+      const fixture = await createEmbeddingRaceIndex(sourceKind, embedder)
+      await saveAndEmbed(fixture, noteOf(["alpha", "beta", "gamma", "delta"]))
+      const textsBefore = new Set(
+        readStoredChunks(fixture, sourceKind).map((row) => row.chunk_text),
+      )
+      embedder.embedText.mockClear()
+
+      await saveAndEmbed(fixture, noteOf(["twin", "twin", "alpha", "beta", "gamma", "delta"]))
+
+      const rowsAfter = readStoredChunks(fixture, sourceKind)
+      const twinRows = rowsAfter.filter((row) => row.chunk_text.includes("twinword0"))
+      const distinctNewTexts = [
+        ...new Set(rowsAfter.map((row) => row.chunk_text).filter((text) => !textsBefore.has(text))),
+      ]
+      expect(twinRows.map((row) => row.chunk_index)).toEqual([0, 1])
+      expect(embedder.embedText).toHaveBeenCalledTimes(distinctNewTexts.length)
+      for (const text of distinctNewTexts) expect(embedder.embedText).toHaveBeenCalledWith(text)
+      const { stored, expected } = vectorsAgainstText(rowsAfter)
+      expect(stored).toEqual(expected)
+    },
+  )
+
+  it.each(sourceKinds)(
+    "$label: an unchanged save calls no model and rewrites no rows",
+    async ({ sourceKind }) => {
+      const embedder = createTextVectorEmbedder()
+      const fixture = await createEmbeddingRaceIndex(sourceKind, embedder)
+      const content = noteOf(["alpha", "beta", "gamma", "delta"])
+      await saveAndEmbed(fixture, content)
+      const rowIdsBefore = readStoredChunks(fixture, sourceKind).map((row) => row.id)
+      embedder.embedText.mockClear()
+
+      await saveAndEmbed(fixture, content)
+
+      expect(embedder.embedText).not.toHaveBeenCalled()
+      expect(readStoredChunks(fixture, sourceKind).map((row) => row.id)).toEqual(rowIdsBefore)
+    },
+  )
+
+  // Shortening worked before reuse too, so this guards that reuse never keeps the old tail
+  it.each(sourceKinds)(
+    "$label: a shortened source loses its stale tail and keeps every other vector",
+    async ({ sourceKind }) => {
+      const embedder = createTextVectorEmbedder()
+      const fixture = await createEmbeddingRaceIndex(sourceKind, embedder)
+      await saveAndEmbed(fixture, noteOf(["alpha", "beta", "gamma", "delta", "epsilon"]))
+      const chunkCountBefore = readStoredChunks(fixture, sourceKind).length
+
+      await saveAndEmbed(fixture, noteOf(["beta", "gamma", "delta", "epsilon"]))
+
+      const rowsAfter = readStoredChunks(fixture, sourceKind)
+      expect(rowsAfter.map((row) => row.chunk_index)).toEqual(
+        Array.from({ length: rowsAfter.length }, (_, position) => position),
+      )
+      expect(rowsAfter.length).toBe(chunkCountBefore - 1)
+      expect(fixture.vectorCount()).toBe(rowsAfter.length)
+      const { stored, expected } = vectorsAgainstText(rowsAfter)
+      expect(stored).toEqual(expected)
+    },
+  )
+})
+
+describe("background embedding waits for foreground work", () => {
+  /** Holds a tracked call open until the returned release runs */
+  const holdForegroundCall = (searchIndex: SearchIndex) => {
+    const call = Promise.withResolvers<undefined>()
+    const tracked = searchIndex.trackForegroundWork(() => call.promise)
+    return async (): Promise<void> => {
+      call.resolve(undefined)
+      await tracked
+    }
+  }
+
+  const MEMORY_FILE_CONTENT = "## Practices\n\n- **2026-07-01**: Keep current entries."
+
+  it.each([
+    { label: "note chunks", sourceKind: "note" },
+    { label: "file chunks", sourceKind: "file" },
+  ] as const)(
+    "$label wait while a tool call runs and embed after it returns",
+    async ({ sourceKind }) => {
+      const fixture = await createEmbeddingRaceIndex(sourceKind)
+      const content = "Body text that the background job embeds."
+      const sourceVersion = fixture.upsert(content)
+      const releaseCall = holdForegroundCall(fixture.searchIndex)
+
+      const embedding = fixture.embed(content, sourceVersion)
+      await letQueuedWorkRun()
+
+      expect(fixture.embedder.embedText).not.toHaveBeenCalled()
+
+      await releaseCall()
+      await embedding
+
+      expect(fixture.embedder.embedText).toHaveBeenCalledTimes(1)
+      expect(fixture.vectorCount()).toBe(1)
+    },
+  )
+
+  it("a chunk's model call runs after 5 seconds while a tool call is still running", async () => {
+    const fixture = await createEmbeddingRaceIndex("note")
+    const content = "Body text that the background job embeds."
+    const sourceVersion = fixture.upsert(content)
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
+    onTestFinished(() => {
+      vi.useRealTimers()
+    })
+    const call = Promise.withResolvers<undefined>()
+    const trackedCall = fixture.searchIndex.trackForegroundWork(() => call.promise)
+    onTestFinished(async () => {
+      call.resolve(undefined)
+      await trackedCall
+    })
+
+    const embedding = fixture.embed(content, sourceVersion)
+    await vi.advanceTimersByTimeAsync(4999)
+
+    expect(fixture.embedder.embedText).not.toHaveBeenCalled()
+
+    await vi.advanceTimersByTimeAsync(1)
+    await embedding
+
+    expect(fixture.embedder.embedText).toHaveBeenCalledTimes(1)
+    expect(fixture.vectorCount()).toBe(1)
+  })
+
+  it("a memory-entry batch runs after 5 seconds while a tool call is still running", async () => {
+    const embedder = createSameVectorEmbedder()
+    const searchIndex = createSearchIndex(":memory:", embedder, undefined, {
+      memoryDir: "About Me",
+    })
+    const notePath = "About Me/Practices.md"
+    const sourceVersion = seedEmbeddingSource(searchIndex, {
+      notePath,
+      rawContent: MEMORY_FILE_CONTENT,
+    })
+    // The first pass stores the note's chunks but no entry vectors, so the
+    // second pass has work for the memory loop alone
+    embedder.embedBatch.mockRejectedValueOnce(new Error("model unavailable"))
+    await expect(
+      searchIndex.embedNote({ notePath, rawContent: MEMORY_FILE_CONTENT, sourceVersion }, logger),
+    ).rejects.toThrow(new Error("model unavailable"))
+    embedder.embedBatch.mockClear()
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
+    onTestFinished(() => {
+      vi.useRealTimers()
+    })
+    const call = Promise.withResolvers<undefined>()
+    const trackedCall = searchIndex.trackForegroundWork(() => call.promise)
+    onTestFinished(async () => {
+      call.resolve(undefined)
+      await trackedCall
+    })
+
+    const embedding = searchIndex.embedNote(
+      { notePath, rawContent: MEMORY_FILE_CONTENT, sourceVersion },
+      logger,
+    )
+    await vi.advanceTimersByTimeAsync(4999)
+
+    expect(embedder.embedBatch).not.toHaveBeenCalled()
+
+    await vi.advanceTimersByTimeAsync(1)
+    await embedding
+
+    expect(embedder.embedBatch).toHaveBeenCalledTimes(1)
+  })
+
+  it("memory-entry batches wait while a tool call runs and embed after it returns", async () => {
+    const embedder = createSameVectorEmbedder()
+    const searchIndex = createSearchIndex(":memory:", embedder, undefined, {
+      memoryDir: "About Me",
+    })
+    const notePath = "About Me/Practices.md"
+    const sourceVersion = seedEmbeddingSource(searchIndex, {
+      notePath,
+      rawContent: MEMORY_FILE_CONTENT,
+    })
+    // The first pass stores the note's chunks but no entry vectors, so the
+    // second pass has work for the memory loop alone
+    embedder.embedBatch.mockRejectedValueOnce(new Error("model unavailable"))
+    await expect(
+      searchIndex.embedNote({ notePath, rawContent: MEMORY_FILE_CONTENT, sourceVersion }, logger),
+    ).rejects.toThrow(new Error("model unavailable"))
+    embedder.embedText.mockClear()
+    embedder.embedBatch.mockClear()
+    const releaseCall = holdForegroundCall(searchIndex)
+
+    const embedding = searchIndex.embedNote(
+      { notePath, rawContent: MEMORY_FILE_CONTENT, sourceVersion },
+      logger,
+    )
+    await letQueuedWorkRun()
+
+    expect(embedder.embedText).not.toHaveBeenCalled()
+    expect(embedder.embedBatch).not.toHaveBeenCalled()
+
+    await releaseCall()
+    await embedding
+
+    expect(embedder.embedBatch).toHaveBeenCalledTimes(1)
+  })
+
+  it.each([
+    { label: "note", sourceKind: "note" },
+    { label: "file", sourceKind: "file" },
+  ] as const)(
+    "a $label job superseded during the wait makes no model call",
+    async ({ sourceKind }) => {
+      const fixture = await createEmbeddingRaceIndex(sourceKind)
+      const firstVersion = fixture.upsert("First body text.")
+      const releaseCall = holdForegroundCall(fixture.searchIndex)
+
+      const firstEmbedding = fixture.embed("First body text.", firstVersion)
+      await letQueuedWorkRun()
+      fixture.upsert("Second body text.")
+      await releaseCall()
+      await firstEmbedding
+
+      expect(fixture.embedder.embedText).not.toHaveBeenCalled()
+      expect(fixture.vectorCount()).toBe(0)
+    },
+  )
 })
 
 describe("canvas file content and links", () => {
@@ -9754,7 +11033,12 @@ describe("canvas file content and links", () => {
       await writeFile(join(directory, "Boards/board.canvas"), PLAN_CANVAS)
       const search = createSearchIndex(":memory:")
       const rebuilt = await search.rebuildFromVault(
-        { vaultPath: directory, bodyTagParser: inProcessBodyTagParser },
+        {
+          vaultPath: directory,
+          bodyTagParser: inProcessBodyTagParser,
+          pdfExtractor: createInProcessPdfExtractor(directory),
+          maxFileBytes: 10_000_000,
+        },
         logger,
       )
       await rebuilt.embedding
@@ -10146,10 +11430,16 @@ describe("files with an uppercase extension", { timeout: 15_000 }, () => {
     const fileIndex = createSearchIndex(":memory:", undefined, undefined, {
       fileToolsEnabled: true,
     })
-    await fileIndex.rebuildFromVault(
-      { vaultPath: vaultDir, bodyTagParser: inProcessBodyTagParser },
+    const rebuilt = await fileIndex.rebuildFromVault(
+      {
+        vaultPath: vaultDir,
+        bodyTagParser: inProcessBodyTagParser,
+        pdfExtractor: createInProcessPdfExtractor(vaultDir),
+        maxFileBytes: 10_000_000,
+      },
       logger,
     )
+    await rebuilt.pdfPass
     return fileIndex
   }
 
@@ -10242,10 +11532,16 @@ describe("HTML pages", () => {
       fileToolsEnabled: true,
     })
     const rebuilt = await fileIndex.rebuildFromVault(
-      { vaultPath: vaultDir, bodyTagParser: inProcessBodyTagParser },
+      {
+        vaultPath: vaultDir,
+        bodyTagParser: inProcessBodyTagParser,
+        pdfExtractor: createInProcessPdfExtractor(vaultDir),
+        maxFileBytes: 10_000_000,
+      },
       logger,
     )
     await rebuilt.embedding
+    await rebuilt.pdfPass
     return { fileIndex, vaultDir }
   }
 
@@ -10365,10 +11661,16 @@ describe("scripts", () => {
       fileToolsEnabled: true,
     })
     const rebuilt = await fileIndex.rebuildFromVault(
-      { vaultPath, bodyTagParser: inProcessBodyTagParser },
+      {
+        vaultPath,
+        bodyTagParser: inProcessBodyTagParser,
+        pdfExtractor: createInProcessPdfExtractor(vaultPath),
+        maxFileBytes: 10_000_000,
+      },
       logger,
     )
     await rebuilt.embedding
+    await rebuilt.pdfPass
 
     const database = new Database(databasePath, { readonly: true })
     sqliteVec.load(database)
@@ -10493,7 +11795,12 @@ describe("text formats in a rebuild", () => {
       fileToolsEnabled: true,
     })
     await fileIndex.rebuildFromVault(
-      { vaultPath: vaultDir, bodyTagParser: inProcessBodyTagParser },
+      {
+        vaultPath: vaultDir,
+        bodyTagParser: inProcessBodyTagParser,
+        pdfExtractor: createInProcessPdfExtractor(vaultDir),
+        maxFileBytes: 10_000_000,
+      },
       logger,
     )
     const searchPaths = async (query: string) => {
@@ -10563,6 +11870,7 @@ describe("committed embedding source versions", () => {
       onTestFinished(() => debugSpy.mockRestore())
       const sourceVersion = fixture.upsert("Old oldquartz")
       const job = fixture.embed("Old oldquartz", sourceVersion)
+      await letQueuedWorkRun()
       expect(fixture.embedder.embedText).toHaveBeenCalledTimes(1)
 
       fixture.remove()
@@ -10591,9 +11899,11 @@ describe("committed embedding source versions", () => {
       const replacementTitle = sourceKind === "note" ? "New" : "reuse"
       const originalVersion = fixture.upsert(originalContent)
       const oldJob = fixture.embed(originalContent, originalVersion)
+      await letQueuedWorkRun()
       fixture.remove()
       const replacementVersion = fixture.upsert(replacementContent)
       const replacementJob = fixture.embed(replacementContent, replacementVersion)
+      await letQueuedWorkRun()
       expect(fixture.embedder.embedText).toHaveBeenCalledTimes(2)
 
       oldModel.resolve(new Float32Array(384).fill(0.1))
@@ -10638,6 +11948,7 @@ describe("committed embedding source versions", () => {
       const shortVersion = fixture.upsert("Short obsolete body.")
       fixture.embedder.embedText.mockImplementationOnce(() => staleModel.promise)
       const staleJob = fixture.embed("Short obsolete body.", shortVersion)
+      await letQueuedWorkRun()
       const longContent = Array.from({ length: 8 }, (_, paragraphIndex) => {
         return `## Section ${String(paragraphIndex)}\n\n${"Current content about cobalt systems. ".repeat(25)}`
       }).join("\n\n")
@@ -10736,7 +12047,12 @@ describe("committed embedding source versions", () => {
     const model = Promise.withResolvers<Float32Array>()
     fixture.embedder.embedText.mockImplementationOnce(() => model.promise)
     const { embedding } = await fixture.searchIndex.rebuildFromVault(
-      { vaultPath, bodyTagParser: inProcessBodyTagParser },
+      {
+        vaultPath,
+        bodyTagParser: inProcessBodyTagParser,
+        pdfExtractor: createInProcessPdfExtractor(vaultPath),
+        maxFileBytes: 10_000_000,
+      },
       logger,
     )
     expect(fixture.embedder.embedText).toHaveBeenCalledTimes(1)
@@ -10822,7 +12138,15 @@ describe("committed embedding source versions", () => {
     poison.arm()
 
     await expect(
-      index.rebuildFromVault({ vaultPath, bodyTagParser: inProcessBodyTagParser }, logger),
+      index.rebuildFromVault(
+        {
+          vaultPath,
+          bodyTagParser: inProcessBodyTagParser,
+          pdfExtractor: createInProcessPdfExtractor(vaultPath),
+          maxFileBytes: 10_000_000,
+        },
+        logger,
+      ),
     ).rejects.toThrow(poison.message)
     expect(debugSpy).toHaveBeenCalledWith("indexed note", {
       path: "new.md",
@@ -10838,10 +12162,16 @@ describe("committed embedding source versions", () => {
 
     poison.disarm()
     const recovered = await index.rebuildFromVault(
-      { vaultPath, bodyTagParser: inProcessBodyTagParser },
+      {
+        vaultPath,
+        bodyTagParser: inProcessBodyTagParser,
+        pdfExtractor: createInProcessPdfExtractor(vaultPath),
+        maxFileBytes: 10_000_000,
+      },
       logger,
     )
     await recovered.embedding
+    await recovered.pdfPass
     expect(recovered.count).toBe(1)
     expect(embedder.embedText).toHaveBeenCalledTimes(1)
     expect(inspect.prepare("SELECT note_path, chunk_text FROM note_chunks").all()).toEqual([
@@ -10875,10 +12205,16 @@ describe("committed embedding source versions", () => {
       memoryDir: "About Me",
     })
     const initial = await index.rebuildFromVault(
-      { vaultPath, bodyTagParser: inProcessBodyTagParser },
+      {
+        vaultPath,
+        bodyTagParser: inProcessBodyTagParser,
+        pdfExtractor: createInProcessPdfExtractor(vaultPath),
+        maxFileBytes: 10_000_000,
+      },
       logger,
     )
     await initial.embedding
+    await initial.pdfPass
     const inspect = new Database(dbPath)
     sqliteVec.load(inspect)
     onTestFinished(() => {
@@ -10936,10 +12272,16 @@ describe("committed embedding source versions", () => {
     onTestFinished(() => infoSpy.mockRestore())
 
     const rebuilt = await index.rebuildFromVault(
-      { vaultPath, bodyTagParser: inProcessBodyTagParser },
+      {
+        vaultPath,
+        bodyTagParser: inProcessBodyTagParser,
+        pdfExtractor: createInProcessPdfExtractor(vaultPath),
+        maxFileBytes: 10_000_000,
+      },
       logger,
     )
     await rebuilt.embedding
+    await rebuilt.pdfPass
     for (const store of retainedStores) {
       expect(inspect.prepare(`SELECT * FROM ${store.parentTable} ORDER BY id`).all()).toEqual(
         store.parents,
@@ -10965,10 +12307,16 @@ describe("committed embedding source versions", () => {
 
     infoSpy.mockClear()
     const repeated = await index.rebuildFromVault(
-      { vaultPath, bodyTagParser: inProcessBodyTagParser },
+      {
+        vaultPath,
+        bodyTagParser: inProcessBodyTagParser,
+        pdfExtractor: createInProcessPdfExtractor(vaultPath),
+        maxFileBytes: 10_000_000,
+      },
       logger,
     )
     await repeated.embedding
+    await repeated.pdfPass
     expect(infoSpy).toHaveBeenCalledWith("rebuilt index", {
       count: 2,
       totalBytes: 71,
@@ -11273,10 +12621,16 @@ describe("file content vector embeddings", () => {
     })
 
     const rebuilt = await index.rebuildFromVault(
-      { vaultPath, bodyTagParser: inProcessBodyTagParser },
+      {
+        vaultPath,
+        bodyTagParser: inProcessBodyTagParser,
+        pdfExtractor: createInProcessPdfExtractor(vaultPath),
+        maxFileBytes: 10_000_000,
+      },
       logger,
     )
     await rebuilt.embedding
+    await rebuilt.pdfPass
 
     // The canvas still indexes for its links, so it reached the rebuild's file list
     expect(
@@ -11474,7 +12828,12 @@ describe("trash entries (retention-sweep bookkeeping)", () => {
     vi.setSystemTime(trashTime.plus({ days: 1 }).toMillis())
 
     await trashIndex.rebuildFromVault(
-      { vaultPath: emptyVault, bodyTagParser: inProcessBodyTagParser },
+      {
+        vaultPath: emptyVault,
+        bodyTagParser: inProcessBodyTagParser,
+        pdfExtractor: createInProcessPdfExtractor(emptyVault),
+        maxFileBytes: 10_000_000,
+      },
       logger,
     )
 
@@ -11826,7 +13185,12 @@ describe("body tags", () => {
     const rebuildIndex = createSearchIndex(":memory:")
 
     const { bodyTags } = await rebuildIndex.rebuildFromVault(
-      { vaultPath: vaultDir, bodyTagParser: stubParser },
+      {
+        vaultPath: vaultDir,
+        bodyTagParser: stubParser,
+        pdfExtractor: createInProcessPdfExtractor(vaultDir),
+        maxFileBytes: 10_000_000,
+      },
       rebuildLogger,
     )
     await bodyTags
@@ -11863,7 +13227,12 @@ describe("body tags", () => {
     const rebuildIndex = createSearchIndex(":memory:")
 
     const { count, bodyTags } = await rebuildIndex.rebuildFromVault(
-      { vaultPath: vaultDir, bodyTagParser },
+      {
+        vaultPath: vaultDir,
+        bodyTagParser,
+        pdfExtractor: createInProcessPdfExtractor(vaultDir),
+        maxFileBytes: 10_000_000,
+      },
       logger,
     )
 
@@ -11879,7 +13248,12 @@ describe("body tags", () => {
     const vaultDir = await createVaultWithNotes({ "kept.md": "Old #stored\n" })
     const rebuildIndex = createSearchIndex(":memory:")
     const firstRebuild = await rebuildIndex.rebuildFromVault(
-      { vaultPath: vaultDir, bodyTagParser: inProcessBodyTagParser },
+      {
+        vaultPath: vaultDir,
+        bodyTagParser: inProcessBodyTagParser,
+        pdfExtractor: createInProcessPdfExtractor(vaultDir),
+        maxFileBytes: 10_000_000,
+      },
       logger,
     )
     await firstRebuild.bodyTags
@@ -11887,7 +13261,12 @@ describe("body tags", () => {
     const { bodyTagParser, answer } = createHeldParser()
 
     const secondRebuild = await rebuildIndex.rebuildFromVault(
-      { vaultPath: vaultDir, bodyTagParser },
+      {
+        vaultPath: vaultDir,
+        bodyTagParser,
+        pdfExtractor: createInProcessPdfExtractor(vaultDir),
+        maxFileBytes: 10_000_000,
+      },
       logger,
     )
 
@@ -11904,7 +13283,12 @@ describe("body tags", () => {
     const rebuildLogger = { ...logger, info: vi.fn() }
     const rebuildIndex = createSearchIndex(":memory:")
     const { bodyTags } = await rebuildIndex.rebuildFromVault(
-      { vaultPath: vaultDir, bodyTagParser },
+      {
+        vaultPath: vaultDir,
+        bodyTagParser,
+        pdfExtractor: createInProcessPdfExtractor(vaultDir),
+        maxFileBytes: 10_000_000,
+      },
       rebuildLogger,
     )
 
@@ -11940,7 +13324,12 @@ describe("body tags", () => {
     })
     const rebuildIndex = createSearchIndex(":memory:")
     const firstRebuild = await rebuildIndex.rebuildFromVault(
-      { vaultPath: vaultDir, bodyTagParser: inProcessBodyTagParser },
+      {
+        vaultPath: vaultDir,
+        bodyTagParser: inProcessBodyTagParser,
+        pdfExtractor: createInProcessPdfExtractor(vaultDir),
+        maxFileBytes: 10_000_000,
+      },
       logger,
     )
     await firstRebuild.bodyTags
@@ -11951,7 +13340,12 @@ describe("body tags", () => {
     const rebuildLogger = { ...logger, warn: vi.fn() }
 
     const secondRebuild = await rebuildIndex.rebuildFromVault(
-      { vaultPath: vaultDir, bodyTagParser: unavailableParser },
+      {
+        vaultPath: vaultDir,
+        bodyTagParser: unavailableParser,
+        pdfExtractor: createInProcessPdfExtractor(vaultDir),
+        maxFileBytes: 10_000_000,
+      },
       rebuildLogger,
     )
     await secondRebuild.bodyTags
@@ -11979,15 +13373,21 @@ describe("body tags", () => {
     const rebuildIndex = createSearchIndex(":memory:")
 
     const { bodyTags } = await rebuildIndex.rebuildFromVault(
-      { vaultPath: vaultDir, bodyTagParser: closedParser },
+      {
+        vaultPath: vaultDir,
+        bodyTagParser: closedParser,
+        pdfExtractor: createInProcessPdfExtractor(vaultDir),
+        maxFileBytes: 10_000_000,
+      },
       rebuildLogger,
     )
     await bodyTags
 
     expect(closedParser.parse).toHaveBeenCalledTimes(1)
     expect(pathsTaggedIn(rebuildIndex, "a")).toEqual([])
-    // Only the rebuild's own line and the stop line, so no "complete" line either
-    expect(rebuildLogger.info).toHaveBeenCalledTimes(2)
+    // The rebuild's own line, the stop line and the PDF pass's summary, so no body-tag
+    // "complete" line.
+    expect(rebuildLogger.info).toHaveBeenCalledTimes(3)
     expect(rebuildLogger.info).toHaveBeenCalledWith("rebuilt index", {
       count: 2,
       totalBytes: 14,
@@ -12019,7 +13419,12 @@ describe("body tags", () => {
     const rebuildLogger = { ...logger, info: vi.fn() }
     const rebuildIndex = createSearchIndex(":memory:")
     const { bodyTags } = await rebuildIndex.rebuildFromVault(
-      { vaultPath: vaultDir, bodyTagParser: gatedParser },
+      {
+        vaultPath: vaultDir,
+        bodyTagParser: gatedParser,
+        pdfExtractor: createInProcessPdfExtractor(vaultDir),
+        maxFileBytes: 10_000_000,
+      },
       rebuildLogger,
     )
 
@@ -12053,7 +13458,12 @@ describe("body tags", () => {
     const rebuildIndex = createSearchIndex(":memory:")
 
     const { count, bodyTags } = await rebuildIndex.rebuildFromVault(
-      { vaultPath: vaultDir, bodyTagParser: throwingParser },
+      {
+        vaultPath: vaultDir,
+        bodyTagParser: throwingParser,
+        pdfExtractor: createInProcessPdfExtractor(vaultDir),
+        maxFileBytes: 10_000_000,
+      },
       rebuildLogger,
     )
 
@@ -12104,7 +13514,12 @@ describe("body tags", () => {
       const databasePath = join(databaseDir, "index.db")
       const rebuildIndex = createSearchIndex(databasePath)
       const firstRebuild = await rebuildIndex.rebuildFromVault(
-        { vaultPath: vaultDir, bodyTagParser: inProcessBodyTagParser },
+        {
+          vaultPath: vaultDir,
+          bodyTagParser: inProcessBodyTagParser,
+          pdfExtractor: createInProcessPdfExtractor(vaultDir),
+          maxFileBytes: 10_000_000,
+        },
         logger,
       )
       await firstRebuild.bodyTags
@@ -12117,7 +13532,15 @@ describe("body tags", () => {
       // Held, so the reads below see the row the rebuild wrote before the pass
       const { bodyTagParser, requestedPaths } = createHeldParser()
 
-      await rebuildIndex.rebuildFromVault({ vaultPath: vaultDir, bodyTagParser }, rebuildLogger)
+      await rebuildIndex.rebuildFromVault(
+        {
+          vaultPath: vaultDir,
+          bodyTagParser,
+          pdfExtractor: createInProcessPdfExtractor(vaultDir),
+          maxFileBytes: 10_000_000,
+        },
+        rebuildLogger,
+      )
 
       expect(requestedPaths).toEqual(["kept.md"])
       expect(rebuildLogger.warn).toHaveBeenCalledExactlyOnceWith(...expectedWarning)

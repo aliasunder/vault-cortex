@@ -2,12 +2,13 @@ import { posix } from "node:path"
 import { getMeta, renderPageAsImage } from "unpdf"
 import type { PDFDocumentProxy } from "unpdf/pdfjs"
 import { vaultFs } from "./vault-filesystem.js"
+import { buildTextResult, requestsLineWindow, describePdfOpenFailure } from "./asset-text.js"
+import type { AssetTextResult } from "./asset-text.js"
+import type { PdfExtractor } from "./pdf-extractor.js"
 import { linearizeCanvas } from "../obsidian-markdown/canvas.js"
 import { getExtensionsOfKind, getFileKind } from "../obsidian-markdown/file-kinds.js"
-import { pageTextByLines } from "../obsidian-markdown/lines.js"
-import type { LineWindow } from "../obsidian-markdown/lines.js"
-import { extractPdfText } from "../obsidian-markdown/pdf.js"
 import { canvasImport, createPdfDocumentProxy } from "../obsidian-markdown/pdf-engine.js"
+import { toPdfData } from "../obsidian-markdown/pdf.js"
 import { decodeTextBuffer, NUL_SEARCH_WINDOW_BYTES } from "../../utils/decode-text-buffer.js"
 import { describeErrorForLog } from "../../utils/describe-error.js"
 import { fitImageToByteBudget } from "../../utils/fit-image-to-byte-budget.js"
@@ -35,13 +36,6 @@ import type { Logger } from "../../logger.js"
 
 // ── Reading ─────────────────────────────────────────────────────
 
-/** Fixed cap on text output (text files, canvas renditions and
- *  PDF-extracted text) so a huge text asset can't blow a client's response
- *  limit. Deliberately not an env var — the image budget is the tunable
- *  surface; text past this size is read in line windows, not raised into a
- *  bigger blob. */
-export const MAX_TEXT_OUTPUT_BYTES = 102_400
-
 type RenderedPdfPage = Readonly<{
   fitted: FittedImage
   pageNumber: number
@@ -61,12 +55,7 @@ export type AssetReadResult =
       originalBytes: number
       path: string
     }>
-  | Readonly<{
-      kind: "text"
-      text: string
-      path: string
-      lineWindow?: LineWindow
-    }>
+  | AssetTextResult
   /** Multiple sequential page images — e.g. rendered PDF pages. */
   | Readonly<{
       kind: "pages"
@@ -77,70 +66,8 @@ export type AssetReadResult =
       path: string
     }>
 
-/** Compares with undefined, not truthiness, so a 0 still counts as a line
- *  window request and is rejected rather than ignored. */
-const requestsLineWindow = (params: {
-  startLine?: number | undefined
-  limit?: number | undefined
-}): boolean => {
-  return params.startLine !== undefined || params.limit !== undefined
-}
-
-/** Rejects text output past the fixed cap — an explicit error beats silent
- *  truncation, and states the actual size so the caller knows what exists. */
-const assertTextWithinCap = (params: {
-  text: string
-  path: string
-  lineWindow?: LineWindow | undefined
-}): void => {
-  const { text, path, lineWindow } = params
-  const textBytes = Buffer.byteLength(text, "utf8")
-
-  if (textBytes <= MAX_TEXT_OUTPUT_BYTES) return
-
-  const renderedSubject = lineWindow
-    ? `"${path}" lines ${lineWindow.startLine}–${lineWindow.endLine} render`
-    : `"${path}" renders`
-  throw new Error(
-    `text output too large: ${renderedSubject} to ${textBytes} bytes ` +
-      `(cap ${MAX_TEXT_OUTPUT_BYTES} bytes)`,
-  )
-}
-
 const notValidUtf8Message = (path: string): string => {
   return `not valid UTF-8: "${path}" cannot be returned as text`
-}
-
-/**
- * Builds the text result for a rendition — whole or paged. Without paging
- * params the full text returns byte-identical, within the text output cap. With
- * paging, delegates line splitting, validation, and slicing to the shared
- * pageTextByLines primitive, then enforces the asset-specific byte cap on
- * the resulting window.
- */
-const buildTextResult = (params: {
-  text: string
-  path: string
-  startLine?: number | undefined
-  limit?: number | undefined
-}): AssetReadResult => {
-  const { text, path, startLine, limit } = params
-  const isPagedRead = requestsLineWindow({ startLine, limit })
-
-  if (!isPagedRead) {
-    assertTextWithinCap({ text, path })
-    return { kind: "text", text, path }
-  }
-
-  const { text: windowText, lineWindow } = pageTextByLines({
-    text,
-    path,
-    startLine,
-    limit,
-  })
-
-  assertTextWithinCap({ text: windowText, path, lineWindow })
-  return { kind: "text", text: windowText, path, lineWindow }
 }
 
 /** Decodes an asset buffer as UTF-8, rejecting invalid byte sequences — text
@@ -190,33 +117,6 @@ const buildUtf8SourceResult = (params: {
 
 // ── PDF reading ───────────────────────────────────────────────
 
-/** The server's message for pdf.js refusing to open a vault file, worded like
- *  the other read errors; undefined for any other failure. The match is on
- *  `name`:
- *  - pdf.js's PasswordException and InvalidPDFException constructors set
- *    these names.
- *  - Importing those classes for instanceof would load pdf.js at server
- *    start, so a pdf.js load failure would stop the server rather than fail
- *    only PDF reads. */
-const describePdfOpenFailure = (params: {
-  error: unknown
-  path: string
-  bytes: number
-}): string | undefined => {
-  const { error, path, bytes } = params
-
-  if (!(error instanceof Error)) return undefined
-
-  switch (error.name) {
-    case "PasswordException":
-      return `PDF is password-protected: "${path}" exists (${bytes} bytes) but cannot be opened without its password`
-    case "InvalidPDFException":
-      return `PDF is damaged or not a PDF: "${path}" exists (${bytes} bytes) but cannot be parsed`
-    default:
-      return undefined
-  }
-}
-
 /** pdf.js's refusal to open the file is rethrown as the server's own message,
  *  with pdf.js's error as the cause. */
 const openPdfDocument = async (params: { pdfData: Uint8Array; path: string; bytes: number }) => {
@@ -226,25 +126,7 @@ const openPdfDocument = async (params: { pdfData: Uint8Array; path: string; byte
     const openFailureMessage = describePdfOpenFailure({
       error,
       path: params.path,
-      bytes: params.bytes,
-    })
-
-    if (!openFailureMessage) throw error
-    throw new Error(openFailureMessage, { cause: error })
-  }
-}
-
-/** extractPdfText opens and reads the file in one call, so the try covers the
- *  whole read. Only pdf.js's refusal to open the file is reworded, as in
- *  openPdfDocument; any other failure passes through. */
-const readPdfText = async (params: { pdfData: Uint8Array; path: string; bytes: number }) => {
-  try {
-    return await extractPdfText(params.pdfData)
-  } catch (error) {
-    const openFailureMessage = describePdfOpenFailure({
-      error,
-      path: params.path,
-      bytes: params.bytes,
+      fileBytes: params.bytes,
     })
 
     if (!openFailureMessage) throw error
@@ -379,63 +261,6 @@ const readImageAsset = async (params: {
   return { kind: "image", fitted, originalBytes: asset.bytes, path }
 }
 
-/** Reads a PDF as its extracted text, or with `raw` as rendered page images,
- *  which cannot be paged by line. */
-const readPdfAsset = async (
-  params: {
-    asset: ReadAsset
-    path: string
-    raw: boolean | undefined
-    startLine: number | undefined
-    limit: number | undefined
-    maxPdfRenderPages: number
-    maxImageOutputBytes: number
-  },
-  logger: Logger,
-): Promise<AssetReadResult> => {
-  const { asset, path, raw, startLine, limit } = params
-
-  if (raw && requestsLineWindow({ startLine, limit })) {
-    throw new Error(
-      `line range is not available for rendered PDF pages: ` +
-        `"${path}" delivers page images, not text`,
-    )
-  }
-
-  // Buffer → Uint8Array view: Buffer.buffer may be Node's shared pool,
-  // so byteOffset/byteLength carve out this buffer's portion.
-  const pdfData = new Uint8Array(
-    asset.buffer.buffer,
-    asset.buffer.byteOffset,
-    asset.buffer.byteLength,
-  )
-
-  if (raw) {
-    return readPdfPages(
-      {
-        pdfData,
-        path,
-        bytes: asset.bytes,
-        maxPdfRenderPages: params.maxPdfRenderPages,
-        maxImageOutputBytes: params.maxImageOutputBytes,
-      },
-      logger,
-    )
-  }
-
-  const pdfResult = await readPdfText({ pdfData, path, bytes: asset.bytes })
-
-  if (!pdfResult.text) {
-    throw new Error(
-      `PDF has no extractable text: "${path}" exists ` +
-        `(${asset.bytes} bytes, ${pdfResult.totalPages} pages) but ` +
-        `contains no text content — it may be a scanned document or ` +
-        `image-only PDF`,
-    )
-  }
-  return buildTextResult({ text: pdfResult.text, path, startLine, limit })
-}
-
 /**
  * Reads a non-markdown vault file and returns its most useful representation
  * per type.
@@ -460,16 +285,23 @@ const readAssetContent = async (
     maxFileBytes: number
     maxImageOutputBytes: number
     maxPdfRenderPages: number
+    /** Reads a PDF's text in place of readAsset, so it carries its own vault path and byte cap. */
+    pdfExtractor: PdfExtractor
   },
   logger: Logger,
 ): Promise<AssetReadResult> => {
   const { path, raw, startLine, limit } = params
+  const fileKind = getFileKind(path)
+  const isPdfTextRead = fileKind === "pdf" && !raw
+
+  if (isPdfTextRead) return params.pdfExtractor.readText({ path, startLine, limit }, logger)
+
   const asset = await vaultFs.readAsset(
     { vaultPath: params.vaultPath, path, maxBytes: params.maxFileBytes },
     logger,
   )
 
-  switch (getFileKind(path)) {
+  switch (fileKind) {
     case "image":
       return readImageAsset({
         asset,
@@ -483,19 +315,27 @@ const readAssetContent = async (
       const text = raw ? canvasSource : linearizeCanvas(canvasSource)
       return buildTextResult({ text, path, startLine, limit })
     }
-    case "pdf":
-      return readPdfAsset(
+    // Only a raw read reaches this case; a text read returned above.
+    case "pdf": {
+      if (requestsLineWindow({ startLine, limit })) {
+        throw new Error(
+          `line range is not available for rendered PDF pages: ` +
+            `"${path}" delivers page images, not text`,
+        )
+      }
+
+      const pdfData = toPdfData(asset.buffer)
+      return readPdfPages(
         {
-          asset,
+          pdfData,
           path,
-          raw,
-          startLine,
-          limit,
+          bytes: asset.bytes,
           maxPdfRenderPages: params.maxPdfRenderPages,
           maxImageOutputBytes: params.maxImageOutputBytes,
         },
         logger,
       )
+    }
     case "text": {
       // No NUL byte check here, so a NUL-padded log keeps reading
       const text = decodeUtf8Strict({ buffer: asset.buffer, path })
