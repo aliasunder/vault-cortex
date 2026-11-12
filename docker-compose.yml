@@ -53,9 +53,9 @@ services:
       # or absent.
       #
       #   What sits in front of this container   TRUST_PROXY_HOPS  TRUST_FORWARDED_HOPS  Client IP is
-      #   Port 8000 open to the internet         0                 0                     the socket peer: the
-      #     (default, until MCP_PORT_CIDRS=none)                                           gateway or the visitor
-      #   API Gateway, port 8000 closed          1                 1                     the visitor
+      #   API Gateway directly (default):        0                 0                     the socket peer: the
+      #     port 8000 open to the gateway,                                                 gateway or the visitor
+      #     and so to everyone
       #   Gateway → tunnel (ORIGIN_URL) that     2                 0                     the gateway's address
       #     admits any client
       #   Gateway → tunnel that admits only      2                 1                     the visitor
@@ -81,10 +81,10 @@ services:
       # Port 8000 is open to the internet until MCP_PORT_CIDRS=none, and
       # anyone reaching it directly can write either header, so the defaults
       # trust neither: every visitor through the gateway then shares the
-      # gateway's bucket, but no visitor can pick one. Once the Lightsail
-      # firewall closes the port, set 1 and 1; once the tunnel is locked to
-      # the gateway (DEPLOY.md "Port 8000 Hardening"), set TRUST_PROXY_HOPS=2
-      # and TRUST_FORWARDED_HOPS=1.
+      # gateway's bucket, but no visitor can pick one. Without ORIGIN_URL the
+      # gateway reaches this port directly, so the port cannot close; once the
+      # tunnel is locked to the gateway (DEPLOY.md "Port 8000 Hardening"), set
+      # TRUST_PROXY_HOPS=2 and TRUST_FORWARDED_HOPS=1.
       TRUST_PROXY_HOPS: ${TRUST_PROXY_HOPS:-0}
       TRUST_FORWARDED_HOPS: ${TRUST_FORWARDED_HOPS:-0}
       LOG_LEVEL: ${LOG_LEVEL:-info}
