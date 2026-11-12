@@ -2403,7 +2403,7 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
     // A line number from an earlier listing can point at a different task
     // once another write shifts the note.
     // - The listing and an update result both take a description from
-    //   parseTaskMetadata, which trims only its ends.
+    //   parseTaskMetadata, which trims its ends.
     // - The caller's value is trimmed the same way and then compared exactly,
     //   so an empty or whitespace-only value matches a task with no text.
     const descriptionDiffers =
