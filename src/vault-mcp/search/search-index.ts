@@ -1506,8 +1506,9 @@ export const createSearchIndex = (
   const reResolveLinks = (storedLinks: readonly StoredLink[]): void => {
     if (storedLinks.length === 0) return
 
-    // Read here rather than from the canvas note cache, so the paths include
-    // the note the triggering write just added or removed.
+    // Read here rather than from getNotePathsForCanvasLinks, so the paths
+    // include the note the triggering write just added or removed. Every link
+    // resolves against this one list, so links.resolve folds it only once.
     const notePaths = selectAllNotePathsStmt.all().map((note) => note.path)
     // Only the relative tiers read a link's source, and only its folder, so one
     // answer serves every link with the same text from the same folder.
