@@ -2918,6 +2918,33 @@ describe("runInit re-run keeps the instance identity", () => {
     expect(dockerRun).not.toHaveBeenCalled()
   })
 
+  it("stops a re-run whose kept PUBLIC_URL is not a bare origin, before writing .env", async () => {
+    const vaultDir = makeVault()
+    const targetDir = makeTargetDir()
+    mkdirSync(targetDir, { recursive: true })
+    const existingEnv = `MCP_AUTH_TOKEN=old\nVAULT_PATH=${vaultDir}\nPUBLIC_URL=http://localhost:8000/vault\n`
+    writeFileSync(join(targetDir, ".env"), existingEnv)
+    const dockerRun = vi.fn(() => true)
+    const scripted = createScriptedPrompts([true]) // re-run setup anyway
+
+    const exitCode = await runInit(
+      { mode: "local", vaultPath: vaultDir, dir: targetDir },
+      {
+        prompts: scripted.prompts,
+        docker: { ...dockerReadyEmptyHost, dockerRun },
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(exitCode).toBe(1)
+    expect(scripted.errors).toEqual([
+      `PUBLIC_URL must be a bare origin — no path (e.g. https://vault.example.com, not https://vault.example.com/vault/). Fix it in ${targetDir}/.env.`,
+    ])
+    expect(scripted.asked).toEqual(["Re-run setup for this directory anyway?"])
+    expect(readFileSync(join(targetDir, ".env"), "utf8")).toBe(existingEnv)
+    expect(dockerRun).not.toHaveBeenCalled()
+  })
+
   it("warns when --port moves a re-run off the port its custom PUBLIC_URL serves", async () => {
     const vaultDir = makeVault()
     const targetDir = makeTargetDir()
