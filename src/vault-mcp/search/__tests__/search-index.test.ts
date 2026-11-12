@@ -6294,6 +6294,51 @@ describe("links after a file is added or removed", () => {
     })
   })
 
+  describe("a note whose name ends in a capital sigma, renamed into another folder", () => {
+    // The resolver lowercases "ΟΔΟΣ.md" to "οδοσ.md", so [[οδοσ]] reaches the
+    // note. The note's name key lowercases "ΟΔΟΣ" alone, which ends in "ς",
+    // so the add finds the link only because the key folds "ς" to "σ".
+    const SOURCE_LINKING_SIGMA = { path: "source.md", content: "# Source\n\n[[οδοσ]]\n" }
+    const FILES_AFTER_RENAME = [SOURCE_LINKING_SIGMA, { path: "folder/ΟΔΟΣ.md", content: NOTE }]
+    const EXPECTED_AFTER_RENAME: LinkView = {
+      outgoing: [{ path: "folder/ΟΔΟΣ.md", exists: true }],
+      backlinks: { "folder/ΟΔΟΣ.md": ["source.md"] },
+      orphans: ["source.md"],
+    }
+
+    it("moves [[οδοσ]] to the renamed ΟΔΟΣ.md when the add arrives first", async () => {
+      const search = createSearchIndex(":memory:")
+      saveLinkTestNote(search, SOURCE_LINKING_SIGMA.path, SOURCE_LINKING_SIGMA.content)
+      saveLinkTestNote(search, "ΟΔΟΣ.md")
+      saveLinkTestNote(search, "folder/ΟΔΟΣ.md")
+      search.removeNote("ΟΔΟΣ.md")
+
+      await expectViewAsRebuilt({
+        search,
+        files: FILES_AFTER_RENAME,
+        source: "source.md",
+        backlinksOf: ["folder/ΟΔΟΣ.md"],
+        expected: EXPECTED_AFTER_RENAME,
+      })
+    })
+
+    it("moves [[οδοσ]] to the renamed ΟΔΟΣ.md when the removal arrives first", async () => {
+      const search = createSearchIndex(":memory:")
+      saveLinkTestNote(search, SOURCE_LINKING_SIGMA.path, SOURCE_LINKING_SIGMA.content)
+      saveLinkTestNote(search, "ΟΔΟΣ.md")
+      search.removeNote("ΟΔΟΣ.md")
+      saveLinkTestNote(search, "folder/ΟΔΟΣ.md")
+
+      await expectViewAsRebuilt({
+        search,
+        files: FILES_AFTER_RENAME,
+        source: "source.md",
+        backlinksOf: ["folder/ΟΔΟΣ.md"],
+        expected: EXPECTED_AFTER_RENAME,
+      })
+    })
+  })
+
   describe("a note renamed beside a longer path with the same name", () => {
     // Projects/B.md is shorter than Zzzzzzzz-long/B.md, so [[B]] prefers it.
     const FILES_AFTER_RENAME = [
