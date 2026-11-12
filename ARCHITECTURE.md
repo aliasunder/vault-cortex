@@ -443,6 +443,8 @@ Four design choices shape the query surface:
 
 Both tools refuse a `block_id` found at the end of more than one task line, as the task to update or as a new sub-task's parent, and list every matching line instead of acting on the first.
 
+`vault_update_task` takes an optional `expected_description` and refuses the update, before any change, when the located task's description differs from it. Both sides come from the parser `vault_list_tasks` uses, so a line number left stale by another write is caught whenever it now points at a task with different text.
+
 Both tools parse the written line back (`diffTaskRoundTrip` in `tasks.ts`) and return an advisory, not an error, for each field that does not read back as the call intended. Description or checklist text that ends in a signifier is read back according to that field's value grammar: a trailing `🔁` reads any following words as its recurrence rule, while `📅` followed by words that are not a `YYYY-MM-DD` date stays description text.
 
 `vault_create_task` and `vault_update_task` read the Tasks plugin's format and date toggles on every write, so a change in Obsidian applies to the next write. The plugin's status registry is read once at boot, so `vault_list_tasks` and the two write tools always agree on which checkboxes are tasks; a status-type change needs a restart.
