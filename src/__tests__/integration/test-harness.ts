@@ -11,7 +11,10 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js"
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js"
 import type { ChildProcess } from "node:child_process"
 
-const AUTH_TOKEN = "test-integration-token"
+// The length of a generated token (64 characters), so the harness boots
+// like a documented install: /mcp's failed sign-in limiter stays off unless
+// a test shortens the token on purpose.
+const AUTH_TOKEN = "test-integration-token-of-generated-length-sixty-four-characters"
 const FIXTURE_VAULT = resolve(import.meta.dirname, "fixtures/vault")
 const SERVER_ENTRY = resolve(import.meta.dirname, "../../vault-mcp/server.ts")
 
@@ -242,7 +245,6 @@ export const startServer = async (
 
   try {
     await Promise.race([started, earlyExit.promise, startTimeout.promise])
-    clearTimeout(startTimeoutTimer)
     // "server started" proves this child bound the port; /healthz confirms
     // it also answers HTTP requests.
     await Promise.race([pollHealthz(port, bootStepTimeoutMs), earlyExit.promise])

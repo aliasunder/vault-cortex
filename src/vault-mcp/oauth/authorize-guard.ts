@@ -1,69 +1,63 @@
 /** The /authorize guard — mounted ahead of the SDK's authorization handler.
- *  It counts every request against the endpoint's rate limit, shows a page
- *  when the client's registration is gone, then turns each error redirect
- *  the SDK would send into a direct response. */
+ *  It leaves every check to the SDK and rewrites two of the SDK's answers:
+ *  the JSON error for an unknown client becomes a page a person can act on,
+ *  and every error redirect becomes a direct response. */
 
-import express, { Router } from "express"
+import { Router } from "express"
 import type { NextFunction, Request, Response } from "express"
-import { rateLimit, type Options as RateLimitOptions } from "express-rate-limit"
-import { TooManyRequestsError } from "@modelcontextprotocol/sdk/server/auth/errors.js"
-import type { OAuthRegisteredClientsStore } from "@modelcontextprotocol/sdk/server/auth/clients.js"
 import { extractClientIp } from "../../auth.js"
 import type { Logger } from "../../logger.js"
 import { renderUnknownClientPage } from "./unknown-client-page.js"
 
 type AuthorizeGuardOptions = {
-  /** The window, limit, key and 429 handler every OAuth endpoint shares. */
-  rateLimitOptions: Partial<RateLimitOptions>
-  clientsStore: OAuthRegisteredClientsStore
   trustForwardedHops: number
   logger: Logger
-}
-
-/** The client_id of a GET's query or a POST's form, when the request names one. */
-const requestedClientId = (req: Request): string | undefined => {
-  const params: unknown = req.method === "POST" ? req.body : req.query
-  const clientId =
-    typeof params === "object" && params !== null && "client_id" in params
-      ? params.client_id
-      : undefined
-  return typeof clientId === "string" && clientId ? clientId : undefined
 }
 
 /** The redirect the SDK builds, read back as the response it becomes. */
 type RedirectedError = {
   status: 400 | 500
-  body: { error: string; error_description: string; error_uri?: string }
+  body: { error: string; error_description: string }
 }
 
 // The SDK's catch-all code for a thrown non-OAuth exception; every other
 // code reports a bad request.
 const SERVER_ERROR_CODE = "server_error"
 
-const UNNAMED_ERROR: RedirectedError = {
-  status: 400,
-  body: { error: "invalid_request", error_description: "Invalid authorization request" },
-}
+// The SDK's /authorize handler answers this code, as JSON, only for a
+// client_id it does not store.
+const UNKNOWN_CLIENT_CODE = "invalid_client"
+
+const DEFAULT_ERROR_DESCRIPTION = "Invalid authorization request"
 
 /** Reads the OAuth error out of the redirect URL the SDK built. A redirect
- *  that names no error is refused all the same, so a redirect a later SDK
- *  version adds cannot reopen the endpoint. */
+ *  that names no error is refused all the same, so no redirect a later SDK
+ *  version adds can send the visitor on to the client's address. */
 const redirectedErrorFromUrl = (redirectUrl: string | undefined): RedirectedError => {
   const parsedUrl = redirectUrl ? URL.parse(redirectUrl) : null
   const errorCode = parsedUrl?.searchParams.get("error")
 
-  if (!parsedUrl || !errorCode) return UNNAMED_ERROR
-  const errorUri = parsedUrl.searchParams.get("error_uri")
+  if (!parsedUrl || !errorCode) {
+    return {
+      status: 400,
+      body: { error: "invalid_request", error_description: DEFAULT_ERROR_DESCRIPTION },
+    }
+  }
   const errorDescription = parsedUrl.searchParams.get("error_description")
 
   return {
     status: errorCode === SERVER_ERROR_CODE ? 500 : 400,
-    body: {
-      error: errorCode,
-      error_description: errorDescription ?? UNNAMED_ERROR.body.error_description,
-      ...(errorUri ? { error_uri: errorUri } : {}),
-    },
+    body: { error: errorCode, error_description: errorDescription ?? DEFAULT_ERROR_DESCRIPTION },
   }
+}
+
+const isUnknownClientAnswer = (body: unknown): boolean => {
+  return (
+    typeof body === "object" &&
+    body !== null &&
+    "error" in body &&
+    body.error === UNKNOWN_CLIENT_CODE
+  )
 }
 
 /** On /authorize a valid request only renders the consent page; the SDK
@@ -72,66 +66,58 @@ const redirectedErrorFromUrl = (redirectUrl: string | undefined): RedirectedErro
  *  from this server's domain to any site. The guard answers the error here
  *  instead (RFC 9700 §4.11.2 permits refusing to redirect). */
 export const createAuthorizeGuard = ({
-  rateLimitOptions,
-  clientsStore,
   trustForwardedHops,
   logger,
 }: AuthorizeGuardOptions): Router => {
   const guard = Router()
 
-  // Replaces the SDK's own /authorize limiter, which sits behind this guard
-  // and would otherwise never see a request the guard answers. The message
-  // and header options are the SDK's, so the 429 is unchanged for clients.
-  guard.use(
-    rateLimit({
-      ...rateLimitOptions,
-      standardHeaders: true,
-      legacyHeaders: false,
-      message: new TooManyRequestsError(
-        "You have exceeded the rate limit for authorization requests",
-      ).toResponseObject(),
-    }),
-  )
-
-  // The SDK's handler parses the form itself; its parser finds the body
-  // already read and keeps it.
-  guard.use(express.urlencoded({ extended: false }))
-
-  // A browser reaches this page when the client it sits in front of holds
-  // a client_id the server no longer stores: the server's data was reset,
-  // or the registration never signed in and was swept. The SDK would answer
-  // a JSON error the person cannot act on. A request that names no client
-  // is left to the SDK, whose JSON error is read by a client, not a person.
-  guard.use(async (req: Request, res: Response, next: NextFunction) => {
-    const clientId = requestedClientId(req)
-
-    if (!clientId || (await clientsStore.getClient(clientId))) {
-      next()
-      return
-    }
-    logger.warn("oauth_authorize_rejected", {
-      clientIp: extractClientIp(req, trustForwardedHops),
-      reason: "unknown_client",
-    })
-    res.status(400).set("Cache-Control", "no-store").type("html").send(renderUnknownClientPage())
+  // No /authorize answer may be cached. Set first, so the SDK limiter's and
+  // form parser's refusals carry it too.
+  guard.use((_req: Request, res: Response, next: NextFunction) => {
+    res.set("Cache-Control", "no-store")
+    next()
   })
 
   guard.use((req: Request, res: Response, next: NextFunction) => {
-    // An own property on this response shadows Express's prototype method
-    // for this request only. The SDK calls res.redirect(302, url); Express
-    // also accepts (url) and (url, status), so the URL is whichever argument
-    // is the string.
+    const clientIp = extractClientIp(req, trustForwardedHops)
+
+    // Own properties on this response shadow Express's prototype methods for
+    // this request only. The original json is kept to send every JSON answer.
+    const sendJson = res.json.bind(res)
+
+    // A browser reaches this page when the MCP client that opened the browser
+    // holds a client_id the server no longer stores: the server's data was
+    // reset, or the registration never signed in and was swept. The SDK
+    // answers a JSON error the person cannot act on; every other JSON answer
+    // is read by a client and goes through unchanged.
+    res.json = (body: unknown): Response => {
+      if (!isUnknownClientAnswer(body)) return sendJson(body)
+      logger.warn("oauth_authorize_rejected", { clientIp, reason: "unknown_client" })
+      return res.type("html").send(renderUnknownClientPage())
+    }
+
+    // The SDK calls res.redirect(302, url), and Express also accepts
+    // res.redirect(url), so the URL is whichever argument is the string.
     res.redirect = (...redirectArgs: ReadonlyArray<string | number>): void => {
       const redirectUrl = redirectArgs.find((argument) => typeof argument === "string")
       const { status, body } = redirectedErrorFromUrl(redirectUrl)
-      const clientIp = extractClientIp(req, trustForwardedHops)
 
-      if (status === 500) {
-        logger.error("oauth_authorize_failed", { clientIp, error: body.error_description })
-      } else {
-        logger.warn("oauth_authorize_rejected", { clientIp, reason: body.error })
+      // The provider logs its own refusals with the client ID, but the SDK's
+      // parameter checks log nothing, so this line records the error and its
+      // description.
+      const answeredErrorFields = {
+        clientIp,
+        error: body.error,
+        errorDescription: body.error_description,
       }
-      res.status(status).set("Cache-Control", "no-store").json(body)
+
+      if (body.error === SERVER_ERROR_CODE) {
+        logger.error("oauth_authorize_failed", answeredErrorFields)
+      } else {
+        logger.warn("oauth_authorize_error_answered", answeredErrorFields)
+      }
+      res.status(status)
+      sendJson(body)
     }
     next()
   })

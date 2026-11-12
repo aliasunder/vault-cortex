@@ -2374,9 +2374,11 @@ describe("OAuth refresh token storage keyed by the auth token", () => {
 
 const EIGHT_DAYS_AGO = DateTime.now().minus({ days: 8 }).toUnixInteger()
 const SIX_DAYS_AGO = DateTime.now().minus({ days: 6 }).toUnixInteger()
-// Either side of the never-signed-in sweep's one-hour age
-const SIXTY_ONE_MINUTES_AGO = DateTime.now().minus({ minutes: 61 }).toUnixInteger()
-const FIFTY_NINE_MINUTES_AGO = DateTime.now().minus({ minutes: 59 }).toUnixInteger()
+// Either side of the never-signed-in sweep's one-hour age. Read at seeding
+// time: a value fixed when the file loads would leave the younger one only a
+// minute before it ages past the sweep.
+const sixtyOneMinutesAgo = (): number => DateTime.now().minus({ minutes: 61 }).toUnixInteger()
+const fiftyNineMinutesAgo = (): number => DateTime.now().minus({ minutes: 59 }).toUnixInteger()
 const SIXTY_DAYS_AHEAD = DateTime.now().plus({ days: 60 }).toUnixInteger()
 
 const createOAuthDbPath = async (): Promise<string> => {
@@ -2519,7 +2521,7 @@ describe("OAuth client sign-in stamp", () => {
     createOAuthProvider({ ...TEST_URLS, authToken: AUTH_TOKEN, dbPath, logger })
     const db = openDb(dbPath)
     // Young enough that the second boot's sweep keeps it
-    seedClientIssuedAt(db, "registered-after-upgrade", FIFTY_NINE_MINUTES_AGO)
+    seedClientIssuedAt(db, "registered-after-upgrade", fiftyNineMinutesAgo())
     const logs: LogCall[] = []
 
     createOAuthProvider({
@@ -2589,7 +2591,7 @@ describe("OAuth never-signed-in client sweep", () => {
   it("sweeps a client older than an hour that never signed in, at boot", async () => {
     const { dbPath, logs } = await createSweepTest()
     const db = openDb(dbPath)
-    seedClientIssuedAt(db, "old-never-signed-in", SIXTY_ONE_MINUTES_AGO)
+    seedClientIssuedAt(db, "old-never-signed-in", sixtyOneMinutesAgo())
 
     createOAuthProvider({
       ...TEST_URLS,
@@ -2610,7 +2612,7 @@ describe("OAuth never-signed-in client sweep", () => {
   it("keeps a client younger than an hour that never signed in", async () => {
     const { dbPath, logs } = await createSweepTest()
     const db = openDb(dbPath)
-    seedClientIssuedAt(db, "recent-never-signed-in", FIFTY_NINE_MINUTES_AGO)
+    seedClientIssuedAt(db, "recent-never-signed-in", fiftyNineMinutesAgo())
 
     createOAuthProvider({
       ...TEST_URLS,
@@ -2632,7 +2634,7 @@ describe("OAuth never-signed-in client sweep", () => {
     seedClientIssuedAt(db, "signed-in-without-tokens", EIGHT_DAYS_AGO)
     stampSignedIn(db, "signed-in-without-tokens", EIGHT_DAYS_AGO)
     // The same boot must sweep this one, which proves the sweep ran.
-    seedClientIssuedAt(db, "old-never-signed-in", SIXTY_ONE_MINUTES_AGO)
+    seedClientIssuedAt(db, "old-never-signed-in", sixtyOneMinutesAgo())
 
     createOAuthProvider({ ...TEST_URLS, authToken: AUTH_TOKEN, dbPath, logger })
 
@@ -2649,7 +2651,7 @@ describe("OAuth never-signed-in client sweep", () => {
       logger,
     })
     // Seeded after the boot so the registration itself has to sweep it.
-    seedClientIssuedAt(db, "old-never-signed-in", SIXTY_ONE_MINUTES_AGO)
+    seedClientIssuedAt(db, "old-never-signed-in", sixtyOneMinutesAgo())
     const { clientsStore } = oauth.provider
 
     if (!clientsStore.registerClient) {

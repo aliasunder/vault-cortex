@@ -8,7 +8,7 @@ import { metadataHandler } from "@modelcontextprotocol/sdk/server/auth/handlers/
 import type { OAuthProtectedResourceMetadata } from "@modelcontextprotocol/sdk/shared/auth.js"
 import { extractClientIp, safeEqual, tokenBindingForServer } from "../../auth.js"
 import { createAuthorizeGuard } from "./authorize-guard.js"
-import { renderConsentPage } from "./consent-page.js"
+import { renderAccessDeniedPage, renderConsentPage } from "./consent-page.js"
 import { VAULT_SCOPE, type OAuthProvider } from "./oauth-provider.js"
 import type { Logger } from "../../logger.js"
 
@@ -27,8 +27,8 @@ type OAuthRoutesOptions = {
   logger: Logger
 }
 
-// The largest registration a real client has stored is under 500 bytes; the
-// consent-request cap (MAX_PENDING_REQUEST_PARAMS_BYTES) uses the same figure.
+// The largest registration a real client has stored is under 500 bytes. The
+// cap matches the consent-request cap (MAX_PENDING_REQUEST_PARAMS_BYTES).
 const REGISTRATION_BODY_LIMIT = "8kb"
 
 export const createOAuthRoutes = ({
@@ -43,14 +43,13 @@ export const createOAuthRoutes = ({
   const { provider, getPendingRequest, approveRequest, deletePendingRequest } = oauthProvider
   const router = Router()
 
-  // 5 req/min per client IP on each flow endpoint (/authorize through its
-  // guard, /token, /register, /revoke, /oauth/decide — each mounts its own
-  // limiter), far
+  // 5 req/min per client IP on each flow endpoint (/authorize, /token,
+  // /register, /revoke, /oauth/decide — each mounts its own limiter), far
   // tighter than the SDK's per-endpoint defaults: a complete OAuth flow
   // touches each endpoint at most twice per minute, so 5/min absorbs
-  // reconnect storms while shutting down brute force. windowMs/max mirror
-  // the exact keys the SDK sets before spreading this config, so the spread
-  // replaces them outright.
+  // reconnect storms while shutting down brute force. The SDK's handlers set
+  // windowMs and max, then spread this object over them, so these two keys
+  // replace the SDK's values.
   const oauthRateLimitOptions = {
     windowMs: 60 * 1000,
     max: 5,
@@ -73,7 +72,7 @@ export const createOAuthRoutes = ({
       options: { statusCode: number; message: unknown },
     ) => {
       const requestPath =
-        URL.parse(req.originalUrl, "http://localhost")?.pathname ?? req.originalUrl
+        URL.parse(req.originalUrl, "http://localhost")?.pathname ?? "(unparseable path)"
       routeLogger.warn("oauth_rate_limited", {
         clientIp: extractClientIp(req, trustForwardedHops),
         path: requestPath,
@@ -124,20 +123,11 @@ export const createOAuthRoutes = ({
     }),
   )
 
-  // Ahead of the SDK's /authorize handler: it carries that endpoint's rate
-  // limit (the SDK's own is off below, so a request is counted once), shows
-  // a person whose client registration is gone how to reconnect, and
-  // answers every error the SDK would otherwise redirect to the client's
-  // registered address.
-  router.use(
-    "/authorize",
-    createAuthorizeGuard({
-      rateLimitOptions: oauthRateLimitOptions,
-      clientsStore: provider.clientsStore,
-      trustForwardedHops,
-      logger,
-    }),
-  )
+  // Ahead of the SDK's /authorize handler: it rewrites the SDK's unknown-client
+  // answer into a page that says how to reconnect, and every error the SDK
+  // would otherwise redirect to the client's registered address into a direct
+  // response. The SDK's own limiter and checks run unchanged.
+  router.use("/authorize", createAuthorizeGuard({ trustForwardedHops, logger: routeLogger }))
 
   // Ahead of the SDK's /register handler, whose own JSON parser accepts 100 KB
   // and whose metadata schema caps no field. The SDK's parser finds the body
@@ -152,7 +142,7 @@ export const createOAuthRoutes = ({
       issuerUrl: serverUrl,
       serviceDocumentationUrl: new URL(serviceDocumentationUrl),
       scopesSupported,
-      authorizationOptions: { rateLimit: false },
+      authorizationOptions: { rateLimit: oauthRateLimitOptions },
       clientRegistrationOptions: { rateLimit: oauthRateLimitOptions },
       revocationOptions: { rateLimit: oauthRateLimitOptions },
       tokenOptions: { rateLimit: oauthRateLimitOptions },
@@ -220,15 +210,13 @@ export const createOAuthRoutes = ({
 
       // Any action but an explicit Approve denies, so an unexpected form
       // value can never grant access.
+      // A denial needs no token, so it is answered on the server: a redirect
+      // to the client's registered address would let a page that submits
+      // this form send a visitor from this server's domain to any site.
       if (action !== "approve") {
         consentLogger.info("oauth_consent_denied_by_user")
         deletePendingRequest(requestId)
-        const redirectUrl = new URL(pendingRequest.params.redirectUri)
-        redirectUrl.searchParams.set("error", "access_denied")
-        if (pendingRequest.params.state) {
-          redirectUrl.searchParams.set("state", pendingRequest.params.state)
-        }
-        res.redirect(redirectUrl.toString())
+        res.set("Cache-Control", "no-store").type("html").send(renderAccessDeniedPage())
         return
       }
 

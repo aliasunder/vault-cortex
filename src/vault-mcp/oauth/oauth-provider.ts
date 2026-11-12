@@ -52,7 +52,7 @@ const PENDING_REQUEST_TTL_S = 10 * 60
 // Caps the JSON size of a consent request's stored parameters. Real clients
 // send under 2 KB, and a JWT used as `state` can reach about 4 KB. Without
 // the cap, anyone could make a held request keep up to 100 KB, the default
-// body limit of the express.urlencoded parser the SDK mounts on /authorize.
+// body limit of the express.urlencoded parsers on /authorize.
 const MAX_PENDING_REQUEST_PARAMS_BYTES = 8192
 // Every rejected code gets this one message, so a code issued to another
 // client looks the same as an unknown one.
@@ -72,8 +72,9 @@ type PendingAuthRequest = {
 }
 
 /** A held consent request keeps the client's ID, not a parsed copy of its
- *  registration, which can run to the 100 KB that the SDK's express.json
- *  parser on /register accepts. Lookups load the client from the database. */
+ *  registration, which can run to the 8 KB that /register accepts
+ *  (REGISTRATION_BODY_LIMIT in oauth-routes.ts). Lookups load the client
+ *  from the database. */
 type StoredPendingRequest = Omit<PendingAuthRequest, "client"> & { clientId: string }
 
 type StoredAuthCode = {
@@ -104,10 +105,11 @@ const REFRESH_TOKEN_KEY_LABEL = "refresh-token:"
 
 // A registration older than this that never signed in is swept:
 // - a client has signed in once the server has saved a refresh token for it;
-// - a consent request and an authorization code each live ten minutes, so no
-//   sign-in attempt outlives an hour, and in practice consent follows
-//   registration within two minutes. Clients register more than once per
-//   connect, and only one of those registrations signs in;
+// - consent follows registration within two minutes in practice, and a
+//   consent request and an authorization code each live ten minutes, so a
+//   sign-in the sweep cuts off is one that started unusually late. Clients
+//   register more than once per connect, and only one of those
+//   registrations signs in;
 // - the sweep runs only at boot and before a registration, and a swept
 //   client is told at /authorize how to reconnect;
 // - /register needs no sign-in, so the age bounds how much disk anyone can
@@ -118,9 +120,9 @@ const NEVER_SIGNED_IN_CLIENT_MAX_AGE_S = 60 * 60
  *  marks every existing client signed in. */
 const addSignedInAtColumnAndMarkExistingClients = (db: Database.Database, logger: Logger): void => {
   // The column and its marks commit together. A column added without them
-  // would let the sweep delete every signed-in client registered more than a
-  // week before the upgrade, and the next boot would find the column and
-  // never mark them.
+  // would let the sweep delete every signed-in client registered more than
+  // NEVER_SIGNED_IN_CLIENT_MAX_AGE_S before the upgrade, and the next boot
+  // would find the column and never mark them.
   const addColumnAndMarkClients = db.transaction((): number => {
     const hasSignedInAt = db
       .prepare("SELECT 1 FROM pragma_table_info('clients') WHERE name = 'signed_in_at'")
@@ -229,9 +231,9 @@ class SqliteClientsStore implements OAuthRegisteredClientsStore {
   /** Deletes every registration older than NEVER_SIGNED_IN_CLIENT_MAX_AGE_S
    *  that never signed in.
    *
-   *  A client that signed in is never swept, because a swept client would
-   *  retry its dead client_id forever. /authorize rejects an unknown ID in
-   *  the browser, where the client never sees the error. */
+   *  /authorize rejects an unknown ID in the browser, where the client never
+   *  sees the error, so a swept client would retry its dead client_id
+   *  forever. A client that signed in is therefore never swept. */
   private sweepNeverSignedInClients(): void {
     const issuedBefore = DateTime.now().toUnixInteger() - NEVER_SIGNED_IN_CLIENT_MAX_AGE_S
     const { changes: sweptClientCount } = this.deleteNeverSignedInClientsStmt.run(issuedBefore)
@@ -243,6 +245,8 @@ class SqliteClientsStore implements OAuthRegisteredClientsStore {
     })
   }
 
+  /** Stamps the time of the client's latest saved refresh token. The sweep
+   *  reads only whether signed_in_at is set. */
   markSignedIn(clientId: string): void {
     this.markSignedInStmt.run(DateTime.now().toUnixInteger(), clientId)
   }
@@ -606,8 +610,9 @@ export const createOAuthProvider = ({
       // arrive; purging on each one, refused or not, keeps expired requests
       // from piling up.
       purgeExpiredPendingRequests()
-      // Thrown before anything is sent, so the SDK's handler can still
-      // redirect the client with error=invalid_target.
+      // Thrown before anything is sent. The SDK's handler turns the error
+      // into an error=invalid_target redirect, which the /authorize guard
+      // (authorize-guard.ts) answers with a 400 instead.
       assertResourceIsThisServer(params.resource, client.client_id)
       const requestId = randomUUID()
       const scopes = [VAULT_SCOPE]

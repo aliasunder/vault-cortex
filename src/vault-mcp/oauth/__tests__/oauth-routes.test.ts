@@ -14,6 +14,7 @@ import { createOAuthProvider } from "../oauth-provider.js"
 import type { OAuthProvider } from "../oauth-provider.js"
 import { createOAuthRoutes } from "../oauth-routes.js"
 import { renderUnknownClientPage } from "../unknown-client-page.js"
+import { renderAccessDeniedPage } from "../consent-page.js"
 import { logger, type Logger } from "../../../logger.js"
 
 type LogCall = {
@@ -532,21 +533,36 @@ describe("OAuth consent audit logging", () => {
     })
   })
 
-  it("logs oauth_consent_denied_by_user on deny action", async () => {
+  // A denial needs no token, so a page anyone serves could submit it; the
+  // answer therefore never redirects to the client's registered address.
+  it("answers a deny on the server with the access-denied page and no redirect", async () => {
     const { requestId, clientId } = await startPendingRequest()
     logs.length = 0
 
-    await fetch(`${baseUrl}/oauth/decide`, {
+    const response = await fetch(`${baseUrl}/oauth/decide`, {
       method: "POST",
       headers: { "content-type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({
         request_id: requestId,
-        token: AUTH_TOKEN,
+        token: "not-the-token",
         action: "deny",
       }),
       redirect: "manual",
     })
 
+    expect({
+      status: response.status,
+      location: response.headers.get("location"),
+      cache: response.headers.get("cache-control"),
+      contentType: response.headers.get("content-type"),
+      html: await response.text(),
+    }).toEqual({
+      status: 200,
+      location: null,
+      cache: "no-store",
+      contentType: "text/html; charset=utf-8",
+      html: renderAccessDeniedPage(),
+    })
     const event = logs.find((log) => log.message === "oauth_consent_denied_by_user")
     expect(event).toEqual({
       level: "info",
@@ -1453,16 +1469,22 @@ describe("OAuth refresh over HTTP", () => {
       return rest
     }
 
+    // The SDK's own refusals describe the request with its schema library's
+    // issue list, so only the descriptions this server writes are pinned.
+    const SDK_DESCRIPTION = expect.any(String)
+
     it.each([
       {
         label: "a wrong response_type",
         malform: (params: Record<string, string>) => ({ ...params, response_type: "token" }),
         error: "invalid_request",
+        description: SDK_DESCRIPTION,
       },
       {
         label: "a missing code_challenge",
         malform: withoutCodeChallenge,
         error: "invalid_request",
+        description: SDK_DESCRIPTION,
       },
       {
         label: "a plain code_challenge_method",
@@ -1471,6 +1493,7 @@ describe("OAuth refresh over HTTP", () => {
           code_challenge_method: "plain",
         }),
         error: "invalid_request",
+        description: SDK_DESCRIPTION,
       },
       {
         label: "a resource naming another server",
@@ -1479,13 +1502,15 @@ describe("OAuth refresh over HTTP", () => {
           resource: "https://other.example/mcp",
         }),
         error: "invalid_target",
+        description: "The resource parameter is not this server",
       },
       {
         label: "parameters over 8 KB",
         malform: (params: Record<string, string>) => ({ ...params, state: "s".repeat(9000) }),
         error: "invalid_request",
+        description: "Authorization request parameters are too large",
       },
-    ])("answers $label with a 400 and no Location", async ({ malform, error }) => {
+    ])("answers $label with a 400 and no Location", async ({ malform, error, description }) => {
       const { baseUrl } = await createRefreshTest()
       const client = await registerClient(baseUrl, "203.0.113.40")
       const params = malform(validAuthorizeParams(client))
@@ -1494,7 +1519,7 @@ describe("OAuth refresh over HTTP", () => {
 
       expect(outcome).toEqual({
         status: 400,
-        body: { error, error_description: expect.any(String) },
+        body: { error, error_description: description },
         location: null,
         cache: "no-store",
       })
@@ -1565,7 +1590,7 @@ describe("OAuth refresh over HTTP", () => {
       })
     })
 
-    it("logs the rejection with the error code and client IP", async () => {
+    it("logs the rejection with the error code, its description and the client IP", async () => {
       const logs: LogCall[] = []
       recordingLogger(logs)
       const { baseUrl } = await createRefreshTest()
@@ -1578,11 +1603,18 @@ describe("OAuth refresh over HTTP", () => {
         "203.0.113.44",
       )
 
-      expect(logs.filter((log) => log.message === "oauth_authorize_rejected")).toEqual([
+      // The provider logs its own oauth_resource_rejected first; the guard
+      // records what the visitor was answered.
+      expect(logs.filter((log) => log.message === "oauth_authorize_error_answered")).toEqual([
         {
           level: "warn",
-          message: "oauth_authorize_rejected",
-          data: { clientIp: "203.0.113.44", reason: "invalid_target" },
+          message: "oauth_authorize_error_answered",
+          data: {
+            component: "oauth-routes",
+            clientIp: "203.0.113.44",
+            error: "invalid_target",
+            errorDescription: "The resource parameter is not this server",
+          },
         },
       ])
     })
@@ -1609,19 +1641,26 @@ describe("OAuth refresh over HTTP", () => {
         {
           level: "error",
           message: "oauth_authorize_failed",
-          data: { clientIp: "203.0.113.45", error: "Internal Server Error" },
+          data: {
+            component: "oauth-routes",
+            clientIp: "203.0.113.45",
+            error: "server_error",
+            errorDescription: "Internal Server Error",
+          },
         },
       ])
     })
 
     it.each([{ method: "GET" }, { method: "POST" }])(
-      "shows a person whose client registration is gone the recovery page on a $method request",
+      "shows a person whose client registration is gone the recovery page on a $method request, echoing nothing from it",
       async ({ method }) => {
         const logs: LogCall[] = []
         recordingLogger(logs)
         const { baseUrl } = await createRefreshTest()
         const client = await registerClient(baseUrl, "203.0.113.47")
-        const params = { ...validAuthorizeParams(client), client_id: "swept-client" }
+        // The page must equal the one rendered without input, so this
+        // client_id's markup cannot appear on it.
+        const params = { ...validAuthorizeParams(client), client_id: "<b>swept-client</b>" }
         logs.length = 0
 
         const response =
@@ -1654,7 +1693,7 @@ describe("OAuth refresh over HTTP", () => {
           {
             level: "warn",
             message: "oauth_authorize_rejected",
-            data: { clientIp: "203.0.113.47", reason: "unknown_client" },
+            data: { component: "oauth-routes", clientIp: "203.0.113.47", reason: "unknown_client" },
           },
         ])
       },

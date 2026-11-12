@@ -158,8 +158,9 @@ The server, and the `:remote` image's setup mode, set these headers:
 - **Content type and referrer** — every response carries
   `X-Content-Type-Options: nosniff` and `Referrer-Policy: same-origin`, and
   none carries `X-Powered-By`
-- **Caching** — the consent page, its decisions, the server's `/setup` page
-  and every setup-mode response send `Cache-Control: no-store`
+- **Caching** — the consent page, its decisions, the `/authorize` error
+  answers and unknown-client page, the server's `/setup` page and every
+  setup-mode response send `Cache-Control: no-store`
 
 ### Data corruption prevention
 
@@ -232,7 +233,7 @@ The server, and the `:remote` image's setup mode, set these headers:
 ### Request bodies and log storage
 
 - `POST /mcp` parses JSON up to 5 MB only after bearer validation, so a request
-  without a valid token gets 401 before its body is read
+  without a valid token is refused before its body is read
 - A rejected request body produces one short warning without a stack, and
   the logger caps every logged string at 256 code points (error text and
   stack traces at 4,096)
@@ -311,8 +312,24 @@ while the owner decides are bounded:
 - **Errors never redirect** — a malformed authorization request (a wrong
   `response_type`, a missing PKCE challenge, a `resource` naming another
   server, parameters over the cap) is answered with a 400 on the server,
-  never with a redirect to the client's registered address, so a link on
-  this server's domain cannot send a visitor to a site a client registered
+  and a denied consent with a page, never with a redirect to the client's
+  registered address, so a link or form on this server's domain cannot
+  send a visitor to a site a client registered
+
+### MCP endpoint
+
+- **Origin is checked** — a `/mcp` request that carries an `Origin` header
+  other than `PUBLIC_URL`'s origin is refused with 403 before the token is
+  checked, as the MCP Streamable HTTP specification requires. MCP clients
+  send no `Origin`; a browser page on another site does, so a page cannot
+  reach a local install through DNS rebinding with a token it holds
+- **Failed sign-ins are rate-limited only for a short token** — when
+  `MCP_AUTH_TOKEN` is under 32 characters, 30 answers of 401 a minute from
+  one client IP (an IPv6 client by its /56) turn into 429 for the rest of
+  that minute, valid tokens from that IP included, and the server warns at
+  boot. A generated token (every install guide makes one of 256 random
+  bits) cannot be guessed, so the limiter stays off and no one sharing the
+  owner's IP or proxy can lock the owner's clients out
 
 ### OAuth client registrations
 
@@ -320,14 +337,15 @@ while the owner decides are bounded:
 `oauth.db` are bounded:
 
 - **Size-capped** — a registration body over 8 KB is refused with
-  `request body too large`; real clients send under 1 KB
+  `request body too large`; real clients send under 500 bytes
 - **Rate-limited** — 5 registrations per minute per client IP (an IPv6
   client by its /56), the same limit and key as `/authorize`
 - **Swept** — a registration that has not signed in within an hour is
-  deleted at the next boot or registration. A consent request and an
-  authorization code each live 10 minutes, so no sign-in attempt outlives
-  the hour; a client whose registration was swept is told at `/authorize`
-  how to reconnect
+  deleted at the next boot or registration. Consent follows registration
+  within minutes, and a consent request and an authorization code each live
+  10 minutes, so a sign-in the sweep cuts off is one that started late; a
+  client whose registration was swept is told at `/authorize` how to
+  reconnect
 
 ### Symlink safety
 
