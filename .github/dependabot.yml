@@ -52,10 +52,17 @@ updates:
     schedule:
       interval: weekly
 
+  # Batches every action bump, majors included, into one weekly PR. Groups
+  # apply to version updates only, so a security update still arrives as
+  # its own PR.
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
+    groups:
+      github-actions:
+        patterns:
+          - "*"
 
   # Keeps the digest-pinned FROM lines in the Dockerfile current when
   # upstream node:24-slim rebuilds (e.g. Debian security releases).
