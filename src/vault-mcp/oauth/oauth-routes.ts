@@ -7,6 +7,7 @@ import { createOAuthMetadata, mcpAuthRouter } from "@modelcontextprotocol/sdk/se
 import { metadataHandler } from "@modelcontextprotocol/sdk/server/auth/handlers/metadata.js"
 import type { OAuthProtectedResourceMetadata } from "@modelcontextprotocol/sdk/shared/auth.js"
 import { extractClientIp, safeEqual, tokenBindingForServer } from "../../auth.js"
+import { createAuthorizeGuard } from "./authorize-guard.js"
 import { renderConsentPage } from "./consent-page.js"
 import { VAULT_SCOPE, type OAuthProvider } from "./oauth-provider.js"
 import type { Logger } from "../../logger.js"
@@ -38,8 +39,9 @@ export const createOAuthRoutes = ({
   const { provider, getPendingRequest, approveRequest, deletePendingRequest } = oauthProvider
   const router = Router()
 
-  // 5 req/min per client IP on each flow endpoint (/authorize, /token,
-  // /register, /revoke, /oauth/decide — each mounts its own limiter), far
+  // 5 req/min per client IP on each flow endpoint (/authorize through its
+  // guard, /token, /register, /revoke, /oauth/decide — each mounts its own
+  // limiter), far
   // tighter than the SDK's per-endpoint defaults: a complete OAuth flow
   // touches each endpoint at most twice per minute, so 5/min absorbs
   // reconnect storms while shutting down brute force. windowMs/max mirror
@@ -118,6 +120,15 @@ export const createOAuthRoutes = ({
     }),
   )
 
+  // Ahead of the SDK's /authorize handler: it carries that endpoint's rate
+  // limit (the SDK's own is off below, so a request is counted once) and
+  // answers every error the SDK would otherwise redirect to the client's
+  // registered address.
+  router.use(
+    "/authorize",
+    createAuthorizeGuard({ rateLimitOptions: oauthRateLimitOptions, trustForwardedHops, logger }),
+  )
+
   // SDK-managed OAuth routes — /.well-known/*, /authorize, /token, /register, /revoke
   router.use(
     mcpAuthRouter({
@@ -125,7 +136,7 @@ export const createOAuthRoutes = ({
       issuerUrl: serverUrl,
       serviceDocumentationUrl: new URL(serviceDocumentationUrl),
       scopesSupported,
-      authorizationOptions: { rateLimit: oauthRateLimitOptions },
+      authorizationOptions: { rateLimit: false },
       clientRegistrationOptions: { rateLimit: oauthRateLimitOptions },
       revocationOptions: { rateLimit: oauthRateLimitOptions },
       tokenOptions: { rateLimit: oauthRateLimitOptions },

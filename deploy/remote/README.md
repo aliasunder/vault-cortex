@@ -850,6 +850,12 @@ manage the container independently — stop the existing one first with
 up a second vault? Give it its own name instead — see
 [Run more than one vault](#run-more-than-one-vault).
 
+**`invalid_target` / "The resource parameter is not this server" when
+connecting.** Your MCP client is connecting through an address other than
+`PUBLIC_URL`, so the server refuses to issue it a token for that address. Set
+`PUBLIC_URL` to the address clients use (the tunnel, gateway or proxy URL, not
+the server's own IP), restart, and connect again.
+
 **Vault re-syncs from scratch (or the search index is empty) after switching
 between the CLI, Compose, and `docker run`.** Nothing is lost — your data is
 still in the old volumes. All three methods use the same named volumes for

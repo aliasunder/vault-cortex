@@ -1,0 +1,102 @@
+/** The /authorize guard — mounted ahead of the SDK's authorization handler.
+ *  It counts every request against the endpoint's rate limit, then turns
+ *  each error redirect the SDK would send into a direct response. */
+
+import { Router } from "express"
+import type { NextFunction, Request, Response } from "express"
+import { rateLimit, type Options as RateLimitOptions } from "express-rate-limit"
+import { TooManyRequestsError } from "@modelcontextprotocol/sdk/server/auth/errors.js"
+import { extractClientIp } from "../../auth.js"
+import type { Logger } from "../../logger.js"
+
+type AuthorizeGuardOptions = {
+  /** The window, limit, key and 429 handler every OAuth endpoint shares. */
+  rateLimitOptions: Partial<RateLimitOptions>
+  trustForwardedHops: number
+  logger: Logger
+}
+
+/** The redirect the SDK builds, read back as the response it becomes. */
+type RedirectedError = {
+  status: 400 | 500
+  body: { error: string; error_description: string; error_uri?: string }
+}
+
+// The SDK's catch-all code for a thrown non-OAuth exception; every other
+// code reports a bad request.
+const SERVER_ERROR_CODE = "server_error"
+
+const UNNAMED_ERROR: RedirectedError = {
+  status: 400,
+  body: { error: "invalid_request", error_description: "Invalid authorization request" },
+}
+
+/** Reads the OAuth error out of the redirect URL the SDK built. A redirect
+ *  that names no error is refused all the same, so a redirect a later SDK
+ *  version adds cannot reopen the endpoint. */
+const redirectedErrorFromUrl = (redirectUrl: string | undefined): RedirectedError => {
+  const parsedUrl = redirectUrl ? URL.parse(redirectUrl) : null
+  const errorCode = parsedUrl?.searchParams.get("error")
+
+  if (!parsedUrl || !errorCode) return UNNAMED_ERROR
+  const errorUri = parsedUrl.searchParams.get("error_uri")
+  const errorDescription = parsedUrl.searchParams.get("error_description")
+
+  return {
+    status: errorCode === SERVER_ERROR_CODE ? 500 : 400,
+    body: {
+      error: errorCode,
+      error_description: errorDescription ?? UNNAMED_ERROR.body.error_description,
+      ...(errorUri ? { error_uri: errorUri } : {}),
+    },
+  }
+}
+
+/** On /authorize a valid request only renders the consent page; the SDK
+ *  redirects only to report an error to the client's registered address.
+ *  Anyone can register an address, so such a redirect would send a visitor
+ *  from this server's domain to any site. The guard answers the error here
+ *  instead (RFC 9700 §4.11.2 permits refusing to redirect). */
+export const createAuthorizeGuard = ({
+  rateLimitOptions,
+  trustForwardedHops,
+  logger,
+}: AuthorizeGuardOptions): Router => {
+  const guard = Router()
+
+  // Replaces the SDK's own /authorize limiter, which sits behind this guard
+  // and would otherwise never see a request the guard answers. The message
+  // and header options are the SDK's, so the 429 is unchanged for clients.
+  guard.use(
+    rateLimit({
+      ...rateLimitOptions,
+      standardHeaders: true,
+      legacyHeaders: false,
+      message: new TooManyRequestsError(
+        "You have exceeded the rate limit for authorization requests",
+      ).toResponseObject(),
+    }),
+  )
+
+  guard.use((req: Request, res: Response, next: NextFunction) => {
+    // An own property on this response shadows Express's prototype method
+    // for this request only. The SDK calls res.redirect(302, url); Express
+    // also accepts (url) and (url, status), so the URL is whichever argument
+    // is the string.
+    res.redirect = (...redirectArgs: ReadonlyArray<string | number>): void => {
+      const redirectUrl = redirectArgs.find((argument) => typeof argument === "string")
+      const { status, body } = redirectedErrorFromUrl(redirectUrl)
+      const clientIp = extractClientIp(req, trustForwardedHops)
+
+      if (status === 500) {
+        logger.error("oauth_authorize_failed", { clientIp, error: body.error_description })
+      } else {
+        logger.warn("oauth_authorize_rejected", { clientIp, reason: body.error })
+      }
+      res.status(status).set("Cache-Control", "no-store").json(body)
+    }
+    next()
+  })
+
+  return guard
+}

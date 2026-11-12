@@ -432,6 +432,77 @@ describe("consent page response headers", () => {
   })
 })
 
+// ── Authorization errors never redirect ───────────────────────
+
+describe("authorization errors answered directly", () => {
+  // Anyone can register a client whose redirect address is their own site.
+  const registerAttackerClient = async (port: number): Promise<RegisteredClient> => {
+    const response = await fetch(`http://127.0.0.1:${port}/register`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        client_name: "attacker",
+        redirect_uris: ["https://attacker.example/landing"],
+        grant_types: ["authorization_code"],
+        response_types: ["code"],
+        token_endpoint_auth_method: "none",
+      }),
+    })
+
+    if (response.status !== 201) throw new Error(`register: ${response.status}`)
+    const registered: unknown = await response.json()
+
+    if (!isRegisteredClient(registered)) throw new Error("malformed client")
+    return registered
+  }
+
+  it.each([
+    {
+      label: "a link carrying only the client_id",
+      query: {},
+      error: "invalid_request",
+    },
+    {
+      label: "a request naming another server as the resource",
+      query: {
+        response_type: "code",
+        code_challenge: base64Url(createHash("sha256").update("attacker").digest()),
+        code_challenge_method: "S256",
+        resource: "https://other.example/mcp",
+      },
+      error: "invalid_target",
+    },
+  ])(
+    "answers $label with a 400 instead of a redirect to the registered address",
+    async ({ query, error }) => {
+      const port = await freePort()
+      const server = await startServer(port, { MCP_AUTH_TOKEN: TOKEN_A })
+      onTestFinished(() => server.cleanup())
+      const client = await registerAttackerClient(port)
+      const authorizeUrl = new URL(`http://127.0.0.1:${port}/authorize`)
+      authorizeUrl.search = new URLSearchParams({
+        client_id: client.client_id,
+        ...query,
+      }).toString()
+
+      const response = await fetch(authorizeUrl, { redirect: "manual" })
+
+      expect({
+        status: response.status,
+        location: response.headers.get("location"),
+        cacheControl: response.headers.get("cache-control"),
+        body: await response.json(),
+      }).toEqual({
+        status: 400,
+        location: null,
+        cacheControl: "no-store",
+        body: { error, error_description: expect.any(String) },
+      })
+      expect(readSecurityHeaders(response)).toEqual(EXPECTED_SECURITY_HEADERS)
+    },
+  )
+})
+
 // ── Expired access token challenge ─────────────────────────────
 
 describe("expired access token challenge", () => {

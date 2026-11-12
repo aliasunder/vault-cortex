@@ -308,6 +308,11 @@ while the owner decides are bounded:
 - **Submission guessing is rate-limited** — `POST /oauth/decide` allows 5
   submissions per minute per client IP (an IPv6 client by its /56), bounding
   guesses of `MCP_AUTH_TOKEN`
+- **Errors never redirect** — a malformed authorization request (a wrong
+  `response_type`, a missing PKCE challenge, a `resource` naming another
+  server, parameters over the cap) is answered with a 400 on the server,
+  never with a redirect to the client's registered address, so a link on
+  this server's domain cannot send a visitor to a site a client registered
 
 ### Symlink safety
 
