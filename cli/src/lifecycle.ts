@@ -5,6 +5,7 @@ import {
   healthTimeoutMessage,
   hostHealthUrl,
   isVaultCortexImage,
+  LOOPBACK_FOR_WILDCARD,
   pollHealth,
   probeHealth,
   type DockerRunner,
@@ -18,6 +19,7 @@ import {
   readEnvPublicUrl,
   readEnvVaultPath,
   stripEnvQuotedValues,
+  validatePublicUrl,
   type Mode,
 } from "./scaffold.js"
 import { expandTilde } from "./vault.js"
@@ -107,15 +109,13 @@ const missingPublicUrlFix = (mode: Mode, port: number): string => {
 }
 
 /**
- * Bind addresses whose port still answers on this machine's loopback address.
- * No address and the wildcard addresses publish on loopback as well.
+ * Bind addresses whose port still answers on this machine's loopback address:
+ * no address and the wildcard addresses, which publish on loopback as well,
+ * plus the loopback addresses the health poll reaches them on.
  */
 const BIND_ADDRESSES_ANSWERING_ON_LOOPBACK: ReadonlySet<string> = new Set([
-  "",
-  "0.0.0.0",
-  "[::]",
-  "127.0.0.1",
-  "[::1]",
+  ...LOOPBACK_FOR_WILDCARD.keys(),
+  ...LOOPBACK_FOR_WILDCARD.values(),
 ])
 
 /** PUBLIC_URL hosts that name this machine's loopback address. */
@@ -133,7 +133,7 @@ const describeStrandedLoopbackPublicUrl = (params: {
   publicUrl: string
 }): string | undefined => {
   const { targetDir, port, bindAddress, publicUrl } = params
-  // A PUBLIC_URL that does not parse has no host, so it names no loopback address.
+  // resolveDeployment validates PUBLIC_URL first, so it parses here.
   const publicUrlHost = URL.parse(publicUrl)?.hostname
   const publicUrlNamesLoopback = Boolean(
     publicUrlHost && LOOPBACK_PUBLIC_URL_HOSTS.has(publicUrlHost),
@@ -150,7 +150,8 @@ const describeStrandedLoopbackPublicUrl = (params: {
 
 /**
  * Resolves --dir to the on-disk deployment and validates its .env for a
- * container start: mode detection, PORT, BIND_ADDRESS, VAULT_PATH (local), and PUBLIC_URL.
+ * container start: mode detection, PORT, BIND_ADDRESS, VAULT_PATH (local), and
+ * PUBLIC_URL (present, and a bare http(s) origin as the server requires).
  * Reports each failure via prompts.error and returns undefined, and warns
  * when BIND_ADDRESS leaves a loopback PUBLIC_URL unreachable.
  * Shared by init, start, restart, upgrade and configure so their precondition checks can't drift.
@@ -193,6 +194,15 @@ export const resolveDeployment = (
       `PUBLIC_URL is empty or missing in ${targetDir}/.env — the server requires it.\n` +
         missingPublicUrlFix(mode, port),
     )
+    return undefined
+  }
+  // The server refuses to boot on a PUBLIC_URL that is not a bare http(s)
+  // origin, so a container started with one restarts until the health poll
+  // gives up.
+  const publicUrlValidation = validatePublicUrl(publicUrl)
+
+  if (publicUrlValidation.kind === "error") {
+    prompts.error(`${publicUrlValidation.message} Fix it in ${targetDir}/.env.`)
     return undefined
   }
   const strandedPublicUrlWarning = describeStrandedLoopbackPublicUrl({

@@ -394,7 +394,7 @@ export const probeHealth = async (
  * or on no address, which publishes on every IPv4 and IPv6 address. A port
  * published on any other address answers only on that address.
  */
-const LOOPBACK_FOR_WILDCARD = new Map([
+export const LOOPBACK_FOR_WILDCARD: ReadonlyMap<string, string> = new Map([
   ["", "127.0.0.1"],
   ["0.0.0.0", "127.0.0.1"],
   ["[::]", "[::1]"],

@@ -230,6 +230,78 @@ export const readEnvPublicUrl = (envFilePath: string): string | undefined => {
 }
 
 /**
+ * A trailing `/mcp` path segment, optionally followed by slashes, anchored to
+ * the end of a URL's pathname (`/MCP`, `/mcp/` match too via the `i` flag —
+ * WHATWG URL preserves path case). The server owns the `/mcp` endpoint and
+ * appends it when building the connect URL, so PUBLIC_URL must be the base
+ * origin; a re-included `/mcp` is rejected, not silently rewritten.
+ */
+const TRAILING_MCP_PATH = /\/mcp\/*$/i
+
+/**
+ * Parses an http(s) URL with the WHATWG `URL` constructor, returning null for
+ * anything it can't be: bad syntax, a missing scheme, or a non-http(s)
+ * protocol (`ws:`, `file:`, ...). More robust than a `startsWith` check, which
+ * would pass malformed inputs like `https://` or `https://a b.com`.
+ */
+const parseHttpUrl = (value: string): URL | null => {
+  try {
+    const url = new URL(value)
+    return url.protocol === "http:" || url.protocol === "https:" ? url : null
+  } catch {
+    return null
+  }
+}
+
+export type PublicUrlValidation = { kind: "ok"; url: string } | { kind: "error"; message: string }
+
+/** Validates a PUBLIC_URL value: must be a bare http(s) origin — no path, credentials, query, or fragment. */
+export const validatePublicUrl = (input: string): PublicUrlValidation => {
+  const trimmed = input.trim()
+  const url = parseHttpUrl(trimmed)
+
+  if (!url) {
+    return {
+      kind: "error",
+      message:
+        "PUBLIC_URL must be a full http:// or https:// URL (e.g. https://vault.example.com).",
+    }
+  }
+  if (url.username || url.password) {
+    return {
+      kind: "error",
+      message: "PUBLIC_URL must not contain credentials (user:password@).",
+    }
+  }
+  // Raw-string check: url.search/url.hash return "" for bare delimiters
+  // (WHATWG spec treats empty-string and null query/fragment identically),
+  // so a parsed-property check misses "https://host/?" and "https://host/#".
+  if (trimmed.includes("?") || trimmed.includes("#")) {
+    return {
+      kind: "error",
+      message: "PUBLIC_URL must be a bare origin — no query string (?...) or fragment (#...).",
+    }
+  }
+  if (TRAILING_MCP_PATH.test(url.pathname)) {
+    return {
+      kind: "error",
+      message:
+        "Leave /mcp off PUBLIC_URL — it's the base URL and the server adds /mcp itself (e.g. https://vault.example.com).",
+    }
+  }
+  if (url.pathname.replace(/\/+$/, "") !== "") {
+    return {
+      kind: "error",
+      message:
+        "PUBLIC_URL must be a bare origin — no path (e.g. https://vault.example.com, not https://vault.example.com/vault/).",
+    }
+  }
+  // Trim trailing slashes so the connect URL is `${base}/mcp`, never
+  // `${base}//mcp`.
+  return { kind: "ok", url: trimmed.replace(/\/+$/, "") }
+}
+
+/**
  * Detects the deployment mode from a .env file. Remote mode requires
  * OBSIDIAN_AUTH_TOKEN (absent from local). Returns undefined when the
  * .env file does not exist.

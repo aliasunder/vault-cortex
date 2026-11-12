@@ -852,6 +852,83 @@ describe("runRestart", () => {
   })
 
   it.each([
+    {
+      label: "no http(s) scheme",
+      publicUrl: "localhost:8000",
+      message:
+        "PUBLIC_URL must be a full http:// or https:// URL (e.g. https://vault.example.com).",
+    },
+    {
+      label: "credentials",
+      publicUrl: "http://user:secret@localhost:8000",
+      message: "PUBLIC_URL must not contain credentials (user:password@).",
+    },
+    {
+      label: "a query string",
+      publicUrl: "http://localhost:8000/?tab=2",
+      message: "PUBLIC_URL must be a bare origin — no query string (?...) or fragment (#...).",
+    },
+    {
+      label: "the /mcp path",
+      publicUrl: "http://localhost:8000/mcp",
+      message:
+        "Leave /mcp off PUBLIC_URL — it's the base URL and the server adds /mcp itself (e.g. https://vault.example.com).",
+    },
+    {
+      label: "a path prefix",
+      publicUrl: "http://localhost:8000/vault/",
+      message:
+        "PUBLIC_URL must be a bare origin — no path (e.g. https://vault.example.com, not https://vault.example.com/vault/).",
+    },
+  ])(
+    "exits 1 before running Docker when .env's PUBLIC_URL has $label",
+    async ({ publicUrl, message }) => {
+      const targetDir = makeTempTargetDir("vault-cli-restart-")
+      writeFileSync(
+        join(targetDir, ".env"),
+        `MCP_AUTH_TOKEN=abc123\nVAULT_PATH=/vault\nPUBLIC_URL=${publicUrl}\n`,
+      )
+      const scripted = createScriptedPrompts()
+      const recording = createRecordingDocker()
+
+      const exitCode = await runRestart(
+        { dir: targetDir },
+        { prompts: scripted.prompts, docker: recording.docker, fetchFn: fetchNever },
+      )
+
+      expect(exitCode).toBe(1)
+      expect(scripted.errors).toEqual([`${message} Fix it in ${targetDir}/.env.`])
+      expect(recording.runParams).toEqual([])
+    },
+  )
+
+  it.each([
+    { label: "the local default", bindAddress: "127.0.0.1", publicUrl: "http://localhost:8000" },
+    {
+      label: "a network http address",
+      bindAddress: "192.168.1.20",
+      publicUrl: "http://192.168.1.20:8000",
+    },
+  ])("starts with $label as PUBLIC_URL", async ({ bindAddress, publicUrl }) => {
+    const targetDir = makeTempTargetDir("vault-cli-restart-")
+    writeFileSync(
+      join(targetDir, ".env"),
+      `MCP_AUTH_TOKEN=abc123\nVAULT_PATH=/vault\nBIND_ADDRESS=${bindAddress}\nPUBLIC_URL=${publicUrl}\n`,
+    )
+    const scripted = createScriptedPrompts()
+    const recording = createRecordingDocker()
+
+    const exitCode = await runRestart(
+      { dir: targetDir },
+      { prompts: scripted.prompts, docker: recording.docker, fetchFn: fetchOk },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(scripted.errors).toEqual([])
+    expect(recording.runParams.map((runParams) => runParams.bindAddress)).toEqual([bindAddress])
+  })
+
+  it.each([
     { label: "localhost", publicUrl: "http://localhost:8000" },
     { label: "127.0.0.1", publicUrl: "http://127.0.0.1:8000" },
     { label: "[::1]", publicUrl: "http://[::1]:8000" },
