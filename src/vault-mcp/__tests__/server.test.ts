@@ -62,6 +62,13 @@ describe("startServer", () => {
     expect(onceSpy).toHaveBeenCalledExactlyOnceWith("SIGTERM", expect.any(Function))
     expect(onceSpy).toHaveBeenCalledBefore(vi.mocked(watchVaultAndBuildIndex))
     const handleSigterm = await sigtermHandler.promise
+    // The handler arms a 10 s force-exit timer that a live process never reaches; here the
+    // real process.exit comes back after the test, so the timer is dropped with the fake clock.
+    vi.useFakeTimers()
+    onTestFinished(() => {
+      vi.clearAllTimers()
+      vi.useRealTimers()
+    })
     handleSigterm()
     await vi.waitFor(() => expect(exitSpy).toHaveBeenCalledExactlyOnceWith(0))
     expect(pdfClose).toHaveBeenCalledExactlyOnceWith()

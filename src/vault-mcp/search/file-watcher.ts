@@ -993,7 +993,8 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
    * Other files keep the file-read bound. Held PDFs are queued all at once,
    * since the extractor serves them one at a time anyway, and are not awaited:
    * their extraction waits for `pdfExtractor.startIndexing()`, which the server
-   * calls after it listens, and it listens only after this batch.
+   * calls after it listens, and it listens only after this batch or after
+   * heldChangesDeadline, so a held PDF can also be queued once it listens.
    */
   const indexHeldPathsWithinBounds = async (
     reservedPaths: ReadonlyArray<ReservedPath>,
