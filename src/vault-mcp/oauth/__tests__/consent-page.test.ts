@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { renderConsentPage } from "../consent-page.js"
+import { renderAccessDeniedPage, renderConsentPage } from "../consent-page.js"
 
 const baseParams = {
   clientName: "Test Client",
@@ -136,5 +136,31 @@ describe("consent page reveal toggle", () => {
     expect(onclick).toBe(
       "var tokenInput=document.getElementById('token');var hidden=tokenInput.type==='password';tokenInput.type=hidden?'text':'password';this.textContent=hidden?'Hide':'Show'",
     )
+  })
+})
+
+describe("access-denied page", () => {
+  const TITLE_PATTERN = /<title>([^<]*)<\/title>/
+  const HEADING_PATTERN = /<h1>([^<]*)<\/h1>/
+  const PARAGRAPH_PATTERN = /<p>([^<]*)<\/p>/g
+
+  it("tells the person the sign-in was denied and that the window can close", () => {
+    const html = renderAccessDeniedPage()
+
+    expect({
+      title: TITLE_PATTERN.exec(html)?.[1],
+      heading: HEADING_PATTERN.exec(html)?.[1],
+      paragraphs: [...html.matchAll(PARAGRAPH_PATTERN)].map((match) => match[1]),
+      hasForm: html.includes("<form"),
+      hasLink: html.includes("<a "),
+    }).toEqual({
+      title: "Access denied — Vault Cortex",
+      heading: "Access denied",
+      paragraphs: [
+        "This sign-in was denied and the application was not given access. You can close this window.",
+      ],
+      hasForm: false,
+      hasLink: false,
+    })
   })
 })
