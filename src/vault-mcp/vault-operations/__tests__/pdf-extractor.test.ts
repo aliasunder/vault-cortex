@@ -533,6 +533,34 @@ describe("PDF extraction ownership", () => {
     await cancellation
   })
 
+  it("fails the request as a start failure when the child's startup footprint cannot be read", async () => {
+    const descriptor = Object.getOwnPropertyDescriptor(process, "platform")
+
+    if (!descriptor) throw new Error("process.platform has no descriptor")
+    const { extractor, child } = startControlledExtractor()
+    Object.defineProperty(process, "platform", { value: "linux" })
+    onTestFinished(() => {
+      Object.defineProperty(process, "platform", descriptor)
+    })
+    const requestLogger = { ...logger, error: vi.fn(), warn: vi.fn() }
+    const callerLogger = { ...logger, child: vi.fn(() => requestLogger) }
+    // A proc status without a VmData line, so no footprint can be measured.
+    vi.mocked(readFile).mockResolvedValueOnce("Name:\tnode\nVmRSS:\t  40000 kB\n")
+    const request = extractor.readText({ path: "one.pdf" }, callerLogger)
+    const rejection = expect(request).rejects.toThrow(
+      pdfFailureError('PDF reader could not start: "one.pdf"; retry later', "pdf-start"),
+    )
+    await ready(child)
+    await rejection
+    expect(requestLogger.error).toHaveBeenCalledExactlyOnceWith(
+      "PDF child data limit could not be applied",
+      { childPid: 1234, error: "[Error]: PDF child data footprint is unavailable" },
+    )
+    expect(child.send).not.toHaveBeenCalled()
+    expect(child.kill).toHaveBeenCalledExactlyOnceWith("SIGKILL")
+    child.emit("exit", null, "SIGKILL")
+  })
+
   it("rejects the job but logs no limit error when close() lands during the Linux limit step", async () => {
     const descriptor = Object.getOwnPropertyDescriptor(process, "platform")
 
