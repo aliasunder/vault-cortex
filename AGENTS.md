@@ -442,7 +442,9 @@ while writing, not after. `eslint.config.ts` enforces this subset:
 - A blank line between a declaration and the guard that consumes it.
 - In `src/` only: no `console`; Luxon over `Date` and no `process.env`
   member access outside `config.ts` (tests exempt). The rule misses a
-  destructured `import { env } from "node:process"`, which `logger.ts` uses.
+  destructured `import { env } from "node:process"`, which `logger.ts` uses
+  and `pdf-extractor.ts` uses for the environment allowlist handed to the
+  PDF child.
 - The Module layering bans (layer imports, `config.readOnlyMode`, a local
   `TOOL_NAMES`).
 
