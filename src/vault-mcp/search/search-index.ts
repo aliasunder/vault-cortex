@@ -1909,10 +1909,14 @@ export const createSearchIndex = (
       // alone gives the same answer without an O(unresolved × notes) sweep
       // on every write.
       const unresolvedLinks = selectUnresolvedLinksStmt.all()
+
+      // links.resolve caches a list's folded paths by the array, so the sweep
+      // reuses one list instead of building a new one for every link.
+      const newNotePathList = [note.path]
       for (const link of unresolvedLinks) {
         const resolved = links.resolve({
           target: link.target,
-          allPaths: [note.path],
+          allPaths: newNotePathList,
           sourcePath: link.source,
         })
 
