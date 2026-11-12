@@ -6809,8 +6809,6 @@ describe("links after a file is added or removed", () => {
   })
 })
 
-// ── brokenLinkCount ─────────────────────────────────────────────
-
 describe("links that differ from their file only in letter case", () => {
   const indexNote = (filePath: string, rawContent: string): void => {
     index.upsertNote(withBodyTags({ filePath, rawContent, fileStat: testStat(1000) }), logger)
@@ -7070,6 +7068,8 @@ describe("links that differ from their file only in letter case", () => {
     },
   )
 })
+
+// ── brokenLinkCount ─────────────────────────────────────────────
 
 describe("brokenLinkCount", () => {
   it("returns 0 when all link targets exist", () => {
