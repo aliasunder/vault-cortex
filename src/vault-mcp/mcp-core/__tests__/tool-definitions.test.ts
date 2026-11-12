@@ -1,3 +1,7 @@
+import {
+  createTestPdfExtractor,
+  unusedPdfExtractor,
+} from "../../../__tests__/helpers/pdf-extractor.js"
 import { describe, it, expect, beforeEach, vi, onTestFinished } from "vitest"
 import sharp from "sharp"
 import { mkdtemp, rm, writeFile, mkdir, readFile, utimes } from "node:fs/promises"
@@ -66,6 +70,7 @@ beforeEach(() => {
   registerTools({
     server: mockServer as unknown as McpServer,
     vaultPath: "/test-vault",
+    pdfExtractor: createTestPdfExtractor("/test-vault"),
     search: {} as SearchIndex,
     logger,
     config: loadConfig({}),
@@ -82,6 +87,7 @@ const registerWithConfig = (
   registerTools({
     server: server as unknown as McpServer,
     vaultPath: context.vaultPath ?? "/test-vault",
+    pdfExtractor: unusedPdfExtractor,
     search: context.search ?? ({} as SearchIndex),
     logger: context.logger ?? logger,
     config: loadConfig(env),
@@ -956,6 +962,7 @@ describe("vault_read_note line paging", () => {
     registerTools({
       server: server as unknown as McpServer,
       vaultPath: tempVault,
+      pdfExtractor: createTestPdfExtractor(tempVault),
       search: {} as SearchIndex,
       logger,
       config: loadConfig({}),
@@ -1194,6 +1201,7 @@ describe("vault_update_memory handler", () => {
     registerTools({
       server: server as unknown as McpServer,
       vaultPath: tempVault,
+      pdfExtractor: createTestPdfExtractor(tempVault),
       search: {} as SearchIndex,
       logger,
       config: loadConfig(configEnv),
@@ -1299,6 +1307,7 @@ describe("vault_patch_note handler", () => {
     registerTools({
       server: server as unknown as McpServer,
       vaultPath: tempVault,
+      pdfExtractor: createTestPdfExtractor(tempVault),
       search: {} as SearchIndex,
       logger,
       config: loadConfig({}),
@@ -1420,6 +1429,7 @@ describe("vault_read_note outline mode", () => {
     registerTools({
       server: server as unknown as McpServer,
       vaultPath: tempVault,
+      pdfExtractor: createTestPdfExtractor(tempVault),
       search: {} as SearchIndex,
       logger,
       config: loadConfig({}),
@@ -1555,7 +1565,7 @@ describe("vault_search Behavior line: result cap and file content limits", () =>
     "Behavior: Results can lag a file change by a few seconds. No matches returns an empty results array with total 0, not an error."
   // Stated only while file content is searched (FILE_TOOLS_ENABLED on)
   const FILE_CONTENT_LIMITS =
-    "Each file's first 100 KiB of text is searched; a page or script over 16 MiB is found by its name only"
+    "Files contribute their first 100 KiB of text; PDFs also stop after 500 pages. PDFs over 52428800 bytes or whose text extraction fails are found by name only; PDF content becomes searchable after startup. A page or script over 16 MiB is found by its name only"
 
   it.each([
     {
@@ -1937,6 +1947,7 @@ describe("vault_memory_recall handler", () => {
     registerTools({
       server: memoryMockServer as unknown as McpServer,
       vaultPath: "/test-vault",
+      pdfExtractor: createTestPdfExtractor("/test-vault"),
       search: searchIndex,
       logger,
       config: loadConfig({}),
@@ -2016,6 +2027,7 @@ describe("vault_search handler", () => {
     registerTools({
       server: searchMockServer as unknown as McpServer,
       vaultPath: "/test-vault",
+      pdfExtractor: createTestPdfExtractor("/test-vault"),
       search: searchIndex,
       logger,
       config: loadConfig({}),
@@ -2506,6 +2518,7 @@ describe("vault_list_tasks handler", () => {
     registerTools({
       server: taskMockServer as unknown as McpServer,
       vaultPath: "/test-vault",
+      pdfExtractor: createTestPdfExtractor("/test-vault"),
       search: searchIndex,
       logger,
       config: loadConfig({}),
@@ -2664,6 +2677,7 @@ describe("file tool handlers", () => {
     registerTools({
       server: server as unknown as McpServer,
       vaultPath: tempVault,
+      pdfExtractor: createTestPdfExtractor(tempVault),
       search: {} as SearchIndex,
       logger,
       config: loadConfig({}),
@@ -2902,14 +2916,9 @@ describe("file tool handlers", () => {
     await writeFile(join(vault, "doc.pdf"), buildMinimalPdf())
     const result = await readAsset({ path: "doc.pdf" })
     expect(result).toEqual({
-      content: [
-        {
-          type: "text",
-          text: expect.stringMatching(/^Title: \(untitled\) \| Pages: 1\n\n[\s\S]*Hello PDF/),
-        },
-      ],
+      content: [{ type: "text", text: "Title: (untitled) | Pages: 1\n\nHello PDF" }],
     })
-  })
+  }, 15_000)
 
   /** One rendered PDF page as the data layer returns it. */
   const buildRenderedPage = (pageNumber: number, imageBytes: Buffer) => ({
@@ -4326,6 +4335,7 @@ describe("flag-combination matrix", () => {
       registerTools({
         server: server as unknown as McpServer,
         vaultPath: "/test-vault",
+        pdfExtractor: createTestPdfExtractor("/test-vault"),
         search: {} as SearchIndex,
         logger,
         config,

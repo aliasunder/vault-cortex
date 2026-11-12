@@ -2,6 +2,7 @@
  *  and orchestrates tool group registration through the gated wrapper. */
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
+import type { PdfExtractor } from "../vault-operations/pdf-extractor.js"
 import type { SearchIndex } from "../search/search-index.js"
 import type { VaultConfig } from "../config.js"
 import type { Logger } from "../../logger.js"
@@ -88,6 +89,7 @@ export const registerTools = (params: {
   server: McpServer
   vaultPath: string
   search: SearchIndex
+  pdfExtractor: PdfExtractor
   logger: Logger
   config: VaultConfig
 }): void => {
@@ -102,6 +104,7 @@ export const registerTools = (params: {
     registerTool: createGatedRegisterTool(params.server, enabledToolNames),
     vaultPath: params.vaultPath,
     search: params.search,
+    pdfExtractor: params.pdfExtractor,
     logger: params.logger,
     config: params.config,
   }

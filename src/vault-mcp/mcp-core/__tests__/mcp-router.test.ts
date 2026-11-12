@@ -1,3 +1,4 @@
+import { unusedPdfExtractor } from "../../../__tests__/helpers/pdf-extractor.js"
 import { describe, it, expect, beforeEach, afterEach, onTestFinished, vi } from "vitest"
 import express from "express"
 import { randomUUID } from "node:crypto"
@@ -168,6 +169,7 @@ const setupHarness = async (
   app.use(
     createMcpRouter({
       vaultPath: VAULT_PATH,
+      pdfExtractor: unusedPdfExtractor,
       search,
       provider,
       config,
@@ -632,6 +634,7 @@ Vault content is Obsidian Flavored Markdown. Write tools pass content through wi
         server: harness.serverInstances[0],
         vaultPath: VAULT_PATH,
         search: harness.search,
+        pdfExtractor: unusedPdfExtractor,
         logger: sessionLoggerResult.value,
         config: DEFAULT_CONFIG,
       })

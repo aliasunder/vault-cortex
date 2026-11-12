@@ -27,12 +27,14 @@ import type { StatusClassification, TaskPriority, TaskStatus } from "../obsidian
 import { contentHash, type Embedder } from "./embedder.js"
 import type { Reranker } from "./reranker.js"
 import { buildChunkMetadataPrefix, chunkContent } from "./chunker.js"
-import { extractPdfText } from "../obsidian-markdown/pdf.js"
+import type { PdfExtractor } from "../vault-operations/pdf-extractor.js"
+import type { PdfTextResult } from "../obsidian-markdown/pdf.js"
 import { caseFoldPath } from "../../utils/case-fold-path.js"
 import { describeError, describeErrorForLog } from "../../utils/describe-error.js"
 import { filterValidSymlinks } from "../../utils/filter-valid-symlinks.js"
 import { readFileTextPrefix, statOrNull } from "../../utils/fs.js"
 import { hasHiddenPathSegment } from "../../utils/has-hidden-path-segment.js"
+import { getUtf8BytePrefix } from "../../utils/get-utf8-byte-prefix.js"
 import { mapWithConcurrency } from "../../utils/map-with-concurrency.js"
 import {
   isString,
@@ -61,10 +63,6 @@ import { hybridSearch } from "./hybrid-search.js"
  *  the file watcher's startup batch, so a large vault cannot open every file
  *  at once. */
 export const INDEXING_FILE_READ_CONCURRENCY = 16
-
-/** PDFs whose text is extracted at once while indexing. Extraction is
- *  CPU-heavy, so fewer run together than other file reads. */
-export const PDF_EXTRACTION_CONCURRENCY = 4
 
 /** File kinds whose content is indexed into file_content_fts when file tools
  *  are on. A canvas is left out because it is read whatever that setting is,
@@ -133,23 +131,6 @@ const fileTextToIndexedText = (params: {
     case "other":
       return params.fileText
   }
-}
-
-/** Truncates a string to fit within a UTF-8 byte limit without splitting
- *  multi-byte characters — iterates Unicode code points and accumulates
- *  each code point's UTF-8 byte length, stopping before the cap. */
-const truncateToUtf8ByteLimit = (content: string, maxBytes: number): string => {
-  let usedBytes = 0
-  let endIndex = 0
-  for (const character of content) {
-    const characterBytes = Buffer.byteLength(character, "utf8")
-
-    if (usedBytes + characterBytes > maxBytes) break
-    usedBytes += characterBytes
-    // .length is UTF-16 code units — matches .slice()'s indexing
-    endIndex += character.length
-  }
-  return content.slice(0, endIndex)
 }
 
 // ── Types ───────────────────────────────────────────────────────
@@ -413,13 +394,16 @@ export type OutgoingLinkEntry = {
 //      notes without links (skipLinks), Pass 2 extracts links with the
 //      complete path list so all targets can resolve.
 
-/** rebuildFromVault returns the indexed note count and the two passes that
- *  finish after it returns. Each pass logs its own failure, so a caller may
- *  leave either promise unawaited. */
+/** Each background pass logs its own failure, so a caller may leave its promise unawaited. */
 export type RebuildResult = {
   count: number
   embedding: Promise<void>
   bodyTags: Promise<void>
+  /** Resolves once every PDF's text and vectors are published. Rejects only when a PDF's
+   *  embedding failed; an extraction or publish failure is the PDF's own and is logged per file.
+   *  The extractor holds the extractions until `pdfExtractor.startIndexing()`, which server.ts
+   *  calls once it listens. */
+  pdfPass: Promise<void>
 }
 
 /** A note's stored body tags, or none when the stored value is damaged: the
@@ -1424,7 +1408,7 @@ export const createSearchIndex = (
     const contentBytes = Buffer.byteLength(contentToIndex, "utf8")
     const needsTruncation = contentBytes > MAX_INDEXED_CONTENT_BYTES
     const truncatedContent = needsTruncation
-      ? truncateToUtf8ByteLimit(contentToIndex, MAX_INDEXED_CONTENT_BYTES)
+      ? getUtf8BytePrefix(contentToIndex, MAX_INDEXED_CONTENT_BYTES)
       : contentToIndex
 
     if (needsTruncation) {
@@ -2260,7 +2244,7 @@ export const createSearchIndex = (
   }
 
   /** Rebuilds note, task, file and graph indexes; reconciles retained memory rows and vectors.
-   * Returns the note count and the background embedding and body-tag passes.
+   * Returns the note count, background embedding and body-tag passes, and a deferred PDF pass.
    * - No source write may run while it does. A source write is an upsert or remove call
    *   that changes the tables this clears; one that lands during its reads is replaced by
    *   the older content it read.
@@ -2270,10 +2254,15 @@ export const createSearchIndex = (
    * - Each returned pass promise rejects if its pass fails. This function already logs
    *   that failure, so a caller may leave the promises unawaited. */
   const rebuildFromVault = async (
-    params: { vaultPath: string; bodyTagParser: BodyTagParser },
+    params: {
+      vaultPath: string
+      bodyTagParser: BodyTagParser
+      pdfExtractor: PdfExtractor
+      maxFileBytes: number
+    },
     logger: Logger,
   ): Promise<RebuildResult> => {
-    const { vaultPath, bodyTagParser } = params
+    const { vaultPath, bodyTagParser, pdfExtractor, maxFileBytes } = params
 
     // Embedding work that outlived its source can leave vectors whose chunk or
     // memory entry is gone. They would take nearest-neighbour slots from live
@@ -2371,14 +2360,18 @@ export const createSearchIndex = (
     // Stat non-md files before the write transaction (fs stays out of it).
     // A file vanishing between listing and stat (sync race) is dropped here
     // and re-indexed by its own watcher event.
-    const readFileSize = async (
+    const readFileStat = async (
       file: RebuildFilePaths,
-    ): Promise<{ relativePath: string; bytes: number } | null> => {
+    ): Promise<{ relativePath: string; bytes: number; modifiedAtMs: number } | null> => {
       try {
         const fileStat = await statOrNull(file.absolutePath)
 
         if (!fileStat) return null
-        return { relativePath: file.relativePath, bytes: fileStat.size }
+        return {
+          relativePath: file.relativePath,
+          bytes: fileStat.size,
+          modifiedAtMs: fileStat.mtimeMs,
+        }
       } catch (error) {
         logger.warn("skipped unstattable file during rebuild", {
           path: file.relativePath,
@@ -2387,27 +2380,26 @@ export const createSearchIndex = (
         return null
       }
     }
-    const nonMarkdownFileSizeResults = await mapWithConcurrency({
+    const nonMarkdownFileStatResults = await mapWithConcurrency({
       items: allNonMdFiles,
       concurrency: INDEXING_FILE_READ_CONCURRENCY,
-      mapper: readFileSize,
+      mapper: readFileStat,
     })
-    const nonMarkdownFileSizes = nonMarkdownFileSizeResults.filter((entry) => entry !== null)
-    // A canvas is read for its links whether or not file tools are on. PDF,
-    // text, HTML and script content is read only when the file content tables
-    // exist, because without them the extraction is wasted I/O. The switch
+    const nonMarkdownFileStats = nonMarkdownFileStatResults.filter((entry) => entry !== null)
+    // A canvas is read for its links whether or not file tools are on. Text,
+    // HTML and script content is read only when the file content tables exist;
+    // PDFs join their separate deferred pass below. The switch
     // names every kind, so a new kind does not compile until it has a reader.
-    const rebuildReaderFor = (fileKind: FileKind): "canvas" | "pdf" | "text" | "decoded" | null => {
+    const rebuildReaderFor = (fileKind: FileKind): "canvas" | "text" | "decoded" | null => {
       switch (fileKind) {
         case "canvas":
           return "canvas"
-        case "pdf":
-          return fileToolsEnabled ? "pdf" : null
         case "text":
           return fileToolsEnabled ? "text" : null
         case "html":
         case "script":
           return fileToolsEnabled ? "decoded" : null
+        case "pdf":
         case "image":
         case "other":
           return null
@@ -2417,7 +2409,6 @@ export const createSearchIndex = (
       return rebuildReaderFor(getFileKind(file.relativePath))
     })
     const canvasFiles = nonMdFilesByReader.get("canvas") ?? []
-    const pdfFiles = nonMdFilesByReader.get("pdf") ?? []
     const textFiles = nonMdFilesByReader.get("text") ?? []
     const htmlAndScriptFiles = nonMdFilesByReader.get("decoded") ?? []
 
@@ -2467,38 +2458,20 @@ export const createSearchIndex = (
     })
     const canvasContents = canvasContentResults.filter((entry) => entry !== null)
 
-    // Extract PDF text with bounded concurrency (CPU-intensive pdfjs work).
-    const extractPdfContent = async (
-      file: RebuildFilePaths,
-    ): Promise<RebuildFileContent | null> => {
-      try {
-        const [buffer, fileStat] = await Promise.all([
-          readFile(file.absolutePath),
-          stat(file.absolutePath),
-        ])
-        const pdfData = new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength)
-        const pdfResult = await extractPdfText(pdfData)
-        return {
-          relativePath: file.relativePath,
-          content: pdfResult.text,
-          modifiedAtMs: fileStat.mtimeMs,
-          sizeBytes: fileStat.size,
-        }
-      } catch (error) {
-        // A PDF reader that failed to start arrives wrapped; the cause holds why
-        logger.warn("skipped unreadable PDF during rebuild", {
-          path: file.relativePath,
-          ...describeErrorForLog(error),
-        })
-        return null
-      }
-    }
-    const pdfResults = await mapWithConcurrency({
-      items: pdfFiles,
-      concurrency: PDF_EXTRACTION_CONCURRENCY,
-      mapper: extractPdfContent,
-    })
-    const pdfContents = pdfResults.filter((entry) => entry !== null)
+    // A PDF is found by name from this write on; its old text, chunks and vectors are removed at
+    // the same time, so nothing stale answers until the PDF pass publishes its text.
+    const pdfsAwaitingText = nonMarkdownFileStats
+      .filter((file) => fileToolsEnabled && getFileKind(file.relativePath) === "pdf")
+      .map((file) => ({
+        relativePath: file.relativePath,
+        content: "",
+        modifiedAtMs: file.modifiedAtMs,
+        sizeBytes: file.bytes,
+      }))
+    // The source version of each PDF's name-only row: the symbol upsertFileContent returned for
+    // it, which a later write or removal of the path replaces in sourceVersions. The PDF pass
+    // checks it before it writes, so a watcher change to the PDF wins over the pass.
+    const nameOnlyRowVersions = new Map<string, symbol>()
 
     // Text formats decode leniently, so a text file with a stray invalid byte
     // or NUL padding still indexes; HTML pages and scripts get the strict check below.
@@ -2598,7 +2571,7 @@ export const createSearchIndex = (
       db.transaction(() => {
         // Index non-markdown files so extensionless wikilinks to .canvas, .base,
         // etc. are recognized as file references rather than broken note links.
-        const nonMdCount = indexNonMarkdownFiles(nonMarkdownFileSizes)
+        const nonMdCount = indexNonMarkdownFiles(nonMarkdownFileStats)
         logger.debug("indexed non-md files", { count: nonMdCount })
 
         // Pass 1 indexes note content before links can resolve against the complete path list.
@@ -2712,12 +2685,15 @@ export const createSearchIndex = (
         // links before inserting, so canvas links append cleanly after the note link pass.
         const allFileContents = [
           ...canvasContents,
-          ...pdfContents,
+          ...pdfsAwaitingText,
           ...textFileContents,
           ...htmlAndScriptContents,
         ]
         for (const fileEntry of allFileContents) {
           try {
+            const isPdf = getFileKind(fileEntry.relativePath) === "pdf"
+
+            if (isPdf) removeFileContent({ filePath: fileEntry.relativePath }, logger)
             const sourceVersion = upsertFileContent(
               {
                 filePath: fileEntry.relativePath,
@@ -2729,7 +2705,9 @@ export const createSearchIndex = (
               },
               logger,
             )
-            fileVersionsForEmbedding.set(fileEntry.relativePath, sourceVersion)
+
+            if (isPdf) nameOnlyRowVersions.set(fileEntry.relativePath, sourceVersion)
+            else fileVersionsForEmbedding.set(fileEntry.relativePath, sourceVersion)
           } catch (error) {
             logger.warn("skipped malformed file during rebuild", {
               path: fileEntry.relativePath,
@@ -3004,7 +2982,117 @@ export const createSearchIndex = (
       logger.error("body-tag pass failed", { error: describeError(error) })
     })
 
-    return { count: indexedNotes.length, embedding: embeddingPromise, bodyTags: bodyTagPromise }
+    type PdfAwaitingText = (typeof pdfsAwaitingText)[number]
+
+    /** The PDF's index text, or null when the job was cancelled or failed; a failure is logged. */
+    const extractPdfTextForIndex = async (file: PdfAwaitingText): Promise<PdfTextResult | null> => {
+      try {
+        const extraction = await pdfExtractor.extractForIndex({ path: file.relativePath }, logger)
+
+        switch (extraction.status) {
+          case "extracted":
+            return extraction.result
+          case "cancelled":
+            return null
+        }
+      } catch (error) {
+        // describeErrorForLog keeps the cause, which carries the child's own reason.
+        logger.warn("PDF content pass could not index file", {
+          path: file.relativePath,
+          ...describeErrorForLog(error),
+        })
+        return null
+      }
+    }
+
+    /** The published row's version, or undefined when the write failed; the failure is logged. */
+    const publishPdfText = (file: PdfAwaitingText, text: string): symbol | undefined => {
+      try {
+        return upsertFileContent(
+          {
+            filePath: file.relativePath,
+            rawContent: text,
+            fileStat: { mtimeMs: file.modifiedAtMs, size: file.sizeBytes },
+          },
+          logger,
+        )
+      } catch (error) {
+        logger.warn("PDF content pass could not publish file", {
+          path: file.relativePath,
+          ...describeErrorForLog(error),
+        })
+        return undefined
+      }
+    }
+
+    /** Extracts, publishes and embeds each PDF in turn. The first extraction waits inside the
+     *  extractor until the server has listened, so the pass never delays startup. */
+    const pdfPass = (async (): Promise<void> => {
+      const passStart = performance.now()
+      // An extraction or publish failure is the PDF's own, logged per file, and the pass goes on.
+      // An embedding failure is the server's, so the pass finishes the other files and then
+      // rejects, and a caller awaiting completion sees it.
+      const embeddingFailures: unknown[] = []
+      // Counts the files whose text reached the index, so the summary reports coverage rather
+      // than the schedule.
+      let publishedFiles = 0
+      for (const file of pdfsAwaitingText) {
+        const nameOnlyRowVersion = nameOnlyRowVersions.get(file.relativePath)
+        // A name-only row whose write failed has no version. The live watcher writing or
+        // removing the same path replaces its version, and that change wins over this pass; the
+        // check runs again after each await.
+        const nameOnlyRowIsCurrent = (): boolean => {
+          if (!nameOnlyRowVersion) return false
+          return sourceVersions.get(file.relativePath) === nameOnlyRowVersion
+        }
+        const tooLargeToExtract = file.sizeBytes > maxFileBytes
+
+        if (tooLargeToExtract) {
+          logger.debug("PDF over MAX_FILE_BYTES kept name-only", { path: file.relativePath })
+          continue
+        }
+        if (!nameOnlyRowIsCurrent()) continue
+        const result = await extractPdfTextForIndex(file)
+
+        if (!result) continue
+        if (!nameOnlyRowIsCurrent()) continue
+        const publishedVersion = publishPdfText(file, result.text)
+
+        if (!publishedVersion) continue
+        publishedFiles += 1
+        try {
+          await embedFileContent(
+            { filePath: file.relativePath, sourceVersion: publishedVersion },
+            logger,
+          )
+        } catch (error) {
+          embeddingFailures.push(error)
+          logger.error("PDF embedding failed", {
+            path: file.relativePath,
+            ...describeErrorForLog(error),
+          })
+        }
+      }
+      logger.info("PDF content pass complete", {
+        scheduledFiles: pdfsAwaitingText.length,
+        publishedFiles,
+        durationMs: Math.round(performance.now() - passStart),
+      })
+
+      if (embeddingFailures.length > 0) {
+        throw new AggregateError(embeddingFailures, "PDF embedding pass failed")
+      }
+    })()
+    // Logged here like the sibling passes, so a caller may leave the pass unawaited.
+    pdfPass.catch((error: unknown) => {
+      logger.error("PDF content pass failed", { error: describeError(error) })
+    })
+    return {
+      count: indexedNotes.length,
+      embedding: embeddingPromise,
+      bodyTags: bodyTagPromise,
+      pdfPass,
+    }
   }
 
   // ── Trash entries (retention-sweep bookkeeping) ──────────────

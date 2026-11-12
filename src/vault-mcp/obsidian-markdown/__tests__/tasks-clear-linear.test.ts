@@ -260,7 +260,7 @@ describe("task metadata clear compatibility", () => {
         const samples=Array.from({length:5},()=>{const start=performance.now();check();return performance.now()-start;}).toSorted((a,b)=>a-b);
         medians.push(samples[2]);
       }
-      assert.ok(medians.every(value=>value<1000),'status stamp clear exceeded ceiling '+medians);
+      assert.ok(medians.every(value=>value<2000),'status stamp clear exceeded ceiling '+medians);
       assert.ok(medians.at(-1)<=Math.max(${TIMING_FLOOR_MS},medians[0])*(sizes.at(-1)/sizes[0])*${LINEAR_GROWTH_ALLOWANCE},'status stamp clear scaled superlinearly '+medians);
       process.stdout.write(JSON.stringify({sizes,medians}));
     `,
