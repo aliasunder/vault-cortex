@@ -17,8 +17,10 @@ import {
 import {
   DEFAULT_INSTANCE_NAME,
   DEFAULT_PORT,
+  describeInvalidEnvBindAddress,
   describeInvalidEnvPort,
   describeInvalidInstanceName,
+  isValidBindAddress,
   isValidPort,
   type Mode,
 } from "./scaffold.js"
@@ -219,8 +221,8 @@ const nameInUseWithYesFlagMessage = (instanceName: string): string => {
  * Decides this install's name and port before init writes .env:
  * - a re-run over an existing .env keeps its name, port and BIND_ADDRESS, plus
  *   a local PUBLIC_URL or a remote DEVICE_NAME (`carried`), and exits when the
- *   name or port is invalid (--port replaces the port) or --instance-name gives
- *   a different name;
+ *   name, port or BIND_ADDRESS is invalid (--port replaces the port) or
+ *   --instance-name gives a different name;
  * - --instance-name and --port set them directly;
  * - a new install whose name is already in use on the machine asks for its own
  *   name and port, or confirms reuse of the existing data for the same vault.
@@ -277,6 +279,18 @@ export const resolveInstanceIdentity = async (
 
     if (carriedPortError && !flags.port) {
       prompts.error(`${carriedPortError} Fix it in ${targetDir}/.env.`)
+      return { kind: "exit" }
+    }
+    // The same holds for a kept bind address, which no flag replaces. Without
+    // this check, start refuses it only after the overwrite has already
+    // replaced the old .env and its token.
+    const carriedBindAddressError =
+      carried.BIND_ADDRESS && !isValidBindAddress(carried.BIND_ADDRESS)
+        ? describeInvalidEnvBindAddress(carried.BIND_ADDRESS)
+        : undefined
+
+    if (carriedBindAddressError) {
+      prompts.error(`${carriedBindAddressError} Fix it in ${targetDir}/.env.`)
       return { kind: "exit" }
     }
     // Renaming here would leave the old container running and could point

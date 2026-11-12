@@ -107,9 +107,52 @@ const missingPublicUrlFix = (mode: Mode, port: number): string => {
 }
 
 /**
+ * Bind addresses whose port still answers on this machine's loopback address.
+ * No address and the wildcard addresses publish on loopback as well.
+ */
+const BIND_ADDRESSES_ANSWERING_ON_LOOPBACK: ReadonlySet<string> = new Set([
+  "",
+  "0.0.0.0",
+  "[::]",
+  "127.0.0.1",
+  "[::1]",
+])
+
+/** PUBLIC_URL hosts that name this machine's loopback address. */
+const LOOPBACK_PUBLIC_URL_HOSTS: ReadonlySet<string> = new Set(["localhost", "127.0.0.1", "[::1]"])
+
+/**
+ * Warns when BIND_ADDRESS publishes the port on one network address while
+ * PUBLIC_URL still names loopback, where the port no longer answers. Returns
+ * undefined when there is nothing to warn about.
+ */
+const describeStrandedLoopbackPublicUrl = (params: {
+  targetDir: string
+  port: number
+  bindAddress: string
+  publicUrl: string
+}): string | undefined => {
+  const { targetDir, port, bindAddress, publicUrl } = params
+  // A PUBLIC_URL that does not parse has no host, so it names no loopback address.
+  const publicUrlHost = URL.parse(publicUrl)?.hostname
+  const publicUrlNamesLoopback = Boolean(
+    publicUrlHost && LOOPBACK_PUBLIC_URL_HOSTS.has(publicUrlHost),
+  )
+
+  if (BIND_ADDRESSES_ANSWERING_ON_LOOPBACK.has(bindAddress) || !publicUrlNamesLoopback) {
+    return undefined
+  }
+  return (
+    `BIND_ADDRESS publishes the port on ${bindAddress} only, so PUBLIC_URL (${publicUrl}) no longer reaches the server — ` +
+    `set PUBLIC_URL to the address clients use, such as http://${bindAddress}:${port}, in ${targetDir}/.env.`
+  )
+}
+
+/**
  * Resolves --dir to the on-disk deployment and validates its .env for a
  * container start: mode detection, PORT, BIND_ADDRESS, VAULT_PATH (local), and PUBLIC_URL.
- * Reports each failure via prompts.error and returns undefined.
+ * Reports each failure via prompts.error and returns undefined, and warns
+ * when BIND_ADDRESS leaves a loopback PUBLIC_URL unreachable.
  * Shared by init, start, restart, upgrade and configure so their precondition checks can't drift.
  */
 export const resolveDeployment = (
@@ -152,6 +195,14 @@ export const resolveDeployment = (
     )
     return undefined
   }
+  const strandedPublicUrlWarning = describeStrandedLoopbackPublicUrl({
+    targetDir,
+    port,
+    bindAddress,
+    publicUrl,
+  })
+
+  if (strandedPublicUrlWarning) prompts.warn(strandedPublicUrlWarning)
   return { mode, instanceName, targetDir, envFilePath, port, bindAddress, vaultPath, publicUrl }
 }
 

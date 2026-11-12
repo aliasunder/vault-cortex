@@ -130,10 +130,15 @@ export const readEnvPort = (envFilePath: string): PortRead => {
  * so is a zone-scoped one (`[fe80::1%eth0]`), which Node accepts but Docker
  * does not.
  */
-const isValidBindAddress = (value: string): boolean => {
+export const isValidBindAddress = (value: string): boolean => {
   if (isIPv4(value)) return true
   if (value.includes("%")) return false
   return value.startsWith("[") && value.endsWith("]") && isIPv6(value.slice(1, -1))
+}
+
+/** The error for a .env BIND_ADDRESS value that isn't an address; callers add where to fix it. */
+export const describeInvalidEnvBindAddress = (bindAddress: string): string => {
+  return `BIND_ADDRESS "${bindAddress}" is not an address Docker can publish on — use an IPv4 address such as 127.0.0.1 or 0.0.0.0, or an IPv6 address in brackets such as [::1].`
 }
 
 export type BindAddressRead =
@@ -157,10 +162,7 @@ export const readEnvBindAddress = (envFilePath: string, mode: Mode): BindAddress
 
   if (!bindAddress) return defaultRead
   if (!isValidBindAddress(bindAddress)) {
-    return {
-      kind: "invalid",
-      message: `BIND_ADDRESS "${bindAddress}" is not an address Docker can publish on — use an IPv4 address such as 127.0.0.1 or 0.0.0.0, or an IPv6 address in brackets such as [::1].`,
-    }
+    return { kind: "invalid", message: describeInvalidEnvBindAddress(bindAddress) }
   }
   return { kind: "ok", bindAddress }
 }

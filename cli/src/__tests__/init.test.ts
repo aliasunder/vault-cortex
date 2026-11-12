@@ -3002,6 +3002,33 @@ describe("runInit re-run keeps the instance identity", () => {
     expect(readFileSync(join(targetDir, ".env"), "utf8")).toBe(existingEnv)
   })
 
+  it("stops a re-run whose kept BIND_ADDRESS is not an address, before writing .env", async () => {
+    const vaultDir = makeVault()
+    const targetDir = makeTargetDir()
+    mkdirSync(targetDir, { recursive: true })
+    const existingEnv = `MCP_AUTH_TOKEN=old\nVAULT_PATH=${vaultDir}\nBIND_ADDRESS=localhost\nPUBLIC_URL=http://localhost:8000\n`
+    writeFileSync(join(targetDir, ".env"), existingEnv)
+    const dockerRun = vi.fn(() => true)
+    const scripted = createScriptedPrompts([true]) // re-run setup anyway
+
+    const exitCode = await runInit(
+      { mode: "local", vaultPath: vaultDir, dir: targetDir },
+      {
+        prompts: scripted.prompts,
+        docker: { ...dockerReadyEmptyHost, dockerRun },
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(exitCode).toBe(1)
+    expect(scripted.errors).toEqual([
+      `BIND_ADDRESS "localhost" is not an address Docker can publish on — use an IPv4 address such as 127.0.0.1 or 0.0.0.0, or an IPv6 address in brackets such as [::1]. Fix it in ${targetDir}/.env.`,
+    ])
+    expect(scripted.asked).toEqual(["Re-run setup for this directory anyway?"])
+    expect(readFileSync(join(targetDir, ".env"), "utf8")).toBe(existingEnv)
+    expect(dockerRun).not.toHaveBeenCalled()
+  })
+
   it("warns when --port moves a re-run off the port its custom PUBLIC_URL serves", async () => {
     const vaultDir = makeVault()
     const targetDir = makeTargetDir()
