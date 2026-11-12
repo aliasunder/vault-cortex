@@ -170,7 +170,8 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
 
   /**
    * Each path's event token, which guards the path's read; source versions
-   * guard the embedding that runs after it.
+   * guard the embedding that runs after it. The index mints a source version
+   * for every writer, the rebuild included, so it cannot check this token.
    * - indexChangedFile stores a fresh token before it reads the file, and drops
    *   what it read if a newer event or a removal replaced the token meanwhile.
    * - applyHeldChanges reserves one for each held path as the watcher goes

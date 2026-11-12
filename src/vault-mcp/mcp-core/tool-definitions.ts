@@ -62,8 +62,8 @@ const createGatedRegisterTool = (params: {
     if (!enabledToolNames.has(name)) return
 
     // The index counts the call as in flight and returns the handler's own result; background
-    // embedding waits while the count is above zero, because model inference would share the
-    // one JavaScript thread with the call.
+    // embedding waits while the count is above zero, for a few seconds at most per model call,
+    // because model inference would share the one JavaScript thread with the call.
     const trackedHandler: typeof handler = (args, extra) => {
       // The async wrapper turns a handler's synchronous result into a promise
       return search.trackForegroundWork(async () => handler(args, extra))

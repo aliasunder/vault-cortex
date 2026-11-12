@@ -426,14 +426,14 @@ const readStoredBodyTags = (
 
 // ── Background embedding ────────────────────────────────────────
 
-/** How long a background embedding unit (one model call, for a chunk or a
- *  batch of memory entries) waits for running tool calls and prompts to finish.
- *  - The embedder (`embedder.ts`) runs inference synchronously on the one
- *    JavaScript thread, so a unit that runs during a call delays that call.
+/** How long a background model call (a chunk's text, or a batch of memory
+ *  entries) waits for running tool calls and prompts to finish.
+ *  - A model call holds the JavaScript thread until it returns (see
+ *    `embedText` in embedder.ts), so one made during a tool call delays that
+ *    call by one inference.
  *  - The cap keeps a stream of overlapping calls from stalling the index for
- *    good. A job (one note's or file's embedding) then runs one unit every 5
- *    seconds, so about six during a call that lasts the 30 seconds the
- *    production gateway allows before it answers 503. */
+ *    good: a tool call that runs longer than 5 seconds is delayed by one
+ *    inference every 5 seconds, so a 30-second call pays for about six. */
 const BACKGROUND_EMBED_MAX_WAIT_MS = 5000
 
 /** A stored chunk's content hash and the raw bytes of its vector. */
@@ -2944,7 +2944,10 @@ export const createSearchIndex = (
               }
 
               // Yield to the event loop between notes so pending I/O callbacks
-              // (Express healthz, MCP tool handlers) can drain.
+              // (Express healthz, MCP tool handlers) can drain. The foreground
+              // wait before each model call does not replace this: a run of
+              // unchanged notes makes no model call, and a request's handler has
+              // to start before the wait can see it.
               await setImmediateAsync()
             }
             // ── File content embedding ──────────────────────────────
@@ -3152,8 +3155,9 @@ export const createSearchIndex = (
       }
     }
 
-    /** Extracts, publishes and embeds each PDF in turn. The first extraction waits inside the
-     *  extractor until the server has listened, so the pass never delays startup. */
+    /** Extracts and publishes each PDF in turn, then embeds the published PDFs. The first
+     *  extraction waits inside the extractor until the server has listened, so the pass never
+     *  delays startup. */
     const pdfPass = (async (): Promise<void> => {
       const passStart = performance.now()
       // An extraction or publish failure is the PDF's own, logged per file, and the pass goes on.
