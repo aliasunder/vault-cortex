@@ -123,9 +123,12 @@ const BLOCK_ID_CHARACTER_CLASS = "[a-zA-Z0-9-]"
  *  every field on the line with it. */
 const BLOCK_LINK_RE = new RegExp(` \\^(${BLOCK_ID_CHARACTER_CLASS}+)$`, "u")
 
-/** The parts around a task body's trailing block link. `body` is trimmed of
- *  trailing whitespace; `blockLink` keeps its leading space, "" when the
- *  line has none. */
+/** The parts around a task body's trailing block link, read after the body's
+ *  trailing whitespace is trimmed:
+ *  - `body` is the text before the link's single leading space. Any spaces
+ *    before that one stay, so `task  ^id` gives `task `. With no link, `body`
+ *    is the whole trimmed text.
+ *  - `blockLink` keeps its single leading space, "" when the line has none. */
 const splitTrailingBlockLink = (
   taskBody: string,
 ): { body: string; blockId: string | null; blockLink: string } => {
