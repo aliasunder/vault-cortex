@@ -308,9 +308,9 @@ const subtaskPositionsFrom = ({
 
 // ── Shared constants ────────────────────────────────────────────
 
-/** Matches a whole block ID: the characters tasks.BLOCK_LINK_RE reads after
- *  the `^`, so an ID that passes is one the parser reads back. */
-const BLOCK_ID_RE = /^[a-zA-Z0-9-]+$/
+/** Whole-string form of the block-id character class, for validating an id
+ *  before it is written. */
+const BLOCK_ID_RE = new RegExp(`^${tasks.BLOCK_ID_CHARACTER_CLASS}+$`)
 
 // ── Internal helpers ────────────────────────────────────────────
 

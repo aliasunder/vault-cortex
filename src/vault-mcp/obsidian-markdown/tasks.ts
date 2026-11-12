@@ -109,6 +109,11 @@ const LEADING_BODY_SPACES_RE = /^ +/
  *  ends that task's list, so it must close the task's sub-task scope too. */
 const LIST_ITEM_RE = /^[\s>]*(?:[-*+]|[0-9]+[.)]) /u
 
+/** One character a block id allows, as a regex character class. Every
+ *  block-id regex is built from it, so an id that passes validation is one
+ *  the parser reads back. */
+const BLOCK_ID_CHARACTER_CLASS = "[a-zA-Z0-9-]"
+
 /** Matches a trailing block link ` ^block-id` at the very end of the line.
  *  Captures the ID without the caret (group 1). The plugin strips this before
  *  parsing metadata, so it must be removed first. Anchored — safe for .exec().
@@ -116,7 +121,7 @@ const LIST_ITEM_RE = /^[\s>]*(?:[-*+]|[0-9]+[.)]) /u
  *  markdown hard break (two+ trailing spaces) would otherwise hide the link
  *  — and, since the unrecognized ` ^id` tail then stops the metadata scan,
  *  every field on the line with it. */
-const BLOCK_LINK_RE = / \^([a-zA-Z0-9-]+)$/u
+const BLOCK_LINK_RE = new RegExp(` \\^(${BLOCK_ID_CHARACTER_CLASS}+)$`, "u")
 
 /** The parts around a task body's trailing block link. `body` is trimmed of
  *  trailing whitespace; `blockLink` keeps its leading space, "" when the
@@ -2440,6 +2445,7 @@ export const tasks = {
   parseKanbanCardInsertionMethod,
   deduplicateDescriptionTags,
   BLOCK_LINK_RE,
+  BLOCK_ID_CHARACTER_CLASS,
   COMPLETE_MARKER,
 }
 
