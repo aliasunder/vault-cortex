@@ -691,8 +691,8 @@ const resolveAssetInLetterCase = (params: {
   // A target with folder segments keeps them in the match (suffix on the
   // stem, case folded like the other suffix tier); a bare name matches the
   // filename stem in the pass's letter case, as its SQL twin compares the
-  // basename with =. Either way this is the last tier: shortestOf returns
-  // null on no match — the unresolved case.
+  // basename with =. Either way this is the pass's last tier: a miss ends
+  // the pass with null.
   if (target.includes("/")) {
     if (!runsSuffixTiers) return null
 
