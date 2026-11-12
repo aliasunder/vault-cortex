@@ -197,22 +197,30 @@ const updateGuidance = (targetDir: string): string =>
   `Update to the latest release:
   ${upgradeCommand(targetDir)}`
 
+/** Hosts mcp-remote accepts over plain http without its --allow-http flag. */
+const MCP_REMOTE_PLAIN_HTTP_HOSTS = new Set(["localhost", "127.0.0.1"])
+
 /**
- * Local-mode "Connect" message. port comes from the .env on disk: a kept file
- * may override the default, so the message must describe the server that will
- * actually run.
+ * Local-mode "Connect" message. publicUrl comes from the .env on disk: sign-in
+ * works only at PUBLIC_URL, which a kept file may set to another port, a
+ * network address or a reverse proxy, so the printed URLs use its origin.
  */
 export const buildLocalConnectMessage = (params: {
   targetDir: string
   instanceName: string
   token: string
   startStatus: StartStatus
-  port: number
+  publicUrl: string
   tokenWritten: boolean
 }): string => {
-  const { targetDir, instanceName, token, startStatus, port, tokenWritten } = params
+  const { targetDir, instanceName, token, startStatus, publicUrl, tokenWritten } = params
 
-  const baseUrl = `http://localhost:${port}`
+  const parsedPublicUrl = URL.parse(publicUrl)
+  const baseUrl = parsedPublicUrl?.origin ?? publicUrl
+  const needsAllowHttp =
+    parsedPublicUrl?.protocol === "http:" &&
+    !MCP_REMOTE_PLAIN_HTTP_HOSTS.has(parsedPublicUrl.hostname)
+  const bridgeUrlArgs = needsAllowHttp ? `"${baseUrl}/mcp", "--allow-http"` : `"${baseUrl}/mcp"`
 
   const nonRunningLine =
     startStatus === "starting" ? startingInBackgroundLine(instanceName) : startServerLine(targetDir)
@@ -231,11 +239,11 @@ export const buildLocalConnectMessage = (params: {
     .join("\n\n")
 
   // Flush-left on purpose: this is printed as plain text (see paint), so
-  // leading whitespace would render as literal indentation. Local is always
-  // localhost http, so it shares the http guidance; its only divergences are
-  // that claude.ai can't reach localhost at all and Claude Desktop needs the
-  // mcp-remote bridge (the dialog rejects http, but mcp-remote exempts
-  // localhost, so no --allow-http).
+  // leading whitespace would render as literal indentation. A local install
+  // answers on this machine or its home network, which claude.ai and Claude
+  // Mobile can't reach. Claude Desktop's connector dialog rejects http, so it
+  // needs the mcp-remote bridge, and mcp-remote refuses plain http to any host
+  // but localhost unless --allow-http is passed.
   const connectMessage = `${topRule("Connect")}
 
 ${startLine}
@@ -247,12 +255,12 @@ ${connectUrlBlock(`${baseUrl}/mcp`, tokenLine)}
 ${connectGuidance(`${baseUrl}/mcp`, instanceName)}
 
 Other clients (opencode, Cursor, …) take the URL above too. claude.ai
-(web) can't reach localhost — connect from a client on this machine.
+and Claude Mobile can't reach a localhost or home-network address.
 Claude Desktop only accepts https URLs in its connector dialog, so bridge
 it with mcp-remote:
   "${instanceName}": {
     "command": "npx",
-    "args": ["-y", "mcp-remote", "${baseUrl}/mcp",
+    "args": ["-y", "mcp-remote", ${bridgeUrlArgs},
       "--header", "Authorization: Bearer <token above>"]
   }
 
@@ -279,11 +287,7 @@ ${bottomRule()}`
   return connectMessage
 }
 
-/**
- * Remote-mode "Connect" message. See buildLocalConnectMessage for the
- * tokenWritten rationale; remote URLs come from PUBLIC_URL, so no port
- * handling here.
- */
+/** Remote-mode "Connect" message. See tokenBlock for the tokenWritten rationale. */
 export const buildRemoteConnectMessage = (params: {
   targetDir: string
   instanceName: string

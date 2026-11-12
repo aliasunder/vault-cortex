@@ -12,8 +12,8 @@ const readRepoFile = (repoRelativePath: string): string =>
 
 // --- Env var consistency helpers ---
 
-/** Matches compose variable interpolations: `${VAR:-...}` and `${VAR:?...}`. */
-const COMPOSE_INTERPOLATION = /\$\{([A-Z_]+):[-?]/g
+/** Matches compose variable interpolations: `${VAR:-...}`, `${VAR:?...}` and `${VAR:+...}`. */
+const COMPOSE_INTERPOLATION = /\$\{([A-Z_]+):[-?+]/g
 
 /** Matches commented env var assignments: `# VAR_NAME=value`. */
 const COMMENTED_VAR_LINE = /^# ([A-Z_]+)=/gm
@@ -193,9 +193,9 @@ describe("port publishing in the compose templates", () => {
       published: "${BIND_ADDRESS:-127.0.0.1}:${PORT:-8000}:8000",
     },
     {
-      label: "remote publishes on BIND_ADDRESS, every address by default",
+      label: "remote publishes on BIND_ADDRESS, every IPv4 and IPv6 address when it is empty",
       composePath: "deploy/remote/docker-compose.yml",
-      published: "${BIND_ADDRESS:-0.0.0.0}:${PORT:-8000}:8000",
+      published: "${BIND_ADDRESS:+${BIND_ADDRESS}:}${PORT:-8000}:8000",
     },
   ])("$label", ({ composePath, published }) => {
     const composeFile: { services: { "vault-cortex": { ports: string[] } } } = parseYaml(

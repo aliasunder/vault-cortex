@@ -194,7 +194,7 @@ describe("readEnvBindAddress", () => {
 
   it.each([
     { label: "loopback in local mode", mode: "local" as const, bindAddress: "127.0.0.1" },
-    { label: "every address in remote mode", mode: "remote" as const, bindAddress: "0.0.0.0" },
+    { label: "no address in remote mode", mode: "remote" as const, bindAddress: "" },
   ])("defaults to $label when no .env exists", ({ mode, bindAddress }) => {
     const missingPath = join(tmpdir(), "vault-cli-no-such-env", ".env")
 
@@ -208,7 +208,7 @@ describe("readEnvBindAddress", () => {
     const envPath = writeEnv(content)
 
     expect(readEnvBindAddress(envPath, "local")).toEqual({ kind: "ok", bindAddress: "127.0.0.1" })
-    expect(readEnvBindAddress(envPath, "remote")).toEqual({ kind: "ok", bindAddress: "0.0.0.0" })
+    expect(readEnvBindAddress(envPath, "remote")).toEqual({ kind: "ok", bindAddress: "" })
   })
 
   it.each([
@@ -223,6 +223,12 @@ describe("readEnvBindAddress", () => {
       mode: "remote" as const,
       envValue: "127.0.0.1",
       bindAddress: "127.0.0.1",
+    },
+    {
+      label: "the IPv4 wildcard in remote mode",
+      mode: "remote" as const,
+      envValue: "0.0.0.0",
+      bindAddress: "0.0.0.0",
     },
     {
       label: "a quoted address",
@@ -251,6 +257,11 @@ describe("readEnvBindAddress", () => {
   it.each([
     { label: "a hostname", envValue: "localhost", reportedValue: "localhost" },
     { label: "a bare IPv6 address", envValue: "::1", reportedValue: "::1" },
+    {
+      label: "a zone-scoped IPv6 address",
+      envValue: "[fe80::1%eth0]",
+      reportedValue: "[fe80::1%eth0]",
+    },
     {
       label: "an address with a port",
       envValue: "127.0.0.1:8000",

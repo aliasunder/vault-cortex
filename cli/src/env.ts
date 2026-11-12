@@ -322,11 +322,11 @@ INSTANCE_NAME=vault-cortex
 # Host port to expose (default: 8000).
 PORT=8000
 
-# Address on this server the port is published on (default: 0.0.0.0).
-# 0.0.0.0 publishes on every address. Set 127.0.0.1 once a tunnel or reverse
-# proxy on this server fronts the MCP server, so clients can reach it only
-# through that tunnel or proxy.
-BIND_ADDRESS=0.0.0.0
+# Address on this server the port is published on (default: empty). Leave it
+# empty to publish on every address, IPv4 and IPv6. Set 127.0.0.1 once a
+# tunnel or reverse proxy on this server fronts the MCP server, so clients can
+# reach it only through that tunnel or proxy.
+BIND_ADDRESS=
 
 # These two settings choose the client IP used for OAuth rate limiting and
 # logs (defaults shown below). Without the right values, every visitor

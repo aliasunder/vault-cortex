@@ -150,7 +150,7 @@ describe("runUpgrade", () => {
           instanceName: "vault-cortex",
           envFilePath: join(targetDir, ".env"),
           port: 8000,
-          bindAddress: "0.0.0.0",
+          bindAddress: "",
           vaultPath: undefined,
         },
       ],

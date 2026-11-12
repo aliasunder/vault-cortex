@@ -29,7 +29,10 @@ export type DockerRunParams = {
   instanceName: string
   envFilePath: string
   port: number
-  /** The .env's BIND_ADDRESS: the host address Docker publishes the port on. */
+  /**
+   * The .env's BIND_ADDRESS: the host address Docker publishes the port on.
+   * Empty publishes on every address, IPv4 and IPv6.
+   */
   bindAddress: string
   /** Host vault path — local mode only (bind mount). */
   vaultPath?: string
@@ -134,6 +137,7 @@ const HEALTH_CMD =
 export const buildDockerRunArgs = (params: DockerRunParams): string[] => {
   const { mode, instanceName, envFilePath, port, bindAddress, vaultPath } = params
   const image = mode === "local" ? LOCAL_IMAGE : REMOTE_IMAGE
+  const publishedPort = bindAddress ? `${bindAddress}:${port}:8000` : `${port}:8000`
   const args = [
     "run",
     "-d",
@@ -145,7 +149,7 @@ export const buildDockerRunArgs = (params: DockerRunParams): string[] => {
     envFilePath,
     ...CONTAINER_ENV_OVERRIDES.flatMap((override) => ["-e", override]),
     "-p",
-    `${bindAddress}:${port}:8000`,
+    publishedPort,
   ]
 
   if (mode === "local") {
@@ -386,10 +390,12 @@ export const probeHealth = async (
 }
 
 /**
- * The loopback address that reaches a port published on a wildcard address.
- * A port published on any other address answers only on that address.
+ * The loopback address that reaches a port published on a wildcard address,
+ * or on no address, which publishes on every IPv4 and IPv6 address. A port
+ * published on any other address answers only on that address.
  */
 const LOOPBACK_FOR_WILDCARD = new Map([
+  ["", "127.0.0.1"],
   ["0.0.0.0", "127.0.0.1"],
   ["[::]", "[::1]"],
 ])

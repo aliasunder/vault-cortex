@@ -27,7 +27,7 @@ const localDefaults = {
   instanceName: "vault-cortex",
   token: "abc123deadbeef",
   startStatus: "not-started" as const,
-  port: 8000,
+  publicUrl: "http://localhost:8000",
   tokenWritten: true,
 }
 
@@ -60,11 +60,72 @@ describe("buildLocalConnectMessage", () => {
     expect(lines).toContain(expectedSectionRule("Settings"))
   })
 
-  it("builds URLs from the given port", () => {
-    const message = buildLocalConnectMessage({ ...localDefaults, port: 9999 })
+  it("builds URLs from PUBLIC_URL's port", () => {
+    const message = buildLocalConnectMessage({
+      ...localDefaults,
+      publicUrl: "http://localhost:9999",
+    })
 
     expect(message).toContain("http://localhost:9999/mcp")
     expect(message).toContain("http://localhost:9999/healthz")
+  })
+
+  it("builds URLs from a network PUBLIC_URL instead of localhost", () => {
+    const message = buildLocalConnectMessage({
+      ...localDefaults,
+      publicUrl: "http://192.168.1.20:8000",
+    })
+
+    expect(message).toContain(
+      "claude mcp add --scope user --transport http vault-cortex http://192.168.1.20:8000/mcp\n",
+    )
+    expect(message).toContain("curl http://192.168.1.20:8000/healthz")
+    expect(message).not.toContain("localhost:8000")
+  })
+
+  it("builds URLs from PUBLIC_URL's origin, dropping any path", () => {
+    const message = buildLocalConnectMessage({
+      ...localDefaults,
+      publicUrl: "https://vault.home.example/base",
+    })
+
+    expect(message).toContain("curl https://vault.home.example/healthz")
+    expect(message).not.toContain("/base")
+  })
+
+  it("says claude.ai and Claude Mobile can't reach a local install's address", () => {
+    const message = buildLocalConnectMessage(localDefaults)
+
+    expect(message).toContain(
+      "claude.ai\nand Claude Mobile can't reach a localhost or home-network address.\n",
+    )
+  })
+
+  it.each([
+    {
+      label: "localhost",
+      publicUrl: "http://localhost:8000",
+      bridgeArgs: '["-y", "mcp-remote", "http://localhost:8000/mcp",\n',
+    },
+    {
+      label: "127.0.0.1",
+      publicUrl: "http://127.0.0.1:8000",
+      bridgeArgs: '["-y", "mcp-remote", "http://127.0.0.1:8000/mcp",\n',
+    },
+    {
+      label: "an https address",
+      publicUrl: "https://vault.home.example",
+      bridgeArgs: '["-y", "mcp-remote", "https://vault.home.example/mcp",\n',
+    },
+    {
+      label: "a plain-http network address, with --allow-http",
+      publicUrl: "http://192.168.1.20:8000",
+      bridgeArgs: '["-y", "mcp-remote", "http://192.168.1.20:8000/mcp", "--allow-http",\n',
+    },
+  ])("bridges Claude Desktop to $label", ({ publicUrl, bridgeArgs }) => {
+    const message = buildLocalConnectMessage({ ...localDefaults, publicUrl })
+
+    expect(message).toContain(`"args": ${bridgeArgs}`)
   })
 
   it("shows 'The server is running.' when startStatus is running", () => {
@@ -190,7 +251,7 @@ describe("buildLocalConnectMessage", () => {
     const message = buildLocalConnectMessage({
       ...localDefaults,
       instanceName: "work",
-      port: 8001,
+      publicUrl: "http://localhost:8001",
       startStatus: "starting",
     })
 

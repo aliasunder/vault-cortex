@@ -78,7 +78,7 @@ describe("buildDockerRunArgs", () => {
       instanceName: "vault-cortex",
       envFilePath: "/opt/vault-cortex/.env",
       port: 8000,
-      bindAddress: "0.0.0.0",
+      bindAddress: "",
     })
 
     expect(args).toEqual([
@@ -99,7 +99,7 @@ describe("buildDockerRunArgs", () => {
       "-e",
       "INDEX_DB_PATH=/data/index.db",
       "-p",
-      "0.0.0.0:8000:8000",
+      "8000:8000",
       "--hostname",
       "vault-cortex",
       "-v",
@@ -138,12 +138,20 @@ describe("buildDockerRunArgs", () => {
       published: "127.0.0.1:9000:8000",
     },
     {
-      label: "a custom port on every address in remote mode",
+      label: "a custom port on every IPv4 and IPv6 address when no address is given",
+      mode: "remote" as const,
+      vaultPath: undefined,
+      bindAddress: "",
+      port: 9000,
+      published: "9000:8000",
+    },
+    {
+      label: "every IPv4 address in remote mode",
       mode: "remote" as const,
       vaultPath: undefined,
       bindAddress: "0.0.0.0",
-      port: 9000,
-      published: "0.0.0.0:9000:8000",
+      port: 8000,
+      published: "0.0.0.0:8000:8000",
     },
     {
       label: "every address in local mode",
@@ -226,7 +234,7 @@ describe("buildDockerRunArgs", () => {
       instanceName: "vault-cortex",
       envFilePath: "/tmp/.env",
       port: 8000,
-      bindAddress: "0.0.0.0",
+      bindAddress: "",
     })
     expect(remoteArgs).toContain("vault-cortex_vault_data:/vault")
     expect(remoteArgs).toContain("vault-cortex_mcp_data:/data")
@@ -286,7 +294,7 @@ describe("buildDockerRunArgs", () => {
       instanceName: "work",
       envFilePath: "/opt/work/.env",
       port: 8001,
-      bindAddress: "0.0.0.0",
+      bindAddress: "",
     })
 
     expect(args).toEqual([
@@ -307,7 +315,7 @@ describe("buildDockerRunArgs", () => {
       "-e",
       "INDEX_DB_PATH=/data/index.db",
       "-p",
-      "0.0.0.0:8001:8000",
+      "8001:8000",
       "--hostname",
       "work",
       "-v",
@@ -342,7 +350,7 @@ describe("buildDockerRunArgs", () => {
       instanceName: "vault-cortex",
       envFilePath: "/tmp/.env",
       port: 8000,
-      bindAddress: "0.0.0.0",
+      bindAddress: "",
     })
 
     expect(args).toContain("--log-driver")
@@ -359,6 +367,11 @@ describe("buildDockerRunArgs", () => {
 
 describe("hostHealthUrl", () => {
   it.each([
+    {
+      label: "IPv4 loopback when no address is given",
+      bindAddress: "",
+      url: "http://127.0.0.1:9000/healthz",
+    },
     {
       label: "loopback for an IPv4 wildcard",
       bindAddress: "0.0.0.0",

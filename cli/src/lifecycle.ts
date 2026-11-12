@@ -63,7 +63,7 @@ export type Deployment = {
   targetDir: string
   envFilePath: string
   port: number
-  /** The host address Docker publishes the port on. */
+  /** The host address Docker publishes the port on; empty publishes on every address. */
   bindAddress: string
   /** Present only in local mode. */
   vaultPath?: string

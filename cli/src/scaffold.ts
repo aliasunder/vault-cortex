@@ -37,12 +37,14 @@ const ENV_BIND_ADDRESS_LINES = /^BIND_ADDRESS=(.*)$/gm
 
 /**
  * The host address Docker publishes the port on when .env sets no
- * BIND_ADDRESS. A local install answers this machine only; a remote install
- * answers every address, so other devices can reach the server.
+ * BIND_ADDRESS:
+ * - a local install answers this machine only;
+ * - a remote install gets no address, so Docker publishes on every address,
+ *   IPv4 and IPv6, and other devices can reach the server over either.
  */
 const DEFAULT_BIND_ADDRESSES: Readonly<Record<Mode, string>> = {
   local: "127.0.0.1",
-  remote: "0.0.0.0",
+  remote: "",
 }
 
 /** Matches every active (uncommented) INSTANCE_NAME line, capturing its raw value. */
@@ -124,10 +126,13 @@ export const readEnvPort = (envFilePath: string): PortRead => {
 /**
  * An IPv4 address, or an IPv6 address in brackets (`[::1]`): the host-address
  * forms both `docker run -p` and Compose's ports list read. A bare IPv6
- * address is refused, because its colons run into the port separators.
+ * address is refused, because its colons run into the port separators, and
+ * so is a zone-scoped one (`[fe80::1%eth0]`), which Node accepts but Docker
+ * does not.
  */
 const isValidBindAddress = (value: string): boolean => {
   if (isIPv4(value)) return true
+  if (value.includes("%")) return false
   return value.startsWith("[") && value.endsWith("]") && isIPv6(value.slice(1, -1))
 }
 
@@ -137,7 +142,8 @@ export type BindAddressRead =
 /**
  * Reads the host address to publish the port on from a .env file:
  * - the last active line wins, as it does for `docker run --env-file`;
- * - a missing file, line or empty value means the mode's default address;
+ * - a missing file, line or empty value means the mode's default, which is
+ *   empty (no address) for a remote install;
  * - any other value that is not an address is reported, never corrected,
  *   because a guess could publish the server wider than the user meant.
  */

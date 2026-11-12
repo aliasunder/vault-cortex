@@ -1167,6 +1167,37 @@ describe("runInit with a kept existing .env", () => {
     expect(recording.runParams.map((params) => params.bindAddress)).toEqual(["192.168.1.20"])
     expect(fetchedUrls).toEqual(["http://192.168.1.20:8000/healthz"])
   })
+
+  it("prints the connect URLs from a kept file's network PUBLIC_URL, not localhost", async () => {
+    const vaultDir = makeVault()
+    const targetDir = makeTargetDir()
+    mkdirSync(targetDir, { recursive: true })
+    writeFileSync(
+      join(targetDir, ".env"),
+      `MCP_AUTH_TOKEN=existing\nVAULT_PATH=${vaultDir}\nBIND_ADDRESS=0.0.0.0\nPUBLIC_URL=http://192.168.1.20:8000\n`,
+    )
+    const scripted = createScriptedPrompts([
+      ...keepEnvAnswers(vaultDir, targetDir),
+      true, // start the server now
+    ])
+    const fetchHealthy: typeof fetch = async () => {
+      return new Response(null, { status: 200 })
+    }
+
+    const exitCode = await runInit(
+      {},
+      { prompts: scripted.prompts, docker: dockerReadyEmptyHost, fetchFn: fetchHealthy },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(scripted.prints[0]).toContain(
+      "claude mcp add --scope user --transport http vault-cortex http://192.168.1.20:8000/mcp\n",
+    )
+    expect(scripted.prints[0]).toContain(
+      '"args": ["-y", "mcp-remote", "http://192.168.1.20:8000/mcp", "--allow-http",\n',
+    )
+    expect(scripted.prints[0]).not.toContain("localhost:8000")
+  })
 })
 
 describe("runInit --vault-path flag in interactive mode", () => {
