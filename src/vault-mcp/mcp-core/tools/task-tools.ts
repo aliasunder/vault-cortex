@@ -707,8 +707,8 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, next_occur
         requestId: extra.requestId,
         tool: TOOL_NAMES.VAULT_UPDATE_TASK,
       })
-      // Task text is note content, which stays out of the log here as it
-      // does in the note-writing tools.
+      // Task text is note content, which this call line leaves out, as the
+      // note-writing tools' call lines do.
       reqLogger.info("tool_call", {
         path,
         blockId: block_id,
