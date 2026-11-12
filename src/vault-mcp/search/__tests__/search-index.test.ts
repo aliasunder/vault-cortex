@@ -6025,7 +6025,7 @@ describe("links table schema", () => {
     return inspect
   }
 
-  it("recreates an old links table with the text, kind and name columns in its key", async () => {
+  it("recreates an old links table with the text and kind columns in its key and the name column outside it", async () => {
     const inspect = await openOverOldLinksTable()
 
     const columns = inspect
