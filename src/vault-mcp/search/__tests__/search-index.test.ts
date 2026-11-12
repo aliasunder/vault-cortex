@@ -6414,6 +6414,31 @@ describe("links after a file is added or removed", () => {
     })
   })
 
+  it.each([
+    { label: "[[x.md]] to x.MD.png", linkText: "x.md", attachment: "files/x.MD.png" },
+    { label: "[[x.MD]] to x.md.png", linkText: "x.MD", attachment: "files/x.md.png" },
+  ])(
+    "resolves $label, whose .md ending differs in letter case, once the attachment is added",
+    async ({ linkText, attachment }) => {
+      const search = createSearchIndex(":memory:")
+      const source = { path: "source.md", content: `# Source\n\n[[${linkText}]]\n` }
+      saveLinkTestNote(search, source.path, source.content)
+      saveAttachment(search, attachment)
+
+      await expectViewAsRebuilt({
+        search,
+        files: [source, { path: attachment, content: "png" }],
+        source: "source.md",
+        backlinksOf: [],
+        expected: {
+          outgoing: [{ path: attachment, exists: true }],
+          backlinks: {},
+          orphans: ["source.md"],
+        },
+      })
+    },
+  )
+
   it("leaves [[../B]] unresolved once the root B.md moves into a folder", async () => {
     const search = createSearchIndex(":memory:")
     const source = { path: "sub/source.md", content: "# Source\n\n[[../B]]\n" }

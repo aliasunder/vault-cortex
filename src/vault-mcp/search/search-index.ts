@@ -1571,8 +1571,15 @@ export const createSearchIndex = (
       }
 
       // A link names the file by its full filename ([[photo.png]]) or by its
-      // stem ([[Trip Route]] for Trip Route.canvas), the basename column.
-      reResolveLinksNaming([links.pathToLinkName(filePath), links.pathToLinkName(baseFilename)])
+      // stem ([[Trip Route]] for Trip Route.canvas), the basename column. Each
+      // name is looked up with and without a ".md" ending in any letter case,
+      // because the folded pass matches [[x.md]], keyed without it, to x.MD.png.
+      const fileNames = [basename(filePath), baseFilename]
+      const linkNames = fileNames.flatMap((fileName) => [
+        links.pathToLinkName(fileName.toLowerCase()),
+        links.pathToLinkName(`${fileName}.md`),
+      ])
+      reResolveLinksNaming(linkNames)
     })()
   }
 
