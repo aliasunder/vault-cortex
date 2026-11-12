@@ -399,9 +399,9 @@ export type RebuildResult = {
   count: number
   embedding: Promise<void>
   bodyTags: Promise<void>
-  /** Releases PDF extraction, which waits for this call, and resolves once every PDF's text
-   *  and embedding are published; rejects when an embedding failed. */
-  startPdfPass: () => Promise<void>
+  /** Resolves once every PDF's text and vectors are published; rejects when an embedding
+   *  failed. The extractor holds the extractions until the server releases them after listen. */
+  pdfPass: Promise<void>
 }
 
 /** A note's stored body tags, or none when the stored value is damaged: the
@@ -2457,8 +2457,8 @@ export const createSearchIndex = (
     const canvasContents = canvasContentResults.filter((entry) => entry !== null)
 
     // A PDF is found by name from this write on; its old text, chunks and vectors are removed at
-    // the same time, so nothing stale answers until the deferred pass publishes its text.
-    const pdfPlaceholders = nonMarkdownFileStats
+    // the same time, so nothing stale answers until the PDF pass publishes its text.
+    const pdfsAwaitingText = nonMarkdownFileStats
       .filter((file) => fileToolsEnabled && getFileKind(file.relativePath) === "pdf")
       .map((file) => ({
         relativePath: file.relativePath,
@@ -2466,7 +2466,8 @@ export const createSearchIndex = (
         modifiedAtMs: file.modifiedAtMs,
         sizeBytes: file.bytes,
       }))
-    const pdfVersionsForExtraction = new Map<string, symbol>()
+    // The version of each PDF's name-only row, which the PDF pass checks before it writes.
+    const nameOnlyRowVersions = new Map<string, symbol>()
 
     // Text formats decode leniently, so a text file with a stray invalid byte
     // or NUL padding still indexes; HTML pages and scripts get the strict check below.
@@ -2680,7 +2681,7 @@ export const createSearchIndex = (
         // links before inserting, so canvas links append cleanly after the note link pass.
         const allFileContents = [
           ...canvasContents,
-          ...pdfPlaceholders,
+          ...pdfsAwaitingText,
           ...textFileContents,
           ...htmlAndScriptContents,
         ]
@@ -2701,7 +2702,7 @@ export const createSearchIndex = (
               logger,
             )
 
-            if (isPdf) pdfVersionsForExtraction.set(fileEntry.relativePath, sourceVersion)
+            if (isPdf) nameOnlyRowVersions.set(fileEntry.relativePath, sourceVersion)
             else fileVersionsForEmbedding.set(fileEntry.relativePath, sourceVersion)
           } catch (error) {
             logger.warn("skipped malformed file during rebuild", {
@@ -2977,10 +2978,10 @@ export const createSearchIndex = (
       logger.error("body-tag pass failed", { error: describeError(error) })
     })
 
-    type PdfPlaceholder = (typeof pdfPlaceholders)[number]
+    type PdfAwaitingText = (typeof pdfsAwaitingText)[number]
 
     /** The PDF's index text, or null when the job was cancelled or failed; a failure is logged. */
-    const extractScheduledPdf = async (file: PdfPlaceholder): Promise<PdfTextResult | null> => {
+    const extractPdfTextForIndex = async (file: PdfAwaitingText): Promise<PdfTextResult | null> => {
       try {
         const extraction = await pdfExtractor.extractForIndex({ path: file.relativePath }, logger)
 
@@ -3001,7 +3002,7 @@ export const createSearchIndex = (
     }
 
     /** The published row's version, or undefined when the write failed; the failure is logged. */
-    const publishPdfText = (file: PdfPlaceholder, text: string): symbol | undefined => {
+    const publishPdfText = (file: PdfAwaitingText, text: string): symbol | undefined => {
       try {
         return upsertFileContent(
           {
@@ -3020,9 +3021,9 @@ export const createSearchIndex = (
       }
     }
 
-    const pdfGate = Promise.withResolvers<undefined>()
-    const pdfPromise = (async (): Promise<void> => {
-      await pdfGate.promise
+    /** Extracts, publishes and embeds each PDF in turn. The first extraction waits inside the
+     *  extractor until the server has listened, so the pass never delays startup. */
+    const pdfPass = (async (): Promise<void> => {
       const passStart = performance.now()
       // The pass finishes the other files after an embedding failure, then rejects so a caller
       // awaiting completion sees the failure.
@@ -3030,22 +3031,22 @@ export const createSearchIndex = (
       // Counts the files whose text reached the index, so the summary reports coverage rather
       // than the schedule.
       let publishedFiles = 0
-      for (const file of pdfPlaceholders) {
-        const scheduledVersion = pdfVersionsForExtraction.get(file.relativePath)
-        // A placeholder whose write failed has no version. A later write or removal for the
+      for (const file of pdfsAwaitingText) {
+        const nameOnlyRowVersion = nameOnlyRowVersions.get(file.relativePath)
+        // A name-only row whose write failed has no version. A later write or removal for the
         // path changes its version, and that change wins over this pass.
-        const isPlaceholderCurrent = (): boolean => {
-          if (!scheduledVersion) return false
-          return sourceVersions.get(file.relativePath) === scheduledVersion
+        const nameOnlyRowIsCurrent = (): boolean => {
+          if (!nameOnlyRowVersion) return false
+          return sourceVersions.get(file.relativePath) === nameOnlyRowVersion
         }
         const tooLargeToExtract = file.sizeBytes > maxFileBytes
 
         if (tooLargeToExtract) continue
-        if (!isPlaceholderCurrent()) continue
-        const result = await extractScheduledPdf(file)
+        if (!nameOnlyRowIsCurrent()) continue
+        const result = await extractPdfTextForIndex(file)
 
         if (!result) continue
-        if (!isPlaceholderCurrent()) continue
+        if (!nameOnlyRowIsCurrent()) continue
         const publishedVersion = publishPdfText(file, result.text)
 
         if (!publishedVersion) continue
@@ -3064,7 +3065,7 @@ export const createSearchIndex = (
         }
       }
       logger.info("PDF content pass complete", {
-        scheduledFiles: pdfPlaceholders.length,
+        scheduledFiles: pdfsAwaitingText.length,
         publishedFiles,
         durationMs: Math.round(performance.now() - passStart),
       })
@@ -3074,17 +3075,14 @@ export const createSearchIndex = (
       }
     })()
     // Logged here like the sibling passes, so a caller may leave the pass unawaited.
-    pdfPromise.catch((error: unknown) => {
+    pdfPass.catch((error: unknown) => {
       logger.error("PDF content pass failed", { error: describeError(error) })
     })
     return {
       count: indexedNotes.length,
       embedding: embeddingPromise,
       bodyTags: bodyTagPromise,
-      startPdfPass: () => {
-        pdfGate.resolve(undefined)
-        return pdfPromise
-      },
+      pdfPass,
     }
   }
 

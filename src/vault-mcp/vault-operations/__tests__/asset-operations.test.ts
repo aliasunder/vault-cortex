@@ -63,6 +63,7 @@ const mockReadPdfText = vi.fn<PdfExtractor["readText"]>()
 const pdfExtractor: PdfExtractor = {
   readText: mockReadPdfText,
   extractForIndex: vi.fn(),
+  startIndexing: vi.fn(),
   close: vi.fn(),
 }
 

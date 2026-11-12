@@ -145,6 +145,7 @@ export const captureToolSurface = async (combo: SurfaceCombo): Promise<SurfaceCa
         throw new Error("registration must not read PDFs")
       },
       close: async () => {},
+      startIndexing: () => {},
     },
     search: createSearchIndex(":memory:", undefined, undefined, {
       memoryDir: config.memoryDir,
