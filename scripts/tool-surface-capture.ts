@@ -76,15 +76,16 @@ const comboFromFlippedAxes = (flippedAxes: readonly SurfaceAxis[]): SurfaceCombo
 /** One combo per subset of SURFACE_AXES, plus two single-setting representatives:
  *  - Conjunction combos pin rendered states that exist only in multi-flip
  *    configs (several description clauses drop together).
- *  - disabled-tools: vault_patch_note is cross-referenced from other tools'
- *    descriptions, so its combo verifies those references disappear when the
- *    tool is disabled.
+ *  - disabled-tools: vault_patch_note and vault_list_tasks are both
+ *    cross-referenced from other tools' descriptions, so the combo verifies
+ *    those references disappear and their fallback text renders when the
+ *    tools are disabled.
  *  - obsidian-sync: OBSIDIAN_SYNC changes only vault_delete_note's text,
  *    so one combo pins it; crossing it with the axes would double the
  *    baseline without adding a rendered state. */
 export const SURFACE_COMBOS: readonly SurfaceCombo[] = [
   ...axisSubsets.map(comboFromFlippedAxes),
-  { name: "disabled-tools", env: { DISABLED_TOOLS: "vault_patch_note" } },
+  { name: "disabled-tools", env: { DISABLED_TOOLS: "vault_patch_note,vault_list_tasks" } },
   { name: "obsidian-sync", env: { OBSIDIAN_SYNC: "true" } },
 ]
 

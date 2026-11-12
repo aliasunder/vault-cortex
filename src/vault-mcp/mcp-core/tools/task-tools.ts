@@ -485,8 +485,11 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, changes, a
   // ── vault_update_task ───────────────────────────────────────────
 
   const updateTaskLineDescription = isToolEnabled("vault_list_tasks")
-    ? "1-based line number from vault_list_tasks. Fragile if the file changed since the query."
-    : "1-based line number of the task. Fragile if the note changed since you read it."
+    ? "1-based line number from vault_list_tasks."
+    : "1-based line number of the task."
+  const expectedDescriptionDescription = isToolEnabled("vault_list_tasks")
+    ? "The task's description as vault_list_tasks or an earlier update result returned it. The update is refused if it differs."
+    : "The task's description as an earlier update result returned it (its text without checkbox, emoji or inline-field metadata and block ID). The update is refused if it differs."
 
   registerTool(
     TOOL_NAMES.VAULT_UPDATE_TASK,
@@ -499,12 +502,12 @@ Example: vault_update_task({ path: "TASKS.md", block_id: "my-task", recurrence: 
 Example: vault_update_task({ path: "TASKS.md", block_id: "my-task", heading: "Done" }) — move a task to a different heading (the checkbox is unchanged)
 Example: vault_update_task({ path: "TASKS.md", block_id: "my-task", description: "Updated task name", due: "2026-10-01", scheduled: null }) — change the description, set one date, and clear another
 Example: vault_update_task({ path: "TASKS.md", block_id: "my-task", status: "in_progress", add_subtasks: ["Design", "Implement", "Test"] }) — start working and add checklist stages
-Example: vault_update_task({ path: "TASKS.md", line: 42, assign_block_id: "my-task" }) — add a block_id to a task that lacks one
+Example: vault_update_task({ path: "TASKS.md", line: 42, expected_description: "Draft the outline", assign_block_id: "my-task" }) — add a block_id to a task that lacks one
 
 When to use: Any change to an existing task.${whenToolEnabledText("vault_list_tasks", " Use vault_list_tasks first to get identification fields (path + block_id or line).")}${whenToolEnabledText("vault_create_task", " For creating a new task, use vault_create_task instead.")}
 
 Parameters:
-- Exactly one of block_id or line is required to identify the task. A Kanban sub-task this server created has no block_id, so re-read its line${whenToolEnabledText("vault_list_tasks", " with vault_list_tasks")} just before an update by line.${whenToolEnabledText("vault_list_tasks", " After a write, wait a few seconds for the listing to catch up.")}
+- Exactly one of block_id or line is required to identify the task. A Kanban sub-task this server created has no block_id, so re-read its line${whenToolEnabledText("vault_list_tasks", " with vault_list_tasks")} just before an update by line, and pass the description from that read as expected_description.
 - At least one change is required. Clearing is always explicit null — omitting a field leaves it untouched.
 - recurrence: a rule ending "when done" bases the next occurrence on the completion day. When set together with status "done", the new rule governs the next occurrence. Setting recurrence to null while completing removes the rule and completes without spawning.
 - on_completion: passed together with status, the submitted value governs the delete decision — "keep" while completing a "delete" task prevents the deletion.
@@ -522,7 +525,7 @@ ${PATH_SAFETY_ERROR_ENTRY}
 - "exactly one of blockId or line is required" / "blockId and line are mutually exclusive" — the message states the rule
 - "blockId ... not found" / "blockId ... is inside a fenced code block or comment" — no task line outside a fenced code block or %% %% comment ends with that ^id; check the id${whenToolEnabledText("vault_list_tasks", " with vault_list_tasks")}, or target by line
 - "blockId ... matches N task lines" — the message lists the lines; target the intended task by line, then repair: on a regular note, give all but one line a new id with assign_block_id; on a Kanban board, where the plugin copies a sub-task's id onto its card, clear the sub-task's id (assign_block_id: null, by line) and give the card the id its links use, or a new one
-- "no task at line N" / "line N is inside a fenced code block or comment" — the line holds no task checkbox, or sits inside a fenced code block or %% %% comment; re-read line numbers${whenToolEnabledText("vault_list_tasks", " with vault_list_tasks")}, or target by block_id
+- "no task at line N" / "line N is inside a fenced code block or comment" / "the task at line N in "X" has a different description" — the line holds no task checkbox, sits inside a fenced code block or %% %% comment, or holds a task whose description differs from expected_description; re-read line numbers${whenToolEnabledText("vault_list_tasks", " with vault_list_tasks (after a write, wait a few seconds first)")}, or target by block_id. A block_id update refused on its description means the task's text changed: re-read it and decide whether the update still applies
 - "checkbox "[c]" is a NON_TASK status" / "no checkbox symbol for status ..." — in the Tasks plugin's status settings, the task's checkbox character (c) is typed NON_TASK, or the named status has no symbol and its default character has another type; the user changes that character's type or adds the symbol there, then restarts the server
 - "at least one mutation" — the message lists the fields that count
 - "cannot move a sub-task to a heading" / "cannot reposition a sub-task" — a heading or position on a task nested under another task (depth > 0${whenToolEnabledText("vault_list_tasks", " in vault_list_tasks")}); sub-tasks move with their parent, so move or reposition the parent instead
@@ -566,6 +569,7 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, next_occur
             "Stable task identifier — the ^block-id at the end of the task line, without the ^. Preferred over line.",
           ),
         line: z.number().int().min(1).optional().describe(updateTaskLineDescription),
+        expected_description: z.string().min(1).optional().describe(expectedDescriptionDescription),
         status: z
           .enum(["todo", "in_progress", "done", "cancelled"])
           .optional()
@@ -676,6 +680,7 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, next_occur
         path,
         block_id,
         line,
+        expected_description,
         status,
         priority,
         recurrence,
@@ -729,6 +734,7 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, next_occur
               statusRegistry: search.statusRegistry,
               blockId: block_id,
               line,
+              expectedDescription: expected_description,
               status,
               priority,
               recurrence,
