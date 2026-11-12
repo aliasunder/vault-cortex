@@ -761,6 +761,48 @@ describe("task-mutations", () => {
       )
     })
 
+    it("reports a heading found only inside the task's own block as not found", async () => {
+      const vault = await createVault()
+      const content =
+        "## Active\n\n- [ ] Task A ➕ 2026-07-01 ^task-a\n  ### Notes\n  - a sub-item\n"
+      await writeTestNote(vault, "notes.md", content)
+
+      await expect(
+        taskMutations.updateTask(
+          {
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
+            vaultPath: vault,
+            path: "notes.md",
+            blockId: "task-a",
+            heading: "Notes",
+          },
+          logger,
+        ),
+      ).rejects.toThrow(new Error('heading "Notes" not found; available: Active'))
+      expect(await readTestNote(vault, "notes.md")).toBe(content)
+    })
+
+    it("reports no done lane when the only Done heading sits inside the completing card's block", async () => {
+      const vault = await createVault()
+      const content =
+        "---\nkanban-plugin: board\n---\n\n## Active\n\n- [ ] Task A ➕ 2026-07-01 ^task-a\n  ### Done\n  - [x] Step 1\n"
+      await writeTestNote(vault, "board.md", content)
+
+      await expect(
+        taskMutations.updateTask(
+          {
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
+            vaultPath: vault,
+            path: "board.md",
+            blockId: "task-a",
+            status: "done",
+          },
+          logger,
+        ),
+      ).rejects.toThrow(new Error("no done lane detected"))
+      expect(await readTestNote(vault, "board.md")).toBe(content)
+    })
+
     it("moves a task with sub-items", async () => {
       const vault = await createVault()
       await writeTestNote(vault, "board.md", KANBAN_WITH_SUBITEMS)

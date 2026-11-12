@@ -1002,18 +1002,16 @@ const moveTaskBlock = ({
   }
 
   // Headings inside the block leave the parse with it, so the target is
-  // found again by its own line, not by its place in the heading order:
-  // - a target below the card moves up by the block's length;
-  // - a target inside the block leaves with the card, which then goes under
-  //   the first heading of that name left in the note.
-  const targetIsBelowTask = targetHeading.startLine > taskLineIndex
-  const targetMovesWithBlock = targetIsBelowTask && targetHeading.startLine < taskBlockEnd
-  const targetStartAfterRemoval = targetIsBelowTask
-    ? targetHeading.startLine - taskBlock.length
-    : targetHeading.startLine
-  const headingAfterRemoval = targetMovesWithBlock
-    ? headingsAfterRemoval.find((heading) => heading.text === targetLane)
-    : headingsAfterRemoval.find((heading) => heading.startLine === targetStartAfterRemoval)
+  // found again by its own line, not by its place in the heading order: a
+  // target below the card moves up by the block's length. The target is
+  // never inside the block (resolveTargetLane skips those headings).
+  const targetStartAfterRemoval =
+    targetHeading.startLine > taskLineIndex
+      ? targetHeading.startLine - taskBlock.length
+      : targetHeading.startLine
+  const headingAfterRemoval = headingsAfterRemoval.find((heading) => {
+    return heading.startLine === targetStartAfterRemoval
+  })
 
   if (!headingAfterRemoval) {
     throw new Error(`heading "${targetLane}" not found after line removal`)
@@ -2289,7 +2287,9 @@ const deleteTaskOnCompletion = async (
  *   2. Auto-done-lane — completing a top-level Kanban card with no
  *      explicit heading detects the board's done lane.
  *   3. Same-lane reorder — position without a heading or auto-done
- *      resolves the card's current heading so it stays in place. */
+ *      resolves the card's current heading so it stays in place.
+ *  A heading indented inside the task's own block leaves the note with the
+ *  block, so the first two paths never pick one. */
 const resolveTargetLane = ({
   targetHeadingParam,
   position,
@@ -2309,18 +2309,23 @@ const resolveTargetLane = ({
   headings: readonly HeadingInfo[]
   taskLineIndex: number
 }): HeadingInfo | undefined => {
+  const taskBlockEnd = findTaskBlockEnd(lines, taskLineIndex)
+  const laneHeadings = headings.filter((heading) => {
+    return heading.startLine < taskLineIndex || heading.startLine >= taskBlockEnd
+  })
+
   if (targetHeadingParam !== undefined) {
-    const namedHeading = headings.find((heading) => heading.text === targetHeadingParam)
+    const namedHeading = laneHeadings.find((heading) => heading.text === targetHeadingParam)
 
     if (namedHeading) return namedHeading
 
-    const availableHeadings = headings.map((heading) => heading.text).join(", ")
+    const availableHeadings = laneHeadings.map((heading) => heading.text).join(", ")
     throw new Error(`heading "${targetHeadingParam}" not found; available: ${availableHeadings}`)
   }
 
   const autoDoneLane = status === "done" && isKanbanBoard && !isSubtask
 
-  if (autoDoneLane) return detectDoneLane(lines, headings)
+  if (autoDoneLane) return detectDoneLane(lines, laneHeadings)
   if (!position) return undefined
 
   // Kept as a HeadingInfo (not .text) so an empty-named heading is not
