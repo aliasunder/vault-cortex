@@ -9438,6 +9438,83 @@ describe("expected description", () => {
     )
   })
 
+  it("compares against the description before a rename in the same call", async () => {
+    const vault = await createVault()
+    await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
+
+    const result = await taskMutations.updateTask(
+      {
+        statusRegistry: DEFAULT_STATUS_REGISTRY,
+        vaultPath: vault,
+        path: "tasks.md",
+        line: 6,
+        expectedDescription: "Walk the dog",
+        description: "Walk the cat",
+      },
+      logger,
+    )
+
+    expect(result).toEqual({
+      path: "tasks.md",
+      line: 6,
+      description: "Walk the cat",
+      block_id: "walk-dog",
+      changes: ["description: Walk the dog → Walk the cat"],
+    })
+    expect(await readTestNote(vault, "tasks.md")).toBe(
+      SIMPLE_NOTE.replace("- [ ] Walk the dog ", "- [ ] Walk the cat "),
+    )
+  })
+
+  it("matches a whitespace-only expected description against a task with no text", async () => {
+    const vault = await createVault()
+    const noTextNote = "---\ntitle: Tasks\n---\n\n- [ ] ➕ 2026-07-01 ^no-text\n"
+    await writeTestNote(vault, "tasks.md", noTextNote)
+
+    const result = await taskMutations.updateTask(
+      {
+        statusRegistry: DEFAULT_STATUS_REGISTRY,
+        vaultPath: vault,
+        path: "tasks.md",
+        line: 5,
+        expectedDescription: "  ",
+        priority: "high",
+      },
+      logger,
+    )
+
+    expect(result).toEqual({
+      path: "tasks.md",
+      line: 5,
+      description: "",
+      block_id: "no-text",
+      changes: ["priority: (none) → high"],
+    })
+    expect(await readTestNote(vault, "tasks.md")).toBe(
+      "---\ntitle: Tasks\n---\n\n- [ ] ⏫ ➕ 2026-07-01 ^no-text\n",
+    )
+  })
+
+  it("refuses a whitespace-only expected description for a task with text", async () => {
+    const vault = await createVault()
+    await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
+
+    await expect(
+      taskMutations.updateTask(
+        {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
+          vaultPath: vault,
+          path: "tasks.md",
+          line: 5,
+          expectedDescription: "  ",
+          status: "done",
+        },
+        logger,
+      ),
+    ).rejects.toThrow(new Error('the task at line 5 in "tasks.md" has a different description'))
+    expect(await readTestNote(vault, "tasks.md")).toBe(SIMPLE_NOTE)
+  })
+
   it("refuses a blockId update whose task text no longer matches", async () => {
     const vault = await createVault()
     await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
