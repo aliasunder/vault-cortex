@@ -495,6 +495,53 @@ const findFirstChildHeadingStart = ({
   return firstChildHeading?.startLine
 }
 
+/** The body lines a fenced code block or a `%%` comment takes out of each
+ *  view, from one pass over the note. A line in a fenced code block, its
+ *  fence lines included, is in both sets. */
+type FenceOrCommentLineIndices = {
+  /** The lines the task index skips: every line a `%%` comment touches,
+   *  including one that opens or closes a comment. */
+  excludedFromTasks: ReadonlySet<number>
+  /** The lines whose block id is not taken: a comment must already be open
+   *  at the line's start, so a line that opens a comment keeps its id. */
+  excludedFromBlockIds: ReadonlySet<number>
+}
+
+const findFenceOrCommentLineIndices = (bodyLines: readonly string[]): FenceOrCommentLineIndices => {
+  const excludedFromTasks = new Set<number>()
+  const excludedFromBlockIds = new Set<number>()
+  // Fence and comment state must flow through every line, including skipped card sub-items.
+  let openFence: OpenFence = null
+  let commentOpen = false
+
+  for (const [lineIndex, lineText] of bodyLines.entries()) {
+    if (!commentOpen) {
+      const fenceResult = advanceFence(lineText, openFence)
+      openFence = fenceResult.openFence
+
+      if (fenceResult.lineIsCode) {
+        excludedFromTasks.add(lineIndex)
+        excludedFromBlockIds.add(lineIndex)
+        continue
+      }
+    }
+    const wasCommentOpen = commentOpen
+    const commentResult = advanceComment(lineText, commentOpen)
+    commentOpen = commentResult.commentOpen
+
+    if (commentResult.lineIsComment) excludedFromTasks.add(lineIndex)
+    if (wasCommentOpen) excludedFromBlockIds.add(lineIndex)
+  }
+  return { excludedFromTasks, excludedFromBlockIds }
+}
+
+/** Whether the task index skips one body line as code or comment. Each call
+ *  passes over the whole note, so a caller checking many lines calls
+ *  findFenceOrCommentLineIndices once instead. */
+const isInsideFenceOrComment = (bodyLines: readonly string[], lineIndex: number): boolean => {
+  return findFenceOrCommentLineIndices(bodyLines).excludedFromTasks.has(lineIndex)
+}
+
 /** A lane's top-level cards, as the line index each starts on, in order, and
  *  the line of the lane's first child heading, if any. Sub-item blocks and
  *  lines the index excludes (fence, comment, NON_TASK) are skipped, and the
@@ -569,6 +616,34 @@ const headingInsertIndexAtPosition = ({
 
   if (lastCardStart !== undefined) return findTaskBlockEnd(lines, lastCardStart)
   return firstChildStart ?? taskInsertIndexUnderHeading({ lines, heading })
+}
+
+/** 1-based position of a task among its lane's top-level cards (see findLaneCards). */
+const positionOfTaskInLane = ({
+  lines,
+  heading,
+  taskLineIndex,
+  statusRegistry,
+}: {
+  lines: readonly string[]
+  heading: HeadingInfo
+  taskLineIndex: number
+  statusRegistry: ReadonlyMap<string, StatusClassification>
+}): number => {
+  const { cardStartIndices } = findLaneCards({
+    lines,
+    heading,
+    updatedTaskLineIndex: taskLineIndex,
+    statusRegistry,
+  })
+  const cardIndex = cardStartIndices.indexOf(taskLineIndex)
+
+  if (cardIndex === -1) {
+    throw new Error(
+      `task at body line index ${taskLineIndex} not found in the "${heading.text}" section (${cardStartIndices.length} cards scanned)`,
+    )
+  }
+  return cardIndex + 1
 }
 
 const headingInsertIndex = ({
@@ -876,53 +951,6 @@ const rejectNonTaskCheckbox = ({
   throw new Error(`checkbox "[${statusChar}]" is a NON_TASK status in the Tasks plugin registry`)
 }
 
-/** The body lines a fenced code block or a `%%` comment takes out of each
- *  view, from one pass over the note. A line in a fenced code block, its
- *  fence lines included, is in both sets. */
-type FenceOrCommentLineIndices = {
-  /** The lines the task index skips: every line a `%%` comment touches,
-   *  including one that opens or closes a comment. */
-  excludedFromTasks: ReadonlySet<number>
-  /** The lines whose block id is not taken: a comment must already be open
-   *  at the line's start, so a line that opens a comment keeps its id. */
-  excludedFromBlockIds: ReadonlySet<number>
-}
-
-const findFenceOrCommentLineIndices = (bodyLines: readonly string[]): FenceOrCommentLineIndices => {
-  const excludedFromTasks = new Set<number>()
-  const excludedFromBlockIds = new Set<number>()
-  // Fence and comment state must flow through every line, including skipped card sub-items.
-  let openFence: OpenFence = null
-  let commentOpen = false
-
-  for (const [lineIndex, lineText] of bodyLines.entries()) {
-    if (!commentOpen) {
-      const fenceResult = advanceFence(lineText, openFence)
-      openFence = fenceResult.openFence
-
-      if (fenceResult.lineIsCode) {
-        excludedFromTasks.add(lineIndex)
-        excludedFromBlockIds.add(lineIndex)
-        continue
-      }
-    }
-    const wasCommentOpen = commentOpen
-    const commentResult = advanceComment(lineText, commentOpen)
-    commentOpen = commentResult.commentOpen
-
-    if (commentResult.lineIsComment) excludedFromTasks.add(lineIndex)
-    if (wasCommentOpen) excludedFromBlockIds.add(lineIndex)
-  }
-  return { excludedFromTasks, excludedFromBlockIds }
-}
-
-/** Whether the task index skips one body line as code or comment. Each call
- *  passes over the whole note, so a caller checking many lines calls
- *  findFenceOrCommentLineIndices once instead. */
-const isInsideFenceOrComment = (bodyLines: readonly string[], lineIndex: number): boolean => {
-  return findFenceOrCommentLineIndices(bodyLines).excludedFromTasks.has(lineIndex)
-}
-
 /** No-op when the task already sits under the target heading and no
  *  explicit position is requested. A move to another lane, or a reorder
  *  within this one, goes through the extract-reinsert cycle:
@@ -1089,34 +1117,6 @@ const moveTaskBlock = ({
       formatChange({ field: "position", before: positionBefore, after: positionAfter }),
     ],
   }
-}
-
-/** 1-based position of a task among its lane's top-level cards (see findLaneCards). */
-const positionOfTaskInLane = ({
-  lines,
-  heading,
-  taskLineIndex,
-  statusRegistry,
-}: {
-  lines: readonly string[]
-  heading: HeadingInfo
-  taskLineIndex: number
-  statusRegistry: ReadonlyMap<string, StatusClassification>
-}): number => {
-  const { cardStartIndices } = findLaneCards({
-    lines,
-    heading,
-    updatedTaskLineIndex: taskLineIndex,
-    statusRegistry,
-  })
-  const cardIndex = cardStartIndices.indexOf(taskLineIndex)
-
-  if (cardIndex === -1) {
-    throw new Error(
-      `task at body line index ${taskLineIndex} not found in the "${heading.text}" section (${cardStartIndices.length} cards scanned)`,
-    )
-  }
-  return cardIndex + 1
 }
 
 /** Appends checklist items under a task, after its existing sub-items. */
