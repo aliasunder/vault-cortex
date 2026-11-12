@@ -441,7 +441,7 @@ Four design choices shape the query surface:
 - **`add_subtasks`** — appends checklist items under the task's existing ones.
 - **Block IDs** — `assign_block_id` adds or replaces the line's ID, and `null` removes it. On a Kanban board, no new ID goes on an indented line, for the reason given above: `assign_block_id` is refused there, as is any edit that would leave the line ending in a new `^id`, such as a description ending in one with no fields after it. A checklist item ending in a `^id` is refused under any card on a board.
 
-`vault_update_task` takes an optional `expected_description` and refuses the update, before any change, when the located task's description differs from it. The caller copies that value from `vault_list_tasks`, or from an earlier update result's `description` or `next_occurrence.description`, which read descriptions with the same parser as the check, so a line number left stale by another write is caught whenever it now points at a task with different text.
+`vault_update_task` takes an optional `expected_description` and refuses the update, before any change, when the located task's description differs from it. The caller copies that value from `vault_list_tasks`, or from an earlier update result's `description` or `next_occurrence.description`; all three come from the parser the check uses, so a line number left stale by another write is caught whenever it now points at a task with different text.
 
 Both tools refuse a `block_id` found at the end of more than one task line, as the task to update or as a new sub-task's parent, and list every matching line instead of acting on the first.
 
