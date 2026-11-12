@@ -323,7 +323,10 @@ describe("runStart", () => {
     expect(exitCode).toBe(0)
     // The health-check spinner proves the cycle actually ran — the labels
     // alone could pass on an early return.
-    expect(scripted.spinnerMessages).toContain("stop: Server is up — health check passed.")
+    expect(scripted.spinnerMessages).toEqual([
+      "start: Waiting for the server to come up",
+      "stop: Server is up — health check passed.",
+    ])
     expect(scripted.logs).toEqual(["Starting container...", "Started with the settings from .env."])
     expect(scripted.outros).toEqual(["Start complete."])
   })
@@ -562,9 +565,9 @@ describe("runRestart", () => {
     )
 
     const envAfter = readFileSync(join(targetDir, ".env"), "utf8")
-    expect(envAfter).toContain("VAULT_PATH=/home/user/My Vault\n")
-    expect(envAfter).toContain("PORT=9000\n")
-    expect(envAfter).not.toMatch(/^(VAULT_PATH|PORT)="/m)
+    expect(envAfter).toBe(
+      "MCP_AUTH_TOKEN=abc123\nVAULT_PATH=/home/user/My Vault\nPORT=9000\nPUBLIC_URL=http://localhost:9000\n",
+    )
   })
 
   it("re-creates a remote container without a vault path", async () => {
@@ -652,7 +655,10 @@ describe("runRestart", () => {
 
     // Exit 0 with the probe provably fired — informational, never a gate.
     expect(exitCode).toBe(0)
-    expect(fetchedUrls).toContain("https://vault.example.com/healthz")
+    expect(fetchedUrls).toEqual([
+      "http://127.0.0.1:8000/healthz",
+      "https://vault.example.com/healthz",
+    ])
     expect(scripted.spinnerMessages).toEqual([
       "start: Waiting for the server to come up",
       "stop: Server is up — health check passed.",
