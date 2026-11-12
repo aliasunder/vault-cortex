@@ -544,14 +544,17 @@ export const extractPdfIndexText = async (pdfData: Uint8Array): Promise<PdfTextR
     const pageLimit = Math.min(totalPages, MAX_INDEXED_PDF_PAGES)
     const itemsByPage: StructuredTextItem[][] = []
     const pdfLinks: string[] = []
-    // Reassigned each page, because the loop can end on either cap and the result is whatever
-    // was rendered last.
+    // Both are reassigned each page: the loop can end on either cap, and a prefix with no visible
+    // text never ends it on the byte cap, however large its links footer, because the result
+    // would be empty.
     let rendition = ""
+    let hasContent = false
     for (let pageNumber = 1; pageNumber <= pageLimit; pageNumber += 1) {
       const page = await proxy.getPage(pageNumber)
       try {
-        const textContent = await page.getTextContent()
-        itemsByPage.push(structuredPageItems(textContent))
+        const pageItems = structuredPageItems(await page.getTextContent())
+        itemsByPage.push(pageItems)
+        hasContent ||= pageItems.some(hasVisibleText)
 
         const annotations = await page.getAnnotations()
         for (const annotation of annotations) {
@@ -576,12 +579,12 @@ export const extractPdfIndexText = async (pdfData: Uint8Array): Promise<PdfTextR
         itemsByPage,
         pdfLinks,
       })
-      const reachedByteBudget = Buffer.byteLength(rendition, "utf8") >= MAX_INDEXED_PDF_BYTES
+      const reachedByteBudget =
+        hasContent && Buffer.byteLength(rendition, "utf8") >= MAX_INDEXED_PDF_BYTES
 
       if (reachedByteBudget) break
     }
-    // The title and link footer render without visible text, so the check is on the items.
-    const hasContent = itemsByPage.some((pageItems) => pageItems.some(hasVisibleText))
+    // The title and link footer render without visible text, so hasContent comes from the items.
     return { text: hasContent ? rendition : "", totalPages }
   } finally {
     await proxy.loadingTask.destroy()

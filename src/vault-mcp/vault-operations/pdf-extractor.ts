@@ -91,11 +91,15 @@ export type PdfExtractor = {
 
 /** Why a request failed, which picks the caller's message:
  *  - `pdf-start`: the child never became ready, or the request never reached it;
- *  - `pdf-resource`: a ready child died, broke the protocol or missed the deadline on this PDF;
+ *  - `pdf-resource`: a ready child died or missed the deadline on this PDF, so the PDF itself
+ *    is suspect;
+ *  - `pdf-protocol`: a ready child answered outside the protocol, which says nothing about
+ *    the PDF;
  *  - `pdf-queue`: a read waited QUEUE_TIMEOUT_MS behind other reads;
  *  - `pdf-closed`: the extractor closed; `pdf-superseded`: a newer request for the same path
  *    replaced this queued one. */
-type FailureCode = "pdf-resource" | "pdf-start" | "pdf-queue" | "pdf-closed" | "pdf-superseded"
+type FailureCode =
+  "pdf-resource" | "pdf-start" | "pdf-protocol" | "pdf-queue" | "pdf-closed" | "pdf-superseded"
 
 const extractionFailureMessage = (path: string, code: FailureCode): string => {
   switch (code) {
@@ -103,6 +107,7 @@ const extractionFailureMessage = (path: string, code: FailureCode): string => {
       return `PDF reader could not start: "${path}"; retry later`
     case "pdf-resource":
       return `PDF text extraction stopped: "${path}" could not be completed; split or re-export the PDF, or provide a text copy`
+    case "pdf-protocol":
     case "pdf-queue":
     case "pdf-closed":
     case "pdf-superseded":
@@ -321,19 +326,19 @@ const sendRequest = (child: ExtractionChild, request: PdfRequest): Promise<Reque
 const awaitReply = async (child: ExtractionChild, request: PdfRequest): Promise<RequestOutcome> => {
   const reply = await nextReply(child)
 
-  if (!reply) return { kind: "failed", reason: "protocol", failure: failureCodeFor(child) }
+  if (!reply) return { kind: "failed", reason: "protocol", failure: "pdf-protocol" }
   if (reply.kind === "ready") {
-    return { kind: "failed", reason: "duplicate readiness", failure: failureCodeFor(child) }
+    return { kind: "failed", reason: "duplicate readiness", failure: "pdf-protocol" }
   }
   if (reply.requestId !== request.requestId) {
-    return { kind: "failed", reason: "unexpected request ID", failure: failureCodeFor(child) }
+    return { kind: "failed", reason: "unexpected request ID", failure: "pdf-protocol" }
   }
   // A failure reply means the child caught the error itself and can take the next request.
   if (reply.kind === "failure") return { kind: "reply", reply }
   const expectedReplyKind = request.kind === "index" ? "index-result" : "read-result"
 
   if (reply.kind !== expectedReplyKind) {
-    return { kind: "failed", reason: "unexpected result", failure: failureCodeFor(child) }
+    return { kind: "failed", reason: "unexpected result", failure: "pdf-protocol" }
   }
   return { kind: "reply", reply }
 }
