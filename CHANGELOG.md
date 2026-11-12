@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.57.2] — 2026-11-12
+
+### Bug Fixes
+
+- **server:** Check Origin on /mcp and rate-limit failed sign-ins for a short token (#769)
+- **oauth:** Cap registration bodies at 8 KB and sweep unused registrations after an hour (#768)
+- **oauth:** Show a person whose client registration is gone how to reconnect (#766)
+- **oauth:** Answer malformed /authorize requests directly instead of redirecting (#765)
+
+### Refactoring
+
+- **parsers:** Say what each rewritten parser matches, in names and comments (#763)
+- **tasks:** Split updateTask into validation, line-edit, deletion and lane stages (#760)
+
+### Documentation
+
+- **remote:** Keep header trust off or the port closed in each proxy recipe (#771)
+- Feature-request step in CONTRIBUTING and a roadmap refresh (#759)
+
+### Other Changes
+
+- **deps:** Bump @clack/prompts to 1.9.0 and commander to 15.1.0 in the CLI (#779)
+
 ## [0.57.1] — 2026-11-09
 
 ### Bug Fixes
