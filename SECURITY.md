@@ -245,24 +245,16 @@ The server, and the `:remote` image's setup mode, set these headers:
 
 ### Container hardening
 
-- PDF text reads and indexing share one child process with a 512 MiB V8
-  heap limit, a Linux data limit of 512 MiB above its startup footprint and a 20 s active deadline. The
-  Linux child requests `oom_score_adj=1000` on a best-effort basis. These
-  limits are not an RSS ceiling; macOS development relies on the heap
-  limit and deadline because its data limit does not constrain mmap.
-  The child receives only `PATH`, `HOME`, `TMPDIR`, `TZ` and `LANG` from
-  the server's environment, never its tokens or vault settings
-- Index extraction stops at 100 KiB of formatted text or 500 pages.
-  PDFs over `MAX_FILE_BYTES` or whose extraction fails keep name-only
-  search entries; a changed PDF's old text and vectors are removed before
-  extraction. PDF content work starts after the HTTP server listens
-- PDF text reads have priority over queued indexing and expire after
-  60 s in the queue. Queue expiry and shutdown errors request a later
-  retry; resource failures request a split/re-export or a text copy.
-  Shutdown kills the child before waiting for requests to drain
-- PDF page-image rendering (`raw: true`) runs in the server process;
-  the text-extraction child and its limits do not cover that path
-
+- PDF text extraction (reads and indexing) runs in one child process
+  the server can lose without going down: a 512 MiB V8 heap limit, on
+  Linux a data limit of 512 MiB above its startup footprint and
+  `oom_score_adj=1000`, a 20 s deadline per request, and a replacement
+  child after a crash. The child receives only `PATH`, `HOME`, `TMPDIR`,
+  `TZ` and `LANG`, never a token or vault setting. The limits are not an
+  RSS ceiling, and the data limit does not apply on macOS
+- Index extraction stops at 100 KiB of text or 500 pages per PDF and
+  starts after the HTTP server listens. PDF page rendering (`raw: true`)
+  runs in the server process, outside the child's limits
 - Non-root user (UID 1000 — `node` on `:latest`, `obsidian` on `:remote`)
 - PID 1 init — `:latest` uses `tini`, `:remote` uses s6-overlay's `/init`;
   both forward SIGTERM for clean SQLite WAL closure

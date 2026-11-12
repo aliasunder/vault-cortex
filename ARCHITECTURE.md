@@ -372,13 +372,9 @@ Link queries use a `links` table populated during indexing:
      runs inside mixed lines
    - Page separators and a deduplicated links footer
 
-   Text reads run in one child process shared with PDF indexing. Reads take
-   priority over queued indexing and expire after 60 s in the queue.
-   Resource failures request a split/re-export or text copy; queue expiry
-   and shutdown request a later retry. Full text reads retain their line
-   paging and output cap.
+   Extraction runs in the PDF child process (see **PDF extraction** below), and the text it returns is paged and capped like any other text read.
 
-   `raw: true` switches to page-image mode in the server process, outside the text child's limits: each page is rendered at 2× scale via `unpdf`'s `renderPageAsImage` with `@napi-rs/canvas` (prebuilt Skia, no system deps), then fitted through the same byte-budget pipeline as regular images. The total image budget is divided evenly across rendered pages (capped at `MAX_PDF_RENDER_PAGES`, default 5). Scanned or image-only PDFs with no extractable text work in raw mode — the model's own vision handles recognition.
+   `raw: true` switches to page-image mode, which runs in the server process: each page is rendered at 2× scale via `unpdf`'s `renderPageAsImage` with `@napi-rs/canvas` (prebuilt Skia, no system deps), then fitted through the same byte-budget pipeline as regular images. The total image budget is divided evenly across rendered pages (capped at `MAX_PDF_RENDER_PAGES`, default 5). Scanned or image-only PDFs with no extractable text work in raw mode — the model's own vision handles recognition.
 
    **Why text works without system fonts:** every PDF read goes through `obsidian-markdown/pdf-engine.ts`, which swaps unpdf's bundled edge build for the `pdfjs-dist` legacy Node build and creates document proxies with `disableFontFace` + bundled standard fonts + cMaps. Glyphs render from font data (embedded or bundled), never from host system fonts, so text survives in the fontless container. unpdf's own defaults reach the bundled fonts only if a lookup of `pdfjs-dist` succeeds, and a failed lookup is silent: rendering falls back to system fonts, which drops all text glyphs where no fonts exist while vector graphics still draw.
 
@@ -392,39 +388,30 @@ The extension-to-representation routing above is implemented by the `vault-opera
 
 Search indexes file content in the `file_content` + `file_content_fts` tables, cut to 100 KiB before FTS insertion. Each kind is indexed as follows:
 
-| Kind                         | Indexed text                                                                                                                                   | Embedded |
-| ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- | -------- |
-| Canvas                       | Linearized outline; file cards also go to the link graph (see Canvas above)                                                                    | Yes      |
-| PDF                          | Sequential extraction stops at 100 KiB of formatted text or 500 pages; scanned, over-size-cap or failed-extraction PDFs are found by name only | Yes      |
-| Text formats (item 3)        | The file's first 100 KiB, which is all indexing reads; bytes that are not UTF-8 are replaced rather than refused                               | Yes      |
-| HTML (`.html`/`.htm`)        | The text a browser shows, from `obsidian-markdown/html.ts`; a page over 16 MiB is found by file name only                                      | Yes      |
-| Scripts (`.py`/`.sh`/`.ps1`) | The file's source; a script over 16 MiB is found by file name only                                                                             | No       |
+| Kind                         | Indexed text                                                                                                                                                                                                             | Embedded |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------- |
+| Canvas                       | Linearized outline; file cards also go to the link graph (see Canvas above)                                                                                                                                              | Yes      |
+| PDF                          | Text from `obsidian-markdown/pdf.ts`, up to 100 KiB or 500 pages, extracted by the PDF child after the server listens; a scanned PDF, one over `MAX_FILE_BYTES` or one whose extraction fails is found by file name only | Yes      |
+| Text formats (item 3)        | The file's first 100 KiB, which is all indexing reads; bytes that are not UTF-8 are replaced rather than refused                                                                                                         | Yes      |
+| HTML (`.html`/`.htm`)        | The text a browser shows, from `obsidian-markdown/html.ts`; a page over 16 MiB is found by file name only                                                                                                                | Yes      |
+| Scripts (`.py`/`.sh`/`.ps1`) | The file's source; a script over 16 MiB is found by file name only                                                                                                                                                       | No       |
 
 - **HTML extraction** runs htmlparser2's tokenizer, which keeps no element stack, so unclosed tags cost no more than closed ones. Hidden elements (script, style, noscript, template, the fallback content of iframe, noembed and noframes, and an inline SVG's title and desc tooltips) end only at a closing tag with their own name, so a stray closing tag never shows hidden text. Block elements become line breaks, other whitespace collapses, and reading stops at the 100 KiB cap. Extraction stays on the main thread, and the 16 MiB page limit keeps its measured worst case under 2 seconds.
 - **HTML pages and scripts are read as bytes**, and their text is indexed only when `utils/decode-text-buffer.ts` accepts them, the test `vault_read_file` applies, so search never holds text from a page or script that a read refuses as binary or as not UTF-8. That test needs the whole file, so indexing reads a page or script whole and skips one whose size is over 16 MiB, which limits the memory one read takes. Search finds such a file by name, even when `vault_read_file` would refuse it. When a watched page or script stops passing that test, its stored content is removed and its file row stays.
 - **Scripts are searched by keyword only.** The markdown chunker reads a script's `# comment` lines as headings and turns `snake_case` names into one word, so embedding skips scripts before their text loads.
 
-**PDF extraction ownership:**
+**PDF extraction:** pdfjs parses untrusted input, and one crafted PDF can exhaust a process's memory, so every PDF text extraction, for a tool read or for indexing, runs in one child process that the server can limit, replace and outlive. `server.ts` creates the `vault-operations/pdf-extractor.ts` instance on first use; `pdf-extraction-child.ts` is the child's entry point, and `pdf-extraction-protocol.ts` validates every message between them.
 
-- `server.ts` owns one lazy `vault-operations/pdf-extractor.ts` instance for
-  tool reads, rebuilds and watcher updates. The child owns the safe file read,
-  validated IPC carries results to the parent, which owns index publication and request diagnostics. The child uses `LOG_DIR=none`, leaving the parent as the persistent log-file writer, and receives only `PATH`, `HOME`, `TMPDIR`, `TZ` and `LANG` from the server's environment, so no token or vault setting enters the process that parses untrusted PDFs.
-- The child has a 512 MiB V8 heap limit, a Linux data limit of 512 MiB above its startup footprint and a 20 s
-  active deadline. The parent applies the data limit with `prlimit` (util-linux, in the image)
-  before the first request; when it cannot be applied, every PDF request fails as a reader
-  start failure and the log names the cause. Linux requests `oom_score_adj=1000` on a best-effort basis.
-  These are not RSS ceilings; macOS development relies on heap/deadline because
-  its data limit does not constrain mmap.
-- One child runs one job at a time. Tool reads precede queued indexing;
-  queued watcher jobs coalesce by path. A failed child is reaped before its
-  replacement starts, and shutdown kills it before requests drain.
-- The parent checks `MAX_FILE_BYTES` before requesting index extraction;
-  the child's bounded safe read checks again. A file over the cap remains
-  searchable by name; a file exactly at the cap is read.
-- PDF names and current metadata publish first, with old text, chunks and
-  vectors removed. Extraction starts after listen, including held and live
-  watcher events. Successful text and its version-bound embedding publish
-  per file; failures retain the filename row.
+| Concern              | How it is handled                                                                                                                                                                                                                                                                                                                                                                              |
+| -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Memory and time      | A 512 MiB V8 heap limit; on Linux, a data limit of 512 MiB above the child's startup footprint, applied with `prlimit` before the first request, and `oom_score_adj=1000` so the kernel prefers the child to the server; a 20 s deadline per request. Neither limit is an RSS ceiling, and the data limit does not apply on macOS, where development relies on the heap limit and the deadline |
+| Environment          | The child receives only `PATH`, `HOME`, `TMPDIR`, `TZ` and `LANG`, so no token or vault setting reaches the process that parses PDFs. It logs to the console only (`LOG_DIR=none`); the server writes the log files                                                                                                                                                                            |
+| File size            | The server checks `MAX_FILE_BYTES` before queueing an index extraction, and the child's bounded read checks again. A file over the cap stays searchable by name; a file exactly at the cap is read                                                                                                                                                                                             |
+| Scheduling           | One request runs at a time. Tool reads go ahead of queued indexing, and a tool read expires after 60 s in the queue. A new indexing request for a path replaces the one still queued for it                                                                                                                                                                                                    |
+| Failures             | A crashed child is reaped before its replacement starts, and a request it was serving fails. Shutdown kills the child before the server waits for requests to drain. When `prlimit` cannot apply the data limit, every PDF request fails as a reader start failure and the log names the cause                                                                                                 |
+| Errors a caller sees | A resource failure (the heap limit, the data limit, the deadline) tells the caller to split or re-export the PDF or provide a text copy; queue expiry and shutdown tell the caller to retry later                                                                                                                                                                                              |
+
+How extracted text reaches the index, and when, is under [Indexing](#indexing).
 
 **Opt-out:** File tools are opt-out: set `FILE_TOOLS_ENABLED=false` to hide `vault_read_file` and `vault_list_files`, and strip file tool references from server metadata and other tool descriptions. The `vault_get_outgoing_links` tool continues to report file links (it indexes from the links table, not the file tools). File config vars (`MAX_FILE_BYTES`, `MAX_IMAGE_OUTPUT_BYTES`, `MAX_PDF_RENDER_PAGES`) are still parsed when disabled.
 
@@ -576,25 +563,25 @@ When no embedder is configured (`EMBEDDING_ENABLED=false`), no vectors are index
 **Indexing flow:** `rebuildFromVault` runs passes 1 and 2, then returns while the remaining passes run in the background:
 
 1. **Pass 1** — index notes (FTS5 + metadata), each with the body tags stored before the rebuild
-2. **Pass 2** — extract links (with the complete path list for resolution), then index canvas, text, HTML and script content; PDFs receive filename/current-metadata rows
-3. **Pass 3 (background)** — embed notes, then non-PDF file content. Until a note's vectors exist, search finds it by keyword only
+2. **Pass 2** — extract links (with the complete path list for resolution), then index canvas, text, HTML and script content. A PDF gets its file-name row now and its text in the PDF pass
+3. **Pass 3 (background)** — embed notes, then the file content pass 2 indexed. Until a note's vectors exist, search finds it by keyword only
 4. **Body-tag pass (background)** — parse each note's body tags again in the body-tag worker thread and write the ones that changed (see **Body tags column**)
-5. **PDF pass (after listen)** — extract one PDF at a time, publish still-current text, then embed that publication before completing the file
+5. **PDF pass (after the server listens)** — extract the PDFs the rebuild and the watcher queued, one at a time in the PDF child (see [Files](#files)), while search answers; publish each PDF's text when the file is still the version that was read, then embed it. A PDF whose extraction fails keeps its file-name row
 
 **Startup order:** `watchVaultAndBuildIndex` starts the file watcher before the rebuild, so a change that lands while the rebuild reads the vault is neither missed nor replaced by the rebuild's older read:
 
 1. The watcher starts holding: from then on, it records each path chokidar reports as changed instead of indexing it. Startup waits for chokidar's initial scan to finish.
 2. `rebuildFromVault` runs. The watcher is the index's only other writer, because a tool's vault write reaches the index as a watcher event. The watcher is holding, so nothing else writes while the rebuild reads.
 3. The watcher goes live. In the same step, it removes each held path whose latest event was a deletion, and marks every held path so that the step 4 batch drops its own read of a path that a live change then indexes.
-4. One batch checks each held path against the disk, `INDEXING_FILE_READ_CONCURRENCY` (16) at a time. Paths gone from disk are removed first. Other files are read 16 at a time. PDFs publish their filename/current metadata and join the deferred extraction queue.
+4. One batch checks each held path against the disk, `INDEXING_FILE_READ_CONCURRENCY` (16) at a time. Paths gone from disk are removed first. The rest are read again within the rebuild's limits, 16 at a time; a PDF gets its file-name row and joins the PDF pass's queue.
 
-The server starts accepting requests once the step 4 non-PDF writes finish, or after 10 s if a Sync backlog makes the batch longer; the batch then finishes in the background. After listen, `startPdfPass` releases both rebuild PDFs and watcher PDFs. Search and `/healthz` answer while extraction runs. A live change that indexes a held path can finish just after the server starts.
+The server starts accepting requests once the step 4 batch has finished writing to the index, or after 10 s if a Sync backlog makes the batch longer; the batch then finishes in the background. A live change that indexes a held path can finish just after the server starts.
 
 A file that is created after step 1 and deleted within chokidar's 2 s write-stability window emits no event, so if the rebuild read it, it stays searchable until the next restart.
 
 **Startup cleanup:** before resetting the source tables, the rebuild removes vectors whose parent chunk or memory-entry row is missing and retains vectors with surviving parents.
 
-Vector tables persist across restarts and rebuilds (only FTS, notes, links, tasks, non-md, and file content tables are cleared). PDF chunks/vectors are cleared when their filename rows publish. Pass 3 cleans up vectors for deleted notes and files, then embeds only new or modified non-PDF chunks via content-hash gating.
+Vector tables persist across restarts and rebuilds (only FTS, notes, links, tasks, non-md, and file content tables are cleared). A PDF's old chunks and vectors are removed when its file-name row is written, before its text is extracted again. Pass 3 cleans up vectors for deleted notes and files, then embeds only new or modified chunks via content-hash gating.
 
 **Incremental updates:** the file watcher calls `embedNote` after `upsertNote` and `embedFileContent` after `upsertFileContent`; deletion cleans up both vectors and chunks.
 

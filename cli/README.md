@@ -15,11 +15,6 @@ web pages, scripts, and data files — see the
 The server runs as a Docker container; this CLI scaffolds the config and
 manages the container so you don't have to.
 
-PDF search covers up to 100 KiB or 500 pages and adds content after startup.
-PDFs over the file-size cap or whose text extraction fails remain searchable
-by name. Text reads can report a queue timeout or extraction limit; retry
-later when requested, or split/re-export the PDF or provide a text copy.
-
 <p align="center"><img src="https://raw.githubusercontent.com/aliasunder/vault-cortex/main/assets/demo-cli-init.gif" width="720" alt="npx vault-cortex@latest init — the interactive setup wizard picks a mode, finds your vault, offers the optional settings, generates the config, and starts the server"></p>
 
 ## Commands
