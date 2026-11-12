@@ -632,7 +632,7 @@ flowchart TD
     FC --> BTP[Body-Tag Pass\nparse in worker → write changed tags]
     FC --> PG[After HTTP Listen]
     PG --> PX[Shared PDF Text Child\nsequential bounded extraction]
-    PX --> PP[Publish Current PDF Text\nthen embed fresh version]
+    PX --> PP[Publish Every PDF's Text\nthen embed the published PDFs]
 
     FW[File Watcher\nchokidar] --> |.md add/change| BT[Parse Body Tags\nworker thread]
     BT --> UP[upsertNote]
