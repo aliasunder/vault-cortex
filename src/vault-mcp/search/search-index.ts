@@ -426,11 +426,12 @@ const readStoredBodyTags = (
 
 /** How long a background embedding unit (one model call, for a chunk or a
  *  batch of memory entries) waits for running tool calls and prompts to finish.
- *  - Inference runs on the one JavaScript thread, so a unit that runs during
- *    a call delays that call.
+ *  - The embedder (`embedder.ts`) runs inference synchronously on the one
+ *    JavaScript thread, so a unit that runs during a call delays that call.
  *  - The cap keeps a stream of overlapping calls from stalling the index for
  *    good. A job (one note's or file's embedding) then runs one unit every 5
- *    seconds, so about six during a 30-second call. */
+ *    seconds, so about six during a call that lasts the 30 seconds the
+ *    production gateway allows before it answers 503. */
 const BACKGROUND_EMBED_MAX_WAIT_MS = 5000
 
 /** A stored chunk's content hash and the raw bytes of its vector. */
@@ -444,8 +445,9 @@ type StoredVectorLookup = {
 /** The vectors one note or file already has, keyed by the content hash of
  *  their chunk text, so a chunk whose text moved to another position keeps
  *  its vector without a model call.
- *  - The rows are read at the first lookup, so a job whose chunks all match
- *    at their own position reads none.
+ *  - The rows are read at the first lookup. The caller skips a chunk whose text
+ *    is unchanged at its own position without looking it up, so a job with no
+ *    moved chunks reads no rows.
  *  - Vectors the model returns during the job are added, so repeated new text
  *    reaches the model once. */
 const createStoredVectorLookup = (
@@ -1907,8 +1909,10 @@ export const createSearchIndex = (
 
   // ── Embedding pipeline ─────────────────────────────────────────
 
-  /** Tool calls and prompts in flight. Background model calls wait on it, and
-   *  the MCP layer runs each call through trackForegroundWork. */
+  /** Tool calls and prompts in flight. Background model calls wait on it. The MCP
+   *  layer runs each tool call (`createGatedRegisterTool` in tool-definitions.ts)
+   *  and each prompt (`trackedPromptHandler` in prompt-helpers.ts) through
+   *  trackForegroundWork. */
   const foregroundWork = createActivityTracker()
 
   /** Makes one model call for a chunk's text.
@@ -1923,10 +1927,10 @@ export const createSearchIndex = (
   ): Promise<Buffer | null> => {
     const { text, sourcePath, sourceVersion } = params
 
-    // Both callers return early without an embedder, so this throw only narrows its type
+    // Callers return early without an embedder, so this throw only narrows its type
     if (!embedder) throw new Error("background embedding ran without an embedder")
 
-    await foregroundWork.whenIdle({ maxWaitMs: BACKGROUND_EMBED_MAX_WAIT_MS })
+    await foregroundWork.waitUntilIdle({ maxWaitMs: BACKGROUND_EMBED_MAX_WAIT_MS })
 
     if (!isCurrentSourceVersion({ sourcePath, sourceVersion }, logger)) return null
 
@@ -2109,9 +2113,10 @@ export const createSearchIndex = (
       batchStart < unembeddedRows.length;
       batchStart += MEMORY_EMBED_BATCH_SIZE
     ) {
-      // This repeats embedChunkWhenIdle's wait and version checks, because that
-      // helper embeds one text and a batch goes to embedBatch
-      await foregroundWork.whenIdle({ maxWaitMs: BACKGROUND_EMBED_MAX_WAIT_MS })
+      // One batch is one background unit. This repeats embedChunkWhenIdle's wait
+      // and version checks, because that helper embeds one text and a batch goes
+      // to embedBatch.
+      await foregroundWork.waitUntilIdle({ maxWaitMs: BACKGROUND_EMBED_MAX_WAIT_MS })
 
       if (!isCurrentSourceVersion({ sourcePath: notePath, sourceVersion }, logger))
         return embeddedCount
@@ -2178,7 +2183,9 @@ export const createSearchIndex = (
 
   /** Embeds a file's indexed text from file_content. The return counts changed
    *  chunks committed before completion or obsolescence. Zero covers disabled,
-   *  unembedded-kind, cached and obsolete calls. */
+   *  unembedded-kind, cached and obsolete calls. The chunk loop mirrors
+   *  embedAndStoreChunks above, so a change to its wait, check and write
+   *  sequence goes in both. */
   const embedAndStoreFileChunks = async (
     params: { filePath: string; sourceVersion: symbol },
     logger: Logger,

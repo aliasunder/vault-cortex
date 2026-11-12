@@ -568,28 +568,30 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
   }
 
   /** Indexes one changed file, or records it for applyHeldChanges while the
-   *  watcher holds.
+   *  watcher holds. Resolves once the file's keyword text is written, with
+   *  `embedding` for the work that may still be running:
    *  - A note's embedding comes back unawaited and never rejects, so a caller
    *    indexing several files can publish each file's keyword text without
    *    waiting for the model.
-   *  - A non-note file's embedding is queued inside indexChangedFile and never
-   *    comes back, so a settled `embedding` does not mean the file is fully
-   *    indexed. A PDF's embedding finishes before indexChange resolves. */
+   *  - A PDF's embedding finishes before this resolves. Any other non-note
+   *    file's embedding is queued inside indexChangedFile and never comes back,
+   *    so for those files a settled `embedding` does not mean the vectors are
+   *    written. */
   const indexChange = async (filePath: string): Promise<{ embedding: Promise<void> }> => {
-    const noEmbedding = { embedding: Promise.resolve() }
+    const nothingToAwait = { embedding: Promise.resolve() }
 
-    if (watcherState.mode === "closed") return noEmbedding
+    if (watcherState.mode === "closed") return nothingToAwait
     if (watcherState.mode === "holding") {
       watcherState.heldPaths.set(filePath, "change")
       logger.debug("held a change until startup indexing ends", {
         path: relative(vaultPath, filePath),
       })
-      return noEmbedding
+      return nothingToAwait
     }
 
     const indexResult = await indexChangedFile(filePath)
 
-    if (indexResult.status !== "note-indexed") return noEmbedding
+    if (indexResult.status !== "note-indexed") return nothingToAwait
 
     const awaitEmbeddingAndReportFailure = async (): Promise<void> => {
       try {
@@ -885,10 +887,8 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
         // later deletion would emit no unlink, leaving a ghost index entry.
         watchPathUnlessClosed(fullPath)
         logger.debug("rescan indexing missed file", { path: relativePath })
-        // The rescan leaves a missed note's embedding running: the embedding
-        // waits while a tool call or prompt runs, and nothing reads the
-        // rescan's completion, so waiting would only hold back the next missed
-        // file's keyword text. The embedding logs its own failure.
+        // The embedding is left running, so it never holds back the next missed file's
+        // keyword text; it logs its own failure.
         await indexChange(fullPath)
       } catch (err) {
         logger.debug("rescan skipped unreadable entry", {

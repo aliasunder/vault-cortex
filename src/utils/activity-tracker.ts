@@ -6,15 +6,16 @@ type ActivityTracker = {
   track: <T>(work: () => Promise<T>) => Promise<T>
   /** Resolves once no tracked work is in flight, or after `maxWaitMs`,
    *  whichever comes first. */
-  whenIdle: (params: { maxWaitMs: number }) => Promise<void>
+  waitUntilIdle: (params: { maxWaitMs: number }) => Promise<void>
 }
 
 export const createActivityTracker = (): ActivityTracker => {
-  // Every track call changes the count and every whenIdle call reads it
+  // Every track call changes the count and every waitUntilIdle call reads it
   let activeCount = 0
   const idleWaiters = new Set<() => void>()
 
   const releaseIdleWaiters = (): void => {
+    // Each waiter removes itself from the set as it runs, so the loop walks a copy.
     for (const releaseWaiter of [...idleWaiters]) releaseWaiter()
   }
 
@@ -29,20 +30,22 @@ export const createActivityTracker = (): ActivityTracker => {
     }
   }
 
-  const whenIdle = (params: { maxWaitMs: number }): Promise<void> => {
+  const waitUntilIdle = (params: { maxWaitMs: number }): Promise<void> => {
     if (activeCount === 0) return Promise.resolve()
 
     return new Promise((resolve) => {
+      // The deadline and the idle release share one waiter, so whichever comes first releases
+      // it and the other is cancelled. The timer is unref'd, so a waiter never keeps the
+      // process alive at shutdown.
+      const deadline = setTimeout(() => releaseWaiter(), params.maxWaitMs).unref()
       const releaseWaiter = (): void => {
         clearTimeout(deadline)
         idleWaiters.delete(releaseWaiter)
         resolve()
       }
-      // Unref'd, so a waiter never keeps the process alive at shutdown
-      const deadline = setTimeout(releaseWaiter, params.maxWaitMs).unref()
       idleWaiters.add(releaseWaiter)
     })
   }
 
-  return { track, whenIdle }
+  return { track, waitUntilIdle }
 }

@@ -41,10 +41,11 @@ export const formatNoteLine = (note: { path: string; title: string }): string =>
   return note.title.length > 0 ? `- ${note.path} — ${note.title}` : `- ${note.path}`
 }
 
-/** Runs a prompt handler as tracked foreground work, so background embedding
- *  waits while the prompt gathers vault data on the one JavaScript thread.
- *  Its generic parameters carry registerPrompt's callback type to the handler
- *  passed in, which types that handler's `args` and `extra`. */
+/** Runs a prompt handler as foreground work: the index counts it as in flight, and
+ *  background embedding waits while it runs, because model inference would share
+ *  the one JavaScript thread with it. The generic parameters carry the SDK's
+ *  `registerPrompt` callback type to the handler passed in, which types that
+ *  handler's `args` and `extra`. */
 export const trackedPromptHandler = <HandlerArgs extends unknown[], HandlerResult>(
   search: Pick<SearchIndex, "trackForegroundWork">,
   handler: (...handlerArgs: HandlerArgs) => Promise<HandlerResult>,

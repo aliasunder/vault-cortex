@@ -61,14 +61,15 @@ const createGatedRegisterTool = (params: {
     }
     if (!enabledToolNames.has(name)) return
 
-    // Background embedding waits while a handler runs, because model
-    // inference shares the one JavaScript thread with the call
+    // The index counts the call as in flight and returns the handler's own result; background
+    // embedding waits while the count is above zero, because model inference would share the
+    // one JavaScript thread with the call.
     const trackedHandler: typeof handler = (args, extra) => {
       // The async wrapper turns a handler's synchronous result into a promise
       return search.trackForegroundWork(async () => handler(args, extra))
     }
 
-    // Inference picks the raw shape for InputArgs; no tool has an output schema
+    // Type inference picks the raw shape for InputArgs; no tool has an output schema
     server.registerTool<ZodRawShapeCompat, ToolInputObject<typeof config.inputSchema>>(
       name,
       {

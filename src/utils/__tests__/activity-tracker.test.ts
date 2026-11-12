@@ -25,10 +25,10 @@ afterEach(() => {
 })
 
 describe("createActivityTracker", () => {
-  it("resolves whenIdle at once when nothing is tracked", async () => {
+  it("resolves waitUntilIdle at once when nothing is tracked", async () => {
     const tracker = createActivityTracker()
 
-    const isIdle = watchSettlement(tracker.whenIdle({ maxWaitMs: NEVER_EXPIRES_MS }))
+    const isIdle = watchSettlement(tracker.waitUntilIdle({ maxWaitMs: NEVER_EXPIRES_MS }))
     await flushPendingCallbacks()
 
     expect(isIdle()).toBe(true)
@@ -39,7 +39,7 @@ describe("createActivityTracker", () => {
     const work = Promise.withResolvers<string>()
 
     const trackedResult = tracker.track(() => work.promise)
-    const isIdle = watchSettlement(tracker.whenIdle({ maxWaitMs: NEVER_EXPIRES_MS }))
+    const isIdle = watchSettlement(tracker.waitUntilIdle({ maxWaitMs: NEVER_EXPIRES_MS }))
     await flushPendingCallbacks()
 
     expect(isIdle()).toBe(false)
@@ -58,7 +58,7 @@ describe("createActivityTracker", () => {
 
     const firstCall = tracker.track(() => firstWork.promise)
     const secondCall = tracker.track(() => secondWork.promise)
-    const isIdle = watchSettlement(tracker.whenIdle({ maxWaitMs: NEVER_EXPIRES_MS }))
+    const isIdle = watchSettlement(tracker.waitUntilIdle({ maxWaitMs: NEVER_EXPIRES_MS }))
 
     firstWork.resolve(undefined)
     await firstCall
@@ -78,7 +78,7 @@ describe("createActivityTracker", () => {
     const work = Promise.withResolvers<undefined>()
 
     const trackedResult = tracker.track(() => work.promise)
-    const isIdle = watchSettlement(tracker.whenIdle({ maxWaitMs: NEVER_EXPIRES_MS }))
+    const isIdle = watchSettlement(tracker.waitUntilIdle({ maxWaitMs: NEVER_EXPIRES_MS }))
     work.reject(new Error("handler failed"))
 
     await expect(trackedResult).rejects.toThrow(new Error("handler failed"))
@@ -92,7 +92,7 @@ describe("createActivityTracker", () => {
     const work = Promise.withResolvers<undefined>()
 
     void tracker.track(() => work.promise)
-    const isIdle = watchSettlement(tracker.whenIdle({ maxWaitMs: 5000 }))
+    const isIdle = watchSettlement(tracker.waitUntilIdle({ maxWaitMs: 5000 }))
 
     await vi.advanceTimersByTimeAsync(4999)
     expect(isIdle()).toBe(false)
@@ -110,7 +110,7 @@ describe("createActivityTracker", () => {
     const laterWork = Promise.withResolvers<undefined>()
 
     void tracker.track(() => firstWork.promise)
-    const isIdle = watchSettlement(tracker.whenIdle({ maxWaitMs: 5000 }))
+    const isIdle = watchSettlement(tracker.waitUntilIdle({ maxWaitMs: 5000 }))
     await vi.advanceTimersByTimeAsync(3000)
     void tracker.track(() => laterWork.promise)
 
@@ -130,10 +130,12 @@ describe("createActivityTracker", () => {
     const work = Promise.withResolvers<undefined>()
 
     const trackedResult = tracker.track(() => work.promise)
-    const earlierWaiter = tracker.whenIdle({ maxWaitMs: 100 })
+    const earlierWaiter = tracker.waitUntilIdle({ maxWaitMs: 100 })
     await vi.advanceTimersByTimeAsync(100)
     await earlierWaiter
-    const isLaterWaiterIdle = watchSettlement(tracker.whenIdle({ maxWaitMs: NEVER_EXPIRES_MS }))
+    const isLaterWaiterIdle = watchSettlement(
+      tracker.waitUntilIdle({ maxWaitMs: NEVER_EXPIRES_MS }),
+    )
     await vi.advanceTimersByTimeAsync(0)
 
     expect(isLaterWaiterIdle()).toBe(false)
