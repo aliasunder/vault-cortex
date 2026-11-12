@@ -329,7 +329,9 @@ describe("JSON parser placement", () => {
 
   it.each([
     { label: "authenticated MCP", path: "/mcp", bytes: 6 * 1024 * 1024 },
-    { label: "public registration", path: "/register", bytes: 200 * 1024 },
+    // One byte over the 8 KB registration cap, well under the 100 KB the
+    // SDK's own parser would accept.
+    { label: "public registration", path: "/register", bytes: 8 * 1024 + 1 },
   ])("answers oversized $label JSON with 413", async ({ path, bytes }) => {
     const server = await startServer(await freePort(), { MCP_AUTH_TOKEN: TOKEN_A })
     onTestFinished(server.cleanup)
@@ -630,7 +632,7 @@ describe("rotating MCP_AUTH_TOKEN", () => {
 // ── Client registration sweep ─────────────────────────────────
 
 describe("client registration sweep", () => {
-  it("sweeps a week-old registration that never signed in on the next boot", async () => {
+  it("sweeps an hour-old registration that never signed in on the next boot", async () => {
     const dataDir = await mkdtemp(join(tmpdir(), "vc-integ-sweep-"))
     onTestFinished(async () => {
       await rm(dataDir, { recursive: true, force: true })
@@ -644,21 +646,21 @@ describe("client registration sweep", () => {
     const kept = await registerClient(port)
     await before.cleanup()
 
-    // Backdate both past the sweep's one-week age on disk, and mark `kept`
+    // Backdate both past the sweep's one-hour age on disk, and mark `kept`
     // as signed in, so only `stale` is swept.
     const oauthDb = new Database(join(dataDir, "oauth.db"))
     onTestFinished(() => {
       oauthDb.close()
     })
-    const eightDaysAgo = DateTime.now().minus({ days: 8 }).toUnixInteger()
+    const twoHoursAgo = DateTime.now().minus({ hours: 2 }).toUnixInteger()
     const backdate = oauthDb.prepare(
       "UPDATE clients SET data = json_set(data, '$.client_id_issued_at', ?) WHERE client_id = ?",
     )
-    backdate.run(eightDaysAgo, stale.client_id)
-    backdate.run(eightDaysAgo, kept.client_id)
+    backdate.run(twoHoursAgo, stale.client_id)
+    backdate.run(twoHoursAgo, kept.client_id)
     oauthDb
       .prepare("UPDATE clients SET signed_in_at = ? WHERE client_id = ?")
-      .run(eightDaysAgo, kept.client_id)
+      .run(twoHoursAgo, kept.client_id)
 
     const rebootedPort = await freePort()
     const after = await startServer(rebootedPort, sameDataDir)
@@ -749,8 +751,8 @@ describe("refresh-token reuse detection", () => {
     const neverSignedIn = await registerClient(port)
     await before.cleanup()
 
-    // The state a week later: registered more than seven days ago, no
-    // refresh token left after the revocation, and the revocation record
+    // The state a week later: registered well past the sweep's one-hour age,
+    // no refresh token left after the revocation, and the revocation record
     // purged after six hours.
     const oauthDb = new Database(join(dataDir, "oauth.db"))
     onTestFinished(() => {

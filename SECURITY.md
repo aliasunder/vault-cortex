@@ -314,6 +314,21 @@ while the owner decides are bounded:
   never with a redirect to the client's registered address, so a link on
   this server's domain cannot send a visitor to a site a client registered
 
+### OAuth client registrations
+
+`/register` needs no sign-in either, so the registrations it stores in
+`oauth.db` are bounded:
+
+- **Size-capped** — a registration body over 8 KB is refused with
+  `request body too large`; real clients send under 1 KB
+- **Rate-limited** — 5 registrations per minute per client IP (an IPv6
+  client by its /56), the same limit and key as `/authorize`
+- **Swept** — a registration that has not signed in within an hour is
+  deleted at the next boot or registration. A consent request and an
+  authorization code each live 10 minutes, so no sign-in attempt outlives
+  the hour; a client whose registration was swept is told at `/authorize`
+  how to reconnect
+
 ### Symlink safety
 
 - `filterValidSymlinks()` excludes broken symlinks and symlinks to
