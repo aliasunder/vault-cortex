@@ -246,6 +246,17 @@ The server, and the `:remote` image's setup mode, set these headers:
 
 ### Container hardening
 
+- PDF text extraction (reads and indexing) runs in one child process
+  the server can lose without going down: a 512 MiB V8 heap limit, on
+  Linux a data limit of 512 MiB above its startup footprint and a
+  best-effort `oom_score_adj=1000`, a 20 s deadline per request, and a
+  replacement child after a crash. The child receives only `PATH`,
+  `HOME`, `TMPDIR`, `TZ` and `LANG` from the server's environment, never
+  a token or vault setting. The limits are not an RSS ceiling, and the
+  data limit does not apply on macOS
+- Index extraction stops at 100 KiB of text or 500 pages per PDF and
+  starts after the HTTP server listens. PDF page rendering (`raw: true`)
+  runs in the server process, outside the child's limits
 - Non-root user (UID 1000 — `node` on `:latest`, `obsidian` on `:remote`)
 - PID 1 init — `:latest` uses `tini`, `:remote` uses s6-overlay's `/init`;
   both forward SIGTERM for clean SQLite WAL closure

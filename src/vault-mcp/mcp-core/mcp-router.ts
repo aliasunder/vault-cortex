@@ -4,6 +4,7 @@ import express, { Router } from "express"
 import type { NextFunction, Request, Response } from "express"
 import { ipKeyGenerator, rateLimit } from "express-rate-limit"
 import { randomUUID } from "node:crypto"
+import type { PdfExtractor } from "../vault-operations/pdf-extractor.js"
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js"
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js"
@@ -23,6 +24,7 @@ import { extractClientIp, headerAsString, mcpResourceUrl } from "../../auth.js"
 type McpRouterOptions = {
   vaultPath: string
   search: SearchIndex
+  pdfExtractor: PdfExtractor
   provider: OAuthServerProvider
   config: VaultConfig
   serverUrl: URL
@@ -120,6 +122,7 @@ ${markdownClause}`
 export const createMcpRouter = ({
   vaultPath,
   search,
+  pdfExtractor,
   provider,
   config,
   serverUrl,
@@ -269,6 +272,7 @@ export const createMcpRouter = ({
       server,
       vaultPath,
       search,
+      pdfExtractor,
       logger: sessionLogger,
       config,
     })

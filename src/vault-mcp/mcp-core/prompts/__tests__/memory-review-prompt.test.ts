@@ -18,7 +18,7 @@ import {
   PROMPT_NAMES,
   loadConfig,
   createSearchIndex,
-  type SearchIndex,
+  stubSearchIndex,
   logger,
 } from "./prompt-test-harness.js"
 
@@ -29,6 +29,29 @@ afterEach(() => {
 })
 
 // ── memory-review handler ────────────────────────────────────────
+
+describe("memory-review foreground tracking", () => {
+  it("runs an empty-memory review through the search index's trackForegroundWork", async () => {
+    const { search, calls } = await setupVault({ memoryFiles: false })
+    const trackForegroundWork = vi.spyOn(search, "trackForegroundWork")
+    const handler = findCall(calls, PROMPT_NAMES.MEMORY_REVIEW)[2]
+
+    const result = await handler({}, fakeExtra)
+
+    expect(trackForegroundWork).toHaveBeenCalledTimes(1)
+    expect(result).toEqual({
+      messages: [
+        {
+          role: "user",
+          content: {
+            type: "text",
+            text: "The About Me/ memory layer is empty — there's nothing to review yet.\n\nMemory is built with vault_update_memory, which appends dated entries (newest-first) under H2 sections of files like Me, Principles, and Opinions. Once a few entries exist, run this prompt again to reflect on them.",
+          },
+        },
+      ],
+    })
+  })
+})
 
 describe("memory-review handler", () => {
   it("includes every memory file when no file is given", async () => {
@@ -128,7 +151,7 @@ describe("memory-review handler", () => {
     onTestFinished(async () => {
       await rm(vault, { recursive: true, force: true })
     })
-    const search = {} as SearchIndex
+    const search = stubSearchIndex()
     const config = loadConfig({})
     await mkdir(join(vault, config.memoryDir), { recursive: true })
     await writeFile(
@@ -233,7 +256,7 @@ describe("memory-review error degradation", () => {
     // Make the memory dir a file so readdir fails with ENOTDIR (not ENOENT),
     // which listMemoryFiles re-throws — exercising the handler's catch path.
     await writeFile(join(vault, "About Me"), "not a directory", "utf8")
-    const calls = registerWithSearch(vault, {} as SearchIndex)
+    const calls = registerWithSearch(vault, stubSearchIndex())
     const handler = findCall(calls, PROMPT_NAMES.MEMORY_REVIEW)[2]
 
     const text = textOf(await handler({}, fakeExtra))
@@ -263,7 +286,7 @@ describe("memory-review error degradation", () => {
       },
     }))
     onTestFinished(() => vi.mocked(createMemoryStore).mockRestore())
-    const calls = registerWithSearch(vault, {} as SearchIndex)
+    const calls = registerWithSearch(vault, stubSearchIndex())
     const handler = findCall(calls, PROMPT_NAMES.MEMORY_REVIEW)[2]
 
     const text = textOf(await handler({}, fakeExtra))
@@ -278,7 +301,7 @@ describe("memory-review error degradation", () => {
       await rm(vault, { recursive: true, force: true })
     })
     await writeFile(join(vault, "About Me"), "not a directory", "utf8")
-    const calls = registerWithSearch(vault, {} as SearchIndex)
+    const calls = registerWithSearch(vault, stubSearchIndex())
     const argsSchema = findCall(calls, PROMPT_NAMES.MEMORY_REVIEW)[1].argsSchema as {
       file: unknown
     }
@@ -382,7 +405,7 @@ describe("memory-review logging", () => {
       await rm(vault, { recursive: true, force: true })
     })
     await writeFile(join(vault, "About Me"), "not a directory", "utf8")
-    const calls = registerWithSearch(vault, {} as SearchIndex, recordingLogger(logs))
+    const calls = registerWithSearch(vault, stubSearchIndex(), recordingLogger(logs))
     const argsSchema = findCall(calls, PROMPT_NAMES.MEMORY_REVIEW)[1].argsSchema as {
       file: unknown
     }
@@ -411,7 +434,7 @@ describe("memory-review full prompt output", () => {
     })
     await mkdir(join(vault, "About Me"), { recursive: true })
     await writeFile(join(vault, "About Me", "Mem.md"), MEM_MD, "utf8")
-    const calls = registerWithSearch(vault, {} as SearchIndex)
+    const calls = registerWithSearch(vault, stubSearchIndex())
     const handler = findCall(calls, PROMPT_NAMES.MEMORY_REVIEW)[2]
 
     const text = textOf(await handler({ file: "Mem" }, fakeExtra))
@@ -462,7 +485,7 @@ describe("memory-review full prompt output", () => {
       "---\ntitle: Routines\ntype: profile\nentry-policy: living\n---\n\n# Routines\n\n## Upcoming (newest first)\n- **2026-07-11**: a plan\n",
       "utf8",
     )
-    const calls = registerWithSearch(vault, {} as SearchIndex)
+    const calls = registerWithSearch(vault, stubSearchIndex())
     const handler = findCall(calls, PROMPT_NAMES.MEMORY_REVIEW)[2]
 
     const text = textOf(await handler({ file: "Routines" }, fakeExtra))

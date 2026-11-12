@@ -7,8 +7,12 @@ import { loadConfig } from "../../../src/vault-mcp/config.js"
 import { instanceVolumeNames, REMOTE_IMAGE } from "../docker.js"
 import { buildLocalEnv, buildRemoteEnv } from "../env.js"
 
-const readRepoFile = (repoRelativePath: string): string =>
-  readFileSync(fileURLToPath(new URL(`../../../${repoRelativePath}`, import.meta.url)), "utf8")
+const readRepoFile = (repoRelativePath: string): string => {
+  return readFileSync(
+    fileURLToPath(new URL(`../../../${repoRelativePath}`, import.meta.url)),
+    "utf8",
+  )
+}
 
 // --- Env var consistency helpers ---
 
@@ -39,9 +43,12 @@ const interpolatedVars = (composeContent: string): string[] => [
   ...new Set([...composeContent.matchAll(COMPOSE_INTERPOLATION)].map((match) => match[1])),
 ]
 
-/** Returns the content after the `# Optional` header (empty string if absent). */
+/** Matches the `# Optional` header line that starts a .env file's optional section. */
+const OPTIONAL_SECTION_HEADER = /^# Optional\b/m
+
+/** Empty when the file has no `# Optional` header. */
 const optionalSection = (content: string): string => {
-  const parts = content.split(/^# Optional\b/m)
+  const parts = content.split(OPTIONAL_SECTION_HEADER)
   return parts.length > 1 ? parts[1] : ""
 }
 
@@ -105,8 +112,9 @@ const readComposeService = (composePath: string): ComposeFile["services"]["vault
 }
 
 /** Maps a Blueprint's `envVars` list by key so tests can address one entry. */
-const renderEnvVarsByKey = (blueprint: RenderBlueprint): Map<string, RenderEnvVar> =>
-  new Map(blueprint.services[0].envVars.map((envVar) => [envVar.key, envVar]))
+const renderEnvVarsByKey = (blueprint: RenderBlueprint): Map<string, RenderEnvVar> => {
+  return new Map(blueprint.services[0].envVars.map((envVar) => [envVar.key, envVar]))
+}
 
 /** Values every hosted template fixes so the image boots in single-volume mode. */
 const HOSTED_FIXED_ENV = {
@@ -175,11 +183,11 @@ describe("instance naming in the compose templates", () => {
       expect({
         name: composeFile.name,
         containerName: composeFile.services["vault-cortex"].container_name,
-        volumeNames: composeVolumeNames.sort(),
+        volumeNames: composeVolumeNames.toSorted(),
       }).toEqual({
         name: "${INSTANCE_NAME:-vault-cortex}",
         containerName: "${COMPOSE_PROJECT_NAME:-${INSTANCE_NAME:-vault-cortex}}",
-        volumeNames: cliVolumeNames.sort(),
+        volumeNames: cliVolumeNames.toSorted(),
       })
     },
   )
@@ -314,14 +322,18 @@ describe("hosted platform templates", () => {
 })
 
 describe("env var consistency across deploy surfaces", () => {
-  const modes = [
+  const modes: Array<{
+    mode: "local" | "remote"
+    buildEnv: () => string
+    conditionalVars: string[]
+  }> = [
     {
-      mode: "local" as const,
+      mode: "local",
       buildEnv: () => buildLocalEnv({ mcpAuthToken: "t", vaultPath: "/v" }),
-      conditionalVars: [] as string[],
+      conditionalVars: [],
     },
     {
-      mode: "remote" as const,
+      mode: "remote",
       buildEnv: buildSampleRemoteEnv,
       conditionalVars: ["VAULT_PASSWORD"],
     },
@@ -333,7 +345,7 @@ describe("env var consistency across deploy surfaces", () => {
 
     const undocumented = [...composeVars]
       .filter((varName) => !exampleVars.has(varName) && !COMPOSE_PROVIDED_VARS.has(varName))
-      .sort()
+      .toSorted()
     expect(undocumented).toEqual([])
   })
 
@@ -341,7 +353,7 @@ describe("env var consistency across deploy surfaces", () => {
     const composeVars = new Set(interpolatedVars(readRepoFile(`deploy/${mode}/docker-compose.yml`)))
     const exampleVars = new Set(allEnvExampleVarNames(readRepoFile(`deploy/${mode}/.env.example`)))
 
-    const unconsumed = [...exampleVars].filter((varName) => !composeVars.has(varName)).sort()
+    const unconsumed = [...exampleVars].filter((varName) => !composeVars.has(varName)).toSorted()
     expect(unconsumed).toEqual([])
   })
 
@@ -350,10 +362,10 @@ describe("env var consistency across deploy surfaces", () => {
     ({ mode, buildEnv, conditionalVars }) => {
       const conditionalSet = new Set(conditionalVars)
 
-      const cliOptional = optionalVarNames(buildEnv()).sort()
+      const cliOptional = optionalVarNames(buildEnv()).toSorted()
       const exampleOptional = optionalVarNames(readRepoFile(`deploy/${mode}/.env.example`))
         .filter((varName) => !conditionalSet.has(varName))
-        .sort()
+        .toSorted()
 
       expect(cliOptional).toEqual(exampleOptional)
     },
@@ -398,18 +410,46 @@ describe("SYNC_CONFIGS default", () => {
   })
 })
 
+type CliManifest = { dependencies: Record<string, string> }
+
+type DependabotConfig = {
+  updates: Array<{
+    "package-ecosystem": string
+    directories?: string[]
+    groups?: Record<string, { patterns?: string[] }>
+  }>
+}
+
 describe("cli dependency pinning", () => {
   it("cli dependencies match the root devDependencies versions (single install for dev, real deps for npx)", () => {
-    const cliManifest = JSON.parse(readRepoFile("cli/package.json")) as {
-      dependencies: Record<string, string>
-    }
-    const rootManifest = JSON.parse(readRepoFile("package.json")) as {
-      devDependencies: Record<string, string>
-    }
+    const cliManifest: CliManifest = JSON.parse(readRepoFile("cli/package.json"))
+    const rootManifest: { devDependencies: Record<string, string> } = JSON.parse(
+      readRepoFile("package.json"),
+    )
 
     expect(Object.keys(cliManifest.dependencies)).toEqual(["@clack/prompts", "commander"])
     for (const [dependency, version] of Object.entries(cliManifest.dependencies)) {
       expect(rootManifest.devDependencies[dependency]).toBe(version)
     }
+  })
+
+  // Without both directories, or with another group matching first, a version
+  // bump arrives as one Dependabot PR per copy, and each fails the test above.
+  it("Dependabot's npm entry watches both copies and its first group lists every cli dependency", () => {
+    const cliManifest: CliManifest = JSON.parse(readRepoFile("cli/package.json"))
+    const dependabotConfig: DependabotConfig = parseYaml(readRepoFile(".github/dependabot.yml"))
+    const cliUpdate = dependabotConfig.updates.find(
+      (update) => update["package-ecosystem"] === "npm" && update.directories?.includes("/cli"),
+    )
+
+    expect({
+      directories: cliUpdate?.directories,
+      firstGroup: Object.keys(cliUpdate?.groups ?? {})[0],
+      cliPatterns: cliUpdate?.groups?.["cli"]?.patterns,
+    }).toEqual({
+      directories: ["/", "/cli"],
+      firstGroup: "cli",
+      cliPatterns: Object.keys(cliManifest.dependencies),
+    })
   })
 })

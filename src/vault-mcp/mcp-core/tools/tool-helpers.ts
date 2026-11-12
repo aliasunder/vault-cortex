@@ -3,6 +3,7 @@
 import { z } from "zod"
 import type { ToolCallback } from "@modelcontextprotocol/sdk/server/mcp.js"
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js"
+import type { PdfExtractor } from "../../vault-operations/pdf-extractor.js"
 import type { SearchIndex } from "../../search/search-index.js"
 import type { VaultConfig } from "../../config.js"
 import type { Logger } from "../../../logger.js"
@@ -71,6 +72,7 @@ export type ToolRegistrationContext = ToolAvailability &
     registerTool: RegisterGatedTool
     vaultPath: string
     search: SearchIndex
+    pdfExtractor: PdfExtractor
     logger: Logger
     config: VaultConfig
   }
