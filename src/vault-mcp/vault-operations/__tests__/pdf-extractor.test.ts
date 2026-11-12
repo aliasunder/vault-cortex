@@ -362,7 +362,7 @@ describe("PDF extraction ownership", () => {
     expect(await recovery).toEqual({ kind: "text", path: "second.pdf", text: "read text" })
     expect(child.send).not.toHaveBeenCalled()
   })
-  it("starts the source child directly on macOS with only its own flags and a minimal environment", async () => {
+  it("starts the child with this process's Node flags, its own heap limit last, and a minimal environment", async () => {
     vi.stubEnv("NODE_OPTIONS", "--inspect=127.0.0.1:0 --max-old-space-size=128")
     vi.stubEnv("ESBUILD_WORKER_THREADS", "1")
     vi.stubEnv("MCP_AUTH_TOKEN", "test-token-that-must-not-reach-the-child")
@@ -370,12 +370,15 @@ describe("PDF extraction ownership", () => {
     onTestFinished(() => {
       vi.unstubAllEnvs()
     })
-    const descriptor = Object.getOwnPropertyDescriptor(process, "platform")
+    const execArgvDescriptor = Object.getOwnPropertyDescriptor(process, "execArgv")
 
-    if (!descriptor) throw new Error("process.platform has no descriptor")
-    Object.defineProperty(process, "platform", { value: "darwin" })
+    if (!execArgvDescriptor) throw new Error("process.execArgv has no descriptor")
+    // A server run with a larger heap than the child's, so the child's own limit must come last.
+    Object.defineProperty(process, "execArgv", {
+      value: ["--enable-source-maps", "--max-old-space-size=4096"],
+    })
     onTestFinished(() => {
-      Object.defineProperty(process, "platform", descriptor)
+      Object.defineProperty(process, "execArgv", execArgvDescriptor)
     })
     const { extractor, child } = startControlledExtractor()
     const launch = captureChildLaunch(child)
@@ -385,23 +388,24 @@ describe("PDF extraction ownership", () => {
     await result
 
     expect(spawn).toHaveBeenCalledTimes(1)
-    // The child's environment is the process-level names the test host has set, plus LOG_DIR.
+    // The child's environment is the process-level names the test host has set, plus the two
+    // the extractor sets itself.
     const inheritedNames = ["HOME", "LANG", "PATH", "TMPDIR", "TZ"].filter(
       (name) => process.env[name] !== undefined,
     )
     expect(launch).toHaveBeenCalledExactlyOnceWith({
       command: process.execPath,
       args: [
+        "--enable-source-maps",
+        "--max-old-space-size=4096",
         "--max-old-space-size=512",
-        "--import",
-        "tsx",
         fileURLToPath(new URL("../pdf-extraction-child.ts", import.meta.url)),
       ],
       stdio: ["ignore", "ignore", "ignore", "ipc"],
-      envNames: [...inheritedNames, "LOG_DIR"].toSorted(),
+      envNames: [...inheritedNames, "ESBUILD_WORKER_THREADS", "LOG_DIR"].toSorted(),
       logDir: "none",
       nodeOptions: undefined,
-      esbuildWorkerThreads: undefined,
+      esbuildWorkerThreads: "0",
     })
   })
 
@@ -487,51 +491,6 @@ describe("PDF extraction ownership", () => {
       expect(await recovery).toEqual({ kind: "text", path: "recovered.pdf", text: "read text" })
     },
   )
-
-  it("starts the Linux source child directly and suppresses child file logging", async () => {
-    vi.stubEnv("ESBUILD_WORKER_THREADS", "1")
-    onTestFinished(() => {
-      vi.unstubAllEnvs()
-    })
-    const descriptor = Object.getOwnPropertyDescriptor(process, "platform")
-
-    if (!descriptor) throw new Error("process.platform has no descriptor")
-    const { extractor, child } = startControlledExtractor()
-    Object.defineProperty(process, "platform", { value: "linux" })
-    onTestFinished(() => {
-      Object.defineProperty(process, "platform", descriptor)
-    })
-    const launch = captureChildLaunch(child)
-    const result = extractor.extractForIndex({ path: "one.pdf" }, logger)
-    const cancellation = expect(result).resolves.toEqual({ status: "cancelled" })
-
-    expect(spawn).toHaveBeenCalledTimes(1)
-    expect(launch).toHaveBeenCalledExactlyOnceWith({
-      command: process.execPath,
-      args: [
-        "--max-old-space-size=512",
-        "--import",
-        "tsx",
-        fileURLToPath(new URL("../pdf-extraction-child.ts", import.meta.url)),
-      ],
-      stdio: ["ignore", "ignore", "ignore", "ipc"],
-      envNames: [
-        ...["HOME", "LANG", "PATH", "TMPDIR", "TZ"].filter(
-          (name) => process.env[name] !== undefined,
-        ),
-        "ESBUILD_WORKER_THREADS",
-        "LOG_DIR",
-      ].toSorted(),
-      logDir: "none",
-      nodeOptions: undefined,
-      esbuildWorkerThreads: "0",
-    })
-    expect(child.send).not.toHaveBeenCalled()
-    const closing = extractor.close()
-    child.emit("exit", null, "SIGKILL")
-    await closing
-    await cancellation
-  })
 
   it("fails the request as a start failure when the child's startup footprint cannot be read", async () => {
     const descriptor = Object.getOwnPropertyDescriptor(process, "platform")

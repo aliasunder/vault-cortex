@@ -47,7 +47,8 @@ const LINUX_DATA_BUDGET_MIB = 512
 /** Matches a process's current data allocation (VmData) in its Linux proc status. */
 const VM_DATA_PATTERN = /^VmData:\s+(?<vmDataKiB>\d+)\s+kB$/m
 const execFileAsync = promisify(execFile)
-// The child's extension follows this module's, so tsx runs spawn .ts and compiled images spawn .js.
+// The child's extension follows this module's, so a run from source spawns the .ts child and a
+// compiled build spawns the .js one.
 const MODULE_EXTENSION = extname(fileURLToPath(import.meta.url))
 const CHILD_ENTRY = fileURLToPath(
   new URL(`./pdf-extraction-child${MODULE_EXTENSION}`, import.meta.url),
@@ -178,22 +179,23 @@ const failureCodeFor = (child: ExtractionChild): FailureCode => {
  * so the `ready` message the child sends on start lands in `messages` instead of being missed.
  */
 const startChild = (): ExtractionChild => {
-  const childNeedsTsx = CHILD_ENTRY.endsWith(".ts")
-  const tsxRunsOnLinux = childNeedsTsx && process.platform === "linux"
+  // The child takes this process's Node flags, as Node's fork() does, so a run from source passes
+  // on the TypeScript loader the .ts child needs. The heap flag comes last, so it wins over one
+  // this process runs with.
   const nodeArgs = [
+    ...process.execArgv,
     `--max-old-space-size=${CHILD_HEAP_LIMIT_MIB}`,
-    ...(childNeedsTsx ? ["--import", "tsx"] : []),
     CHILD_ENTRY,
   ]
   const childProcess = spawn(process.execPath, nodeArgs, {
-    // The environment is the allowlist above, so NODE_OPTIONS is dropped and the child owns its
-    // Node flags.
+    // The environment is the allowlist above, so NODE_OPTIONS is dropped.
     env: {
       ...childEnvironment(),
       // The child's logger writes nowhere; it reports failures over IPC and this process logs them.
       LOG_DIR: "none",
-      // Avoid tsx's extra esbuild V8 isolate inflating the Linux startup footprint.
-      ...(tsxRunsOnLinux ? { ESBUILD_WORKER_THREADS: "0" } : {}),
+      // A run from source loads esbuild in the child, and esbuild's worker isolate would count
+      // against the Linux data limit. Nothing loads esbuild in a compiled child.
+      ESBUILD_WORKER_THREADS: "0",
     },
     stdio: ["ignore", "ignore", "ignore", "ipc"],
   })
