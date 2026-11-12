@@ -36,7 +36,8 @@ beforeEach(() => {
   index = createSearchIndex(":memory:")
 })
 
-/** Obsidian's default daily-note format; no link in these tests is a bare date. */
+/** Obsidian's default daily-note format. The bare-date forward-reference
+ *  tests link to dates written in it on purpose. */
 const DEFAULT_DAILY_NOTES_FORMAT = "YYYY-MM-DD"
 
 const NOTE_WITH_FRONTMATTER = `---
