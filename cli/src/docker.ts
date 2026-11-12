@@ -247,7 +247,7 @@ export const parseContainerImage = (params: {
  *   ports print too.
  * - The bind address is left out, so a port counts as taken whatever address
  *   it is published on: a port published on every address also blocks it on
- *   127.0.0.1, where a local install publishes.
+ *   127.0.0.1, where a local install publishes by default.
  */
 const PUBLISHED_PORTS_FORMAT =
   "{{.Name}}{{range $containerPort, $bindings := .HostConfig.PortBindings}}{{range $bindings}} {{.HostPort}}{{end}}{{end}}"

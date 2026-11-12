@@ -289,8 +289,9 @@ export const recreateContainer = async (
   spinner.stop("Server is up — health check passed.")
 
   // Informational only — the container is confirmed healthy above, so the
-  // public-URL result never changes the exit code. A local PUBLIC_URL is the
-  // localhost address the health check just reached, so only remote probes it.
+  // public-URL result never changes the exit code. A local PUBLIC_URL names
+  // this machine, where the health check just reached the server, so only
+  // remote probes it.
   if (deployment.mode === "remote") {
     await reportPublicUrlProbe(deployment.publicUrl, { prompts, fetchFn })
   }
