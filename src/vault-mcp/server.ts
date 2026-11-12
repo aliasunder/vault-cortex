@@ -27,6 +27,13 @@ import { urlHasCredentials } from "../utils/url-has-credentials.js"
 import { securityHeaders } from "../utils/security-headers.js"
 import env from "env-var"
 
+type ShutdownResources = {
+  httpServer: { close: (callback: () => void) => void }
+  bodyTagParser: Pick<BodyTagParser, "close">
+  pdfExtractor: Pick<PdfExtractor, "close">
+  forceExitMs?: number
+}
+
 /**
  * SIGTERM handler that drains in-flight requests before exiting, so a write
  * can't be interrupted mid-flight.
@@ -38,15 +45,13 @@ import env from "env-var"
  * - The fallback forces exit if a connection hangs the drain longer than
  *   `forceExitMs`.
  */
-type ShutdownResources = {
-  httpServer: { close: (callback: () => void) => void }
-  bodyTagParser: Pick<BodyTagParser, "close">
-  pdfExtractor: Pick<PdfExtractor, "close">
-  forceExitMs?: number
-}
-
 export const createShutdownHandler =
-  ({ httpServer, bodyTagParser, pdfExtractor, forceExitMs = 10_000 }: ShutdownResources) =>
+  ({
+    httpServer,
+    bodyTagParser,
+    pdfExtractor,
+    forceExitMs = 10_000,
+  }: ShutdownResources): (() => void) =>
   (): void => {
     logger.info("SIGTERM received, draining")
 

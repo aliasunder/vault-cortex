@@ -26,8 +26,9 @@ import { pdfReplySchema, type PdfReply, type PdfRequest } from "./pdf-extraction
  * 5. A child that exits, loses its IPC channel, breaks the protocol or misses the deadline is
  *    killed; the next request starts a fresh one.
  *
- * The module-level functions below are steps 3 to 5, one per step. The queue (steps 1 and 2)
- * and the child's lifecycle live inside `createPdfExtractor`.
+ * The module-level functions below start the child and ready it (step 3), serve one request
+ * (step 4) and report the failures of step 5. The queue (steps 1 and 2) and the kill in step 5
+ * live inside `createPdfExtractor`.
  */
 
 // One page can keep expanding inside pdfjs, so the child gets a wall-clock bound beside its
@@ -141,8 +142,10 @@ type ExtractionChild = {
   /** True once the child sent `ready` and, on Linux, its data limit is applied. */
   ready: boolean
   hasExited: boolean
-  /** Settles with the first failure the process reports. */
-  failed: Promise<ChildFailure>
+  /** The first failure the process reported, kept for a request that starts after it. */
+  failure: ChildFailure | undefined
+  /** Set while a request is served on this child, and called with each failure reported. */
+  onFailure: ((failure: ChildFailure) => void) | undefined
   /** Settles once the process has exited; a spawn that never got a process ID settles on its error. */
   exited: Promise<void>
 }
@@ -190,31 +193,36 @@ const startChild = (): ExtractionChild => {
     stdio: ["ignore", "ignore", "ignore", "ipc"],
   })
   const exit = Promise.withResolvers<undefined>()
-  const failure = Promise.withResolvers<ChildFailure>()
   const child: ExtractionChild = {
     process: childProcess,
     messages: iterateEvents(childProcess, "message"),
     ready: false,
     hasExited: false,
-    failed: failure.promise,
+    failure: undefined,
+    onFailure: undefined,
     exited: exit.promise,
   }
   const markExited = (): void => {
     child.hasExited = true
     exit.resolve(undefined)
   }
+  const reportFailure = (failure: ChildFailure): void => {
+    if (child.failure) return
+    child.failure = failure
+    child.onFailure?.(failure)
+  }
 
   childProcess.once("exit", () => {
     markExited()
-    failure.resolve({ reason: "exit" })
+    reportFailure({ reason: "exit" })
   })
   childProcess.once("error", (error) => {
     // A failed spawn emits error with no exit, so the error marks the child exited; a child that
     // has a process ID gets its exit event later.
     if (!childProcess.pid) markExited()
-    failure.resolve({ reason: "process error", error })
+    reportFailure({ reason: "process error", error })
   })
-  childProcess.once("disconnect", () => failure.resolve({ reason: "IPC disconnected" }))
+  childProcess.once("disconnect", () => reportFailure({ reason: "IPC disconnected" }))
   return child
 }
 
@@ -379,8 +387,10 @@ export const createPdfExtractor = (params: {
   let indexingStarted = false
   let closed = false
   let nextRequestId = 0
-  // Resolved by close(), so the active request settles at once instead of at its deadline.
-  const closing = Promise.withResolvers<RequestOutcome>()
+  // Settles the active request when close() is called, so it ends at once instead of at its
+  // deadline. Set per request: a promise that outlived the requests it was raced against would
+  // keep every request's outcome, PDF text included, in memory.
+  let interruptActiveRequest: ((outcome: RequestOutcome) => void) | undefined
   // The child's lifecycle. One child serves every request until it fails; stopChild then kills it
   // and records its exit, which a request failure and close() both await before moving on.
   let currentChild: ExtractionChild | undefined
@@ -413,9 +423,9 @@ export const createPdfExtractor = (params: {
       return queued.request.kind === "index" && queued.request.path === path
     })
 
-    for (const request of superseded) {
-      queue.splice(queue.indexOf(request), 1)
-      request.reply.reject(extractionError(path, "pdf-superseded"))
+    for (const supersededRequest of superseded) {
+      queue.splice(queue.indexOf(supersededRequest), 1)
+      supersededRequest.reply.reject(extractionError(path, "pdf-superseded"))
     }
   }
 
@@ -472,27 +482,33 @@ export const createPdfExtractor = (params: {
     const { request } = queued
     const logger = queued.logger.child({ extractionRequestId: request.requestId })
     const child = isAlive(currentChild) ? currentChild : replaceChild()
-    const deadline = Promise.withResolvers<RequestOutcome>()
+    // Settled by the deadline, a child failure or close(), whichever comes first.
+    const interruption = Promise.withResolvers<RequestOutcome>()
     const deadlineTimer = setTimeout(() => {
-      deadline.resolve({ kind: "deadline" })
+      interruption.resolve({ kind: "deadline" })
     }, ACTIVE_TIMEOUT_MS)
     const requestAbort = new AbortController()
-    const childFailure = async (): Promise<RequestOutcome> => {
-      const { reason, error } = await child.failed
-      return { kind: "failed", reason, failure: failureCodeFor(child), error }
+    const failRequest = ({ reason, error }: ChildFailure): void => {
+      interruption.resolve({ kind: "failed", reason, failure: failureCodeFor(child), error })
     }
 
+    if (child.failure) failRequest(child.failure)
+    child.onFailure = failRequest
+    interruptActiveRequest = interruption.resolve
     try {
       const outcome = await Promise.race([
         serveRequest(child, request, requestAbort.signal, logger),
-        childFailure(),
-        deadline.promise,
-        closing.promise,
+        interruption.promise,
       ])
+      // Aborted before settleRequest awaits the child's exit, so a memory limit step that fails
+      // on the killed child returns without logging an error.
+      requestAbort.abort()
       await settleRequest({ queued, child, outcome }, logger)
     } finally {
       clearTimeout(deadlineTimer)
       requestAbort.abort()
+      child.onFailure = undefined
+      interruptActiveRequest = undefined
     }
   }
 
@@ -548,7 +564,8 @@ export const createPdfExtractor = (params: {
 
   /** Starts a fresh child, after clearing a current one that is no longer alive. */
   const replaceChild = (): ExtractionChild => {
-    // A current child here is dead already (a live one is reused), so there is no exit to wait for.
+    // A current child here has exited or lost its IPC channel (a live one is reused). One that
+    // only lost its channel is still exiting, and nothing waits for it: it can take no request.
     void stopChild()
     const child = startChild()
     currentChild = child
@@ -617,7 +634,7 @@ export const createPdfExtractor = (params: {
         clearTimeout(queued.queueExpiry)
         queued.reply.reject(extractionError(queued.request.path, "pdf-closed"))
       }
-      closing.resolve({ kind: "closed" })
+      interruptActiveRequest?.({ kind: "closed" })
       await stopChild()
     },
   }

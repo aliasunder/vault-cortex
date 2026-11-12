@@ -136,8 +136,8 @@ const main = async (): Promise<void> => {
   process.on("message", async (message: unknown) => {
     const parsed = pdfRequestSchema.safeParse(message)
 
-    // A message outside the protocol did not come from this module's parent; exit 1 so the
-    // parent's own protocol check fails the request.
+    // A message outside the protocol did not come from this module's parent; exit 1, and the
+    // parent fails its active request on the exit.
     if (!parsed.success) process.exit(1)
     const request = parsed.data
     try {
