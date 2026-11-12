@@ -1389,7 +1389,7 @@
             "maximum": 9007199254740991
           },
           "expected_description": {
-            "description": "The task's description as an earlier update result returned it (its text without checkbox, emoji or inline-field metadata and block ID). The update is refused if it differs.",
+            "description": "The task's description as an earlier update result returned it (the text after the checkbox, without its trailing metadata and block ID). The update is refused if it differs.",
             "type": "string",
             "minLength": 1
           },
