@@ -1364,6 +1364,38 @@ describe("task line mutations", () => {
       expect(result).toBe("- [-] Task ➕ 2026-07-01")
     })
 
+    it("removes an existing done date when setDoneDate is false", () => {
+      const noDoneDateConfig: TaskFormatConfig = {
+        taskFormat: "emoji",
+        setDoneDate: false,
+        setCancelledDate: true,
+        ...DEFAULT_PLUGIN_SETTINGS,
+      }
+      const result = tasks.updateTaskLineStatus({
+        taskLine: "- [x] Task ➕ 2026-07-01 ✅ 2026-07-10",
+        newStatus: "done",
+        today: "2026-07-12",
+        config: noDoneDateConfig,
+      })
+      expect(result).toBe("- [x] Task ➕ 2026-07-01")
+    })
+
+    it("removes an existing cancelled date when setCancelledDate is false", () => {
+      const noCancelledDateConfig: TaskFormatConfig = {
+        taskFormat: "emoji",
+        setDoneDate: true,
+        setCancelledDate: false,
+        ...DEFAULT_PLUGIN_SETTINGS,
+      }
+      const result = tasks.updateTaskLineStatus({
+        taskLine: "- [-] Task ➕ 2026-07-01 ❌ 2026-07-10",
+        newStatus: "cancelled",
+        today: "2026-07-12",
+        config: noCancelledDateConfig,
+      })
+      expect(result).toBe("- [-] Task ➕ 2026-07-01")
+    })
+
     it("writes cancelled date in Dataview format when configured", () => {
       const result = tasks.updateTaskLineStatus({
         taskLine: "- [ ] Task [created:: 2026-07-01]",
@@ -2182,6 +2214,16 @@ describe("task line mutations", () => {
 
     it("clears a task ID", () => {
       const line = "- [ ] My task 🆔 abc123 ➕ 2026-08-01 ^my-task"
+      const result = tasks.updateTaskLineTaskId({
+        taskLine: line,
+        taskId: null,
+        config: EMOJI_CONFIG,
+      })
+      expect(result).toBe("- [ ] My task ➕ 2026-08-01 ^my-task")
+    })
+
+    it("clears a task ID written with underscores and hyphens", () => {
+      const line = "- [ ] My task 🆔 build_step-2 ➕ 2026-08-01 ^my-task"
       const result = tasks.updateTaskLineTaskId({
         taskLine: line,
         taskId: null,
