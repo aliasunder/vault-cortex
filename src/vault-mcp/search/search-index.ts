@@ -1498,6 +1498,26 @@ export const createSearchIndex = (
     insertLinkStmt.run({ ...params, linkName: links.pathToLinkName(params.linkText) })
   }
 
+  /** Stores the links typed in one note, or in one canvas's text cards, as
+   *  "link" rows. They all resolve against the one `notePaths` list, so
+   *  links.resolve folds it only once. */
+  const insertTypedLinks = (params: {
+    source: string
+    linkTexts: readonly string[]
+    notePaths: readonly string[]
+  }): void => {
+    const { source, linkTexts, notePaths } = params
+
+    for (const linkText of linkTexts) {
+      insertLink({
+        source,
+        target: resolveLinkTarget({ linkText, notePaths, sourcePath: source }),
+        linkText,
+        linkKind: "link",
+      })
+    }
+  }
+
   /** Re-resolves "link" rows from their text and updates each row whose target
    *  changes. Call it inside the write that added or removed a file, after that
    *  write's own changes. */
@@ -1667,14 +1687,11 @@ export const createSearchIndex = (
         // A link typed in a text card resolves as the same link in a note. A
         // canvas with no such link skips reading every note path from the table.
         const notePaths = canvasLinks.textCardLinks.length > 0 ? getNotePathsForCanvasLinks() : []
-        for (const linkText of canvasLinks.textCardLinks) {
-          insertLink({
-            source: params.filePath,
-            target: resolveLinkTarget({ linkText, notePaths, sourcePath: params.filePath }),
-            linkText,
-            linkKind: "link",
-          })
-        }
+        insertTypedLinks({
+          source: params.filePath,
+          linkTexts: canvasLinks.textCardLinks,
+          notePaths,
+        })
       }
     })()
 
@@ -2000,14 +2017,11 @@ export const createSearchIndex = (
       const pathList = allPaths.map((row) => row.path)
 
       deleteLinksStmt.run(note.path)
-      for (const linkText of links.extractAll(noteBody, frontmatter)) {
-        insertLink({
-          source: note.path,
-          target: resolveLinkTarget({ linkText, notePaths: pathList, sourcePath: note.path }),
-          linkText,
-          linkKind: "link",
-        })
-      }
+      insertTypedLinks({
+        source: note.path,
+        linkTexts: links.extractAll(noteBody, frontmatter),
+        notePaths: pathList,
+      })
 
       // An edit leaves the set of paths, and so every other link's answer,
       // unchanged; a new path can claim the links that name it.
@@ -2855,18 +2869,11 @@ export const createSearchIndex = (
               // Re-parsing is pure, so this reads what Pass 1 read; Pass 1 already
               // warned about an unreadable block for this note
               const parsed = parseNoteSkippingUnreadableBlock(note.content)
-              for (const linkText of links.extractAll(parsed.content, parsed.data)) {
-                insertLink({
-                  source: note.relativePath,
-                  target: resolveLinkTarget({
-                    linkText,
-                    notePaths: pathList,
-                    sourcePath: note.relativePath,
-                  }),
-                  linkText,
-                  linkKind: "link",
-                })
-              }
+              insertTypedLinks({
+                source: note.relativePath,
+                linkTexts: links.extractAll(parsed.content, parsed.data),
+                notePaths: pathList,
+              })
             })()
           } catch (error) {
             logger.warn("skipped the links of a note whose link pass failed during rebuild", {
