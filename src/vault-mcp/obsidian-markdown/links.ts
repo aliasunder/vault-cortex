@@ -410,7 +410,7 @@ type ComparablePath = { storedPath: string; comparablePath: string }
  *  against it. The cache is keyed by the list itself, so a caller must not
  *  change a list after passing it in. */
 const createComparablePathsCache = (
-  comparableFormOf: (path: string) => string,
+  toComparablePath: (path: string) => string,
 ): ((paths: readonly string[]) => readonly ComparablePath[]) => {
   const comparablePathsByList = new WeakMap<readonly string[], readonly ComparablePath[]>()
 
@@ -420,7 +420,7 @@ const createComparablePathsCache = (
     if (cachedComparablePaths) return cachedComparablePaths
 
     const comparablePaths = paths.map((storedPath) => {
-      return { storedPath, comparablePath: comparableFormOf(storedPath) }
+      return { storedPath, comparablePath: toComparablePath(storedPath) }
     })
     comparablePathsByList.set(paths, comparablePaths)
     return comparablePaths
@@ -431,12 +431,12 @@ const createComparablePathsCache = (
  *  only in memory, so nothing narrows it to ASCII. */
 const lowercaseNotePath = (path: string): string => path.toLowerCase()
 
-const lowercaseNotePathsOf = createComparablePathsCache(lowercaseNotePath)
+const getLowercaseNotePaths = createComparablePathsCache(lowercaseNotePath)
 
 /** The folded asset form lowercases ASCII letters only, because every asset
  *  comparison has an SQL twin in the index (search/search-index.ts), and a
  *  wider fold would let the two resolvers pick different files for one link. */
-const asciiFoldedAssetPathsOf = createComparablePathsCache(foldAsciiCase)
+const getAsciiFoldedAssetPaths = createComparablePathsCache(foldAsciiCase)
 
 const findStoredPathsWhere = (
   comparablePaths: readonly ComparablePath[],
@@ -487,7 +487,7 @@ const resolveNoteInLetterCase = (params: {
     if (letterCase === "exact") return allPaths.includes(comparablePath) ? [comparablePath] : []
 
     return findStoredPathsWhere(
-      lowercaseNotePathsOf(allPaths),
+      getLowercaseNotePaths(allPaths),
       (lowercasePath) => lowercasePath === comparablePath,
     )
   }
@@ -517,7 +517,7 @@ const resolveNoteInLetterCase = (params: {
   const basenameMatches =
     letterCase === "exact"
       ? allPaths.filter((candidatePath) => candidatePath.endsWith(comparableSuffix))
-      : findStoredPathsWhere(lowercaseNotePathsOf(allPaths), (lowercasePath) => {
+      : findStoredPathsWhere(getLowercaseNotePaths(allPaths), (lowercasePath) => {
           return lowercasePath.endsWith(comparableSuffix)
         })
 
@@ -575,8 +575,7 @@ const resolve = (params: {
 
 /** One pass over the asset tiers, with the exact, relative, stem exact, stem
  *  relative and bare-stem comparisons in `letterCase`. The two suffix tiers
- *  fold ASCII case in both passes, so in the folded pass they repeat the
- *  exact pass's miss. */
+ *  run in the exact pass only, as in the SQL twin's walks. */
 const resolveAssetInLetterCase = (params: {
   target: string
   allAssetPaths: readonly string[]
@@ -589,7 +588,7 @@ const resolveAssetInLetterCase = (params: {
   const comparableRelativeTarget =
     relativeTarget === null ? null : assetPathForComparison(relativeTarget, letterCase)
 
-  const asciiFoldedAssetPaths = asciiFoldedAssetPathsOf(allAssetPaths)
+  const asciiFoldedAssetPaths = getAsciiFoldedAssetPaths(allAssetPaths)
 
   // In the folded pass, two files that differ only in letter case both match
   // one link, so the exact tiers pick with shortestOf as the stem tiers do.
@@ -619,13 +618,17 @@ const resolveAssetInLetterCase = (params: {
   // The suffix tiers fold ASCII case because their SQL twins compare with
   // LIKE, which is ASCII-case-insensitive; the other tiers compare in the
   // pass's letter case because their twins compare with =, plain in the
-  // exact pass and COLLATE NOCASE in the folded one.
+  // exact pass and COLLATE NOCASE in the folded one. Folding already in the
+  // exact pass, a suffix tier could only repeat its miss in the folded pass.
+  const runsSuffixTiers = letterCase === "exact"
   const foldedTargetSuffix = foldAsciiCase(`/${target}`)
-  const fullPathSuffixMatch = shortestOf(
-    findStoredPathsWhere(asciiFoldedAssetPaths, (foldedPath) => {
-      return foldedPath.endsWith(foldedTargetSuffix)
-    }),
-  )
+  const fullPathSuffixMatch = runsSuffixTiers
+    ? shortestOf(
+        findStoredPathsWhere(asciiFoldedAssetPaths, (foldedPath) => {
+          return foldedPath.endsWith(foldedTargetSuffix)
+        }),
+      )
+    : null
 
   if (fullPathSuffixMatch) return fullPathSuffixMatch
 
@@ -649,6 +652,8 @@ const resolveAssetInLetterCase = (params: {
   // stem); a bare name matches on the filename stem only. Either way this is
   // the last tier: shortestOf returns null on no match — the unresolved case.
   if (target.includes("/")) {
+    if (!runsSuffixTiers) return null
+
     // ASCII folding keeps every "." and "/", so stripping the extension from
     // the folded path gives the folded stem.
     return shortestOf(
