@@ -82,7 +82,7 @@ describe("describePdfOpenFailure", () => {
   it("names a password-protected PDF for pdf.js's PasswordException", () => {
     const error = Object.assign(new Error("No password given"), { name: "PasswordException" })
 
-    expect(describePdfOpenFailure({ error, path: "papers/locked.pdf", bytes: 14 })).toBe(
+    expect(describePdfOpenFailure({ error, path: "papers/locked.pdf", fileBytes: 14 })).toBe(
       'PDF is password-protected: "papers/locked.pdf" exists (14 bytes) but cannot be opened without its password',
     )
   })
@@ -92,7 +92,7 @@ describe("describePdfOpenFailure", () => {
       name: "InvalidPDFException",
     })
 
-    expect(describePdfOpenFailure({ error, path: "papers/broken.pdf", bytes: 14 })).toBe(
+    expect(describePdfOpenFailure({ error, path: "papers/broken.pdf", fileBytes: 14 })).toBe(
       'PDF is damaged or not a PDF: "papers/broken.pdf" exists (14 bytes) but cannot be parsed',
     )
   })
@@ -100,13 +100,13 @@ describe("describePdfOpenFailure", () => {
   it("returns undefined for an Error with any other name", () => {
     const error = new Error("PDF reader could not start")
 
-    expect(describePdfOpenFailure({ error, path: "doc.pdf", bytes: 14 })).toBeUndefined()
+    expect(describePdfOpenFailure({ error, path: "doc.pdf", fileBytes: 14 })).toBeUndefined()
   })
 
   it("returns undefined for a thrown value that is not an Error", () => {
     const error = { name: "PasswordException", message: "No password given" }
 
-    expect(describePdfOpenFailure({ error, path: "doc.pdf", bytes: 14 })).toBeUndefined()
+    expect(describePdfOpenFailure({ error, path: "doc.pdf", fileBytes: 14 })).toBeUndefined()
   })
 })
 
@@ -117,7 +117,7 @@ describe("buildPdfTextResult", () => {
         text: "",
         totalPages: 12,
         path: "scans/receipt.pdf",
-        bytes: 5_000_000,
+        fileBytes: 5_000_000,
       })
     }
 
@@ -134,7 +134,7 @@ describe("buildPdfTextResult", () => {
   // never blank; this pins that the check is for emptiness alone
   it("returns whitespace-only text as text", () => {
     expect(
-      buildPdfTextResult({ text: "  \n\t", totalPages: 1, path: "blank.pdf", bytes: 1_000 }),
+      buildPdfTextResult({ text: "  \n\t", totalPages: 1, path: "blank.pdf", fileBytes: 1_000 }),
     ).toEqual({ kind: "text", text: "  \n\t", path: "blank.pdf" })
   })
 
@@ -143,7 +143,7 @@ describe("buildPdfTextResult", () => {
       text: "Title: Doc | Pages: 1\n\nHello",
       totalPages: 1,
       path: "doc.pdf",
-      bytes: 1_000,
+      fileBytes: 1_000,
     })
 
     expect(result).toEqual({
@@ -158,7 +158,7 @@ describe("buildPdfTextResult", () => {
       text: "Title: Doc | Pages: 1\n\nHello\nWorld",
       totalPages: 1,
       path: "doc.pdf",
-      bytes: 1_000,
+      fileBytes: 1_000,
       startLine: 3,
       limit: 1,
     })

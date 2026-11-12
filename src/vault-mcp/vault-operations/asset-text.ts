@@ -1,6 +1,7 @@
 import { pageTextByLines } from "../obsidian-markdown/lines.js"
 import type { LineWindow } from "../obsidian-markdown/lines.js"
 
+/** The text form of a file, one member of AssetReadResult (asset-operations.ts). */
 export type AssetTextResult = Readonly<{
   kind: "text"
   text: string
@@ -8,11 +9,9 @@ export type AssetTextResult = Readonly<{
   lineWindow?: LineWindow
 }>
 
-/** Fixed cap on text output (text files, canvas renditions and
- *  PDF-extracted text) so a huge text asset can't blow a client's response
- *  limit. Deliberately not an env var — the image budget is the tunable
- *  surface; text past this size is read in line windows, not raised into a
- *  bigger blob. */
+/** Fixed cap on text output (text files, canvas outlines and PDF text) so a huge text asset
+ *  cannot blow a client's response limit. Not an env var on purpose: text past this size is
+ *  read in line windows rather than raised into a bigger response. */
 export const MAX_TEXT_OUTPUT_BYTES = 102_400
 
 /** Compares with undefined, not truthiness, so a 0 still counts as a line
@@ -45,7 +44,7 @@ const assertTextWithinCap = (params: {
   )
 }
 
-/** Without paging params the full text returns byte-identical; a paged read returns its line
+/** Without paging params the input text is returned unchanged; a paged read returns its line
  *  window. Either way, text past the text output cap is rejected. */
 export const buildTextResult = (params: {
   text: string
@@ -83,17 +82,17 @@ export const buildTextResult = (params: {
 export const describePdfOpenFailure = (params: {
   error: unknown
   path: string
-  bytes: number
+  fileBytes: number
 }): string | undefined => {
-  const { error, path, bytes } = params
+  const { error, path, fileBytes } = params
 
   if (!(error instanceof Error)) return undefined
 
   switch (error.name) {
     case "PasswordException":
-      return `PDF is password-protected: "${path}" exists (${bytes} bytes) but cannot be opened without its password`
+      return `PDF is password-protected: "${path}" exists (${fileBytes} bytes) but cannot be opened without its password`
     case "InvalidPDFException":
-      return `PDF is damaged or not a PDF: "${path}" exists (${bytes} bytes) but cannot be parsed`
+      return `PDF is damaged or not a PDF: "${path}" exists (${fileBytes} bytes) but cannot be parsed`
     default:
       return undefined
   }
@@ -104,16 +103,16 @@ export const buildPdfTextResult = (params: {
   text: string
   totalPages: number
   path: string
-  bytes: number
+  fileBytes: number
   startLine?: number | undefined
   limit?: number | undefined
 }): AssetTextResult => {
-  const { text, totalPages, path, bytes, startLine, limit } = params
+  const { text, totalPages, path, fileBytes, startLine, limit } = params
 
   if (!text) {
     throw new Error(
       `PDF has no extractable text: "${path}" exists ` +
-        `(${bytes} bytes, ${totalPages} pages) but ` +
+        `(${fileBytes} bytes, ${totalPages} pages) but ` +
         `contains no text content — it may be a scanned document or ` +
         `image-only PDF`,
     )

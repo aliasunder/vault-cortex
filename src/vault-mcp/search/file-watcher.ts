@@ -137,11 +137,13 @@ type HoldingWatcher = Readonly<{
   ready: Promise<void>
   /** Goes live and starts applying what chokidar reported while holding, and
    *  returns how many distinct paths that is. `applied` resolves once the
-   *  non-PDF writes commit, and never rejects. */
-  applyHeldChanges: () => { heldPathCount: number; applied: Promise<void> }
-  /** Resolves once the held PDFs have their text and vectors. Read it after `applied`, which
-   *  is when the startup batch has queued them. Never rejects. */
-  heldPdfsIndexed: () => Promise<void>
+   *  non-PDF writes commit; `heldPdfsIndexed` once the held PDFs have their
+   *  text and vectors. Neither rejects. */
+  applyHeldChanges: () => {
+    heldPathCount: number
+    applied: Promise<void>
+    heldPdfsIndexed: Promise<void>
+  }
   /** Stops watching; a rescan or retry still scheduled fires later and does
    *  nothing. Used only when startup fails before the held changes apply.
    *  Never rejects, so the startup failure stays the error reported. */
@@ -156,7 +158,7 @@ type HoldingWatcher = Readonly<{
  */
 const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingWatcher => {
   const { vaultPath, search, bodyTagParser, pdfExtractor, maxFileBytes, watcherOptions } = params
-  // Set once by the startup batch, which runs after the rebuild.
+  // Set once by indexHeldPathsWithinBounds, which the startup batch runs after the rebuild.
   let heldPdfsIndexed: Promise<void> = Promise.resolve()
 
   // Each path's latest embedding job. A new job for the path waits for this one,
@@ -311,6 +313,8 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
       const tooLargeToExtract = fileStat.size > maxFileBytes
 
       if (tooLargeToExtract) return { status: "file-indexed" }
+      // coalesce: a newer change to this PDF replaces this request while it is still queued, so
+      // the extractor answers "cancelled", which is this watcher's "superseded".
       const extraction = await pdfExtractor.extractForIndex(
         { path: relativePath, coalesce: true },
         logger,
@@ -318,6 +322,7 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
 
       if (extraction.status === "cancelled") return { status: "superseded" }
       if (isEventSuperseded(relativePath, eventToken)) return { status: "superseded" }
+      // Awaited, unlike other files' text, so a held PDF counts as done only with its vectors.
       await publishFileContent(extraction.result.text)
       return { status: "file-indexed" }
     }
@@ -352,14 +357,15 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
             maxBytes: MAX_INDEXED_CONTENT_BYTES,
           })
         // A canvas is read whole, because its links need the whole JSON, and
-        // it decodes leniently like a text file. PDFs have their own path above;
-        // images and other files never reach this switch, because the guard
-        // below reads only the kinds search indexes.
+        // it decodes leniently like a text file.
         case "canvas":
+          return await readFile(filePath, "utf8")
+        // PDFs have their own path above, and images and other files never reach this switch,
+        // because the guard below reads only the kinds search indexes.
         case "pdf":
         case "image":
         case "other":
-          return await readFile(filePath, "utf8")
+          throw new Error(`${fileKind} files are not read as text`)
       }
     }
 
@@ -1003,8 +1009,10 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
 
   /**
    * Reads held paths again within the concurrency limits the rebuild also uses.
-   * Other files keep the file-read bound. Held PDFs are not awaited, because
-   * their extraction waits for the server to listen, which waits for this batch.
+   * Other files keep the file-read bound. Held PDFs are queued all at once,
+   * since the extractor serves them one at a time anyway, and are not awaited:
+   * their extraction waits for `pdfExtractor.startIndexing()`, which the server
+   * calls after it listens, and it listens only after this batch.
    */
   const indexHeldPathsWithinBounds = async (
     reservedPaths: ReadonlyArray<ReservedPath>,
@@ -1022,6 +1030,8 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
       concurrency: INDEXING_FILE_READ_CONCURRENCY,
       mapper: indexHeldPath,
     })
+    // indexHeldPath is not expected to reject; the handler keeps a surprise from becoming an
+    // unhandled rejection.
     heldPdfsIndexed = Promise.all(pdfReads.map(indexHeldPath)).then(
       () => undefined,
       (error: unknown) => {
@@ -1096,10 +1106,16 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
    *
    * `applied` never rejects: one catch logs a failure of the batch.
    */
-  const applyHeldChanges = (): { heldPathCount: number; applied: Promise<void> } => {
+  const applyHeldChanges = (): {
+    heldPathCount: number
+    applied: Promise<void>
+    heldPdfsIndexed: Promise<void>
+  } => {
     // Unreachable today, because applyHeldChanges runs once per startup and the
     // watcher closes only when the rebuild fails, before that call.
-    if (watcherState.mode !== "holding") return { heldPathCount: 0, applied: Promise.resolve() }
+    if (watcherState.mode !== "holding") {
+      return { heldPathCount: 0, applied: Promise.resolve(), heldPdfsIndexed: Promise.resolve() }
+    }
 
     const { heldPaths } = watcherState
     watcherState = { mode: "live" }
@@ -1127,7 +1143,14 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
         })
       }
     }
-    return { heldPathCount: reservedPaths.length, applied: applyBatch() }
+    const applied = applyBatch()
+
+    return {
+      heldPathCount: reservedPaths.length,
+      applied,
+      // Chained on `applied`, so the batch has set heldPdfsIndexed by the time it is read.
+      heldPdfsIndexed: applied.then(() => heldPdfsIndexed),
+    }
   }
 
   watcher
@@ -1157,7 +1180,7 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
     }
   }
 
-  return { ready, applyHeldChanges, heldPdfsIndexed: () => heldPdfsIndexed, close }
+  return { ready, applyHeldChanges, close }
 }
 
 /**
@@ -1194,7 +1217,7 @@ export const watchVaultAndBuildIndex = async (
   const rebuildResult = await rebuildIndexOrCloseWatcher()
 
   // `applied` never rejects, so past the deadline it can finish unawaited.
-  const { heldPathCount, applied } = holdingWatcher.applyHeldChanges()
+  const { heldPathCount, applied, heldPdfsIndexed } = holdingWatcher.applyHeldChanges()
   const heldChangesDeadline =
     watcherOptions?.heldChangesDeadline ?? DEFAULT_HELD_CHANGES_DEADLINE_MS
   const { promise: deadlinePassed, resolve: passDeadline } = Promise.withResolvers<"deadline">()
@@ -1211,13 +1234,10 @@ export const watchVaultAndBuildIndex = async (
     })
   }
 
-  // Startup's PDF work is the rebuild's PDFs and the held ones, which the batch queues before
-  // `applied` resolves. Later live watcher events finish on their own.
-  const pdfPass = (async (): Promise<void> => {
-    await rebuildResult.pdfPass
-    await applied
-    await holdingWatcher.heldPdfsIndexed()
-  })()
+  // Startup's PDF work is the rebuild's PDFs and the held ones; later live watcher events finish
+  // on their own. It rejects only when a rebuild PDF's embedding failed, since the held PDFs log
+  // their own failures.
+  const pdfPass = Promise.all([rebuildResult.pdfPass, heldPdfsIndexed]).then(() => undefined)
   // Logged here so a caller may leave the pass unawaited; the rebuild's own pass logs its
   // failure too, under its own message.
   pdfPass.catch((error: unknown) => {

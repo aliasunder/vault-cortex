@@ -126,7 +126,7 @@ const openPdfDocument = async (params: { pdfData: Uint8Array; path: string; byte
     const openFailureMessage = describePdfOpenFailure({
       error,
       path: params.path,
-      bytes: params.bytes,
+      fileBytes: params.bytes,
     })
 
     if (!openFailureMessage) throw error
