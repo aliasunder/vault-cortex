@@ -163,8 +163,10 @@ const HASHTAG_FROM_END_RE = new RegExp(`(^|\\s)#${HASHTAG_CHARACTER_CLASS}+$`)
 // line end. The suffix scan requires paired brackets, so a mismatched pair
 // such as `[due:: 2026-01-01)` does not match.
 
+/** One character a 🆔 / `id::` task ID allows, as a regex character class. */
+const TASK_ID_CHARACTER_CLASS = "[a-zA-Z0-9_-]"
 /** The allowed characters in a single 🆔 / `id::` task ID. */
-const TASK_ID = /[a-zA-Z0-9_-]+/
+const TASK_ID = new RegExp(`${TASK_ID_CHARACTER_CLASS}+`)
 /** Whole-string form of TASK_ID, for validating an id before it is written —
  *  anything else lands on the line as prose the parser never reads back. */
 const TASK_ID_WHOLE_RE = new RegExp(`^${TASK_ID.source}$`)
@@ -981,7 +983,7 @@ const ACTION_CHARACTER_RE = /[a-zA-Z]/u
 /** Matches a recurrence-rule character. */
 const RECURRENCE_CHARACTER_RE = /[a-zA-Z0-9, !]/u
 /** Matches one task-ID character, the class TASK_ID repeats. */
-const TASK_ID_CHARACTER_RE = /[a-zA-Z0-9_-]/u
+const TASK_ID_CHARACTER_RE = new RegExp(TASK_ID_CHARACTER_CLASS, "u")
 /** The length of a `YYYY-MM-DD` date value. */
 const DATE_VALUE_LENGTH = "YYYY-MM-DD".length
 
