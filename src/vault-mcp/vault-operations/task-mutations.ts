@@ -2368,6 +2368,8 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
     })
     const originalTaskLine = bodyLines[taskLineIndex]
 
+    // Unreachable, since locateTaskLine returns an index inside bodyLines;
+    // narrows the line to a string.
     if (!originalTaskLine) {
       throw new Error(`task line index ${taskLineIndex} out of bounds`)
     }
@@ -2398,17 +2400,19 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
       throw new Error(`task line index ${taskLineIndex} does not parse as a task`)
     }
 
-    // A line from an earlier listing can hold a different task after another
-    // write shifts the note. The check runs before every edit, lane move,
-    // recurrence spawn and deletion below. Both descriptions come from
-    // extractTasks, which trims, so the comparison is exact. The strict
-    // undefined check keeps "" comparable, since a task's text can be empty.
+    // A line number from an earlier listing can point at a different task
+    // once another write shifts the note.
+    // - The listing and an update result both take a description from
+    //   parseTaskMetadata, which trims only its ends.
+    // - The caller's value is trimmed the same way and then compared exactly,
+    //   so a whitespace-only value matches a task with no text.
     const descriptionDiffers =
       expectedDescription !== undefined && taskBefore.description !== expectedDescription.trim()
 
     if (descriptionDiffers) {
       throw new Error(`the task at line ${taskFileLine} in "${path}" has a different description`)
     }
+
     const isSubtask = taskBefore.depth > 0
 
     // A sub-task's placement is its parent's — neither a heading move
@@ -2455,7 +2459,7 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
     //   `changes` reports that id removed;
     // - an absent assignBlockId keeps the line's own id.
     const writtenBlockId = trailingBlockIdOf(mutatedLine)
-    const keptBlockId = newBlockId === null ? undefined : (taskBefore.blockId ?? undefined)
+    const keptBlockId = newBlockId === null ? null : taskBefore.blockId
     const addsBlockIdToIndentedKanbanLine =
       isIndentedKanbanLine && writtenBlockId !== undefined && writtenBlockId !== keptBlockId
 
@@ -2648,6 +2652,9 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
 
     const finalTaskLine = resultLines[finalTaskIndex]
 
+    // Unreachable, since the move reports the task's index in its own lines
+    // and the checklist append adds lines only below the task; narrows the
+    // line to a string.
     if (!finalTaskLine) {
       throw new Error(`task line index ${finalTaskIndex} out of bounds`)
     }

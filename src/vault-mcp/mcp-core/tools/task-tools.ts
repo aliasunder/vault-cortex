@@ -487,7 +487,9 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, changes, a
   const updateTaskLineDescription = isToolEnabled("vault_list_tasks")
     ? "1-based line number from vault_list_tasks."
     : "1-based line number of the task."
-  const expectedDescriptionDescription = isToolEnabled("vault_list_tasks")
+  // Without vault_list_tasks a caller may have only the raw line from a note
+  // read, so that variant says what to leave out of the description.
+  const expectedDescriptionParamText = isToolEnabled("vault_list_tasks")
     ? "The task's description as vault_list_tasks or an earlier update result returned it. The update is refused if it differs."
     : "The task's description as an earlier update result returned it (its text without checkbox, emoji or inline-field metadata and block ID). The update is refused if it differs."
 
@@ -525,7 +527,8 @@ ${PATH_SAFETY_ERROR_ENTRY}
 - "exactly one of blockId or line is required" / "blockId and line are mutually exclusive" — the message states the rule
 - "blockId ... not found" / "blockId ... is inside a fenced code block or comment" — no task line outside a fenced code block or %% %% comment ends with that ^id; check the id${whenToolEnabledText("vault_list_tasks", " with vault_list_tasks")}, or target by line
 - "blockId ... matches N task lines" — the message lists the lines; target the intended task by line, then repair: on a regular note, give all but one line a new id with assign_block_id; on a Kanban board, where the plugin copies a sub-task's id onto its card, clear the sub-task's id (assign_block_id: null, by line) and give the card the id its links use, or a new one
-- "no task at line N" / "line N is inside a fenced code block or comment" / "the task at line N in "X" has a different description" — the line holds no task checkbox, sits inside a fenced code block or %% %% comment, or holds a task whose description differs from expected_description; re-read line numbers${whenToolEnabledText("vault_list_tasks", " with vault_list_tasks (after a write, wait a few seconds first)")}, or target by block_id. A block_id update refused on its description means the task's text changed: re-read it and decide whether the update still applies
+- "no task at line N" / "line N is inside a fenced code block or comment" — the line holds no task checkbox, or sits inside a fenced code block or %% %% comment; re-read line numbers${whenToolEnabledText("vault_list_tasks", " with vault_list_tasks (after a write, wait a few seconds first)")}, or target by block_id
+- "the task at line N in "X" has a different description" — the located task's description differs from expected_description; by line, the remedy above applies; by block_id, the task's text changed, so re-read it and decide whether the update still applies
 - "checkbox "[c]" is a NON_TASK status" / "no checkbox symbol for status ..." — in the Tasks plugin's status settings, the task's checkbox character (c) is typed NON_TASK, or the named status has no symbol and its default character has another type; the user changes that character's type or adds the symbol there, then restarts the server
 - "at least one mutation" — the message lists the fields that count
 - "cannot move a sub-task to a heading" / "cannot reposition a sub-task" — a heading or position on a task nested under another task (depth > 0${whenToolEnabledText("vault_list_tasks", " in vault_list_tasks")}); sub-tasks move with their parent, so move or reposition the parent instead
@@ -569,7 +572,7 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, next_occur
             "Stable task identifier — the ^block-id at the end of the task line, without the ^. Preferred over line.",
           ),
         line: z.number().int().min(1).optional().describe(updateTaskLineDescription),
-        expected_description: z.string().min(1).optional().describe(expectedDescriptionDescription),
+        expected_description: z.string().min(1).optional().describe(expectedDescriptionParamText),
         status: z
           .enum(["todo", "in_progress", "done", "cancelled"])
           .optional()
@@ -704,6 +707,8 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, next_occur
         requestId: extra.requestId,
         tool: TOOL_NAMES.VAULT_UPDATE_TASK,
       })
+      // Task text is note content, which stays out of the log here as it
+      // does in the note-writing tools.
       reqLogger.info("tool_call", {
         path,
         blockId: block_id,
