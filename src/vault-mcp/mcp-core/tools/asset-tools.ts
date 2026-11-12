@@ -2,7 +2,8 @@
 
 import { z } from "zod"
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js"
-import { assetOperations, MAX_TEXT_OUTPUT_BYTES } from "../../vault-operations/asset-operations.js"
+import { MAX_TEXT_OUTPUT_BYTES } from "../../vault-operations/asset-text.js"
+import { assetOperations } from "../../vault-operations/asset-operations.js"
 import type { AssetReadResult } from "../../vault-operations/asset-operations.js"
 import type { FittedImage } from "../../../utils/fit-image-to-byte-budget.js"
 import { getExtensionsOfKind } from "../../obsidian-markdown/file-kinds.js"
@@ -92,6 +93,7 @@ export const registerAssetTools = ({
   vaultPath,
   logger: sessionLogger,
   config,
+  pdfExtractor,
 }: ToolRegistrationContext): void => {
   // The contrast with the note tools names three of them, so it is kept only
   // while all three are served; otherwise the plain purpose stands.
@@ -145,7 +147,7 @@ ${PATH_SAFETY_ERROR_ENTRY}
 - "image cannot be fitted into …" — the image is over the image output budget even after shrinking; ask the server's operator to raise MAX_IMAGE_OUTPUT_BYTES
 ${FILESYSTEM_ERROR_ENTRY}
 - "file changed while reading" — retry the read
-- "PDF reader could not start" — the server's PDF reader failed to load; retry once, then ask the server's operator to restart the server
+- "PDF reader could not start" / "PDF text extraction stopped" — split or re-export the PDF, or provide a text copy, when the message says to; otherwise retry later, and when "could not start" repeats, ask the server's operator to check the server log
 - "unsupported file type …" — the file holds binary data (audio, archives, UTF-16 text, …); the error names the readable types plus the file's existence and size. Ask for a UTF-8 copy of UTF-16 text
 
 Returns: by file type:
@@ -197,6 +199,7 @@ Returns: by file type:
               startLine: start_line,
               limit,
               maxFileBytes: config.maxFileBytes,
+              pdfExtractor,
               maxImageOutputBytes: config.maxImageOutputBytes,
               maxPdfRenderPages: config.maxPdfRenderPages,
             },

@@ -19,6 +19,7 @@ import {
   wrapWithDataMarkers,
   exceedsCharCap,
   maxCharsArg,
+  trackedPromptHandler,
 } from "./prompt-helpers.js"
 
 const PROMPT_NAMES = {
@@ -62,6 +63,7 @@ const formatMemoryStructuralOverview = (
 export const registerMemoryReviewPrompt = ({
   server,
   vaultPath,
+  search,
   logger: sessionLogger,
   config,
   isToolEnabled,
@@ -110,7 +112,7 @@ export const registerMemoryReviewPrompt = ({
         max_chars: maxCharsArg,
       },
     },
-    async (args, extra) => {
+    trackedPromptHandler(search, async (args, extra) => {
       const reqLogger = sessionLogger.child({
         requestId: extra.requestId,
         prompt: PROMPT_NAMES.MEMORY_REVIEW,
@@ -235,6 +237,6 @@ export const registerMemoryReviewPrompt = ({
           : ""
         return textResult(`Could not load memory for review (${clientMessage}).${fallbackHint}`)
       }
-    },
+    }),
   )
 }

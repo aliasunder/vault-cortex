@@ -27,13 +27,16 @@ import type { StatusClassification, TaskPriority, TaskStatus } from "../obsidian
 import { contentHash, type Embedder } from "./embedder.js"
 import type { Reranker } from "./reranker.js"
 import { buildChunkMetadataPrefix, chunkContent } from "./chunker.js"
-import { extractPdfText } from "../obsidian-markdown/pdf.js"
+import type { PdfExtractor } from "../vault-operations/pdf-extractor.js"
+import type { PdfTextResult } from "../obsidian-markdown/pdf.js"
 import { caseFoldPath } from "../../utils/case-fold-path.js"
 import { describeError, describeErrorForLog } from "../../utils/describe-error.js"
 import { filterValidSymlinks } from "../../utils/filter-valid-symlinks.js"
 import { readFileTextPrefix, statOrNull } from "../../utils/fs.js"
 import { hasHiddenPathSegment } from "../../utils/has-hidden-path-segment.js"
+import { getUtf8BytePrefix } from "../../utils/get-utf8-byte-prefix.js"
 import { mapWithConcurrency } from "../../utils/map-with-concurrency.js"
+import { createActivityTracker } from "../../utils/activity-tracker.js"
 import {
   isString,
   coerceToArray,
@@ -61,10 +64,6 @@ import { hybridSearch } from "./hybrid-search.js"
  *  the file watcher's startup batch, so a large vault cannot open every file
  *  at once. */
 export const INDEXING_FILE_READ_CONCURRENCY = 16
-
-/** PDFs whose text is extracted at once while indexing. Extraction is
- *  CPU-heavy, so fewer run together than other file reads. */
-export const PDF_EXTRACTION_CONCURRENCY = 4
 
 /** File kinds whose content is indexed into file_content_fts when file tools
  *  are on. A canvas is left out because it is read whatever that setting is,
@@ -133,23 +132,6 @@ const fileTextToIndexedText = (params: {
     case "other":
       return params.fileText
   }
-}
-
-/** Truncates a string to fit within a UTF-8 byte limit without splitting
- *  multi-byte characters — iterates Unicode code points and accumulates
- *  each code point's UTF-8 byte length, stopping before the cap. */
-const truncateToUtf8ByteLimit = (content: string, maxBytes: number): string => {
-  let usedBytes = 0
-  let endIndex = 0
-  for (const character of content) {
-    const characterBytes = Buffer.byteLength(character, "utf8")
-
-    if (usedBytes + characterBytes > maxBytes) break
-    usedBytes += characterBytes
-    // .length is UTF-16 code units — matches .slice()'s indexing
-    endIndex += character.length
-  }
-  return content.slice(0, endIndex)
 }
 
 // ── Types ───────────────────────────────────────────────────────
@@ -415,13 +397,16 @@ export type OutgoingLinkEntry = {
 //      notes without links (skipLinks), Pass 2 extracts links with the
 //      complete path list so all targets can resolve.
 
-/** rebuildFromVault returns the indexed note count and the two passes that
- *  finish after it returns. Each pass logs its own failure, so a caller may
- *  leave either promise unawaited. */
+/** Each background pass logs its own failure, so a caller may leave its promise unawaited. */
 export type RebuildResult = {
   count: number
   embedding: Promise<void>
   bodyTags: Promise<void>
+  /** Resolves once every PDF's text and vectors are published. Rejects only when a PDF's
+   *  embedding failed; an extraction or publish failure is the PDF's own and is logged per file.
+   *  The extractor holds the extractions until `pdfExtractor.startIndexing()`, which server.ts
+   *  calls once it listens. */
+  pdfPass: Promise<void>
 }
 
 /** A note's stored body tags, or none when the stored value is damaged: the
@@ -438,6 +423,53 @@ const readStoredBodyTags = (
   } catch (error) {
     logger.warn("ignored damaged stored body tags", { path, error: describeError(error) })
     return []
+  }
+}
+
+// ── Background embedding ────────────────────────────────────────
+
+/** How long a background model call (a chunk's text, or a batch of memory
+ *  entries) waits for running tool calls and prompts to finish.
+ *  - A model call holds the JavaScript thread until it returns (see
+ *    `embedText` in embedder.ts), so one made during a tool call delays that
+ *    call by one inference.
+ *  - The cap keeps a stream of overlapping calls from stalling the index for
+ *    good: a tool call that runs longer than 5 seconds is delayed by one
+ *    inference every 5 seconds, so a 30-second call pays for about six. */
+const BACKGROUND_EMBED_MAX_WAIT_MS = 5000
+
+/** A stored chunk's content hash and the raw bytes of its vector. */
+type StoredVectorRow = { content_hash: string; embedding: Buffer }
+
+type StoredVectorLookup = {
+  find: (hash: string) => Buffer | undefined
+  remember: (hash: string, vectorBytes: Buffer) => void
+}
+
+/** The vectors one note or file already has, keyed by the content hash of
+ *  their chunk text, so a chunk whose text moved to another position keeps
+ *  its vector without a model call.
+ *  - The rows are read at the first lookup. The caller skips a chunk whose text
+ *    is unchanged at its own position without looking it up, so a job with no
+ *    moved chunks reads no rows.
+ *  - Vectors the model returns during the job are added, so repeated new text
+ *    reaches the model once. */
+const createStoredVectorLookup = (
+  readStoredVectors: () => readonly StoredVectorRow[],
+): StoredVectorLookup => {
+  // Null until the first lookup reads the stored rows
+  let vectorsByHash: Map<string, Buffer> | null = null
+
+  const loadVectorsByHash = (): Map<string, Buffer> => {
+    vectorsByHash ??= new Map(readStoredVectors().map((row) => [row.content_hash, row.embedding]))
+    return vectorsByHash
+  }
+
+  return {
+    find: (hash: string): Buffer | undefined => loadVectorsByHash().get(hash),
+    remember: (hash: string, vectorBytes: Buffer): void => {
+      loadVectorsByHash().set(hash, vectorBytes)
+    },
   }
 }
 
@@ -1015,6 +1047,14 @@ export const createSearchIndex = (
         `DELETE FROM note_vectors WHERE chunk_id IN (SELECT id FROM note_chunks WHERE note_path = ? AND chunk_index >= ?)`,
       )
     : null
+  const selectNoteVectorsStmt = embedder
+    ? db.prepare<[string], StoredVectorRow>(
+        `SELECT chunk.content_hash, vector.embedding
+         FROM note_chunks AS chunk
+         JOIN note_vectors AS vector ON vector.chunk_id = chunk.id
+         WHERE chunk.note_path = ?`,
+      )
+    : null
 
   // ── File content vector prepared statements (conditional on fileToolsEnabled + embedder) ──
   const fileContentVectorEnabled = fileToolsEnabled && Boolean(embedder)
@@ -1054,6 +1094,14 @@ export const createSearchIndex = (
   const deleteStaleFileVectorsStmt = fileContentVectorEnabled
     ? db.prepare(
         `DELETE FROM file_content_vectors WHERE chunk_id IN (SELECT id FROM file_content_chunks WHERE file_path = ? AND chunk_index >= ?)`,
+      )
+    : null
+  const selectFileVectorsStmt = fileContentVectorEnabled
+    ? db.prepare<[string], StoredVectorRow>(
+        `SELECT chunk.content_hash, vector.embedding
+         FROM file_content_chunks AS chunk
+         JOIN file_content_vectors AS vector ON vector.chunk_id = chunk.id
+         WHERE chunk.file_path = ?`,
       )
     : null
   // Reads the processed content from file_content for embedding.
@@ -1510,7 +1558,7 @@ export const createSearchIndex = (
     const contentBytes = Buffer.byteLength(contentToIndex, "utf8")
     const needsTruncation = contentBytes > MAX_INDEXED_CONTENT_BYTES
     const truncatedContent = needsTruncation
-      ? truncateToUtf8ByteLimit(contentToIndex, MAX_INDEXED_CONTENT_BYTES)
+      ? getUtf8BytePrefix(contentToIndex, MAX_INDEXED_CONTENT_BYTES)
       : contentToIndex
 
     if (needsTruncation) {
@@ -1953,6 +2001,51 @@ export const createSearchIndex = (
 
   // ── Embedding pipeline ─────────────────────────────────────────
 
+  /** Tool calls and prompts in flight. Background model calls wait on it. The MCP
+   *  layer runs each tool call (`createGatedRegisterTool` in tool-definitions.ts)
+   *  and each prompt (`trackedPromptHandler` in prompt-helpers.ts) through
+   *  trackForegroundWork. */
+  const foregroundWork = createActivityTracker()
+
+  /** Makes one background model call (`callModel`: a chunk's text, or a batch of
+   *  memory entries).
+   *  - It first waits while a tool call or prompt runs, for at most
+   *    BACKGROUND_EMBED_MAX_WAIT_MS, then calls the model either way.
+   *  - It returns null when a newer write to the source superseded the job
+   *    during the wait.
+   *  - The caller checks the source version again before it writes the result. */
+  const callModelWhenIdle = async <ModelOutput>(
+    params: { sourcePath: string; sourceVersion: symbol; callModel: () => Promise<ModelOutput> },
+    logger: Logger,
+  ): Promise<ModelOutput | null> => {
+    const { sourcePath, sourceVersion, callModel } = params
+
+    await foregroundWork.waitUntilIdle({ maxWaitMs: BACKGROUND_EMBED_MAX_WAIT_MS })
+
+    if (!isCurrentSourceVersion({ sourcePath, sourceVersion }, logger)) return null
+    return callModel()
+  }
+
+  /** Embeds one chunk's text through callModelWhenIdle and returns the vector's
+   *  bytes, or null when the job was superseded during the wait. */
+  const embedChunkWhenIdle = async (
+    params: { text: string; sourcePath: string; sourceVersion: symbol },
+    logger: Logger,
+  ): Promise<Buffer | null> => {
+    const { text, sourcePath, sourceVersion } = params
+
+    // Callers return early without an embedder, so this throw only narrows its type
+    if (!embedder) throw new Error("background embedding ran without an embedder")
+
+    const embedding = await callModelWhenIdle(
+      { sourcePath, sourceVersion, callModel: () => embedder.embedText(text) },
+      logger,
+    )
+
+    if (!embedding) return null
+    return Buffer.from(embedding.buffer, embedding.byteOffset, embedding.byteLength)
+  }
+
   /** Embeds a note's chunks.
    *  - `rawContent` is the content upsertNote indexed under `sourceVersion`, so upsertNote
    *    has already warned about an unreadable properties block in it.
@@ -1971,7 +2064,8 @@ export const createSearchIndex = (
       !selectChunkIdStmt ||
       !deleteStaleChunksStmt ||
       !insertVectorStmt ||
-      !deleteVectorByChunkIdStmt
+      !deleteVectorByChunkIdStmt ||
+      !selectNoteVectorsStmt
     ) {
       return 0
     }
@@ -2006,32 +2100,37 @@ export const createSearchIndex = (
       selectChunkHashesStmt.all(notePath).map((row) => [row.chunk_index, row.content_hash]),
     )
 
-    // Counter tracking how many chunks were actually (re-)embedded — returned for logging
+    const storedVectors = createStoredVectorLookup(() => selectNoteVectorsStmt.all(notePath))
+
+    // The debug log line reports the rows written and how many of them reused
+    // a stored vector instead of calling the model
     let embeddedCount = 0
+    let reusedCount = 0
 
     for (const chunk of chunks) {
-      if (
-        !isCurrentSourceVersion(
-          { sourcePath: notePath, sourceVersion: params.sourceVersion },
-          logger,
-        )
-      )
-        return embeddedCount
-
       const hash = contentHash(chunk.text)
 
       // Skip if content hasn't changed
       if (existingHashes.get(chunk.index) === hash) continue
 
-      const embedding = await embedder.embedText(chunk.text)
-
-      if (
-        !isCurrentSourceVersion(
-          { sourcePath: notePath, sourceVersion: params.sourceVersion },
+      const storedVector = storedVectors.find(hash)
+      const vectorBytes =
+        storedVector ??
+        (await embedChunkWhenIdle(
+          { text: chunk.text, sourcePath: notePath, sourceVersion: params.sourceVersion },
           logger,
-        )
+        ))
+
+      if (!vectorBytes) return embeddedCount
+      // No await separates this check from the write below, so a job
+      // superseded while it waited or while the model ran writes nothing
+      const isCurrentJob = isCurrentSourceVersion(
+        { sourcePath: notePath, sourceVersion: params.sourceVersion },
+        logger,
       )
-        return embeddedCount
+
+      if (!isCurrentJob) return embeddedCount
+      if (!storedVector) storedVectors.remember(hash, vectorBytes)
 
       // Wrap the DB writes in a transaction so the content hash is never
       // saved without its corresponding vector — prevents a crash between
@@ -2059,12 +2158,11 @@ export const createSearchIndex = (
             `chunk row missing after upsert: ${notePath} chunk ${String(chunk.index)}`,
           )
         }
-        insertVectorStmt.run(
-          BigInt(chunkRow.id),
-          Buffer.from(embedding.buffer, embedding.byteOffset, embedding.byteLength),
-        )
+        insertVectorStmt.run(BigInt(chunkRow.id), vectorBytes)
       })()
       embeddedCount++
+
+      if (storedVector) reusedCount++
     }
 
     if (
@@ -2083,6 +2181,7 @@ export const createSearchIndex = (
       path: notePath,
       totalChunks: chunks.length,
       embeddedCount,
+      reusedCount,
     })
     return embeddedCount
   }
@@ -2121,16 +2220,19 @@ export const createSearchIndex = (
       batchStart < unembeddedRows.length;
       batchStart += MEMORY_EMBED_BATCH_SIZE
     ) {
-      if (!isCurrentSourceVersion({ sourcePath: notePath, sourceVersion }, logger))
-        return embeddedCount
-
       const batchRows = unembeddedRows.slice(batchStart, batchStart + MEMORY_EMBED_BATCH_SIZE)
-      const embeddings = await embedder.embedBatch(
-        batchRows.map((row) => `${row.file} > ${row.section}\n${row.entry_text}`),
+      const batchTexts = batchRows.map((row) => `${row.file} > ${row.section}\n${row.entry_text}`)
+      const embeddings = await callModelWhenIdle(
+        { sourcePath: notePath, sourceVersion, callModel: () => embedder.embedBatch(batchTexts) },
+        logger,
       )
 
-      if (!isCurrentSourceVersion({ sourcePath: notePath, sourceVersion }, logger))
-        return embeddedCount
+      if (!embeddings) return embeddedCount
+      // No await separates this check from the write below, so a job superseded
+      // while the model ran writes nothing
+      const isCurrentJob = isCurrentSourceVersion({ sourcePath: notePath, sourceVersion }, logger)
+
+      if (!isCurrentJob) return embeddedCount
 
       db.transaction(() => {
         for (const [rowIndexInBatch, row] of batchRows.entries()) {
@@ -2186,7 +2288,9 @@ export const createSearchIndex = (
 
   /** Embeds a file's indexed text from file_content. The return counts changed
    *  chunks committed before completion or obsolescence. Zero covers disabled,
-   *  unembedded-kind, cached and obsolete calls. */
+   *  unembedded-kind, cached and obsolete calls. The chunk loop mirrors
+   *  embedAndStoreChunks above, so a change to its wait, check and write
+   *  sequence goes in both. */
   const embedAndStoreFileChunks = async (
     params: { filePath: string; sourceVersion: symbol },
     logger: Logger,
@@ -2199,7 +2303,8 @@ export const createSearchIndex = (
       !selectFileChunkIdStmt ||
       !deleteStaleFileChunksStmt ||
       !insertFileVectorStmt ||
-      !deleteFileVectorByChunkIdStmt
+      !deleteFileVectorByChunkIdStmt ||
+      !selectFileVectorsStmt
     ) {
       return 0
     }
@@ -2232,30 +2337,36 @@ export const createSearchIndex = (
         .map((chunkHashRow) => [chunkHashRow.chunk_index, chunkHashRow.content_hash]),
     )
 
+    const storedVectors = createStoredVectorLookup(() => selectFileVectorsStmt.all(params.filePath))
+
+    // The debug log line reports the rows written and how many of them reused
+    // a stored vector instead of calling the model
     let embeddedCount = 0
+    let reusedCount = 0
 
     for (const chunk of chunks) {
-      if (
-        !isCurrentSourceVersion(
-          { sourcePath: params.filePath, sourceVersion: params.sourceVersion },
-          logger,
-        )
-      )
-        return embeddedCount
-
       const hash = contentHash(chunk.text)
 
       if (existingHashes.get(chunk.index) === hash) continue
 
-      const embedding = await embedder.embedText(chunk.text)
-
-      if (
-        !isCurrentSourceVersion(
-          { sourcePath: params.filePath, sourceVersion: params.sourceVersion },
+      const storedVector = storedVectors.find(hash)
+      const vectorBytes =
+        storedVector ??
+        (await embedChunkWhenIdle(
+          { text: chunk.text, sourcePath: params.filePath, sourceVersion: params.sourceVersion },
           logger,
-        )
+        ))
+
+      if (!vectorBytes) return embeddedCount
+      // No await separates this check from the write below, so a job
+      // superseded while it waited or while the model ran writes nothing
+      const isCurrentJob = isCurrentSourceVersion(
+        { sourcePath: params.filePath, sourceVersion: params.sourceVersion },
+        logger,
       )
-        return embeddedCount
+
+      if (!isCurrentJob) return embeddedCount
+      if (!storedVector) storedVectors.remember(hash, vectorBytes)
 
       db.transaction(() => {
         const existingChunk = selectFileChunkIdStmt.get(params.filePath, chunk.index)
@@ -2279,12 +2390,11 @@ export const createSearchIndex = (
             `file chunk row missing after upsert: ${params.filePath} chunk ${String(chunk.index)}`,
           )
         }
-        insertFileVectorStmt.run(
-          BigInt(chunkRow.id),
-          Buffer.from(embedding.buffer, embedding.byteOffset, embedding.byteLength),
-        )
+        insertFileVectorStmt.run(BigInt(chunkRow.id), vectorBytes)
       })()
       embeddedCount++
+
+      if (storedVector) reusedCount++
     }
 
     if (
@@ -2306,6 +2416,7 @@ export const createSearchIndex = (
       path: params.filePath,
       totalChunks: chunks.length,
       embeddedCount,
+      reusedCount,
     })
     return embeddedCount
   }
@@ -2350,7 +2461,7 @@ export const createSearchIndex = (
   }
 
   /** Rebuilds note, task, file and graph indexes; reconciles retained memory rows and vectors.
-   * Returns the note count and the background embedding and body-tag passes.
+   * Returns the note count, background embedding and body-tag passes, and a deferred PDF pass.
    * - No source write may run while it does. A source write is an upsert or remove call
    *   that changes the tables this clears; one that lands during its reads is replaced by
    *   the older content it read.
@@ -2360,10 +2471,15 @@ export const createSearchIndex = (
    * - Each returned pass promise rejects if its pass fails. This function already logs
    *   that failure, so a caller may leave the promises unawaited. */
   const rebuildFromVault = async (
-    params: { vaultPath: string; bodyTagParser: BodyTagParser },
+    params: {
+      vaultPath: string
+      bodyTagParser: BodyTagParser
+      pdfExtractor: PdfExtractor
+      maxFileBytes: number
+    },
     logger: Logger,
   ): Promise<RebuildResult> => {
-    const { vaultPath, bodyTagParser } = params
+    const { vaultPath, bodyTagParser, pdfExtractor, maxFileBytes } = params
 
     // Embedding work that outlived its source can leave vectors whose chunk or
     // memory entry is gone. They would take nearest-neighbour slots from live
@@ -2461,14 +2577,18 @@ export const createSearchIndex = (
     // Stat non-md files before the write transaction (fs stays out of it).
     // A file vanishing between listing and stat (sync race) is dropped here
     // and re-indexed by its own watcher event.
-    const readFileSize = async (
+    const readFileStat = async (
       file: RebuildFilePaths,
-    ): Promise<{ relativePath: string; bytes: number } | null> => {
+    ): Promise<{ relativePath: string; bytes: number; modifiedAtMs: number } | null> => {
       try {
         const fileStat = await statOrNull(file.absolutePath)
 
         if (!fileStat) return null
-        return { relativePath: file.relativePath, bytes: fileStat.size }
+        return {
+          relativePath: file.relativePath,
+          bytes: fileStat.size,
+          modifiedAtMs: fileStat.mtimeMs,
+        }
       } catch (error) {
         logger.warn("skipped unstattable file during rebuild", {
           path: file.relativePath,
@@ -2477,27 +2597,26 @@ export const createSearchIndex = (
         return null
       }
     }
-    const nonMarkdownFileSizeResults = await mapWithConcurrency({
+    const nonMarkdownFileStatResults = await mapWithConcurrency({
       items: allNonMdFiles,
       concurrency: INDEXING_FILE_READ_CONCURRENCY,
-      mapper: readFileSize,
+      mapper: readFileStat,
     })
-    const nonMarkdownFileSizes = nonMarkdownFileSizeResults.filter((entry) => entry !== null)
-    // A canvas is read for its links whether or not file tools are on. PDF,
-    // text, HTML and script content is read only when the file content tables
-    // exist, because without them the extraction is wasted I/O. The switch
+    const nonMarkdownFileStats = nonMarkdownFileStatResults.filter((entry) => entry !== null)
+    // A canvas is read for its links whether or not file tools are on. Text,
+    // HTML and script content is read only when the file content tables exist;
+    // PDFs join their separate deferred pass below. The switch
     // names every kind, so a new kind does not compile until it has a reader.
-    const rebuildReaderFor = (fileKind: FileKind): "canvas" | "pdf" | "text" | "decoded" | null => {
+    const rebuildReaderFor = (fileKind: FileKind): "canvas" | "text" | "decoded" | null => {
       switch (fileKind) {
         case "canvas":
           return "canvas"
-        case "pdf":
-          return fileToolsEnabled ? "pdf" : null
         case "text":
           return fileToolsEnabled ? "text" : null
         case "html":
         case "script":
           return fileToolsEnabled ? "decoded" : null
+        case "pdf":
         case "image":
         case "other":
           return null
@@ -2507,7 +2626,6 @@ export const createSearchIndex = (
       return rebuildReaderFor(getFileKind(file.relativePath))
     })
     const canvasFiles = nonMdFilesByReader.get("canvas") ?? []
-    const pdfFiles = nonMdFilesByReader.get("pdf") ?? []
     const textFiles = nonMdFilesByReader.get("text") ?? []
     const htmlAndScriptFiles = nonMdFilesByReader.get("decoded") ?? []
 
@@ -2557,38 +2675,20 @@ export const createSearchIndex = (
     })
     const canvasContents = canvasContentResults.filter((entry) => entry !== null)
 
-    // Extract PDF text with bounded concurrency (CPU-intensive pdfjs work).
-    const extractPdfContent = async (
-      file: RebuildFilePaths,
-    ): Promise<RebuildFileContent | null> => {
-      try {
-        const [buffer, fileStat] = await Promise.all([
-          readFile(file.absolutePath),
-          stat(file.absolutePath),
-        ])
-        const pdfData = new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength)
-        const pdfResult = await extractPdfText(pdfData)
-        return {
-          relativePath: file.relativePath,
-          content: pdfResult.text,
-          modifiedAtMs: fileStat.mtimeMs,
-          sizeBytes: fileStat.size,
-        }
-      } catch (error) {
-        // A PDF reader that failed to start arrives wrapped; the cause holds why
-        logger.warn("skipped unreadable PDF during rebuild", {
-          path: file.relativePath,
-          ...describeErrorForLog(error),
-        })
-        return null
-      }
-    }
-    const pdfResults = await mapWithConcurrency({
-      items: pdfFiles,
-      concurrency: PDF_EXTRACTION_CONCURRENCY,
-      mapper: extractPdfContent,
-    })
-    const pdfContents = pdfResults.filter((entry) => entry !== null)
+    // A PDF is found by name from this write on; its old text, chunks and vectors are removed at
+    // the same time, so nothing stale answers until the PDF pass publishes its text.
+    const pdfsAwaitingText = nonMarkdownFileStats
+      .filter((file) => fileToolsEnabled && getFileKind(file.relativePath) === "pdf")
+      .map((file) => ({
+        relativePath: file.relativePath,
+        content: "",
+        modifiedAtMs: file.modifiedAtMs,
+        sizeBytes: file.bytes,
+      }))
+    // The source version of each PDF's name-only row: the symbol upsertFileContent returned for
+    // it, which a later write or removal of the path replaces in sourceVersions. The PDF pass
+    // checks it before it writes, so a watcher change to the PDF wins over the pass.
+    const nameOnlyRowVersions = new Map<string, symbol>()
 
     // Text formats decode leniently, so a text file with a stray invalid byte
     // or NUL padding still indexes; HTML pages and scripts get the strict check below.
@@ -2688,7 +2788,7 @@ export const createSearchIndex = (
       db.transaction(() => {
         // Index non-markdown files so extensionless wikilinks to .canvas, .base,
         // etc. are recognized as file references rather than broken note links.
-        const nonMdCount = indexNonMarkdownFiles(nonMarkdownFileSizes)
+        const nonMdCount = indexNonMarkdownFiles(nonMarkdownFileStats)
         logger.debug("indexed non-md files", { count: nonMdCount })
 
         // Pass 1 indexes note content before links can resolve against the complete path list.
@@ -2802,12 +2902,15 @@ export const createSearchIndex = (
         // links before inserting, so canvas links append cleanly after the note link pass.
         const allFileContents = [
           ...canvasContents,
-          ...pdfContents,
+          ...pdfsAwaitingText,
           ...textFileContents,
           ...htmlAndScriptContents,
         ]
         for (const fileEntry of allFileContents) {
           try {
+            const isPdf = getFileKind(fileEntry.relativePath) === "pdf"
+
+            if (isPdf) removeFileContent({ filePath: fileEntry.relativePath }, logger)
             const sourceVersion = upsertFileContent(
               {
                 filePath: fileEntry.relativePath,
@@ -2819,7 +2922,9 @@ export const createSearchIndex = (
               },
               logger,
             )
-            fileVersionsForEmbedding.set(fileEntry.relativePath, sourceVersion)
+
+            if (isPdf) nameOnlyRowVersions.set(fileEntry.relativePath, sourceVersion)
+            else fileVersionsForEmbedding.set(fileEntry.relativePath, sourceVersion)
           } catch (error) {
             logger.warn("skipped malformed file during rebuild", {
               path: fileEntry.relativePath,
@@ -2929,7 +3034,10 @@ export const createSearchIndex = (
               }
 
               // Yield to the event loop between notes so pending I/O callbacks
-              // (Express healthz, MCP tool handlers) can drain.
+              // (Express healthz, MCP tool handlers) can drain. The foreground
+              // wait before each model call does not replace this: a run of
+              // unchanged notes makes no model call, and a request's handler has
+              // to start before the wait can see it.
               await setImmediateAsync()
             }
             // ── File content embedding ──────────────────────────────
@@ -3094,7 +3202,121 @@ export const createSearchIndex = (
       logger.error("body-tag pass failed", { error: describeError(error) })
     })
 
-    return { count: indexedNotes.length, embedding: embeddingPromise, bodyTags: bodyTagPromise }
+    type PdfAwaitingText = (typeof pdfsAwaitingText)[number]
+
+    /** The PDF's index text, or null when the job was cancelled or failed; a failure is logged. */
+    const extractPdfTextForIndex = async (file: PdfAwaitingText): Promise<PdfTextResult | null> => {
+      try {
+        const extraction = await pdfExtractor.extractForIndex({ path: file.relativePath }, logger)
+
+        switch (extraction.status) {
+          case "extracted":
+            return extraction.result
+          case "cancelled":
+            return null
+        }
+      } catch (error) {
+        // describeErrorForLog keeps the cause, which carries the child's own reason.
+        logger.warn("PDF content pass could not index file", {
+          path: file.relativePath,
+          ...describeErrorForLog(error),
+        })
+        return null
+      }
+    }
+
+    /** The published row's version, or undefined when the write failed; the failure is logged. */
+    const publishPdfText = (file: PdfAwaitingText, text: string): symbol | undefined => {
+      try {
+        return upsertFileContent(
+          {
+            filePath: file.relativePath,
+            rawContent: text,
+            fileStat: { mtimeMs: file.modifiedAtMs, size: file.sizeBytes },
+          },
+          logger,
+        )
+      } catch (error) {
+        logger.warn("PDF content pass could not publish file", {
+          path: file.relativePath,
+          ...describeErrorForLog(error),
+        })
+        return undefined
+      }
+    }
+
+    /** Extracts and publishes each PDF in turn, then embeds the published PDFs. The first
+     *  extraction waits inside the extractor until the server has listened, so the pass never
+     *  delays startup. */
+    const pdfPass = (async (): Promise<void> => {
+      const passStart = performance.now()
+      // An extraction or publish failure is the PDF's own, logged per file, and the pass goes on.
+      // An embedding failure is the server's, so the pass finishes the other files and then
+      // rejects, and a caller awaiting completion sees it.
+      const embeddingFailures: unknown[] = []
+      // Every PDF's text is published before any PDF is embedded. Each
+      // embedding waits while a tool call or prompt runs, so embedding inside
+      // this loop would also hold back the next PDF's keyword text.
+      const publishedPdfs: Array<{ relativePath: string; sourceVersion: symbol }> = []
+      for (const file of pdfsAwaitingText) {
+        const nameOnlyRowVersion = nameOnlyRowVersions.get(file.relativePath)
+        // A name-only row whose write failed has no version. The live watcher writing or
+        // removing the same path replaces its version, and that change wins over this pass; the
+        // check runs again after each await.
+        const nameOnlyRowIsCurrent = (): boolean => {
+          if (!nameOnlyRowVersion) return false
+          return sourceVersions.get(file.relativePath) === nameOnlyRowVersion
+        }
+        const tooLargeToExtract = file.sizeBytes > maxFileBytes
+
+        if (tooLargeToExtract) {
+          logger.debug("PDF over MAX_FILE_BYTES kept name-only", { path: file.relativePath })
+          continue
+        }
+        if (!nameOnlyRowIsCurrent()) continue
+        const result = await extractPdfTextForIndex(file)
+
+        if (!result) continue
+        if (!nameOnlyRowIsCurrent()) continue
+        const publishedVersion = publishPdfText(file, result.text)
+
+        if (!publishedVersion) continue
+        publishedPdfs.push({ relativePath: file.relativePath, sourceVersion: publishedVersion })
+      }
+
+      for (const { relativePath, sourceVersion } of publishedPdfs) {
+        try {
+          await embedFileContent({ filePath: relativePath, sourceVersion }, logger)
+        } catch (error) {
+          embeddingFailures.push(error)
+          logger.error("PDF embedding failed", {
+            path: relativePath,
+            ...describeErrorForLog(error),
+          })
+        }
+      }
+      logger.info("PDF content pass complete", {
+        scheduledFiles: pdfsAwaitingText.length,
+        // Files whose text reached the index, so the summary reports coverage
+        // rather than the schedule
+        publishedFiles: publishedPdfs.length,
+        durationMs: Math.round(performance.now() - passStart),
+      })
+
+      if (embeddingFailures.length > 0) {
+        throw new AggregateError(embeddingFailures, "PDF embedding pass failed")
+      }
+    })()
+    // Logged here like the sibling passes, so a caller may leave the pass unawaited.
+    pdfPass.catch((error: unknown) => {
+      logger.error("PDF content pass failed", { error: describeError(error) })
+    })
+    return {
+      count: indexedNotes.length,
+      embedding: embeddingPromise,
+      bodyTags: bodyTagPromise,
+      pdfPass,
+    }
   }
 
   // ── Trash entries (retention-sweep bookkeeping) ──────────────
@@ -3235,6 +3457,7 @@ export const createSearchIndex = (
     vaultStats: bindQueryContext(queries.vaultStats),
     fileContentIndexingEnabled: fileToolsEnabled,
     statusRegistry,
+    trackForegroundWork: foregroundWork.track,
   }
 }
 

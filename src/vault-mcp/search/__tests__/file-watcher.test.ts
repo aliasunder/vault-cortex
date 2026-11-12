@@ -22,7 +22,13 @@ import { createSearchIndex } from "../search-index.js"
 import { extractPdfText } from "../../obsidian-markdown/pdf.js"
 import { readdirOrNull, readFileTextPrefix, statOrNull } from "../../../utils/fs.js"
 import type { SearchIndex } from "../search-index.js"
-import { watchVaultAndBuildIndex } from "../file-watcher.js"
+import { watchVaultAndBuildIndex as startVaultWatcher } from "../file-watcher.js"
+import type { PdfExtractor, PdfIndexExtraction } from "../../vault-operations/pdf-extractor.js"
+import {
+  createHeldPdfExtractor,
+  createInProcessPdfExtractor,
+  unusedPdfExtractor,
+} from "../../../__tests__/helpers/pdf-extractor.js"
 import { atomicWriteFile } from "../../vault-operations/vault-filesystem.js"
 import { logger } from "../../../logger.js"
 import { inProcessBodyTagParser, withBodyTags } from "./body-tag-test-helpers.js"
@@ -40,6 +46,21 @@ vi.mock("../../../utils/fs.js", { spy: true })
 vi.mock("node:fs/promises", { spy: true })
 vi.mock("../../obsidian-markdown/pdf.js", { spy: true })
 
+type WatcherParams = Parameters<typeof startVaultWatcher>[0]
+const watchVaultAndBuildIndex = (
+  params: Omit<WatcherParams, "pdfExtractor" | "maxFileBytes"> &
+    Partial<Pick<WatcherParams, "pdfExtractor" | "maxFileBytes">>,
+  watcherLogger: Parameters<typeof startVaultWatcher>[1],
+) =>
+  startVaultWatcher(
+    {
+      ...params,
+      pdfExtractor: params.pdfExtractor ?? createInProcessPdfExtractor(params.vaultPath),
+      maxFileBytes: params.maxFileBytes ?? 10_485_760,
+    },
+    watcherLogger,
+  )
+
 let vault: string
 let index: SearchIndex
 
@@ -52,7 +73,12 @@ const DEFAULT_DAILY_NOTES_FORMAT = "YYYY-MM-DD"
  *  only indexing a test sees comes from the watcher's own events and rescans,
  *  including for files the test wrote before starting it. */
 const startWatcherWithoutRebuild = async (
-  target: Readonly<{ vaultPath: string; search: SearchIndex }>,
+  target: Readonly<{
+    vaultPath: string
+    search: SearchIndex
+    maxFileBytes?: number
+    pdfExtractor?: PdfExtractor
+  }>,
   watcherOptions?: WatcherOptions,
   bodyTagParser: BodyTagParser = inProcessBodyTagParser,
 ): Promise<void> => {
@@ -60,11 +86,13 @@ const startWatcherWithoutRebuild = async (
     count: 0,
     embedding: Promise.resolve(),
     bodyTags: Promise.resolve(),
+    pdfPass: Promise.resolve(),
   })
-  await watchVaultAndBuildIndex(
+  const startup = await watchVaultAndBuildIndex(
     { ...target, ...(watcherOptions ? { watcherOptions } : {}), bodyTagParser },
     logger,
   )
+  await startup.pdfPass
 }
 
 /** A body-tag parser that holds its first request until `releaseFirstParse()`,
@@ -496,7 +524,7 @@ describe("file-watcher — file content indexing", () => {
     await startWatcherWithoutRebuild({ vaultPath: vault, search: fileIndex }, REAL_WATCHER_OPTIONS)
 
     await writeFile(join(vault, "doc.pdf"), buildMinimalPdf())
-    await waitFor(() => upsertSpy.mock.calls.length > 0)
+    await vi.waitFor(() => expect(upsertSpy).toHaveBeenCalledTimes(2), { timeout: 8000 })
 
     const { results } = await fileIndex.hybridSearch({ query: "Hello PDF" }, logger)
     expect(results.map(({ path, kind, extension }) => ({ path, kind, extension }))).toEqual([
@@ -565,7 +593,7 @@ describe("file-watcher — file content indexing", () => {
         REAL_WATCHER_OPTIONS,
       )
       await writeFile(join(vault, "Report.PDF"), buildMinimalPdf())
-      await waitFor(() => upsertSpy.mock.calls.length > 0)
+      await vi.waitFor(() => expect(upsertSpy).toHaveBeenCalledTimes(2), { timeout: 8000 })
 
       const indexed = await fileIndex.hybridSearch({ query: "Hello PDF" }, logger)
       expect(
@@ -573,7 +601,7 @@ describe("file-watcher — file content indexing", () => {
       ).toEqual([{ path: "Report.PDF", extension: ".pdf" }])
 
       await unlink(join(vault, "Report.PDF"))
-      await waitFor(() => removeSpy.mock.calls.length > 0)
+      await vi.waitFor(() => expect(removeSpy).toHaveBeenCalledTimes(2), { timeout: 8000 })
 
       const removed = await fileIndex.hybridSearch({ query: "Hello PDF" }, logger)
       expect(removed.results).toEqual([])
@@ -657,7 +685,10 @@ describe("file-watcher — file content indexing", () => {
 })
 
 describe("file watcher — obsolete events and embedding queues", () => {
-  const createControlledWatcher = async (embedder?: Parameters<typeof createSearchIndex>[1]) => {
+  const createControlledWatcher = async (
+    embedder?: Parameters<typeof createSearchIndex>[1],
+    options?: { maxFileBytes?: number; pdfExtractor?: PdfExtractor },
+  ) => {
     const testVault = await mkdtemp(join(tmpdir(), "watcher-events-"))
     onTestFinished(() => rm(testVault, { recursive: true }))
     const databasePath = join(testVault, "index.db")
@@ -673,7 +704,7 @@ describe("file watcher — obsolete events and embedding queues", () => {
       watchMock.mockRestore()
       await watcher.close()
     })
-    const starting = startWatcherWithoutRebuild({ vaultPath: testVault, search })
+    const starting = startWatcherWithoutRebuild({ vaultPath: testVault, search, ...options })
     watcher.emit("ready")
     await starting
 
@@ -682,7 +713,8 @@ describe("file watcher — obsolete events and embedding queues", () => {
 
       if (!handler) throw new Error(`${event} handler was not registered`)
       // EventEmitter types listeners as void, but the change handler returns
-      // its actual promise, so awaiting it observes all indexing work.
+      // its actual promise, so awaiting it observes the keyword write; a note's
+      // or non-PDF file's embedding keeps running after it resolves.
       await handler(join(testVault, fileName))
     }
     return { testVault, search, database, fire }
@@ -1041,9 +1073,18 @@ describe("file watcher — obsolete events and embedding queues", () => {
         error: "[Error]: PDF reader could not start",
         cause: "[Error]: controlled PDF engine failure",
       })
-      expect(contentSpy).not.toHaveBeenCalled()
+      expect(contentSpy).toHaveBeenCalledExactlyOnceWith(
+        {
+          filePath: "doc.pdf",
+          rawContent: "",
+          fileStat: { mtimeMs: (await stat(join(testVault, "doc.pdf"))).mtimeMs, size: 20 },
+        },
+        logger,
+      )
       expect(database.prepare("SELECT path FROM non_md_files").all()).toEqual([{ path: "doc.pdf" }])
-      expect(database.prepare("SELECT path, content FROM file_content").all()).toEqual([])
+      expect(database.prepare("SELECT path, content FROM file_content").all()).toEqual([
+        { path: "doc.pdf", content: "" },
+      ])
       await fire(event, "doc.pdf")
       expect(database.prepare("SELECT path, content FROM file_content").all()).toEqual([
         { path: "doc.pdf", content: "recoveredopal" },
@@ -1449,6 +1490,213 @@ describe("file watcher — obsolete events and embedding queues", () => {
 
   it.each([
     {
+      label: "finishes with stale text",
+      olderResult: { status: "extracted", result: { text: "oldamber", totalPages: 1 } },
+    },
+    { label: "is cancelled while queued", olderResult: { status: "cancelled" } },
+  ] satisfies ReadonlyArray<{ label: string; olderResult: PdfIndexExtraction }>)(
+    "retains the latest PDF edit after an older extraction $label",
+    async ({ olderResult }) => {
+      const olderRequested = Promise.withResolvers<undefined>()
+      const newerRequested = Promise.withResolvers<undefined>()
+      const olderExtraction = Promise.withResolvers<PdfIndexExtraction>()
+      const releaseNewer = Promise.withResolvers<undefined>()
+      // The real extractor runs one job at a time, so the newer job waits for the older one.
+      const extractForIndex = vi
+        .fn<PdfExtractor["extractForIndex"]>()
+        .mockImplementationOnce(async () => {
+          olderRequested.resolve(undefined)
+          return olderExtraction.promise
+        })
+        .mockImplementationOnce(async () => {
+          newerRequested.resolve(undefined)
+          await olderExtraction.promise
+          await releaseNewer.promise
+          return { status: "extracted", result: { text: "newopal", totalPages: 1 } }
+        })
+      const pdfExtractor: PdfExtractor = { ...unusedPdfExtractor, extractForIndex }
+      const { testVault, database, fire } = await createControlledWatcher(undefined, {
+        pdfExtractor,
+      })
+      const warnSpy = vi.spyOn(logger, "warn")
+      onTestFinished(() => {
+        warnSpy.mockRestore()
+        olderExtraction.resolve({ status: "cancelled" })
+        releaseNewer.resolve(undefined)
+      })
+      const filePath = join(testVault, "edited.pdf")
+      await writeFile(filePath, "old PDF")
+      const olderChange = fire("add", "edited.pdf")
+      await olderRequested.promise
+      await writeFile(filePath, "new PDF content")
+      const newerChange = fire("change", "edited.pdf")
+      await newerRequested.promise
+      olderExtraction.resolve(olderResult)
+      await olderChange
+
+      expect(database.prepare("SELECT path, content, bytes FROM file_content").all()).toEqual([
+        { path: "edited.pdf", content: "", bytes: 15 },
+      ])
+      releaseNewer.resolve(undefined)
+      await newerChange
+      expect(database.prepare("SELECT path, content, bytes FROM file_content").all()).toEqual([
+        { path: "edited.pdf", content: "newopal", bytes: 15 },
+      ])
+      expect(extractForIndex).toHaveBeenCalledTimes(2)
+      expect(extractForIndex).toHaveBeenNthCalledWith(
+        1,
+        { path: "edited.pdf", coalesce: true },
+        logger,
+      )
+      expect(extractForIndex).toHaveBeenNthCalledWith(
+        2,
+        { path: "edited.pdf", coalesce: true },
+        logger,
+      )
+      expect(warnSpy).not.toHaveBeenCalled()
+    },
+  )
+
+  it("keeps a watched PDF whose extraction was cancelled filename-only without warning", async () => {
+    const extractForIndex = vi
+      .fn<PdfExtractor["extractForIndex"]>()
+      .mockResolvedValue({ status: "cancelled" })
+    const pdfExtractor: PdfExtractor = { ...unusedPdfExtractor, extractForIndex }
+    const { testVault, database, fire } = await createControlledWatcher(undefined, {
+      pdfExtractor,
+    })
+    const warnSpy = vi.spyOn(logger, "warn")
+    onTestFinished(() => warnSpy.mockRestore())
+    await writeFile(join(testVault, "cancelled.pdf"), "PDF bytes")
+
+    await fire("change", "cancelled.pdf")
+
+    expect(extractForIndex).toHaveBeenCalledExactlyOnceWith(
+      { path: "cancelled.pdf", coalesce: true },
+      logger,
+    )
+    expect(warnSpy).not.toHaveBeenCalled()
+    expect(database.prepare("SELECT path FROM non_md_files").all()).toEqual([
+      { path: "cancelled.pdf" },
+    ])
+    expect(database.prepare("SELECT path, content FROM file_content").all()).toEqual([
+      { path: "cancelled.pdf", content: "" },
+    ])
+  })
+
+  it("reads a PDF at the byte cap and clears its old text and vectors one byte above it", async () => {
+    const vector = new Float32Array(384).fill(0.1)
+    const embedder = {
+      embedText: vi.fn(async () => vector),
+      embedBatch: vi.fn(async (texts: readonly string[]) => texts.map(() => vector)),
+    }
+    const extractForIndex = vi.fn<PdfExtractor["extractForIndex"]>(async () => ({
+      status: "extracted",
+      result: { text: "oldquartz", totalPages: 1 },
+    }))
+    const pdfExtractor: PdfExtractor = { ...unusedPdfExtractor, extractForIndex }
+    const { testVault, search, database, fire } = await createControlledWatcher(embedder, {
+      maxFileBytes: 20,
+      pdfExtractor,
+    })
+    const filePath = join(testVault, "bounded.PDF")
+    await writeFile(filePath, "x".repeat(20))
+    await fire("add", "bounded.PDF")
+
+    expect(extractForIndex).toHaveBeenCalledExactlyOnceWith(
+      { path: "bounded.PDF", coalesce: true },
+      logger,
+    )
+    expect(database.prepare("SELECT path, content FROM file_content").all()).toEqual([
+      { path: "bounded.PDF", content: "oldquartz" },
+    ])
+    expect(database.prepare("SELECT COUNT(*) AS count FROM file_content_vectors").get()).toEqual({
+      count: 1,
+    })
+
+    await writeFile(filePath, "x".repeat(21))
+    await fire("change", "bounded.PDF")
+
+    expect(extractForIndex).toHaveBeenCalledTimes(1)
+    expect(database.prepare("SELECT path, content, bytes FROM file_content").all()).toEqual([
+      { path: "bounded.PDF", content: "", bytes: 21 },
+    ])
+    expect(
+      database
+        .prepare("SELECT path FROM file_content_fts WHERE file_content_fts MATCH 'oldquartz'")
+        .all(),
+    ).toEqual([])
+    expect(database.prepare("SELECT file_path FROM file_content_chunks").all()).toEqual([])
+    expect(database.prepare("SELECT COUNT(*) AS count FROM file_content_vectors").get()).toEqual({
+      count: 0,
+    })
+    const names = await search.hybridSearch({ query: "bounded" }, logger)
+    expect(names.results.map((result) => result.path)).toEqual(["bounded.PDF"])
+  })
+
+  it.each([{ code: "pdf-resource" }, { code: "pdf-start" }])(
+    "clears obsolete PDF text and vectors while extraction is pending and after $code",
+    async ({ code }) => {
+      const vector = new Float32Array(384).fill(0.1)
+      const embedder = {
+        embedText: vi.fn(async () => vector),
+        embedBatch: vi.fn(async (texts: readonly string[]) => texts.map(() => vector)),
+      }
+      const extractionEntered = Promise.withResolvers<undefined>()
+      const finishExtraction = Promise.withResolvers<undefined>()
+      const extractForIndex = vi.fn<PdfExtractor["extractForIndex"]>(async () => ({
+        status: "extracted",
+        result: { text: "oldquartz", totalPages: 1 },
+      }))
+      const pdfExtractor: PdfExtractor = { ...unusedPdfExtractor, extractForIndex }
+      const { testVault, database, fire } = await createControlledWatcher(embedder, {
+        pdfExtractor,
+      })
+      const warnSpy = vi.spyOn(logger, "warn")
+      onTestFinished(() => warnSpy.mockRestore())
+      const filePath = join(testVault, "resource.pdf")
+      await writeFile(filePath, "old PDF")
+      await fire("add", "resource.pdf")
+      expect(database.prepare("SELECT COUNT(*) AS count FROM file_content_vectors").get()).toEqual({
+        count: 1,
+      })
+      extractForIndex.mockImplementationOnce(async () => {
+        extractionEntered.resolve(undefined)
+        await finishExtraction.promise
+        throw Object.assign(new Error("controlled PDF failure"), { pdfFailure: code })
+      })
+      onTestFinished(() => finishExtraction.resolve(undefined))
+      await writeFile(filePath, "changed PDF")
+      const changed = fire("change", "resource.pdf")
+      await extractionEntered.promise
+
+      expect(database.prepare("SELECT path, content, bytes FROM file_content").all()).toEqual([
+        { path: "resource.pdf", content: "", bytes: 11 },
+      ])
+      expect(
+        database
+          .prepare("SELECT path FROM file_content_fts WHERE file_content_fts MATCH 'oldquartz'")
+          .all(),
+      ).toEqual([])
+      expect(database.prepare("SELECT file_path FROM file_content_chunks").all()).toEqual([])
+      expect(database.prepare("SELECT COUNT(*) AS count FROM file_content_vectors").get()).toEqual({
+        count: 0,
+      })
+      finishExtraction.resolve(undefined)
+      await changed
+      expect(warnSpy).toHaveBeenCalledExactlyOnceWith("file content indexing failed", {
+        path: "resource.pdf",
+        error: "[Error]: controlled PDF failure",
+      })
+      expect(database.prepare("SELECT path, content, bytes FROM file_content").all()).toEqual([
+        { path: "resource.pdf", content: "", bytes: 11 },
+      ])
+      expect(extractForIndex).toHaveBeenCalledTimes(2)
+    },
+  )
+
+  it.each([
+    {
       fileName: "note.md",
       chunkTable: "note_chunks",
       vectorTable: "note_vectors",
@@ -1548,14 +1796,23 @@ describe("file watcher — obsolete events and embedding queues", () => {
           return sourceVersion
         },
       )
-      const finalFileEmbedFinished = Promise.withResolvers<undefined>()
+      const finalEmbedFinished = Promise.withResolvers<undefined>()
       const independentEmbedFinished = Promise.withResolvers<undefined>()
       const independentFileName = fileName.endsWith(".md") ? "sentry.md" : "sentry.txt"
+      // The listener resolves before the embedding, so each path's embed signals its end
+      const markEmbedFinished = (embeddedPath: string): void => {
+        if (embeddedPath === fileName) finalEmbedFinished.resolve(undefined)
+        if (embeddedPath === independentFileName) independentEmbedFinished.resolve(undefined)
+      }
+      const realNoteEmbed = search.embedNote
+      vi.spyOn(search, "embedNote").mockImplementation(async (params, requestLogger) => {
+        await realNoteEmbed(params, requestLogger)
+        markEmbedFinished(params.notePath)
+      })
       const realFileEmbed = search.embedFileContent
       vi.spyOn(search, "embedFileContent").mockImplementation(async (params, requestLogger) => {
         await realFileEmbed(params, requestLogger)
-        if (params.filePath === fileName) finalFileEmbedFinished.resolve(undefined)
-        if (params.filePath === independentFileName) independentEmbedFinished.resolve(undefined)
+        markEmbedFinished(params.filePath)
       })
       await writeFile(filePath, "finalamber")
       const finalChange = fire("change", fileName)
@@ -1564,7 +1821,7 @@ describe("file watcher — obsolete events and embedding queues", () => {
       // any incorrectly unqueued final job time to reach its model call.
       await writeFile(join(testVault, independentFileName), "independentjade")
       await fire("change", independentFileName)
-      if (!fileName.endsWith(".md")) await independentEmbedFinished.promise
+      await independentEmbedFinished.promise
       expect(embedder.embedText).toHaveBeenCalledTimes(3)
       releaseReplacement.resolve(vector)
       await replacementChange
@@ -1576,7 +1833,7 @@ describe("file watcher — obsolete events and embedding queues", () => {
       ).toEqual([])
       releaseFinal.resolve(vector)
       await finalChange
-      if (!fileName.endsWith(".md")) await finalFileEmbedFinished.promise
+      await finalEmbedFinished.promise
       const storedChunks = database
         .prepare(
           `SELECT ${pathColumn} AS path, chunk_text FROM ${chunkTable} WHERE ${pathColumn} = ?`,
@@ -1897,27 +2154,40 @@ describe("file watcher — obsolete events and embedding queues", () => {
       if (params.rawContent === "newopal") sourceWritten.resolve(undefined)
       return sourceVersion
     })
-    const errorSpy = vi.spyOn(logger, "error")
+    // The listener resolves before the embedding, so each job signals its own end
+    const independentEmbedFinished = Promise.withResolvers<undefined>()
+    const recoveredEmbedFinished = Promise.withResolvers<undefined>()
+    const failureLogged = Promise.withResolvers<undefined>()
+    const realEmbed = search.embedNote
+    vi.spyOn(search, "embedNote").mockImplementation(async (params, requestLogger) => {
+      await realEmbed(params, requestLogger)
+      if (params.notePath === "other.md") independentEmbedFinished.resolve(undefined)
+      if (params.rawContent === "newopal") recoveredEmbedFinished.resolve(undefined)
+    })
+    const errorSpy = vi.spyOn(logger, "error").mockImplementation((message) => {
+      if (message === "failed to process file change") failureLogged.resolve(undefined)
+    })
     const debugSpy = vi.spyOn(logger, "debug")
     onTestFinished(() => {
       errorSpy.mockRestore()
       debugSpy.mockRestore()
     })
     await writeFile(join(testVault, "note.md"), "oldquartz")
-    const failingChange = fire("change", "note.md")
+    await fire("change", "note.md")
     await failingEntered.promise
     await writeFile(join(testVault, "note.md"), "newopal")
-    const recoveredChange = fire("change", "note.md")
+    await fire("change", "note.md")
     await sourceWritten.promise
     await writeFile(join(testVault, "other.md"), "independentjade")
     await fire("change", "other.md")
+    await independentEmbedFinished.promise
     expect(database.prepare("SELECT note_path, chunk_text FROM note_chunks").all()).toEqual([
       { note_path: "other.md", chunk_text: "other\n\nindependentjade" },
     ])
     releaseFailure.reject(new Error("controlled model failure"))
-    await failingChange
+    await failureLogged.promise
     await recoveredEntered.promise
-    expect(errorSpy).toHaveBeenCalledWith("failed to process file change", {
+    expect(errorSpy).toHaveBeenCalledExactlyOnceWith("failed to process file change", {
       path: "note.md",
       error: "[Error]: controlled model failure",
     })
@@ -1926,7 +2196,7 @@ describe("file watcher — obsolete events and embedding queues", () => {
       error: "[Error]: controlled model failure",
     })
     releaseRecovered.resolve(vector)
-    await recoveredChange
+    await recoveredEmbedFinished.promise
     expect(
       database.prepare("SELECT note_path, chunk_text FROM note_chunks ORDER BY note_path").all(),
     ).toEqual([
@@ -2003,6 +2273,9 @@ describe("watchVaultAndBuildIndex — changes during startup", HELD_BATCH_TIMEOU
     /** Runs against the empty vault before the watcher starts, e.g. to write
      *  files the real rebuild reads or to gate one of those reads. */
     beforeStart?: (testVault: string) => Promise<void>
+    /** "held" gives the in-process extractor the real one's hold, so index requests wait
+     *  for `pdfExtractor.startIndexing()`; by default they are served at once. */
+    pdfExtractor?: "held"
   }) => {
     const testVault = await mkdtemp(join(tmpdir(), "watcher-startup-vault-"))
     const dataDirectory = await mkdtemp(join(tmpdir(), "watcher-startup-data-"))
@@ -2034,7 +2307,12 @@ describe("watchVaultAndBuildIndex — changes during startup", HELD_BATCH_TIMEOU
     if (setup?.rebuild !== "real") {
       vi.spyOn(search, "rebuildFromVault").mockImplementation(async () => {
         await rebuildGate.promise
-        return { count: 0, embedding: Promise.resolve(), bodyTags: Promise.resolve() }
+        return {
+          count: 0,
+          embedding: Promise.resolve(),
+          bodyTags: Promise.resolve(),
+          pdfPass: Promise.resolve(),
+        }
       })
     }
     await setup?.beforeStart?.(testVault)
@@ -2050,8 +2328,18 @@ describe("watchVaultAndBuildIndex — changes during startup", HELD_BATCH_TIMEOU
       ...(heldChangesDeadline ? { heldChangesDeadline } : {}),
       ...(newDirectoryRescanDelay ? { newDirectoryRescanDelay } : {}),
     }
+    const pdfExtractor =
+      setup?.pdfExtractor === "held"
+        ? createHeldPdfExtractor(testVault)
+        : createInProcessPdfExtractor(testVault)
     const startup = watchVaultAndBuildIndex(
-      { vaultPath: testVault, search, watcherOptions, bodyTagParser: inProcessBodyTagParser },
+      {
+        vaultPath: testVault,
+        search,
+        watcherOptions,
+        bodyTagParser: inProcessBodyTagParser,
+        pdfExtractor,
+      },
       logger,
     )
     watcher.emit("ready")
@@ -2072,6 +2360,7 @@ describe("watchVaultAndBuildIndex — changes during startup", HELD_BATCH_TIMEOU
       testVault,
       search,
       database,
+      pdfExtractor,
       watcher,
       fire,
       notePaths,
@@ -2446,6 +2735,7 @@ describe("watchVaultAndBuildIndex — changes during startup", HELD_BATCH_TIMEOU
       count: 0,
       embedding: expect.any(Promise),
       bodyTags: expect.any(Promise),
+      pdfPass: expect.any(Promise),
     })
 
     expect(errorSpy).toHaveBeenCalledExactlyOnceWith("failed to process file change", {
@@ -2503,6 +2793,7 @@ describe("watchVaultAndBuildIndex — changes during startup", HELD_BATCH_TIMEOU
       count: 0,
       embedding: expect.any(Promise),
       bodyTags: expect.any(Promise),
+      pdfPass: expect.any(Promise),
     })
     expect(errorSpy).toHaveBeenCalledExactlyOnceWith(
       "failed to apply the changes held during startup",
@@ -2817,19 +3108,57 @@ describe("watchVaultAndBuildIndex — changes during startup", HELD_BATCH_TIMEOU
     await startup
   })
 
-  it("extracts at most 4 held PDFs at once", async () => {
-    const { testVault, database, fire, startup, finishRebuild } = await createControlledStartup()
+  it("logs the rebuild pass failure and the startup PDF failure once each when a rebuild PDF embedding rejects", async () => {
+    const embeddingError = new Error("controlled PDF embedding failure")
+    const embedder = {
+      embedText: vi.fn(async (): Promise<Float32Array> => {
+        throw embeddingError
+      }),
+      embedBatch: vi.fn(async (): Promise<Float32Array[]> => []),
+    }
+    const errorSpy = spyOnLogger("error")
+    const extractionSpy = vi
+      .mocked(extractPdfText)
+      .mockResolvedValue({ text: "pdftopaz", totalPages: 1 })
+    onTestFinished(() => extractionSpy.mockRestore())
+    const { startup } = await createControlledStartup({
+      rebuild: "real",
+      embedder,
+      beforeStart: async (testVault) => {
+        await writeFile(join(testVault, "report.pdf"), "controlled PDF bytes")
+      },
+    })
+    const rebuilding = await startup
+    await rebuilding.embedding
+    const failure = new AggregateError([embeddingError], "PDF embedding pass failed")
+    await expect(rebuilding.pdfPass).rejects.toThrow(failure)
+
+    expect(extractionSpy).toHaveBeenCalledExactlyOnceWith(
+      new Uint8Array(Buffer.from("controlled PDF bytes")),
+    )
+    expect(embedder.embedText).toHaveBeenCalledExactlyOnceWith("report\n\npdftopaz")
+    expect(errorSpy).toHaveBeenCalledTimes(3)
+    expect(errorSpy).toHaveBeenNthCalledWith(1, "PDF embedding failed", {
+      path: "report.pdf",
+      error: "[Error]: controlled PDF embedding failure",
+    })
+    expect(errorSpy).toHaveBeenNthCalledWith(2, "PDF content pass failed", {
+      error: "[AggregateError]: PDF embedding pass failed",
+    })
+    expect(errorSpy).toHaveBeenNthCalledWith(3, "startup PDF work failed", {
+      error: "[AggregateError]: PDF embedding pass failed",
+    })
+  })
+
+  it("defers held PDF extraction until the extractor starts indexing", async () => {
+    const { testVault, database, fire, startup, finishRebuild, pdfExtractor } =
+      await createControlledStartup({ pdfExtractor: "held" })
     const fileNames = Array.from({ length: 10 }, (_unused, pdfIndex) => `doc-${pdfIndex}.pdf`)
     // Extraction is stubbed, so the bytes only need to exist.
     for (const fileName of fileNames) {
       await writeFile(join(testVault, fileName), "controlled PDF bytes")
     }
-    const extractionCounts = { inFlight: 0, peak: 0 }
     const extractionSpy = vi.mocked(extractPdfText).mockImplementation(async () => {
-      extractionCounts.inFlight += 1
-      extractionCounts.peak = Math.max(extractionCounts.peak, extractionCounts.inFlight)
-      await new Promise((resolve) => setTimeout(resolve, 5))
-      extractionCounts.inFlight -= 1
       return { text: "pdftopaz", totalPages: 1 }
     })
     onTestFinished(() => extractionSpy.mockRestore())
@@ -2838,12 +3167,106 @@ describe("watchVaultAndBuildIndex — changes during startup", HELD_BATCH_TIMEOU
       await fire("add", fileName)
     }
     finishRebuild()
-    await startup
+    const rebuilding = await startup
+    expect(extractionSpy).not.toHaveBeenCalled()
+    pdfExtractor.startIndexing()
+    await rebuilding.pdfPass
 
-    expect(extractionCounts.peak).toBe(4)
-    expect(database.prepare("SELECT path FROM file_content ORDER BY path").all()).toEqual(
-      fileNames.toSorted().map((path) => ({ path })),
+    expect(extractionSpy).toHaveBeenCalledTimes(10)
+    expect(database.prepare("SELECT path, content FROM file_content ORDER BY path").all()).toEqual(
+      fileNames.toSorted().map((path) => ({ path, content: "pdftopaz" })),
     )
+  })
+
+  it("keeps held and pre-listen live PDFs name-only and dispatches only the latest surviving event", async () => {
+    const { testVault, database, fire, startup, finishRebuild, pdfExtractor } =
+      await createControlledStartup({ pdfExtractor: "held" })
+    const extractionSpy = vi
+      .mocked(extractPdfText)
+      .mockResolvedValue({ text: "latestopal", totalPages: 1 })
+    onTestFinished(() => extractionSpy.mockRestore())
+    await writeFile(join(testVault, "changed.PDF"), "held version")
+    await writeFile(join(testVault, "deleted.pdf"), "held deletion")
+    await fire("add", "changed.PDF")
+    await fire("add", "deleted.pdf")
+    finishRebuild()
+    const rebuilding = await startup
+    await vi.waitFor(() => {
+      expect(
+        database.prepare("SELECT path, content FROM file_content ORDER BY path").all(),
+      ).toEqual([
+        { path: "changed.PDF", content: "" },
+        { path: "deleted.pdf", content: "" },
+      ])
+    })
+    expect(extractionSpy).not.toHaveBeenCalled()
+
+    await writeFile(join(testVault, "changed.PDF"), "latest version bytes")
+    const latestChange = fire("change", "changed.PDF")
+    await unlink(join(testVault, "deleted.pdf"))
+    await fire("unlink", "deleted.pdf")
+    await vi.waitFor(() => {
+      expect(database.prepare("SELECT path, content, bytes FROM file_content").all()).toEqual([
+        { path: "changed.PDF", content: "", bytes: 20 },
+      ])
+    })
+    expect(extractionSpy).not.toHaveBeenCalled()
+    pdfExtractor.startIndexing()
+    await rebuilding.pdfPass
+    await latestChange
+
+    expect(extractionSpy).toHaveBeenCalledExactlyOnceWith(
+      new Uint8Array(Buffer.from("latest version bytes")),
+    )
+    expect(database.prepare("SELECT path, content FROM file_content").all()).toEqual([
+      { path: "changed.PDF", content: "latestopal" },
+    ])
+  })
+
+  it("keeps the held PDF pass pending until its content embedding commits", async () => {
+    const modelEntered = Promise.withResolvers<undefined>()
+    const finishModel = Promise.withResolvers<Float32Array>()
+    const vector = new Float32Array(384).fill(0.1)
+    const embedder = {
+      embedText: vi.fn(async () => {
+        modelEntered.resolve(undefined)
+        return finishModel.promise
+      }),
+      embedBatch: vi.fn(async (texts: readonly string[]) => texts.map(() => vector)),
+    }
+    const { testVault, database, fire, startup, finishRebuild } = await createControlledStartup({
+      embedder,
+    })
+    const extractionSpy = vi
+      .mocked(extractPdfText)
+      .mockResolvedValue({ text: "embeddedopal", totalPages: 1 })
+    onTestFinished(() => {
+      extractionSpy.mockRestore()
+      finishModel.resolve(vector)
+    })
+    await writeFile(join(testVault, "model.pdf"), "controlled PDF bytes")
+    await fire("add", "model.pdf")
+    finishRebuild()
+    const rebuilding = await startup
+    const finished = vi.fn()
+    const pdfs = rebuilding.pdfPass
+    // The completion observer distinguishes extraction from the later model commit.
+    void pdfs.then(finished)
+    await modelEntered.promise
+    expect(database.prepare("SELECT path, content FROM file_content").all()).toEqual([
+      { path: "model.pdf", content: "embeddedopal" },
+    ])
+    expect(database.prepare("SELECT COUNT(*) AS count FROM file_content_vectors").get()).toEqual({
+      count: 0,
+    })
+    expect(finished).not.toHaveBeenCalled()
+
+    finishModel.resolve(vector)
+    await pdfs
+    expect(finished).toHaveBeenCalledTimes(1)
+    expect(database.prepare("SELECT COUNT(*) AS count FROM file_content_vectors").get()).toEqual({
+      count: 1,
+    })
   })
 
   it("returns at the deadline and finishes the held changes in the background", async () => {
@@ -2888,6 +3311,41 @@ describe("watchVaultAndBuildIndex — changes during startup", HELD_BATCH_TIMEOU
     await vi.waitFor(() => {
       expect(pathsFor("slowtext")).toEqual(["slow.md"])
     })
+  })
+
+  it("keeps the startup PDF pass pending until a held PDF queued after the deadline is indexed", async () => {
+    const { testVault, database, fire, startup, finishRebuild } = await createControlledStartup({
+      heldChangesDeadline: 50,
+    })
+    const infoSpy = spyOnLogger("info")
+    const extractionSpy = vi
+      .mocked(extractPdfText)
+      .mockResolvedValue({ text: "lateopal", totalPages: 1 })
+    onTestFinished(() => extractionSpy.mockRestore())
+    const slowPath = join(testVault, "slow.md")
+    await writeFile(slowPath, "slowtext\n")
+    await writeFile(join(testVault, "late.pdf"), "controlled PDF bytes")
+    // The batch reads held notes before it queues held PDFs, so the gated note keeps the PDF
+    // unqueued past the deadline.
+    const readGate = await gateFirstRead(slowPath, "before-disk")
+    onTestFinished(() => readGate.release())
+
+    await fire("change", "slow.md")
+    await fire("add", "late.pdf")
+    finishRebuild()
+    const rebuilding = await startup
+    await readGate.reached
+    expect(infoSpy).toHaveBeenCalledWith(
+      "startup continues while the changes held during it are still applied",
+      { heldPaths: 2, heldChangesDeadline: 50 },
+    )
+    expect(database.prepare("SELECT path FROM file_content").all()).toEqual([])
+    readGate.release()
+    await rebuilding.pdfPass
+
+    expect(database.prepare("SELECT path, content FROM file_content").all()).toEqual([
+      { path: "late.pdf", content: "lateopal" },
+    ])
   })
 
   it("does not index the old name again after a case-only rename", async () => {
@@ -3488,7 +3946,12 @@ describe("file watcher — new-directory rescan", () => {
       const rebuildGate = Promise.withResolvers<undefined>()
       vi.spyOn(index, "rebuildFromVault").mockImplementation(async () => {
         await rebuildGate.promise
-        return { count: 0, embedding: Promise.resolve(), bodyTags: Promise.resolve() }
+        return {
+          count: 0,
+          embedding: Promise.resolve(),
+          bodyTags: Promise.resolve(),
+          pdfPass: Promise.resolve(),
+        }
       })
       // Resolves when the rescan reaches the missed file, whether it holds the
       // change (the intended path) or indexes it at once (a broken hold), so the
@@ -3537,6 +4000,40 @@ describe("file watcher — new-directory rescan", () => {
       expect(infoSpy).toHaveBeenCalledWith("applied the changes held during startup indexing", {
         heldPaths: 1,
       })
+    },
+  )
+
+  it(
+    "indexes every missed note's keywords while an earlier note's embedding is still running",
+    { timeout: 15000 },
+    async () => {
+      const newDirectory = join(vault, "new-folder")
+      await mkdir(newDirectory)
+      for (const missedNote of [
+        { name: "first.md", text: "first missedalpha note\n" },
+        { name: "second.md", text: "second missedbeta note\n" },
+      ]) {
+        const missedPath = join(newDirectory, missedNote.name)
+        await writeFile(missedPath, missedNote.text, "utf8")
+        await backdateMtime(missedPath)
+      }
+      const heldEmbedding = Promise.withResolvers<undefined>()
+      const embedNoteSpy = vi
+        .spyOn(index, "embedNote")
+        .mockImplementationOnce(async () => heldEmbedding.promise)
+      onTestFinished(() => heldEmbedding.resolve(undefined))
+
+      const { fireAddDir } = await startWatcherWithFakeChokidar({}, RESCAN_TEST_OPTIONS)
+      fireAddDir(newDirectory)
+
+      await waitFor(() => index.fullTextSearch({ query: "missedbeta" }, logger).length > 0)
+      expect(index.fullTextSearch({ query: "missedalpha" }, logger).map((hit) => hit.path)).toEqual(
+        ["new-folder/first.md"],
+      )
+      expect(index.fullTextSearch({ query: "missedbeta" }, logger).map((hit) => hit.path)).toEqual([
+        "new-folder/second.md",
+      ])
+      expect(embedNoteSpy).toHaveBeenCalledTimes(2)
     },
   )
 
@@ -3668,6 +4165,78 @@ describe("file watcher — new-directory rescan", () => {
     // The inner file registers during the recursion, then the link itself.
     expect(addedPaths).toEqual([join(linkedDirectory, "inside.md"), linkedDirectory])
   })
+
+  it(
+    "logs a missed note's failed embedding instead of leaving the rejection unhandled",
+    { timeout: 15000 },
+    async () => {
+      const newDirectory = join(vault, "new-folder")
+      await mkdir(newDirectory)
+      const missedPath = join(newDirectory, "missed.md")
+      await writeFile(missedPath, "missed failingzeta note\n", "utf8")
+      await backdateMtime(missedPath)
+      vi.spyOn(index, "embedNote").mockRejectedValueOnce(new Error("model unavailable"))
+      const errorSpy = vi.spyOn(logger, "error")
+      onTestFinished(() => errorSpy.mockRestore())
+
+      const { fireAddDir } = await startWatcherWithFakeChokidar({}, RESCAN_TEST_OPTIONS)
+      fireAddDir(newDirectory)
+
+      await vi.waitFor(() => {
+        expect(errorSpy).toHaveBeenCalledWith("failed to process file change", {
+          path: "new-folder/missed.md",
+          error: "[Error]: model unavailable",
+        })
+      })
+      expect(index.fullTextSearch({ query: "failingzeta" }, logger).map((hit) => hit.path)).toEqual(
+        ["new-folder/missed.md"],
+      )
+    },
+  )
+
+  it(
+    "indexes a missed note after a symlinked directory while that directory's note is still embedding",
+    { timeout: 15000 },
+    async () => {
+      const targetDirectory = join(vault, "target-dir")
+      await mkdir(targetDirectory)
+      const insidePath = join(targetDirectory, "inside.md")
+      await writeFile(insidePath, "inside symlinkedgamma note\n", "utf8")
+      await backdateMtime(insidePath)
+      const newDirectory = join(vault, "new-folder")
+      await mkdir(newDirectory)
+      await symlink(targetDirectory, join(newDirectory, "linked-dir"))
+      // The recursive listing reaches a subfolder's files after every
+      // top-level entry, so this note comes after the symlinked directory.
+      await mkdir(join(newDirectory, "sub"))
+      const laterPath = join(newDirectory, "sub", "later.md")
+      await writeFile(laterPath, "later missedepsilon note\n", "utf8")
+      await backdateMtime(laterPath)
+      const heldEmbedding = Promise.withResolvers<undefined>()
+      const embedNoteSpy = vi
+        .spyOn(index, "embedNote")
+        .mockImplementationOnce(async () => heldEmbedding.promise)
+      onTestFinished(() => heldEmbedding.resolve(undefined))
+
+      const { fireAddDir } = await startWatcherWithFakeChokidar({}, RESCAN_TEST_OPTIONS)
+      fireAddDir(newDirectory)
+
+      await waitFor(() => index.fullTextSearch({ query: "missedepsilon" }, logger).length > 0)
+      expect(
+        index.fullTextSearch({ query: "missedepsilon" }, logger).map((hit) => hit.path),
+      ).toEqual(["new-folder/sub/later.md"])
+      expect(embedNoteSpy).toHaveBeenNthCalledWith(
+        1,
+        {
+          notePath: "new-folder/linked-dir/inside.md",
+          rawContent: "inside symlinkedgamma note\n",
+          sourceVersion: expect.any(Symbol),
+        },
+        logger,
+      )
+      expect(embedNoteSpy).toHaveBeenCalledTimes(2)
+    },
+  )
 
   it(
     "retries and indexes a still-being-written file inside a missed symlinked directory",
