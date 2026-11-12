@@ -491,7 +491,7 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, changes, a
   // read, so that variant says what to leave out of the description.
   const expectedDescriptionParamText = isToolEnabled("vault_list_tasks")
     ? "The task's description as vault_list_tasks or an earlier update result returned it (empty for a task with no text)."
-    : "The task's description as read from the note or returned by a create or update result: the text after the checkbox, without its trailing metadata and block ID (empty for a task with no text)."
+    : "The task's description as read from the note or returned by an update result: the text after the checkbox, without its trailing metadata and block ID (empty for a task with no text)."
 
   registerTool(
     TOOL_NAMES.VAULT_UPDATE_TASK,
