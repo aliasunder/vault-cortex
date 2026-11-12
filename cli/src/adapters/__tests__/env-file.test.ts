@@ -186,6 +186,17 @@ describe("replace", () => {
     expect(readFileSync(envPath, "utf8")).toBe("MCP_AUTH_TOKEN=new\n")
     expect(statSync(envPath).mode & 0o777).toBe(0o600)
   })
+
+  it("tightens an existing .env with wider permissions to owner-only", () => {
+    const envPath = join(makeTempDir(), ".env")
+    writeFileSync(envPath, "MCP_AUTH_TOKEN=old\n", { mode: 0o644 })
+    expect(statSync(envPath).mode & 0o777).toBe(0o644)
+
+    envFile.replace(envPath, "MCP_AUTH_TOKEN=new\n")
+
+    expect(readFileSync(envPath, "utf8")).toBe("MCP_AUTH_TOKEN=new\n")
+    expect(statSync(envPath).mode & 0o777).toBe(0o600)
+  })
 })
 
 describe("stripQuotedValues", () => {
@@ -212,6 +223,15 @@ describe("stripQuotedValues", () => {
 
     expect(envFile.stripQuotedValues(envPath)).toBe(true)
     expect(readFileSync(envPath, "utf8")).toBe("MCP_AUTH_TOKEN=abc\nVAULT_NAME=My Vault\n")
+  })
+
+  it("tightens a wider-mode file to owner-only when it strips quotes", () => {
+    const envPath = join(makeTempDir(), ".env")
+    writeFileSync(envPath, 'MCP_AUTH_TOKEN=abc\nVAULT_NAME="My Vault"\n', { mode: 0o644 })
+    expect(statSync(envPath).mode & 0o777).toBe(0o644)
+
+    expect(envFile.stripQuotedValues(envPath)).toBe(true)
+    expect(statSync(envPath).mode & 0o777).toBe(0o600)
   })
 
   it("strips single quotes from values", () => {

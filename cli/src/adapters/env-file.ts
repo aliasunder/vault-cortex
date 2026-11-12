@@ -20,9 +20,12 @@ const read = (envFilePath: string): string | undefined => {
   return readFileSync(envFilePath, "utf8")
 }
 
-/** Replaces an existing .env's text; the file keeps its permissions. */
+/** Replaces an existing .env's text and makes it readable by its owner only.
+ *  The mode on writeFileSync applies only when the file is created, so the
+ *  chmod is what tightens a file that already exists with a wider mode. */
 const replace = (envFilePath: string, envContent: string): void => {
   writeFileSync(envFilePath, envContent, { mode: ENV_FILE_MODE })
+  chmodSync(envFilePath, ENV_FILE_MODE)
 }
 
 /**
@@ -40,6 +43,7 @@ const stripQuotedValues = (envFilePath: string): boolean => {
 
   if (sanitized === content) return false
   writeFileSync(envFilePath, sanitized, { mode: ENV_FILE_MODE })
+  chmodSync(envFilePath, ENV_FILE_MODE)
   return true
 }
 
