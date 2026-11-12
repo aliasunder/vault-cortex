@@ -112,6 +112,10 @@ export const resolveDataPaths = (indexDbPathSetting: string | undefined): DataPa
 /** Matches `*`, `?`, or `[`, which the `:remote` init scripts' `find -path` reads as wildcards. */
 const GLOB_CHARS = /[*?[]/
 
+// 32 hex characters carry 128 bits, past guessing. Every documented install
+// path generates 256 random bits: 64 hex characters, or 44 in base64.
+const MIN_UNGUESSABLE_TOKEN_LENGTH = 32
+
 /** Exported for the startup-failure tests; the entry-point guard below keeps a test import from starting it. */
 export const startServer = async (): Promise<void> => {
   const config = loadConfig()
@@ -283,6 +287,19 @@ export const startServer = async (): Promise<void> => {
         logger,
       }),
     )
+    // A generated token (every documented install path makes one) cannot be
+    // guessed, and a limiter that refuses requests before checking the token
+    // lets anyone sharing the owner's client IP lock the owner's clients out.
+    // So /mcp rate-limits failed sign-in attempts only for a token short enough
+    // to guess, where the lockout cost is worth paying. Length stands in for
+    // randomness, since the server cannot measure randomness.
+    const failedAuthLimiterEnabled = authToken.length < MIN_UNGUESSABLE_TOKEN_LENGTH
+
+    if (failedAuthLimiterEnabled) {
+      logger.warn(
+        `MCP_AUTH_TOKEN is shorter than ${MIN_UNGUESSABLE_TOKEN_LENGTH} characters, so failed sign-in attempts on /mcp are rate-limited; a generated token needs no limiter`,
+      )
+    }
     app.use(
       createMcpRouter({
         vaultPath,
@@ -291,6 +308,7 @@ export const startServer = async (): Promise<void> => {
         serverUrl,
         provider: oauthProvider.provider,
         config,
+        failedAuthLimiterEnabled,
       }),
     )
 

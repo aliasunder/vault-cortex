@@ -850,6 +850,30 @@ manage the container independently — stop the existing one first with
 up a second vault? Give it its own name instead — see
 [Run more than one vault](#run-more-than-one-vault).
 
+**`invalid_target` / "The resource parameter is not this server" in the
+browser when connecting.** Your MCP client is connecting through an address
+other than `PUBLIC_URL`, so the server refuses to issue it a token for that
+address. Set `PUBLIC_URL` to the address clients use (the tunnel, gateway or
+proxy URL when the server sits behind one), re-create the container, and
+connect again. The **Changed `.env`?** note under [Restart](#restart) gives the
+command for each setup method.
+
+**"This sign-in can't continue" in the browser instead of the consent page.**
+Your MCP client saved login details the server no longer has. That happens
+when the server's volumes were deleted, or when a sign-in was started more
+than an hour ago and never approved. That page lists these steps too. Clear
+the client's stored authorization for this server and reconnect so it
+registers fresh:
+
+- **Claude Code:** `claude mcp remove vault-cortex`, then run the
+  `claude mcp add` command under
+  [Connect your MCP client](#connect-your-mcp-client) again.
+- **Claude Desktop, Claude Mobile and claude.ai:** remove the connector under
+  Settings → Connectors, then add it again.
+- **mcp-remote without a `--header`:** delete the `.mcp-auth` folder in your
+  home folder (`%USERPROFILE%\.mcp-auth` on Windows) and restart the client.
+- **Other clients:** remove and re-add the server.
+
 **Vault re-syncs from scratch (or the search index is empty) after switching
 between the CLI, Compose, and `docker run`.** Nothing is lost — your data is
 still in the old volumes. All three methods use the same named volumes for

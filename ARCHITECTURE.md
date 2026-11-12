@@ -731,7 +731,16 @@ APIs, which MCP clients treat as a broken server rather than a sign-in prompt.
 The OAuth provider's `verifyAccessToken()` accepts both static tokens and
 JWTs. It independently verifies JWT signature and binding, then enforces expiry
 and revocation. An expired token stops here with **401** and
-`WWW-Authenticate`. No MCP handler runs.
+`WWW-Authenticate`. No MCP handler runs. Ahead of `requireBearerAuth`, the
+same routes refuse two kinds of request:
+
+- one whose `Origin` header is not `PUBLIC_URL`'s origin, with **403**, as
+  the Streamable HTTP spec requires; MCP clients send no `Origin`, so only
+  browser pages are refused
+- with an `MCP_AUTH_TOKEN` under 32 characters, any request from a client IP
+  whose **401** answers and unfinished requests this minute reach 30, with
+  **429** until the minute ends, valid tokens included; a generated token
+  leaves this limiter off
 
 Both layers share the same HMAC key (`MCP_AUTH_TOKEN`) for JWT verification
 and `safeEqual`/`parseBearer` from `src/auth.ts`.
@@ -871,7 +880,7 @@ description of the grant.
   - a request whose parameters exceed 8 KB of JSON is refused with
     `invalid_request`, logged as `oauth_authorize_rejected`;
   - a held request keeps its client's ID rather than a copy of the
-    registration, which can run to 100 KB, and lookups load the registration
+    registration, which can run to 8 KB, and lookups load the registration
     from the database.
 
   A restart drops them all.
@@ -952,26 +961,37 @@ don't fire behind the reverse proxy. A tripped limiter
 emits an `oauth_rate_limited` warn log with the client IP and endpoint path
 before returning the 429.
 
+**Authorization errors:** the SDK's `/authorize` handler reports a malformed
+request by redirecting to the client's registered address, which anyone can
+register. `oauth/authorize-guard.ts`, mounted ahead of it, answers each such
+error directly with a 400 (500 for a server error) and never redirects. A
+denied consent is answered with a page for the same reason: the denial
+needs no token, so a page anyone serves could submit it.
+
 **Registrations that never signed in:** every MCP client registers itself
 through `/register` on first connect, and some register more than once per
 connect, so the `clients` table would grow with rows no client ever uses.
-A registration older than a week that never signed in is deleted at boot
+A registration older than an hour that never signed in is deleted at boot
 and before each new registration, logged as `oauth_clients_swept`:
 
 - A registration has signed in once the server has saved a refresh token
   for it, which sets its `signed_in_at` column
-- Signing in follows registration within minutes, so a row not signed in
-  after a week never finished consent
+- Consent follows registration within minutes, and a consent request and
+  an authorization code each live ten minutes, so a row not signed in after
+  an hour never finished consent, or started it unusually late; a late
+  sign-in the sweep cuts off reconnects through the `/authorize` page below
 - A client that has signed in is never swept, even after its grant is
   revoked or its last refresh token expires
 - Such a client cannot recover from a sweep on its own: it keeps presenting
-  its `client_id`, `/authorize` rejects an unknown one with `invalid_client`
-  in the browser, where the client never sees the error, and the user has
-  to clear the sign-in saved in the client app by hand
+  its `client_id`, and `/authorize` answers an unknown one in the browser,
+  where the client never sees the error, with a page that tells the user
+  how to clear the sign-in saved in the client app
 - Signing a client in requires entering `MCP_AUTH_TOKEN` on the consent
   page, so only the owner adds rows that stay
 - The per-IP `/register` rate limit bounds how fast rows that never sign in
   can appear, and the sweep bounds how long they stay
+- A registration's JSON body is capped at 8 KB, which bounds how much disk
+  each of those rows takes
 - Adding `signed_in_at` to an existing `oauth.db` sets it on every row
   already there, in the same transaction, and logs
   `oauth_clients_marked_signed_in` with the count when there was at least
