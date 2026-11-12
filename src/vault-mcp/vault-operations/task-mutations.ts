@@ -523,11 +523,16 @@ const findLaneCards = ({
   lines,
   headings,
   heading,
+  updatedTaskLineIndex,
   statusRegistry,
 }: {
   lines: readonly string[]
   headings: readonly HeadingInfo[]
   heading: HeadingInfo
+  /** The line of the task this update edits. It counts as a card even when
+   *  its new text opens a `%%` comment, because the update already found it
+   *  as a card and the caller wrote that text. */
+  updatedTaskLineIndex?: number
   statusRegistry: ReadonlyMap<string, StatusClassification>
 }): { cardStartIndices: readonly number[]; firstChildStart: number | undefined } => {
   const firstChildStart = findFirstChildHeadingStart({ headings, heading })
@@ -547,9 +552,10 @@ const findLaneCards = ({
       walkIndex++
       continue
     }
+    const isUpdatedTaskLine = walkIndex === updatedTaskLineIndex
     const excludedFromLane = isExcludedFromLane({
       line,
-      insideFenceOrComment: excludedFromTasks.has(walkIndex),
+      insideFenceOrComment: !isUpdatedTaskLine && excludedFromTasks.has(walkIndex),
       statusRegistry,
     })
 
@@ -1170,7 +1176,13 @@ const positionOfTaskInLane = ({
   taskLineIndex: number
   statusRegistry: ReadonlyMap<string, StatusClassification>
 }): number => {
-  const { cardStartIndices } = findLaneCards({ lines, headings, heading, statusRegistry })
+  const { cardStartIndices } = findLaneCards({
+    lines,
+    headings,
+    heading,
+    updatedTaskLineIndex: taskLineIndex,
+    statusRegistry,
+  })
   const cardIndex = cardStartIndices.indexOf(taskLineIndex)
 
   if (cardIndex === -1) {

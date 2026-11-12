@@ -3631,6 +3631,78 @@ kanban-plugin: board
         )
       })
 
+      // The updated task's own line is counted even when its new description
+      // opens a comment: the caller wrote that text, and the line was a card
+      // when the call found it.
+      it("reorders a task whose new description opens a comment", async () => {
+        const vault = await createVault()
+        await writeTestNote(
+          vault,
+          "board.md",
+          "## Active\n- [ ] First ^first\n- [ ] Second\n- [ ] Third ^third\n",
+        )
+
+        const moved = await taskMutations.updateTask(
+          {
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
+            vaultPath: vault,
+            path: "board.md",
+            line: 3,
+            description: "Call Bob %%private%%",
+            position: 1,
+          },
+          logger,
+        )
+
+        expect(moved).toEqual({
+          path: "board.md",
+          line: 2,
+          description: "Call Bob %%private%%",
+          heading: "Active",
+          changes: ["description: Second → Call Bob %%private%%", "position: 2 → 1"],
+        })
+        expect(await readTestNote(vault, "board.md")).toBe(
+          "## Active\n- [ ] Call Bob %%private%%\n- [ ] First ^first\n- [ ] Third ^third\n",
+        )
+      })
+
+      it("moves a task whose new description opens a comment to a position in another lane", async () => {
+        const vault = await createVault()
+        await writeTestNote(
+          vault,
+          "board.md",
+          "## Active\n- [ ] First ^first\n- [ ] Second\n## Up Next\n- [ ] Later ^later\n- [ ] Last ^last\n",
+        )
+
+        const moved = await taskMutations.updateTask(
+          {
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
+            vaultPath: vault,
+            path: "board.md",
+            line: 3,
+            description: "Call Bob %%private%%",
+            heading: "Up Next",
+            position: 2,
+          },
+          logger,
+        )
+
+        expect(moved).toEqual({
+          path: "board.md",
+          line: 5,
+          description: "Call Bob %%private%%",
+          heading: "Up Next",
+          changes: [
+            "description: Second → Call Bob %%private%%",
+            "heading: Active → Up Next",
+            "position: 2 → 2",
+          ],
+        })
+        expect(await readTestNote(vault, "board.md")).toBe(
+          "## Active\n- [ ] First ^first\n## Up Next\n- [ ] Later ^later\n- [ ] Call Bob %%private%%\n- [ ] Last ^last\n",
+        )
+      })
+
       it("classifies each line a bounded number of times during large lane insertions and reorders", async () => {
         const vault = await createVault()
         const cards = Array.from(
