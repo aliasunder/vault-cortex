@@ -532,7 +532,7 @@ const findLaneCards = ({
 }): { cardStartIndices: readonly number[]; firstChildStart: number | undefined } => {
   const firstChildStart = findFirstChildHeadingStart({ headings, heading })
   const walkEnd = firstChildStart ?? heading.bodyEndLine
-  const fenceOrCommentLineIndices = findFenceOrCommentLineIndices(lines)
+  const { excludedFromTasks } = findFenceOrCommentLineIndices(lines)
   const cardStartIndices: number[] = []
   // The walk starts at the heading's body. Starting at the insert slot would
   // find the same cards, because that slot skips only blank lines and a
@@ -549,7 +549,7 @@ const findLaneCards = ({
     }
     const excludedFromLane = isExcludedFromLane({
       line,
-      insideFenceOrComment: fenceOrCommentLineIndices.has(walkIndex),
+      insideFenceOrComment: excludedFromTasks.has(walkIndex),
       statusRegistry,
     })
 
@@ -796,8 +796,8 @@ const findTaskLineByBlockId = ({
     //   markers, and a code line hides %%. So the fence scanner skips lines
     //   inside a comment, and the comment scanner skips code lines.
     // - This comment test also marks a line that starts or ends with `%%`,
-    //   which validateBlockId's findFenceOrCommentLineIndices does not. A task
-    //   line ending in a valid ` ^id` does neither, so the two agree on it.
+    //   which validateBlockId's excludedFromBlockIds does not. A task line
+    //   ending in a valid ` ^id` does neither, so the two agree on it.
     let isExcluded = false
 
     if (!commentOpen) {
@@ -936,14 +936,21 @@ const rejectNonTaskCheckbox = ({
   throw new Error(`checkbox "[${statusChar}]" is a NON_TASK status in the Tasks plugin registry`)
 }
 
-/** The indices of the body lines that sit in a fenced code block or a `%%`
- *  comment, from one pass over the note:
- *  - a line in a fenced code block, its fence lines included, counts as code;
- *  - a line counts as comment when a comment is already open at its start,
- *    the line that closes it included;
- *  - a line outside an open comment counts as content, whatever comment it opens. */
-const findFenceOrCommentLineIndices = (bodyLines: readonly string[]): ReadonlySet<number> => {
-  const fenceOrCommentLineIndices = new Set<number>()
+/** The body lines a fenced code block or a `%%` comment takes out of each
+ *  view, from one pass over the note. A line in a fenced code block, its
+ *  fence lines included, is in both sets. */
+type FenceOrCommentLineIndices = {
+  /** The lines the task index skips: every line a `%%` comment touches,
+   *  including one that opens or closes a comment. */
+  excludedFromTasks: ReadonlySet<number>
+  /** The lines whose block id is not taken: a comment must already be open
+   *  at the line's start, so a line that opens a comment keeps its id. */
+  excludedFromBlockIds: ReadonlySet<number>
+}
+
+const findFenceOrCommentLineIndices = (bodyLines: readonly string[]): FenceOrCommentLineIndices => {
+  const excludedFromTasks = new Set<number>()
+  const excludedFromBlockIds = new Set<number>()
   // Fence and comment state must flow through every line, including skipped card sub-items.
   let openFence: OpenFence = null
   let commentOpen = false
@@ -954,25 +961,27 @@ const findFenceOrCommentLineIndices = (bodyLines: readonly string[]): ReadonlySe
       openFence = fenceResult.openFence
 
       if (fenceResult.lineIsCode) {
-        fenceOrCommentLineIndices.add(lineIndex)
+        excludedFromTasks.add(lineIndex)
+        excludedFromBlockIds.add(lineIndex)
         continue
       }
     }
-    // Only a comment already open at the line's start makes it a comment line.
     const wasCommentOpen = commentOpen
     const commentResult = advanceComment(lineText, commentOpen)
     commentOpen = commentResult.commentOpen
 
-    if (wasCommentOpen && commentResult.lineIsComment) fenceOrCommentLineIndices.add(lineIndex)
+    if (commentResult.lineIsComment) excludedFromTasks.add(lineIndex)
+    if (wasCommentOpen) excludedFromBlockIds.add(lineIndex)
   }
-  return fenceOrCommentLineIndices
+  return { excludedFromTasks, excludedFromBlockIds }
 }
 
-/** Whether one body line sits in a fence or comment, by the rules of
- *  findFenceOrCommentLineIndices. Each call passes over the whole note, so a
- *  caller checking many lines calls findFenceOrCommentLineIndices once instead. */
-const isInsideFenceOrComment = (bodyLines: readonly string[], lineIndex: number): boolean =>
-  findFenceOrCommentLineIndices(bodyLines).has(lineIndex)
+/** Whether the task index skips one body line as code or comment. Each call
+ *  passes over the whole note, so a caller checking many lines calls
+ *  findFenceOrCommentLineIndices once instead. */
+const isInsideFenceOrComment = (bodyLines: readonly string[], lineIndex: number): boolean => {
+  return findFenceOrCommentLineIndices(bodyLines).excludedFromTasks.has(lineIndex)
+}
 
 /** No-op when the task already sits under the target heading and no
  *  explicit position is requested. A move to another lane, or a reorder
@@ -1407,11 +1416,11 @@ const validateBlockId = ({
   // - Every line counts, not only tasks: Obsidian resolves a block id on any line.
   // - trimEnd, so a hard break's trailing spaces cannot hide an existing id; a
   //   missed duplicate on a task line would make later lookups by it ambiguous.
-  const fenceOrCommentLineIndices = findFenceOrCommentLineIndices(bodyLines)
+  const { excludedFromBlockIds } = findFenceOrCommentLineIndices(bodyLines)
   const existingIndex = bodyLines.findIndex((bodyLine, index) => {
     if (index === excludeLineIndex) return false
     if (!bodyLine.trimEnd().endsWith(` ^${blockId}`)) return false
-    return !fenceOrCommentLineIndices.has(index)
+    return !excludedFromBlockIds.has(index)
   })
 
   if (existingIndex !== -1) {

@@ -3574,7 +3574,9 @@ kanban-plugin: board
 
       // ── integer position ──────────────────────────────────────
 
-      it("inserts at position 2 after counting a card that opens a comment", async () => {
+      // The index skips a task line that opens a `%%` comment, so the lane
+      // positions below count only First and Second.
+      it("inserts at position 2 without counting a task line that opens a comment", async () => {
         const vault = await createVault()
         const board =
           "## Active\n- [ ] Commented %%\n%%\n- [ ] First ^first\n- [ ] Second ^second\n"
@@ -3595,18 +3597,18 @@ kanban-plugin: board
 
         expect(created).toEqual({
           path: "board.md",
-          line: 4,
+          line: 5,
           description: "Inserted",
           block_id: "inserted",
           heading: "Active",
           changes: [`created: (none) → ${today()}`],
         })
         expect(await readTestNote(vault, "board.md")).toBe(
-          `## Active\n- [ ] Commented %%\n%%\n- [ ] Inserted ➕ ${today()} ^inserted\n- [ ] First ^first\n- [ ] Second ^second\n`,
+          `## Active\n- [ ] Commented %%\n%%\n- [ ] First ^first\n- [ ] Inserted ➕ ${today()} ^inserted\n- [ ] Second ^second\n`,
         )
       })
 
-      it("reports position 3 when reordering after a card that opens a comment", async () => {
+      it("reorders to position 1 without counting a task line that opens a comment", async () => {
         const vault = await createVault()
         const board =
           "## Active\n- [ ] Commented %%\n%%\n- [ ] First ^first\n- [ ] Second ^second\n"
@@ -3618,12 +3620,12 @@ kanban-plugin: board
             vaultPath: vault,
             path: "board.md",
             blockId: "second",
-            position: 2,
+            position: 1,
           },
           logger,
         )
 
-        expect(moved.changes).toEqual(["position: 3 → 2"])
+        expect(moved.changes).toEqual(["position: 2 → 1"])
         expect(await readTestNote(vault, "board.md")).toBe(
           "## Active\n- [ ] Commented %%\n%%\n- [ ] Second ^second\n- [ ] First ^first\n",
         )
@@ -7965,6 +7967,72 @@ title: Tasks
       ).rejects.toThrow(
         new Error("parent task not found: line 6 is inside a fenced code block or comment"),
       )
+    })
+
+    // The index skips a task line that opens a `%%` comment, so a line-addressed
+    // call refuses it the way it refuses a line inside the comment.
+    const COMMENT_OPENING_TASK_NOTE = `---\ntitle: Tasks\n---\n\n- [ ] Commented %%\n%%\n\n- [ ] Real task ➕ 2026-07-01 ^real\n`
+
+    it("updateTask rejects a line-addressed task line that opens a comment", async () => {
+      const vault = await createVault()
+      await writeTestNote(vault, "tasks.md", COMMENT_OPENING_TASK_NOTE)
+
+      await expect(
+        taskMutations.updateTask(
+          {
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
+            vaultPath: vault,
+            path: "tasks.md",
+            line: 5,
+            status: "done",
+          },
+          logger,
+        ),
+      ).rejects.toThrow(new Error("line 5 is inside a fenced code block or comment"))
+    })
+
+    it("createTask rejects a line-addressed parent that opens a comment", async () => {
+      const vault = await createVault()
+      await writeTestNote(vault, "tasks.md", COMMENT_OPENING_TASK_NOTE)
+
+      await expect(
+        taskMutations.createTask(
+          {
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
+            vaultPath: vault,
+            path: "tasks.md",
+            description: "Child",
+            blockId: "child",
+            parentLine: 5,
+          },
+          logger,
+        ),
+      ).rejects.toThrow(
+        new Error("parent task not found: line 5 is inside a fenced code block or comment"),
+      )
+      expect(await readTestNote(vault, "tasks.md")).toBe(COMMENT_OPENING_TASK_NOTE)
+    })
+
+    it("createTask treats a block id ending a line that opens a comment as taken", async () => {
+      const vault = await createVault()
+      await writeTestNote(
+        vault,
+        "tasks.md",
+        `---\ntitle: Tasks\n---\n\n%% note ^taken\n%%\n\n- [ ] Real task ➕ 2026-07-01 ^real\n`,
+      )
+
+      await expect(
+        taskMutations.createTask(
+          {
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
+            vaultPath: vault,
+            path: "tasks.md",
+            description: "New task",
+            blockId: "taken",
+          },
+          logger,
+        ),
+      ).rejects.toThrow(new Error('blockId "taken" already exists in this note'))
     })
   })
 })
