@@ -502,9 +502,9 @@ export const createSearchIndex = (
   // Caveat: the timeout doesn't protect a deferred transaction that reads
   // before its first write — its pinned WAL snapshot goes stale on a
   // concurrent commit and the write-lock upgrade fails instantly with
-  // SQLITE_BUSY_SNAPSHOT. Write-first wraps (removeNote, upsertNonMdFile,
-  // removeNonMdFile) are covered; a read-first wrap needs the .immediate()
-  // variant, which upsertNote uses.
+  // SQLITE_BUSY_SNAPSHOT. Write-first wraps (removeNote, removeNonMdFile) are
+  // covered; a read-first wrap needs the .immediate() variant, which
+  // upsertNote and upsertNonMdFile use.
   db.pragma("busy_timeout = 5000")
   sqliteVec.load(db)
 
@@ -909,11 +909,9 @@ export const createSearchIndex = (
   const upsertNonMdFileStmt = db.prepare(
     `INSERT OR REPLACE INTO non_md_files (path, base_path, basename, bytes) VALUES (?, ?, ?, ?)`,
   )
-  const insertNewNonMdFileStmt = db.prepare(
-    `INSERT INTO non_md_files (path, base_path, basename, bytes) VALUES (?, ?, ?, ?)
-     ON CONFLICT (path) DO NOTHING`,
+  const selectNonMdPathStmt = db.prepare<[string], { path: string }>(
+    `SELECT path FROM non_md_files WHERE path = ?`,
   )
-  const updateNonMdFileBytesStmt = db.prepare(`UPDATE non_md_files SET bytes = ? WHERE path = ?`)
   const deleteNonMdFileStmt = db.prepare(`DELETE FROM non_md_files WHERE path = ?`)
   /** Direct path match for targets that already include a non-md extension
    *  (e.g. `[[photo.png]]`, `![[diagram.svg]]`). */
@@ -1559,17 +1557,13 @@ export const createSearchIndex = (
     const basePath = links.stripExtension(filePath)
     const baseFilename = links.stripExtension(basename(filePath))
 
-    // The insert comes first so the transaction takes the write lock before it
-    // reads (see the busy_timeout comment above), and its change count tells
-    // a new path from a changed file.
+    // The wrap is immediate because it reads whether the path is new before
+    // its first write (see the busy_timeout comment above).
     db.transaction(() => {
-      const isNewFile =
-        insertNewNonMdFileStmt.run(filePath, basePath, baseFilename, bytes).changes > 0
+      const isNewFile = !selectNonMdPathStmt.get(filePath)
+      upsertNonMdFileStmt.run(filePath, basePath, baseFilename, bytes)
 
-      if (!isNewFile) {
-        updateNonMdFileBytesStmt.run(bytes, filePath)
-        return
-      }
+      if (!isNewFile) return
 
       // A link names the file by its full filename ([[photo.png]]) or by its
       // stem ([[Trip Route]] for Trip Route.canvas), the basename column. Each
@@ -1581,7 +1575,7 @@ export const createSearchIndex = (
         links.pathToLinkName(`${fileName}.md`),
       ])
       reResolveLinksNaming(linkNames)
-    })()
+    }).immediate()
   }
 
   /** Removes a non-markdown file. Called by the file watcher on unlink. The
