@@ -10,6 +10,12 @@ export const MAX_INDEXED_PDF_PAGES = 500
 // wasted work. The value matches the index's own cap; a test pins the two together.
 export const MAX_INDEXED_PDF_BYTES = 102_400
 
+/** pdfjs refuses a Node Buffer, so it gets a plain view over the same bytes; the byte range
+ *  excludes any other Buffer sharing the same pool. */
+export const toPdfData = (buffer: Buffer): Uint8Array => {
+  return new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength)
+}
+
 type PageTextContent = Awaited<ReturnType<PDFPageProxy["getTextContent"]>>
 
 /** unpdf's own item mapping reads every page at once, so this per-page copy of it lets index

@@ -8,6 +8,7 @@ import type { PdfExtractor } from "./pdf-extractor.js"
 import { linearizeCanvas } from "../obsidian-markdown/canvas.js"
 import { getExtensionsOfKind, getFileKind } from "../obsidian-markdown/file-kinds.js"
 import { canvasImport, createPdfDocumentProxy } from "../obsidian-markdown/pdf-engine.js"
+import { toPdfData } from "../obsidian-markdown/pdf.js"
 import { decodeTextBuffer, NUL_SEARCH_WINDOW_BYTES } from "../../utils/decode-text-buffer.js"
 import { describeErrorForLog } from "../../utils/describe-error.js"
 import { fitImageToByteBudget } from "../../utils/fit-image-to-byte-budget.js"
@@ -323,12 +324,7 @@ const readAssetContent = async (
         )
       }
 
-      // The byte range excludes any other Buffer sharing the same pool.
-      const pdfData = new Uint8Array(
-        asset.buffer.buffer,
-        asset.buffer.byteOffset,
-        asset.buffer.byteLength,
-      )
+      const pdfData = toPdfData(asset.buffer)
       return readPdfPages(
         {
           pdfData,

@@ -7,6 +7,7 @@ import {
   extractPdfIndexText,
   extractPdfText,
   MAX_INDEXED_PDF_BYTES,
+  toPdfData,
 } from "../obsidian-markdown/pdf.js"
 import { vaultFs } from "./vault-filesystem.js"
 import { buildPdfTextResult, describePdfOpenFailure } from "./asset-text.js"
@@ -30,11 +31,6 @@ const send = (reply: PdfReply): void => {
   process.send(reply, (error) => {
     if (error) process.exit(0)
   })
-}
-
-/** pdfjs refuses a Node Buffer, so it gets a plain view over the same bytes. */
-const toPdfData = (buffer: Buffer): Uint8Array => {
-  return new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength)
 }
 
 /** pdfjs's refusal to open the file becomes the server's own message; other failures pass through. */
