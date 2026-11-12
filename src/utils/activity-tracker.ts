@@ -1,6 +1,3 @@
-/** Counts async work in flight and lets other code wait until none is
- *  running, up to a deadline. */
-
 type ActivityTracker = {
   /** Runs `work`, counting it as in flight until it settles. */
   track: <T>(work: () => Promise<T>) => Promise<T>
@@ -9,8 +6,10 @@ type ActivityTracker = {
   waitUntilIdle: (params: { maxWaitMs: number }) => Promise<void>
 }
 
+/** Counts async work in flight and lets other code wait until none is
+ *  running, up to a deadline. */
 export const createActivityTracker = (): ActivityTracker => {
-  // Every track call changes the count and every waitUntilIdle call reads it
+  // Every track call changes the count and every waitUntilIdle call reads it.
   let activeCount = 0
   const idleWaiters = new Set<() => void>()
 
