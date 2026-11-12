@@ -10,17 +10,18 @@ updates:
       # The CLI's dependencies are pinned in cli/package.json (what npx
       # installs) and in the root devDependencies (what the CLI builds and
       # tests against). This group keeps the two copies in step:
-      # - group-by puts both edits of one version update in a single PR, so
-      #   the cli dependency pinning test passes without a hand edit.
-      # - group-by covers version updates only. A security update arrives as
-      #   one PR per copy, and the other copy is still edited by hand.
+      # - A group spans every directory in the entry, so one version-update
+      #   PR edits both copies and the cli dependency pinning test passes
+      #   without a hand edit.
+      # - Groups apply to version updates only (Dependabot's default). A
+      #   security update arrives as one PR per copy, and the other copy is
+      #   still edited by hand.
       # - Dependabot assigns a dependency to the first group it matches, so
       #   this group stays above production and development.
       cli:
         patterns:
           - "@clack/prompts"
           - commander
-        group-by: dependency-name
       production:
         dependency-type: production
       development:
