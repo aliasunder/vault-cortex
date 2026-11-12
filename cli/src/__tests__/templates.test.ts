@@ -186,12 +186,23 @@ describe("instance naming in the compose templates", () => {
 })
 
 describe("port publishing in the compose templates", () => {
-  it("local publishes the port on this machine's loopback address only", () => {
+  it.each([
+    {
+      label: "local publishes on BIND_ADDRESS, loopback by default",
+      composePath: "deploy/local/docker-compose.yml",
+      published: "${BIND_ADDRESS:-127.0.0.1}:${PORT:-8000}:8000",
+    },
+    {
+      label: "remote publishes on BIND_ADDRESS, every address by default",
+      composePath: "deploy/remote/docker-compose.yml",
+      published: "${BIND_ADDRESS:-0.0.0.0}:${PORT:-8000}:8000",
+    },
+  ])("$label", ({ composePath, published }) => {
     const composeFile: { services: { "vault-cortex": { ports: string[] } } } = parseYaml(
-      readRepoFile("deploy/local/docker-compose.yml"),
+      readRepoFile(composePath),
     )
 
-    expect(composeFile.services["vault-cortex"].ports).toEqual(["127.0.0.1:${PORT:-8000}:8000"])
+    expect(composeFile.services["vault-cortex"].ports).toEqual([published])
   })
 })
 

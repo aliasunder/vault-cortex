@@ -142,6 +142,12 @@ INSTANCE_NAME=vault-cortex
 # Host port to expose (default: 8000).
 PORT=8000
 
+# Address on this computer the port is published on (default: 127.0.0.1).
+# 127.0.0.1 keeps the server reachable from this machine only. 0.0.0.0 lets
+# other devices on your network reach it; set PUBLIC_URL to the address they
+# use, such as http://192.168.1.20:8000.
+BIND_ADDRESS=127.0.0.1
+
 # These two settings choose the client IP used for OAuth rate limiting and
 # logs (defaults shown below). Without the right values, every visitor
 # behind a proxy shares one rate-limit budget. TRUST_PROXY_HOPS counts the
@@ -315,6 +321,12 @@ INSTANCE_NAME=vault-cortex
 
 # Host port to expose (default: 8000).
 PORT=8000
+
+# Address on this server the port is published on (default: 0.0.0.0).
+# 0.0.0.0 publishes on every address. Set 127.0.0.1 once a tunnel or reverse
+# proxy on this server fronts the MCP server, so clients can reach it only
+# through that tunnel or proxy.
+BIND_ADDRESS=0.0.0.0
 
 # These two settings choose the client IP used for OAuth rate limiting and
 # logs (defaults shown below). Without the right values, every visitor

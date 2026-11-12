@@ -539,6 +539,7 @@ describe("runRestart", () => {
           instanceName: "vault-cortex",
           envFilePath: join(targetDir, ".env"),
           port: 8000,
+          bindAddress: "127.0.0.1",
           vaultPath: "/home/user/MyVault",
         },
       ],
@@ -592,6 +593,7 @@ describe("runRestart", () => {
           instanceName: "vault-cortex",
           envFilePath: join(targetDir, ".env"),
           port: 8000,
+          bindAddress: "0.0.0.0",
           vaultPath: undefined,
         },
       ],
@@ -794,6 +796,60 @@ describe("runRestart", () => {
     expect(exitCode).toBe(0)
     expect(fetchedUrls).toEqual(["http://127.0.0.1:9000/healthz"])
   })
+
+  it("publishes on the BIND_ADDRESS from .env and polls health there", async () => {
+    const targetDir = makeTempTargetDir("vault-cli-restart-")
+    writeFileSync(
+      join(targetDir, ".env"),
+      "MCP_AUTH_TOKEN=abc123\nVAULT_PATH=/vault\nBIND_ADDRESS=192.168.1.20\nPUBLIC_URL=http://192.168.1.20:8000\n",
+    )
+    const recording = createRecordingDocker()
+    const fetchedUrls: string[] = []
+    const fetchRecorder: typeof fetch = async (url) => {
+      fetchedUrls.push(String(url))
+      return new Response(null, { status: 200 })
+    }
+    const scripted = createScriptedPrompts()
+
+    const exitCode = await runRestart(
+      { dir: targetDir },
+      { prompts: scripted.prompts, docker: recording.docker, fetchFn: fetchRecorder },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(recording.runParams).toEqual([
+      {
+        mode: "local",
+        instanceName: "vault-cortex",
+        envFilePath: join(targetDir, ".env"),
+        port: 8000,
+        bindAddress: "192.168.1.20",
+        vaultPath: "/vault",
+      },
+    ])
+    expect(fetchedUrls).toEqual(["http://192.168.1.20:8000/healthz"])
+  })
+
+  it("exits 1 when .env's BIND_ADDRESS is not an address", async () => {
+    const targetDir = makeTempTargetDir("vault-cli-restart-")
+    writeFileSync(
+      join(targetDir, ".env"),
+      "MCP_AUTH_TOKEN=abc123\nVAULT_PATH=/vault\nBIND_ADDRESS=localhost\nPUBLIC_URL=http://localhost:8000\n",
+    )
+    const scripted = createScriptedPrompts()
+    const recording = createRecordingDocker()
+
+    const exitCode = await runRestart(
+      { dir: targetDir },
+      { prompts: scripted.prompts, docker: recording.docker, fetchFn: fetchNever },
+    )
+
+    expect(exitCode).toBe(1)
+    expect(scripted.errors).toEqual([
+      `BIND_ADDRESS "localhost" is not an address Docker can publish on — use an IPv4 address such as 127.0.0.1 or 0.0.0.0, or an IPv6 address in brackets such as [::1]. Fix it in ${targetDir}/.env.`,
+    ])
+    expect(recording.runParams).toEqual([])
+  })
 })
 
 describe("commands on an install with a custom INSTANCE_NAME", () => {
@@ -933,6 +989,7 @@ describe("commands on an install with a custom INSTANCE_NAME", () => {
         instanceName: "work",
         envFilePath: join(targetDir, ".env"),
         port: 8001,
+        bindAddress: "127.0.0.1",
         vaultPath: "/home/user/WorkVault",
       },
     ])

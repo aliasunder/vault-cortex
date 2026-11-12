@@ -1138,6 +1138,35 @@ describe("runInit with a kept existing .env", () => {
     expect(exitCode).toBe(0)
     expect(recording.runParams.map((params) => params.vaultPath)).toEqual([keptVaultDir])
   })
+
+  it("publishes on the kept file's BIND_ADDRESS and polls health there, as start does", async () => {
+    const vaultDir = makeVault()
+    const targetDir = makeTargetDir()
+    mkdirSync(targetDir, { recursive: true })
+    writeFileSync(
+      join(targetDir, ".env"),
+      `MCP_AUTH_TOKEN=existing\nVAULT_PATH=${vaultDir}\nBIND_ADDRESS=192.168.1.20\nPUBLIC_URL=http://192.168.1.20:8000\n`,
+    )
+    const scripted = createScriptedPrompts([
+      ...keepEnvAnswers(vaultDir, targetDir),
+      true, // start the server now
+    ])
+    const recording = createRecordingDocker()
+    const fetchedUrls: string[] = []
+    const fetchRecorder: typeof fetch = async (url) => {
+      fetchedUrls.push(String(url))
+      return new Response(null, { status: 200 })
+    }
+
+    const exitCode = await runInit(
+      {},
+      { prompts: scripted.prompts, docker: recording.docker, fetchFn: fetchRecorder },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(recording.runParams.map((params) => params.bindAddress)).toEqual(["192.168.1.20"])
+    expect(fetchedUrls).toEqual(["http://192.168.1.20:8000/healthz"])
+  })
 })
 
 describe("runInit --vault-path flag in interactive mode", () => {

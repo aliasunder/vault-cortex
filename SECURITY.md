@@ -260,7 +260,8 @@ The server, and the `:remote` image's setup mode, set these headers:
 - Loopback by default: the local installs (the CLI, the local Compose file
   and the MCP Registry entry) publish the server's port on the host's
   loopback address only, and the server listens on 127.0.0.1 when `HOST` is
-  unset
+  unset. For the CLI and Compose installs, the `BIND_ADDRESS` setting in
+  `.env` chooses the published address and defaults to 127.0.0.1
 
 ### Setup mode (remote image)
 

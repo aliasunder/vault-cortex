@@ -3,6 +3,7 @@ import { join, resolve } from "node:path"
 import {
   healthPollTimeoutMs,
   healthTimeoutMessage,
+  hostHealthUrl,
   isVaultCortexImage,
   pollHealth,
   probeHealth,
@@ -11,6 +12,7 @@ import {
 import { buildDaemonNotRunningMessage, buildDockerNotInstalledMessage } from "./messages.js"
 import {
   detectMode,
+  readEnvBindAddress,
   readEnvInstanceName,
   readEnvPort,
   readEnvPublicUrl,
@@ -61,6 +63,8 @@ export type Deployment = {
   targetDir: string
   envFilePath: string
   port: number
+  /** The host address Docker publishes the port on. */
+  bindAddress: string
   /** Present only in local mode. */
   vaultPath?: string
   publicUrl: string
@@ -104,7 +108,7 @@ const missingPublicUrlFix = (mode: Mode, port: number): string => {
 
 /**
  * Resolves --dir to the on-disk deployment and validates its .env for a
- * container start: mode detection, PORT, VAULT_PATH (local), and PUBLIC_URL.
+ * container start: mode detection, PORT, BIND_ADDRESS, VAULT_PATH (local), and PUBLIC_URL.
  * Reports each failure via prompts.error and returns undefined.
  * Shared by init, start, restart, upgrade and configure so their precondition checks can't drift.
  */
@@ -124,6 +128,13 @@ export const resolveDeployment = (
     return undefined
   }
   const { port } = portRead
+  const bindAddressRead = readEnvBindAddress(envFilePath, mode)
+
+  if (bindAddressRead.kind === "invalid") {
+    prompts.error(`${bindAddressRead.message} Fix it in ${targetDir}/.env.`)
+    return undefined
+  }
+  const { bindAddress } = bindAddressRead
   const vaultPath = mode === "local" ? readEnvVaultPath(envFilePath) : undefined
 
   if (mode === "local" && !vaultPath) {
@@ -141,7 +152,7 @@ export const resolveDeployment = (
     )
     return undefined
   }
-  return { mode, instanceName, targetDir, envFilePath, port, vaultPath, publicUrl }
+  return { mode, instanceName, targetDir, envFilePath, port, bindAddress, vaultPath, publicUrl }
 }
 
 /**
@@ -251,6 +262,7 @@ export const recreateContainer = async (
     instanceName,
     envFilePath: deployment.envFilePath,
     port: deployment.port,
+    bindAddress: deployment.bindAddress,
     vaultPath: deployment.vaultPath,
   })
 
@@ -264,7 +276,7 @@ export const recreateContainer = async (
   const timeoutMs = healthTimeoutMs ?? healthPollTimeoutMs(deployment.mode)
   const healthy = await pollHealth(
     {
-      url: `http://127.0.0.1:${deployment.port}/healthz`,
+      url: hostHealthUrl({ bindAddress: deployment.bindAddress, port: deployment.port }),
       timeoutMs,
     },
     fetchFn,

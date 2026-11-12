@@ -145,40 +145,26 @@ Apps on another computer in your home network, such as Claude Code, can
 connect once this server accepts connections from that network. Claude Mobile
 and claude.ai web still need the [remote quickstart](../remote/).
 
-This works with the Docker Compose setup only. **Set up with the CLI?** The
-CLI always keeps the server on this machine, so switch to Compose first: run
-`npx vault-cortex@latest down` from the folder you ran `init` in, and copy
-[`docker-compose.yml`](./docker-compose.yml) next to the CLI's `.env`, in the
-`vault-cortex` folder `init` created or the folder you passed to `--dir`.
-Compose picks up that `.env` and the search index the CLI made, so run the
-steps below from that folder. From then on, manage the server with this
-guide's Compose commands: the CLI's `start`, `restart` and `upgrade` put it
-back on this machine only.
-
 1. Find this computer's address on your network, such as `192.168.1.20`:
    on macOS, System Settings → Wi-Fi → Details → TCP/IP; on Windows,
    Settings → Network & internet → your connection's properties (IPv4
    address); on Linux, `hostname -I`.
-2. In `docker-compose.yml`, change the line under `ports:` from
-
-   ```yaml
-   - "127.0.0.1:${PORT:-8000}:8000"
-   ```
-
-   to
-
-   ```yaml
-   - "${PORT:-8000}:8000"
-   ```
-
-3. In `.env`, set `PUBLIC_URL` to that address with the port, such as
+2. In `.env`, set `BIND_ADDRESS=0.0.0.0`. The server then accepts
+   connections from your network as well as from this computer.
+3. In `.env`, set `PUBLIC_URL` to the address from step 1 with the port, such as
    `PUBLIC_URL=http://192.168.1.20:8000`.
-4. Run `docker compose up -d` to apply both changes.
-5. Connect every MCP client to `http://192.168.1.20:8000/mcp`, using your
-   own address. Clients on this computer use that address too, because
-   sign-in works only at the `PUBLIC_URL` address. For Claude Desktop, add
-   `"--allow-http"` to mcp-remote's `args`: it refuses `http` addresses
-   other than localhost without it.
+4. Apply both changes. Set up with the CLI? Run
+   `npx vault-cortex@latest restart` from the folder you ran `init` in. Set
+   up with Docker Compose? Run `docker compose up -d`.
+5. Connect MCP clients to `http://192.168.1.20:8000/mcp`, using your own
+   address:
+   - Clients that sign in with OAuth use that address on this computer too,
+     because sign-in works only at the `PUBLIC_URL` address.
+   - Clients on this computer that send your `MCP_AUTH_TOKEN` in a header
+     can stay on `http://localhost:8000/mcp`.
+   - For Claude Desktop on another computer, add `"--allow-http"` to
+     mcp-remote's `args`: it refuses `http` addresses other than localhost
+     without it.
 
 Anyone on that network can now open the server's sign-in page, and your
 `MCP_AUTH_TOKEN` is what keeps them out. Connections are plain `http`, so do
@@ -458,14 +444,14 @@ up a second vault? Give it its own name instead — see
 
 1. Check that you followed every step in
    [Other computers on your network](#other-computers-on-your-network),
-   including `docker compose up -d` after the edits.
+   including step 4, which applies the edits.
 2. On the other computer, open `http://<this computer's address>:8000/healthz`
    in a browser. `{"ok":true}` means it reaches the server, so go to step 4.
 3. No answer? A firewall on this computer may block incoming connections.
    Allow Docker through it, then try step 2 again.
 4. The page answers but sign-in fails? `PUBLIC_URL` in `.env` must match the
-   address the client uses exactly, port included. Fix it, run
-   `docker compose up -d`, and reconnect the client.
+   address the client uses exactly, port included. Fix it, apply it as in
+   step 4 of that section, and reconnect the client.
 
 ## Building from source
 

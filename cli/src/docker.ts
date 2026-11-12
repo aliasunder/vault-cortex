@@ -29,6 +29,8 @@ export type DockerRunParams = {
   instanceName: string
   envFilePath: string
   port: number
+  /** The .env's BIND_ADDRESS: the host address Docker publishes the port on. */
+  bindAddress: string
   /** Host vault path — local mode only (bind mount). */
   vaultPath?: string
 }
@@ -130,12 +132,8 @@ const HEALTH_CMD =
  * testable without spawning processes.
  */
 export const buildDockerRunArgs = (params: DockerRunParams): string[] => {
-  const { mode, instanceName, envFilePath, port, vaultPath } = params
+  const { mode, instanceName, envFilePath, port, bindAddress, vaultPath } = params
   const image = mode === "local" ? LOCAL_IMAGE : REMOTE_IMAGE
-
-  // A local install serves the vault on this machine only; a remote install
-  // runs on a server that other devices must reach.
-  const publishedPort = mode === "local" ? `127.0.0.1:${port}:8000` : `${port}:8000`
   const args = [
     "run",
     "-d",
@@ -147,7 +145,7 @@ export const buildDockerRunArgs = (params: DockerRunParams): string[] => {
     envFilePath,
     ...CONTAINER_ENV_OVERRIDES.flatMap((override) => ["-e", override]),
     "-p",
-    publishedPort,
+    `${bindAddress}:${port}:8000`,
   ]
 
   if (mode === "local") {
@@ -385,6 +383,23 @@ export const probeHealth = async (
   } catch {
     return false
   }
+}
+
+/**
+ * The loopback address that reaches a port published on a wildcard address.
+ * A port published on any other address answers only on that address.
+ */
+const LOOPBACK_FOR_WILDCARD = new Map([
+  ["0.0.0.0", "127.0.0.1"],
+  ["[::]", "[::1]"],
+])
+
+/** The URL this machine polls for the server's health, given where Docker published the port. */
+export const hostHealthUrl = (params: { bindAddress: string; port: number }): string => {
+  const { bindAddress, port } = params
+  const healthHost = LOOPBACK_FOR_WILDCARD.get(bindAddress) ?? bindAddress
+
+  return `http://${healthHost}:${port}/healthz`
 }
 
 /**

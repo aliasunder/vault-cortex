@@ -1,4 +1,5 @@
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
+import { isIPv4, isIPv6 } from "node:net"
 import { join } from "node:path"
 
 export type Mode = "local" | "remote"
@@ -30,6 +31,19 @@ export const DEFAULT_INSTANCE_NAME = "vault-cortex"
  * Global, because `docker run --env-file` lets the last duplicate win.
  */
 const ENV_PORT_LINES = /^PORT=(.*)$/gm
+
+/** Matches every active (uncommented) BIND_ADDRESS line, capturing its raw value. */
+const ENV_BIND_ADDRESS_LINES = /^BIND_ADDRESS=(.*)$/gm
+
+/**
+ * The host address Docker publishes the port on when .env sets no
+ * BIND_ADDRESS. A local install answers this machine only; a remote install
+ * answers every address, so other devices can reach the server.
+ */
+const DEFAULT_BIND_ADDRESSES: Readonly<Record<Mode, string>> = {
+  local: "127.0.0.1",
+  remote: "0.0.0.0",
+}
 
 /** Matches every active (uncommented) INSTANCE_NAME line, capturing its raw value. */
 const ENV_INSTANCE_NAME_LINES = /^INSTANCE_NAME=(.*)$/gm
@@ -105,6 +119,44 @@ export const readEnvPort = (envFilePath: string): PortRead => {
     return { kind: "invalid", message: describeInvalidEnvPort(portValue) }
   }
   return { kind: "ok", port: Number(portValue) }
+}
+
+/**
+ * An IPv4 address, or an IPv6 address in brackets (`[::1]`): the host-address
+ * forms both `docker run -p` and Compose's ports list read. A bare IPv6
+ * address is refused, because its colons run into the port separators.
+ */
+const isValidBindAddress = (value: string): boolean => {
+  if (isIPv4(value)) return true
+  return value.startsWith("[") && value.endsWith("]") && isIPv6(value.slice(1, -1))
+}
+
+export type BindAddressRead =
+  { kind: "ok"; bindAddress: string } | { kind: "invalid"; message: string }
+
+/**
+ * Reads the host address to publish the port on from a .env file:
+ * - the last active line wins, as it does for `docker run --env-file`;
+ * - a missing file, line or empty value means the mode's default address;
+ * - any other value that is not an address is reported, never corrected,
+ *   because a guess could publish the server wider than the user meant.
+ */
+export const readEnvBindAddress = (envFilePath: string, mode: Mode): BindAddressRead => {
+  const defaultRead: BindAddressRead = { kind: "ok", bindAddress: DEFAULT_BIND_ADDRESSES[mode] }
+
+  if (!existsSync(envFilePath)) return defaultRead
+  const bindAddressLines = [...readFileSync(envFilePath, "utf8").matchAll(ENV_BIND_ADDRESS_LINES)]
+  const rawValue = bindAddressLines.at(-1)?.[1].trim()
+  const bindAddress = rawValue ? stripSurroundingQuotes(rawValue) : ""
+
+  if (!bindAddress) return defaultRead
+  if (!isValidBindAddress(bindAddress)) {
+    return {
+      kind: "invalid",
+      message: `BIND_ADDRESS "${bindAddress}" is not an address Docker can publish on — use an IPv4 address such as 127.0.0.1 or 0.0.0.0, or an IPv6 address in brackets such as [::1].`,
+    }
+  }
+  return { kind: "ok", bindAddress }
 }
 
 /** Returns why a candidate instance name is invalid, or undefined when it is valid. */

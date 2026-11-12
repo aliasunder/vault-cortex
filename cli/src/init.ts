@@ -14,6 +14,7 @@ import {
 import {
   healthPollTimeoutMs,
   healthTimeoutMessage,
+  hostHealthUrl,
   pollHealth,
   type DockerRunner,
 } from "./docker.js"
@@ -319,10 +320,17 @@ const reportWrites = (
  * launched but the health check timed out, or "not-started" when a gate failed.
  */
 const offerDockerRun = async (
-  params: { targetDir: string; instanceName: string; port: number; mode: Mode; vaultPath?: string },
+  params: {
+    targetDir: string
+    instanceName: string
+    port: number
+    bindAddress: string
+    mode: Mode
+    vaultPath?: string
+  },
   deps: InitDeps,
 ): Promise<StartStatus> => {
-  const { targetDir, instanceName, port, mode, vaultPath } = params
+  const { targetDir, instanceName, port, bindAddress, mode, vaultPath } = params
   const { prompts, docker, fetchFn } = deps
   const daemonStatus = docker.daemonStatus()
 
@@ -363,6 +371,7 @@ const offerDockerRun = async (
     instanceName,
     envFilePath,
     port,
+    bindAddress,
     vaultPath,
   })
 
@@ -374,7 +383,10 @@ const offerDockerRun = async (
   const spinner = prompts.spinner()
   spinner.start("Waiting for the server to come up (first run may take a moment)")
   const timeoutMs = healthPollTimeoutMs(mode)
-  const healthy = await pollHealth({ url: `http://127.0.0.1:${port}/healthz`, timeoutMs }, fetchFn)
+  const healthy = await pollHealth(
+    { url: hostHealthUrl({ bindAddress, port }), timeoutMs },
+    fetchFn,
+  )
 
   if (!healthy) {
     spinner.stop(healthTimeoutMessage({ mode, timeoutMs, instanceName }))
@@ -505,13 +517,20 @@ const runLocalInit = async (flags: InitFlags, deps: InitDeps): Promise<number> =
   const deployment = resolveDeployment(targetDir, prompts)
 
   if (!deployment) return 1
-  const { instanceName, port } = deployment
+  const { instanceName, port, bindAddress } = deployment
 
   // --yes is for scripts/CI, so it never starts Docker.
   const startStatus: StartStatus = flags.yes
     ? "not-started"
     : await offerDockerRun(
-        { targetDir, instanceName, port, mode: "local", vaultPath: deployment.vaultPath },
+        {
+          targetDir,
+          instanceName,
+          port,
+          bindAddress,
+          mode: "local",
+          vaultPath: deployment.vaultPath,
+        },
         deps,
       )
   prompts.print(
@@ -634,11 +653,14 @@ const runRemoteInit = async (flags: InitFlags, deps: InitDeps): Promise<number> 
   const deployment = resolveDeployment(targetDir, prompts)
 
   if (!deployment) return 1
-  const { instanceName, port, publicUrl: effectivePublicUrl } = deployment
+  const { instanceName, port, bindAddress, publicUrl: effectivePublicUrl } = deployment
 
   // Started without a Sync token in .env, the container keeps a login saved
   // on its volume, or serves its sign-in page; the closing message covers both.
-  const startStatus = await offerDockerRun({ targetDir, instanceName, port, mode: "remote" }, deps)
+  const startStatus = await offerDockerRun(
+    { targetDir, instanceName, port, bindAddress, mode: "remote" },
+    deps,
+  )
 
   // The container check above hit localhost on this machine; the public URL
   // is the ingress path clients actually use — probe it too, informationally.
