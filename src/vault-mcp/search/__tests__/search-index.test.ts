@@ -6914,7 +6914,12 @@ describe("links that differ from their file only in letter case", () => {
     await writeFile(join(vaultDir, "source.md"), CASE_DIFFERENT_LINKS, "utf8")
 
     await index.rebuildFromVault(
-      { vaultPath: vaultDir, bodyTagParser: inProcessBodyTagParser },
+      {
+        vaultPath: vaultDir,
+        bodyTagParser: inProcessBodyTagParser,
+        pdfExtractor: createInProcessPdfExtractor(vaultDir),
+        maxFileBytes: 10_000_000,
+      },
       logger,
     )
 
