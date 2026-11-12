@@ -96,7 +96,7 @@ export const renderConsentPage = ({
       </div>
     </div>
     <div class="actions">
-      <button type="submit" name="action" value="deny" class="deny">Deny</button>
+      <button type="submit" name="action" value="deny" class="deny" formnovalidate>Deny</button>
       <button type="submit" name="action" value="approve" class="approve">Approve</button>
     </div>
   </form>

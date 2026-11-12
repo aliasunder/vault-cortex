@@ -139,6 +139,30 @@ describe("consent page reveal toggle", () => {
   })
 })
 
+/** Matches the opening tag of the Deny submit button. */
+const DENY_BUTTON_PATTERN = /<button[^>]*value="deny"[^>]*>/
+
+/** Matches the opening tag of the Approve submit button. */
+const APPROVE_BUTTON_PATTERN = /<button[^>]*value="approve"[^>]*>/
+
+describe("consent page actions", () => {
+  it("lets Deny submit without a token while Approve requires one", () => {
+    const html = renderConsentPage(baseParams)
+
+    // The token field is required, so the browser blocks a submit button that
+    // does not skip validation. A person must be able to deny without the token.
+    expect({
+      tokenRequired: html.includes('name="token" placeholder="Enter your MCP_AUTH_TOKEN" required'),
+      denyButton: DENY_BUTTON_PATTERN.exec(html)?.[0],
+      approveButton: APPROVE_BUTTON_PATTERN.exec(html)?.[0],
+    }).toEqual({
+      tokenRequired: true,
+      denyButton: '<button type="submit" name="action" value="deny" class="deny" formnovalidate>',
+      approveButton: '<button type="submit" name="action" value="approve" class="approve">',
+    })
+  })
+})
+
 describe("access-denied page", () => {
   const TITLE_PATTERN = /<title>([^<]*)<\/title>/
   const HEADING_PATTERN = /<h1>([^<]*)<\/h1>/
