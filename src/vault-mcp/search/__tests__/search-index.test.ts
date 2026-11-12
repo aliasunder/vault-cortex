@@ -7008,7 +7008,12 @@ describe("links table schema", () => {
 
     const reopened = createSearchIndex(dbPath)
     const rebuilt = await reopened.rebuildFromVault(
-      { vaultPath, bodyTagParser: inProcessBodyTagParser },
+      {
+        vaultPath,
+        bodyTagParser: inProcessBodyTagParser,
+        pdfExtractor: createInProcessPdfExtractor(vaultPath),
+        maxFileBytes: 10_000_000,
+      },
       logger,
     )
     await rebuilt.embedding
@@ -7153,7 +7158,12 @@ describe("links after a file is added or removed", () => {
     }
     const rebuiltIndex = createSearchIndex(":memory:")
     const rebuilt = await rebuiltIndex.rebuildFromVault(
-      { vaultPath: directory, bodyTagParser: inProcessBodyTagParser },
+      {
+        vaultPath: directory,
+        bodyTagParser: inProcessBodyTagParser,
+        pdfExtractor: createInProcessPdfExtractor(directory),
+        maxFileBytes: 10_000_000,
+      },
       logger,
     )
     await rebuilt.embedding
