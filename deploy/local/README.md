@@ -166,7 +166,7 @@ and claude.ai web still need the [remote quickstart](../remote/).
      mcp-remote's `args`: it refuses `http` addresses other than localhost
      without it.
 
-Anyone on that network can now open the server's sign-in page, and your
+Anyone on that network can now open the server's OAuth consent page, and your
 `MCP_AUTH_TOKEN` is what keeps them out. Connections are plain `http`, so do
 this only on a network you trust.
 
