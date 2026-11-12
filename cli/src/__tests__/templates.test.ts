@@ -416,7 +416,7 @@ type DependabotConfig = {
   updates: Array<{
     "package-ecosystem": string
     directories?: string[]
-    groups?: Record<string, { patterns?: string[] }>
+    groups?: Record<string, { patterns?: string[]; "group-by"?: string }>
   }>
 }
 
@@ -433,9 +433,10 @@ describe("cli dependency pinning", () => {
     }
   })
 
-  // Without both directories, or with another group matching first, a version
-  // bump arrives as one Dependabot PR per copy, and each fails the test above.
-  it("Dependabot's npm entry watches both copies and its first group lists every cli dependency", () => {
+  // Without both directories, without group-by, or with another group matching
+  // first, a version bump arrives as one Dependabot PR per copy, and each fails
+  // the test above.
+  it("Dependabot's npm entry watches both copies, and its first group lists every cli dependency and groups by dependency name", () => {
     const cliManifest: CliManifest = JSON.parse(readRepoFile("cli/package.json"))
     const dependabotConfig: DependabotConfig = parseYaml(readRepoFile(".github/dependabot.yml"))
     const cliUpdate = dependabotConfig.updates.find(
@@ -446,10 +447,12 @@ describe("cli dependency pinning", () => {
       directories: cliUpdate?.directories,
       firstGroup: Object.keys(cliUpdate?.groups ?? {})[0],
       cliPatterns: cliUpdate?.groups?.["cli"]?.patterns,
+      cliGroupBy: cliUpdate?.groups?.["cli"]?.["group-by"],
     }).toEqual({
       directories: ["/", "/cli"],
       firstGroup: "cli",
       cliPatterns: Object.keys(cliManifest.dependencies),
+      cliGroupBy: "dependency-name",
     })
   })
 })
