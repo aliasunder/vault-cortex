@@ -2130,15 +2130,16 @@ const updateTaskLinePriority = ({
  *  paragraph's stripped text against the (English) string "Complete". */
 const COMPLETE_MARKER = "**Complete**"
 
-/** Extracts heading names whose body starts with a `**Complete**` marker
- *  paragraph — the Kanban plugin's per-lane completion signal.
+/** The headings whose body starts with a `**Complete**` marker paragraph —
+ *  the Kanban plugin's per-lane completion signal. Returned as the parsed
+ *  headings, not their names, because lane names can repeat.
  *
  *  @param bodyLines Note body lines (frontmatter stripped)
  *  @param headings  Pre-parsed headings from `parseHeadings(bodyLines)` */
-const extractDoneLanes = (
+const extractDoneLaneHeadings = (
   bodyLines: readonly string[],
   headings: readonly HeadingInfo[],
-): string[] => {
+): HeadingInfo[] => {
   // An opening fence or comment is content, so a marker inside it cannot
   // be the first content line after the heading.
   const startsWithCompleteMarker = (heading: HeadingInfo): boolean => {
@@ -2147,7 +2148,15 @@ const extractDoneLanes = (
       .find((line) => line.trim() !== "")
     return firstContentLine?.trim() === COMPLETE_MARKER
   }
-  return headings.filter(startsWithCompleteMarker).map((heading) => heading.text)
+  return headings.filter(startsWithCompleteMarker)
+}
+
+/** The names of the done lanes (see extractDoneLaneHeadings). */
+const extractDoneLanes = (
+  bodyLines: readonly string[],
+  headings: readonly HeadingInfo[],
+): string[] => {
+  return extractDoneLaneHeadings(bodyLines, headings).map((heading) => heading.text)
 }
 
 // ── Kanban settings parser ──────────────────────────────────────
@@ -2225,6 +2234,7 @@ export const tasks = {
   buildTaskLine,
   buildNextOccurrenceLine,
   formatDateField,
+  extractDoneLaneHeadings,
   extractDoneLanes,
   parseKanbanCardInsertionMethod,
   deduplicateDescriptionTags,
