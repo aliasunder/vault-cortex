@@ -137,10 +137,11 @@ type HoldingWatcher = Readonly<{
   ready: Promise<void>
   /** Goes live and starts applying what chokidar reported while holding, and
    *  returns how many distinct paths that is. `applied` resolves once the
-   *  non-PDF writes commit; PDF content waits for startPdfPass. Never rejects. */
+   *  non-PDF writes commit, and never rejects. */
   applyHeldChanges: () => { heldPathCount: number; applied: Promise<void> }
-  /** Releases PDF work and waits for the jobs already registered when called. */
-  startPdfPass: () => Promise<void>
+  /** Resolves once the held PDFs have their text and vectors. Read it after `applied`, which
+   *  is when the startup batch has queued them. Never rejects. */
+  heldPdfsIndexed: () => Promise<void>
   /** Stops watching; a rescan or retry still scheduled fires later and does
    *  nothing. Used only when startup fails before the held changes apply.
    *  Never rejects, so the startup failure stays the error reported. */
@@ -155,22 +156,8 @@ type HoldingWatcher = Readonly<{
  */
 const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingWatcher => {
   const { vaultPath, search, bodyTagParser, pdfExtractor, maxFileBytes, watcherOptions } = params
-  const pdfGate = Promise.withResolvers<undefined>()
-  const pendingPdfJobs = new Set<Promise<unknown>>()
-
-  const trackPdfJob = (pdfJob: Promise<unknown>): void => {
-    pendingPdfJobs.add(pdfJob)
-    // Both outcomes remove the settled job without creating a detached rejection.
-    void pdfJob.then(
-      () => pendingPdfJobs.delete(pdfJob),
-      () => pendingPdfJobs.delete(pdfJob),
-    )
-  }
-
-  const startPdfPass = async (): Promise<void> => {
-    pdfGate.resolve(undefined)
-    await Promise.all(pendingPdfJobs)
-  }
+  // Set once by the startup batch, which runs after the rebuild.
+  let heldPdfsIndexed: Promise<void> = Promise.resolve()
 
   // Each path's latest embedding job. A new job for the path waits for this one,
   // so a note edited many times runs one model job at a time. A job that still
@@ -304,8 +291,9 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
         })
     }
 
-    /** A PDF is found by name at once and gets its text after the server listens. Its
-     *  completion includes the embedding, so a held PDF counts as done only with its vectors. */
+    /** A PDF is found by name at once and gets its text when the extractor serves the request,
+     *  which is after the server listens. Its completion includes the embedding, so a held PDF
+     *  counts as done only with its vectors. */
     const indexChangedPdf = async (): Promise<ChangeIndexResult> => {
       // Removing the prior content also invalidates its queued vectors, so nothing stale
       // answers while the new text is pending.
@@ -323,9 +311,6 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
       const tooLargeToExtract = fileStat.size > maxFileBytes
 
       if (tooLargeToExtract) return { status: "file-indexed" }
-      await pdfGate.promise
-
-      if (isEventSuperseded(relativePath, eventToken)) return { status: "superseded" }
       const extraction = await pdfExtractor.extractForIndex(
         { path: relativePath, coalesce: true },
         logger,
@@ -545,10 +530,7 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
     eventToken: symbol
   }): Promise<ChangeIndexResult> => {
     if (params.filePath.endsWith(".md")) return indexChangedNote(params)
-    const indexing = indexChangedNonMdFile(params)
-
-    if (getFileKind(params.filePath) === "pdf") trackPdfJob(indexing)
-    return indexing
+    return indexChangedNonMdFile(params)
   }
 
   /** Releases a path's event token unless a newer event replaced it: deleting
@@ -1042,8 +1024,8 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
 
   /**
    * Reads held paths again within the concurrency limits the rebuild also uses.
-   * Other files keep the file-read bound. PDF jobs publish their metadata and
-   * wait for listen; the shared extractor bounds their later content reads.
+   * Other files keep the file-read bound. Held PDFs are not awaited, because
+   * their extraction waits for the server to listen, which waits for this batch.
    */
   const indexHeldPathsWithinBounds = async (
     reservedPaths: ReadonlyArray<ReservedPath>,
@@ -1061,12 +1043,12 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
       concurrency: INDEXING_FILE_READ_CONCURRENCY,
       mapper: indexHeldPath,
     })
-    const heldPdfIndexing = Promise.all(pdfReads.map(indexHeldPath))
-    // Held PDFs wait for listen in the background, so startup can return.
-    trackPdfJob(heldPdfIndexing)
-    void heldPdfIndexing.catch((error: unknown) => {
-      logger.error("failed to apply held PDF changes", { error: describeError(error) })
-    })
+    heldPdfsIndexed = Promise.all(pdfReads.map(indexHeldPath)).then(
+      () => undefined,
+      (error: unknown) => {
+        logger.error("failed to apply held PDF changes", { error: describeError(error) })
+      },
+    )
   }
 
   /** Checks each held path against the disk, removes the missing ones, then
@@ -1196,7 +1178,7 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
     }
   }
 
-  return { ready, applyHeldChanges, startPdfPass, close }
+  return { ready, applyHeldChanges, heldPdfsIndexed: () => heldPdfsIndexed, close }
 }
 
 /**
@@ -1206,8 +1188,8 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
  * landing mid-rebuild is applied after it instead of being missed or replaced
  * by the rebuild's older read. Resolves with the rebuild's result (the note
  * count and its background passes) once the non-PDF held changes commit their
- * index writes, or at heldChangesDeadline if they take longer. PDF content
- * waits for the caller to invoke startPdfPass after listening.
+ * index writes, or at heldChangesDeadline if they take longer. PDF text is
+ * extracted once the caller releases the extractor after listening.
  */
 export const watchVaultAndBuildIndex = async (
   params: WatchVaultParams,
@@ -1250,25 +1232,17 @@ export const watchVaultAndBuildIndex = async (
     })
   }
 
-  // Startup completion covers rebuild PDFs and held changes, including PDFs queued after the deadline.
-  // Later live watcher events finish independently.
-  const pdfGate = Promise.withResolvers<undefined>()
-  const startupPdfWork = (async (): Promise<void> => {
-    await pdfGate.promise
-    const initiallyRegisteredWatcherPdfs = holdingWatcher.startPdfPass()
-    await Promise.all([rebuildResult.startPdfPass(), initiallyRegisteredWatcherPdfs])
-    // A startup deadline can return before the held batch has queued its PDFs.
+  // Startup's PDF work is the rebuild's PDFs and the held ones, which the batch queues before
+  // `applied` resolves. Later live watcher events finish on their own.
+  const pdfPass = (async (): Promise<void> => {
+    await rebuildResult.pdfPass
     await applied
-    await holdingWatcher.startPdfPass()
+    await holdingWatcher.heldPdfsIndexed()
   })()
   // Logged here so a caller may leave the pass unawaited; the rebuild's own pass logs its
   // failure too, under its own message.
-  startupPdfWork.catch((error: unknown) => {
+  pdfPass.catch((error: unknown) => {
     logger.error("startup PDF work failed", { error: describeError(error) })
   })
-  const startPdfPass = (): Promise<void> => {
-    pdfGate.resolve(undefined)
-    return startupPdfWork
-  }
-  return { ...rebuildResult, startPdfPass }
+  return { ...rebuildResult, pdfPass }
 }

@@ -228,7 +228,7 @@ export const startServer = async (): Promise<void> => {
     // Startup takes only the note count and leaves the rebuild's embedding and
     // body-tag passes running, so the server takes requests while they run;
     // rebuildFromVault logs either pass's failure itself.
-    const { count, startPdfPass } = await watchVaultAndBuildIndex(
+    const { count } = await watchVaultAndBuildIndex(
       {
         vaultPath,
         search,
@@ -330,7 +330,7 @@ export const startServer = async (): Promise<void> => {
       logger.info("server started", { host, port })
       // PDF text extraction for the rebuild and for held and live watcher changes waits for
       // this call, so it never delays listening.
-      void startPdfPass()
+      pdfExtractor.startIndexing()
     })
     listeningServer = httpServer
 

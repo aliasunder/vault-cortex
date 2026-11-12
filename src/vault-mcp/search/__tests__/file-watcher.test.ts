@@ -25,6 +25,7 @@ import type { SearchIndex } from "../search-index.js"
 import { watchVaultAndBuildIndex as startVaultWatcher } from "../file-watcher.js"
 import type { PdfExtractor, PdfIndexExtraction } from "../../vault-operations/pdf-extractor.js"
 import {
+  createHeldPdfExtractor,
   createInProcessPdfExtractor,
   unusedPdfExtractor,
 } from "../../../__tests__/helpers/pdf-extractor.js"
@@ -82,13 +83,13 @@ const startWatcherWithoutRebuild = async (
     count: 0,
     embedding: Promise.resolve(),
     bodyTags: Promise.resolve(),
-    startPdfPass: async () => undefined,
+    pdfPass: Promise.resolve(),
   })
   const startup = await watchVaultAndBuildIndex(
     { ...target, ...(watcherOptions ? { watcherOptions } : {}), bodyTagParser },
     logger,
   )
-  await startup.startPdfPass()
+  await startup.pdfPass
 }
 
 /** A body-tag parser that holds its first request until `releaseFirstParse()`,
@@ -2236,6 +2237,9 @@ describe("watchVaultAndBuildIndex — changes during startup", HELD_BATCH_TIMEOU
     /** Runs against the empty vault before the watcher starts, e.g. to write
      *  files the real rebuild reads or to gate one of those reads. */
     beforeStart?: (testVault: string) => Promise<void>
+    /** "held" gives the in-process extractor the real one's hold, so index requests wait
+     *  for `pdfExtractor.startIndexing()`; by default they are served at once. */
+    pdfExtractor?: "held"
   }) => {
     const testVault = await mkdtemp(join(tmpdir(), "watcher-startup-vault-"))
     const dataDirectory = await mkdtemp(join(tmpdir(), "watcher-startup-data-"))
@@ -2271,7 +2275,7 @@ describe("watchVaultAndBuildIndex — changes during startup", HELD_BATCH_TIMEOU
           count: 0,
           embedding: Promise.resolve(),
           bodyTags: Promise.resolve(),
-          startPdfPass: async () => undefined,
+          pdfPass: Promise.resolve(),
         }
       })
     }
@@ -2288,8 +2292,18 @@ describe("watchVaultAndBuildIndex — changes during startup", HELD_BATCH_TIMEOU
       ...(heldChangesDeadline ? { heldChangesDeadline } : {}),
       ...(newDirectoryRescanDelay ? { newDirectoryRescanDelay } : {}),
     }
+    const pdfExtractor =
+      setup?.pdfExtractor === "held"
+        ? createHeldPdfExtractor(testVault)
+        : createInProcessPdfExtractor(testVault)
     const startup = watchVaultAndBuildIndex(
-      { vaultPath: testVault, search, watcherOptions, bodyTagParser: inProcessBodyTagParser },
+      {
+        vaultPath: testVault,
+        search,
+        watcherOptions,
+        bodyTagParser: inProcessBodyTagParser,
+        pdfExtractor,
+      },
       logger,
     )
     watcher.emit("ready")
@@ -2310,6 +2324,7 @@ describe("watchVaultAndBuildIndex — changes during startup", HELD_BATCH_TIMEOU
       testVault,
       search,
       database,
+      pdfExtractor,
       watcher,
       fire,
       notePaths,
@@ -2675,7 +2690,7 @@ describe("watchVaultAndBuildIndex — changes during startup", HELD_BATCH_TIMEOU
       count: 0,
       embedding: expect.any(Promise),
       bodyTags: expect.any(Promise),
-      startPdfPass: expect.any(Function),
+      pdfPass: expect.any(Promise),
     })
 
     expect(errorSpy).toHaveBeenCalledExactlyOnceWith("failed to process file change", {
@@ -2733,7 +2748,7 @@ describe("watchVaultAndBuildIndex — changes during startup", HELD_BATCH_TIMEOU
       count: 0,
       embedding: expect.any(Promise),
       bodyTags: expect.any(Promise),
-      startPdfPass: expect.any(Function),
+      pdfPass: expect.any(Promise),
     })
     expect(errorSpy).toHaveBeenCalledExactlyOnceWith(
       "failed to apply the changes held during startup",
@@ -3071,7 +3086,7 @@ describe("watchVaultAndBuildIndex — changes during startup", HELD_BATCH_TIMEOU
     const rebuilding = await startup
     await rebuilding.embedding
     const failure = new AggregateError([embeddingError], "PDF embedding pass failed")
-    await expect(rebuilding.startPdfPass()).rejects.toThrow(failure)
+    await expect(rebuilding.pdfPass).rejects.toThrow(failure)
 
     expect(extractionSpy).toHaveBeenCalledExactlyOnceWith(
       new Uint8Array(Buffer.from("controlled PDF bytes")),
@@ -3090,8 +3105,9 @@ describe("watchVaultAndBuildIndex — changes during startup", HELD_BATCH_TIMEOU
     })
   })
 
-  it("defers held PDF extraction until the PDF pass starts", async () => {
-    const { testVault, database, fire, startup, finishRebuild } = await createControlledStartup()
+  it("defers held PDF extraction until the extractor starts indexing", async () => {
+    const { testVault, database, fire, startup, finishRebuild, pdfExtractor } =
+      await createControlledStartup({ pdfExtractor: "held" })
     const fileNames = Array.from({ length: 10 }, (_unused, pdfIndex) => `doc-${pdfIndex}.pdf`)
     // Extraction is stubbed, so the bytes only need to exist.
     for (const fileName of fileNames) {
@@ -3108,7 +3124,8 @@ describe("watchVaultAndBuildIndex — changes during startup", HELD_BATCH_TIMEOU
     finishRebuild()
     const rebuilding = await startup
     expect(extractionSpy).not.toHaveBeenCalled()
-    await rebuilding.startPdfPass()
+    pdfExtractor.startIndexing()
+    await rebuilding.pdfPass
 
     expect(extractionSpy).toHaveBeenCalledTimes(10)
     expect(database.prepare("SELECT path, content FROM file_content ORDER BY path").all()).toEqual(
@@ -3117,7 +3134,8 @@ describe("watchVaultAndBuildIndex — changes during startup", HELD_BATCH_TIMEOU
   })
 
   it("keeps held and pre-listen live PDFs name-only and dispatches only the latest surviving event", async () => {
-    const { testVault, database, fire, startup, finishRebuild } = await createControlledStartup()
+    const { testVault, database, fire, startup, finishRebuild, pdfExtractor } =
+      await createControlledStartup({ pdfExtractor: "held" })
     const extractionSpy = vi
       .mocked(extractPdfText)
       .mockResolvedValue({ text: "latestopal", totalPages: 1 })
@@ -3148,7 +3166,8 @@ describe("watchVaultAndBuildIndex — changes during startup", HELD_BATCH_TIMEOU
       ])
     })
     expect(extractionSpy).not.toHaveBeenCalled()
-    await rebuilding.startPdfPass()
+    pdfExtractor.startIndexing()
+    await rebuilding.pdfPass
     await latestChange
 
     expect(extractionSpy).toHaveBeenCalledExactlyOnceWith(
@@ -3185,7 +3204,7 @@ describe("watchVaultAndBuildIndex — changes during startup", HELD_BATCH_TIMEOU
     finishRebuild()
     const rebuilding = await startup
     const finished = vi.fn()
-    const pdfs = rebuilding.startPdfPass()
+    const pdfs = rebuilding.pdfPass
     // The completion observer distinguishes extraction from the later model commit.
     void pdfs.then(finished)
     await modelEntered.promise
@@ -3276,9 +3295,8 @@ describe("watchVaultAndBuildIndex — changes during startup", HELD_BATCH_TIMEOU
       { heldPaths: 2, heldChangesDeadline: 50 },
     )
     expect(database.prepare("SELECT path FROM file_content").all()).toEqual([])
-    const pdfPass = rebuilding.startPdfPass()
     readGate.release()
-    await pdfPass
+    await rebuilding.pdfPass
 
     expect(database.prepare("SELECT path, content FROM file_content").all()).toEqual([
       { path: "late.pdf", content: "lateopal" },
@@ -3887,7 +3905,7 @@ describe("file watcher — new-directory rescan", () => {
           count: 0,
           embedding: Promise.resolve(),
           bodyTags: Promise.resolve(),
-          startPdfPass: async () => undefined,
+          pdfPass: Promise.resolve(),
         }
       })
       // Resolves when the rescan reaches the missed file, whether it holds the

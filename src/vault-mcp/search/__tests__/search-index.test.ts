@@ -23,7 +23,10 @@ import { extractPdfText, type PdfTextResult } from "../../obsidian-markdown/pdf.
 import { buildPdf } from "../../obsidian-markdown/__tests__/pdf-fixture.js"
 import type { BodyTagParser, BodyTagParseResult } from "../body-tag-parser.js"
 import type { PdfExtractor } from "../../vault-operations/pdf-extractor.js"
-import { createInProcessPdfExtractor } from "../../../__tests__/helpers/pdf-extractor.js"
+import {
+  createHeldPdfExtractor,
+  createInProcessPdfExtractor,
+} from "../../../__tests__/helpers/pdf-extractor.js"
 import { inProcessBodyTagParser, withBodyTags } from "./body-tag-test-helpers.js"
 
 vi.mock("node:fs/promises", { spy: true })
@@ -3879,12 +3882,19 @@ describe("rebuildFromVault deferred PDF content", () => {
     await writeFile(join(vaultPath, path), "changed disk bytes")
     const search = createSearchIndex(databasePath, embedder, undefined, { fileToolsEnabled: true })
     const extractForIndex = vi.fn<PdfExtractor["extractForIndex"]>()
+    // Index requests wait for startIndexing, as they do in the real extractor.
+    const indexingStarted = Promise.withResolvers<undefined>()
+    const startIndexing = (): void => indexingStarted.resolve(undefined)
     const pdfExtractor: PdfExtractor = {
-      extractForIndex,
+      extractForIndex: async (params, requestLogger) => {
+        await indexingStarted.promise
+        return extractForIndex(params, requestLogger)
+      },
       readText: async () => {
         throw new Error("index test must not read a PDF asset")
       },
       close: async () => {},
+      startIndexing,
     }
     const rebuild = (maxFileBytes = 1000) =>
       search.rebuildFromVault(
@@ -3911,6 +3921,7 @@ describe("rebuildFromVault deferred PDF content", () => {
       database,
       embedder,
       extractForIndex,
+      startIndexing,
       rebuild,
       fileRows,
       targetChunks,
@@ -3934,7 +3945,8 @@ describe("rebuildFromVault deferred PDF content", () => {
     fixture.embedder.embedText.mockClear()
     const heldEmbedding = Promise.withResolvers<Float32Array>()
     fixture.embedder.embedText.mockImplementationOnce(() => heldEmbedding.promise)
-    const pass = rebuilt.startPdfPass()
+    fixture.startIndexing()
+    const pass = rebuilt.pdfPass
     onTestFinished(async () => {
       heldEmbedding.resolve(fixture.vectorFor("healthyamber"))
       await Promise.allSettled([pass])
@@ -3976,7 +3988,8 @@ describe("rebuildFromVault deferred PDF content", () => {
       path: fixture.path,
       error: "[SqliteError]: controlled PDF placeholder failure",
     })
-    await rebuilt.startPdfPass()
+    fixture.startIndexing()
+    await rebuilt.pdfPass
 
     expect(fixture.extractForIndex).toHaveBeenCalledExactlyOnceWith({ path: "Healthy.PDF" }, logger)
     expect(fixture.fileRows()).toEqual([
@@ -4007,7 +4020,8 @@ describe("rebuildFromVault deferred PDF content", () => {
     const rebuilt = await fixture.rebuild()
     await rebuilt.embedding
 
-    await rebuilt.startPdfPass()
+    fixture.startIndexing()
+    await rebuilt.pdfPass
 
     expect(warnSpy).toHaveBeenCalledExactlyOnceWith("PDF content pass could not publish file", {
       path: fixture.path,
@@ -4069,7 +4083,8 @@ describe("rebuildFromVault deferred PDF content", () => {
       { path: "decoy.txt", snippet: "decoy Decoy controlsun" },
     ])
     const completed = vi.fn()
-    const pass = rebuilt.startPdfPass()
+    fixture.startIndexing()
+    const pass = rebuilt.pdfPass
     pendingPasses.push(pass)
     const observeCompletion = async (): Promise<void> => {
       await pass
@@ -4120,7 +4135,8 @@ describe("rebuildFromVault deferred PDF content", () => {
       expect(fixture.extractForIndex).not.toHaveBeenCalled()
       expect(fixture.targetChunks()).toEqual([])
       expect(fixture.keywordPaths("oldquartz")).toEqual([])
-      await rebuilt.startPdfPass()
+      fixture.startIndexing()
+      await rebuilt.pdfPass
       expect(fixture.extractForIndex).toHaveBeenCalledTimes(extracted ? 1 : 0)
       expect(fixture.fileRows()).toEqual([
         { path: fixture.path, content: extracted ? "New newcobalt" : "", bytes: 18 },
@@ -4140,7 +4156,8 @@ describe("rebuildFromVault deferred PDF content", () => {
     fixture.extractForIndex.mockResolvedValue({ status: "cancelled" })
     const rebuilt = await fixture.rebuild()
     await rebuilt.embedding
-    await rebuilt.startPdfPass()
+    fixture.startIndexing()
+    await rebuilt.pdfPass
 
     expect(fixture.extractForIndex).toHaveBeenCalledExactlyOnceWith({ path: fixture.path }, logger)
     expect(warnSpy).not.toHaveBeenCalled()
@@ -4173,7 +4190,8 @@ describe("rebuildFromVault deferred PDF content", () => {
     await rebuilt.embedding
     expect(fixture.keywordPaths("oldquartz")).toEqual([])
     expect(fixture.targetChunks()).toEqual([])
-    const pass = rebuilt.startPdfPass()
+    fixture.startIndexing()
+    const pass = rebuilt.pdfPass
     pendingPasses.push(pass)
     await started.promise
     expect(fixture.keywordPaths("Report")).toEqual([{ path: fixture.path }])
@@ -4198,7 +4216,7 @@ describe("rebuildFromVault deferred PDF content", () => {
   })
 
   it.each([{ outcome: "newer edit" }, { outcome: "unlink" }])(
-    "skips scheduled PDF extraction after a $outcome before the pass starts",
+    "discards a scheduled PDF extraction after a $outcome while it waited for the extractor",
     async ({ outcome }) => {
       const fixture = await createPdfRebuildFixture()
       fixture.extractForIndex.mockResolvedValue({
@@ -4222,9 +4240,15 @@ describe("rebuildFromVault deferred PDF content", () => {
         await rm(join(fixture.vaultPath, fixture.path))
         fixture.search.removeNonMdFile(fixture.path)
       }
-      await rebuilt.startPdfPass()
+      fixture.startIndexing()
+      await rebuilt.pdfPass
 
-      expect(fixture.extractForIndex).not.toHaveBeenCalled()
+      // The request was queued at the rebuild, so the extractor serves it; the pass then drops
+      // its result because the name-only row it was scheduled for is gone.
+      expect(fixture.extractForIndex).toHaveBeenCalledExactlyOnceWith(
+        { path: fixture.path },
+        logger,
+      )
       expect(fixture.fileRows()).toEqual([
         ...(outcome === "newer edit"
           ? [{ path: fixture.path, content: "Newer newcobalt", bytes: 16 }]
@@ -4256,7 +4280,8 @@ describe("rebuildFromVault deferred PDF content", () => {
       })
       const rebuilt = await fixture.rebuild()
       await rebuilt.embedding
-      const pass = rebuilt.startPdfPass()
+      fixture.startIndexing()
+      const pass = rebuilt.pdfPass
       pendingPasses.push(pass)
       await started.promise
       fixture.search.removeFileContent({ filePath: fixture.path }, logger)
@@ -4311,7 +4336,8 @@ describe("rebuildFromVault deferred PDF content", () => {
         started.resolve(undefined)
         return model.promise
       })
-      const pass = rebuilt.startPdfPass()
+      fixture.startIndexing()
+      const pass = rebuilt.pdfPass
       pendingPasses.push(pass)
       await started.promise
       expect(fixture.keywordPaths("delayedamber")).toEqual([{ path: fixture.path }])
@@ -4376,6 +4402,7 @@ describe("rebuildFromVault PDF embedding completion", () => {
         throw new Error("index test must not read a PDF asset")
       },
       close: async () => {},
+      startIndexing: () => {},
     }
     const rebuilt = await search.rebuildFromVault(
       {
@@ -4388,7 +4415,7 @@ describe("rebuildFromVault PDF embedding completion", () => {
     )
     await rebuilt.embedding
 
-    await expect(rebuilt.startPdfPass()).rejects.toThrow(
+    await expect(rebuilt.pdfPass).rejects.toThrow(
       new AggregateError(
         [new Error("controlled PDF embedding failure")],
         "PDF embedding pass failed",
@@ -4427,6 +4454,7 @@ describe("rebuildFromVault PDF embedding completion", () => {
         throw new Error("index test must not read a PDF asset")
       },
       close: async () => {},
+      startIndexing: () => {},
     }
     const rebuildLogger = { ...logger, error: vi.fn() }
     const rebuilt = await search.rebuildFromVault(
@@ -4440,7 +4468,7 @@ describe("rebuildFromVault PDF embedding completion", () => {
     )
     await rebuilt.embedding
 
-    const pass = rebuilt.startPdfPass()
+    const pass = rebuilt.pdfPass
     await vi.waitFor(() => {
       expect(rebuildLogger.error).toHaveBeenCalledWith("PDF content pass failed", {
         error: "[AggregateError]: PDF embedding pass failed",
@@ -4570,7 +4598,7 @@ describe("rebuildFromVault bounded I/O", () => {
       releaseGate.resolve(undefined)
       const rebuilt = await rebuilding
       await rebuilt.embedding
-      await rebuilt.startPdfPass()
+      await rebuilt.pdfPass
 
       expect(Math.max(...activeCounts)).toBe(16)
       expect(activePaths.size).toBe(0)
@@ -4633,11 +4661,12 @@ describe("rebuildFromVault bounded I/O", () => {
     const search = createSearchIndex(dbPath, undefined, undefined, { fileToolsEnabled: true })
     const database = new Database(dbPath, { readonly: true })
     openDatabases.push(database)
+    const pdfExtractor = createHeldPdfExtractor(vaultPath)
     const rebuilding = search.rebuildFromVault(
       {
         vaultPath,
         bodyTagParser: inProcessBodyTagParser,
-        pdfExtractor: createInProcessPdfExtractor(vaultPath),
+        pdfExtractor,
         maxFileBytes: 10_000_000,
       },
       logger,
@@ -4645,7 +4674,8 @@ describe("rebuildFromVault bounded I/O", () => {
     pendingRebuilds.push(rebuilding)
     const rebuilt = await rebuilding
     expect(extractSpy).not.toHaveBeenCalled()
-    const pdfPass = rebuilt.startPdfPass()
+    pdfExtractor.startIndexing()
+    const { pdfPass } = rebuilt
     pendingRebuilds.push(pdfPass)
     await boundReached.promise
     await setImmediateAsync()
@@ -4655,7 +4685,7 @@ describe("rebuildFromVault bounded I/O", () => {
     releaseGate.resolve(undefined)
     await pdfPass
     await rebuilt.embedding
-    await rebuilt.startPdfPass()
+    await rebuilt.pdfPass
 
     expect(Math.max(...activeCounts)).toBe(1)
     expect(activeMarkers.size).toBe(0)
@@ -4717,7 +4747,7 @@ describe("rebuildFromVault filesystem failures", () => {
       logger,
     )
     await rebuilt.embedding
-    await rebuilt.startPdfPass()
+    await rebuilt.pdfPass
 
     expect(rebuilt.count).toBe(1)
     expect(warnSpy).toHaveBeenCalledExactlyOnceWith("skipped unstattable file during rebuild", {
@@ -4751,7 +4781,7 @@ describe("rebuildFromVault filesystem failures", () => {
       logger,
     )
     await recovered.embedding
-    await recovered.startPdfPass()
+    await recovered.pdfPass
     search.upsertNote(
       withBodyTags({
         filePath: "source.md",
@@ -4793,7 +4823,7 @@ describe("rebuildFromVault filesystem failures", () => {
       logger,
     )
     await rebuilt.embedding
-    await rebuilt.startPdfPass()
+    await rebuilt.pdfPass
 
     expect(rebuilt.count).toBe(1)
     expect(prefixReadSpy).toHaveBeenCalledWith({ path: filePath, maxBytes: 102_400 })
@@ -4839,7 +4869,7 @@ describe("rebuildFromVault filesystem failures", () => {
         logger,
       )
       await rebuilt.embedding
-      await rebuilt.startPdfPass()
+      await rebuilt.pdfPass
 
       expect(rebuilt.count).toBe(1)
       expect(readSpy).toHaveBeenCalledWith(filePath, ...(fileName.endsWith(".pdf") ? [] : ["utf8"]))
@@ -4885,7 +4915,7 @@ describe("rebuildFromVault filesystem failures", () => {
       logger,
     )
     await rebuilt.embedding
-    await rebuilt.startPdfPass()
+    await rebuilt.pdfPass
 
     expect(rebuilt.count).toBe(1)
     // Read as bytes, so the strict UTF-8 check sees them
@@ -4932,7 +4962,7 @@ describe("rebuildFromVault filesystem failures", () => {
       logger,
     )
     await rebuilt.embedding
-    await rebuilt.startPdfPass()
+    await rebuilt.pdfPass
 
     expect(warnSpy).toHaveBeenCalledExactlyOnceWith("skipped unreadable file during rebuild", {
       path: "huge.html",
@@ -4972,7 +5002,7 @@ describe("rebuildFromVault filesystem failures", () => {
       logger,
     )
     await rebuilt.embedding
-    await rebuilt.startPdfPass()
+    await rebuilt.pdfPass
     expect(warnSpy).toHaveBeenCalledExactlyOnceWith("PDF content pass could not index file", {
       path: "broken.pdf",
       error: "[Error]: PDF reader could not start",
@@ -4994,7 +5024,7 @@ describe("rebuildFromVault filesystem failures", () => {
       logger,
     )
     await recovered.embedding
-    await recovered.startPdfPass()
+    await recovered.pdfPass
     expect(
       (await search.hybridSearch({ query: "recoveredopal" }, logger)).results.map(
         (entry) => entry.path,
@@ -5269,7 +5299,7 @@ describe("rebuildFromVault", () => {
       logger,
     )
     await firstBuild.embedding
-    await firstBuild.startPdfPass()
+    await firstBuild.pdfPass
     const rowsAfterFirstBuild = selectStoredRows()
     // The first build stored rows for the note, so keeping them below is not vacuous.
     // Chunks are checked by path only, because their text is the chunker's concern.
@@ -5304,7 +5334,7 @@ describe("rebuildFromVault", () => {
     )
     taskInsertPoison.disarm()
     await secondBuild.embedding
-    await secondBuild.startPdfPass()
+    await secondBuild.pdfPass
 
     // The warning and the empty search prove the second build skipped the note
     expect(warnSpy).toHaveBeenCalledExactlyOnceWith(
@@ -7791,7 +7821,7 @@ It has multiple sentences to verify chunking works correctly.
         logger,
       )
       await firstRebuild.embedding
-      await firstRebuild.startPdfPass()
+      await firstRebuild.pdfPass
 
       const inspectDb = new Database(dbPath, { readonly: true })
       sqliteVec.load(inspectDb)
@@ -7816,7 +7846,7 @@ It has multiple sentences to verify chunking works correctly.
         logger,
       )
       await secondRebuild.embedding
-      await secondRebuild.startPdfPass()
+      await secondRebuild.pdfPass
 
       expect(selectChunkCountStmt.get("ephemeral.txt")?.count).toBe(0)
       const fileVectors = inspectDb
@@ -8274,7 +8304,7 @@ describe("canvas note catalog reuse", () => {
       logger,
     )
     await rebuilt.embedding
-    await rebuilt.startPdfPass()
+    await rebuilt.pdfPass
     expect(rebuilt.count).toBe(2)
     expect(scans).toHaveBeenCalledTimes(1)
     expect(search.getBacklinks({ path: "Target.md" }, logger).map((link) => link.path)).toEqual(
@@ -8335,7 +8365,7 @@ describe("canvas note catalog reuse", () => {
       logger,
     )
     await recovered.embedding
-    await recovered.startPdfPass()
+    await recovered.pdfPass
     saveCanvas(search, "Target")
     expect(outgoingPaths(search)).toEqual(["Target.md"])
   })
@@ -9405,7 +9435,7 @@ describe("files with an uppercase extension", { timeout: 15_000 }, () => {
       },
       logger,
     )
-    await rebuilt.startPdfPass()
+    await rebuilt.pdfPass
     return fileIndex
   }
 
@@ -9504,7 +9534,7 @@ describe("HTML pages", () => {
       logger,
     )
     await rebuilt.embedding
-    await rebuilt.startPdfPass()
+    await rebuilt.pdfPass
     return { fileIndex, vaultDir }
   }
 
@@ -9633,7 +9663,7 @@ describe("scripts", () => {
       logger,
     )
     await rebuilt.embedding
-    await rebuilt.startPdfPass()
+    await rebuilt.pdfPass
 
     const database = new Database(databasePath, { readonly: true })
     sqliteVec.load(database)
@@ -10134,7 +10164,7 @@ describe("committed embedding source versions", () => {
       logger,
     )
     await recovered.embedding
-    await recovered.startPdfPass()
+    await recovered.pdfPass
     expect(recovered.count).toBe(1)
     expect(embedder.embedText).toHaveBeenCalledTimes(1)
     expect(inspect.prepare("SELECT note_path, chunk_text FROM note_chunks").all()).toEqual([
@@ -10177,7 +10207,7 @@ describe("committed embedding source versions", () => {
       logger,
     )
     await initial.embedding
-    await initial.startPdfPass()
+    await initial.pdfPass
     const inspect = new Database(dbPath)
     sqliteVec.load(inspect)
     onTestFinished(() => {
@@ -10244,7 +10274,7 @@ describe("committed embedding source versions", () => {
       logger,
     )
     await rebuilt.embedding
-    await rebuilt.startPdfPass()
+    await rebuilt.pdfPass
     for (const store of retainedStores) {
       expect(inspect.prepare(`SELECT * FROM ${store.parentTable} ORDER BY id`).all()).toEqual(
         store.parents,
@@ -10279,7 +10309,7 @@ describe("committed embedding source versions", () => {
       logger,
     )
     await repeated.embedding
-    await repeated.startPdfPass()
+    await repeated.pdfPass
     expect(infoSpy).toHaveBeenCalledWith("rebuilt index", {
       count: 2,
       totalBytes: 71,
@@ -10593,7 +10623,7 @@ describe("file content vector embeddings", () => {
       logger,
     )
     await rebuilt.embedding
-    await rebuilt.startPdfPass()
+    await rebuilt.pdfPass
 
     // The canvas still indexes for its links, so it reached the rebuild's file list
     expect(
@@ -11348,8 +11378,9 @@ describe("body tags", () => {
 
     expect(closedParser.parse).toHaveBeenCalledTimes(1)
     expect(pathsTaggedIn(rebuildIndex, "a")).toEqual([])
-    // Only the rebuild's own line and the stop line, so no "complete" line either
-    expect(rebuildLogger.info).toHaveBeenCalledTimes(2)
+    // The rebuild's own line, the stop line and the PDF pass's summary, so no body-tag
+    // "complete" line.
+    expect(rebuildLogger.info).toHaveBeenCalledTimes(3)
     expect(rebuildLogger.info).toHaveBeenCalledWith("rebuilt index", {
       count: 2,
       totalBytes: 14,

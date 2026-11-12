@@ -235,8 +235,9 @@ const main = async (): Promise<void> => {
       vaultPath: snapshotDir,
       maxFileBytes,
     })
+    pdfExtractor.startIndexing()
     try {
-      const { count, embedding, bodyTags, startPdfPass } = await search.rebuildFromVault(
+      const { count, embedding, bodyTags, pdfPass } = await search.rebuildFromVault(
         { vaultPath: snapshotDir, bodyTagParser, pdfExtractor, maxFileBytes },
         logger,
       )
@@ -248,7 +249,7 @@ const main = async (): Promise<void> => {
 
       // Scoring against a partially embedded index measures indexing order,
       // not ranking — wait for the background pass and fail on any error.
-      await Promise.all([embedding, startPdfPass()])
+      await Promise.all([embedding, pdfPass])
 
       // This finds the embedding pass's warn/error lines by their wording, so a
       // message renamed without "embed" in it would slip past the check.

@@ -43,6 +43,7 @@ describe("startServer", () => {
       close: pdfClose,
       extractForIndex: vi.fn(),
       readText: vi.fn(),
+      startIndexing: vi.fn(),
     })
     vi.mocked(createBodyTagParser).mockReturnValue({ close: parserClose, parse: vi.fn() })
     // The rebuild never finishes, so the signal arrives before any HTTP server exists.
@@ -80,6 +81,7 @@ describe("startServer", () => {
       close: pdfClose,
       extractForIndex: vi.fn(),
       readText: vi.fn(),
+      startIndexing: vi.fn(),
     })
     vi.mocked(createBodyTagParser).mockReturnValue({ close: parserClose, parse: vi.fn() })
     vi.mocked(watchVaultAndBuildIndex).mockRejectedValue(startupError)

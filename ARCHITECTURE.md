@@ -407,7 +407,7 @@ Search indexes file content in the `file_content` + `file_content_fts` tables, c
 | Memory and time      | A 512 MiB V8 heap limit; on Linux, a data limit of 512 MiB above the child's startup footprint, applied with `prlimit` before the first request, and a best-effort `oom_score_adj=1000` so the kernel prefers the child to the server; a 20 s deadline per request. Neither limit is an RSS ceiling, and the data limit does not apply on macOS, where development relies on the heap limit and the deadline |
 | Environment          | The child receives only `PATH`, `HOME`, `TMPDIR`, `TZ` and `LANG` from the server's environment, so no token or vault setting reaches the process that parses PDFs. Its own log output is discarded (`LOG_DIR=none`, stdout and stderr ignored); it reports each failure to the server, which logs it                                                                                                        |
 | File size            | The server checks `MAX_FILE_BYTES` before queueing an index extraction, and the child's bounded read checks again. A file over the cap stays searchable by name; a file exactly at the cap is read                                                                                                                                                                                                           |
-| Scheduling           | One request runs at a time. Tool reads go ahead of queued indexing, and a tool read expires after 60 s in the queue. A new indexing request for a path replaces the one still queued for it                                                                                                                                                                                                                  |
+| Scheduling           | One request runs at a time. Index requests wait in the extractor's queue until the server listens; tool reads go ahead of queued indexing and are never held, and a tool read expires after 60 s in the queue. A new indexing request for a path replaces the one still queued for it                                                                                                                        |
 | Failures             | A crashed child is reaped before its replacement starts, and a request it was serving fails. Shutdown kills the child before the server waits for requests to drain. When `prlimit` cannot apply the data limit, every PDF request fails as a reader start failure and the log names the cause                                                                                                               |
 | Errors a caller sees | A resource failure (the heap limit, the data limit, the deadline) tells the caller to split or re-export the PDF or provide a text copy; queue expiry and shutdown tell the caller to retry later                                                                                                                                                                                                            |
 
@@ -937,8 +937,10 @@ proxy-trust config:
 - Behind API Gateway, `Forwarded` is the only carrier of the client IP:
   the gateway writes that header, folds a client-supplied
   `X-Forwarded-For` into it as leading elements, and sends no
-  `X-Forwarded-For` of its own. The reference deployment therefore runs
-  `TRUST_FORWARDED_HOPS=1`.
+  `X-Forwarded-For` of its own. The reference deployment therefore keeps
+  `TRUST_FORWARDED_HOPS=0` while port 8000 is open, when anyone reaching
+  the port directly could write the header, and sets it to `1` once the
+  hardening makes the gateway the only way in.
 - `TRUST_PROXY_HOPS` (default `0`) sets Express `trust proxy` — how many
   `X-Forwarded-For` hops feed `req.ip`, the bucket key whenever `Forwarded`
   isn't trusted. These counts prevent forged client IPs only when requests
