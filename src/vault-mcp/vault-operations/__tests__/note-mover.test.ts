@@ -3223,6 +3223,35 @@ describe("moveNote — filesystem backlink verification", () => {
     expect(await readNote("Linker.md")).toBe("See [[Bar]] for details.\n")
   })
 
+  it("discovers and rewrites a backlink in another letter case the index missed", async () => {
+    const { writeFixture, moveNote, readNote, logger } = setupVault()
+    await writeFixture("Folder/Real.md", "# Real\n")
+    await writeFixture("Linker.md", "See [[FOLDER/REAL]] for details.\n")
+
+    const result = await moveNote({
+      oldPath: "Folder/Real.md",
+      newPath: "Other/Real.md",
+      backlinkSources: [],
+    })
+
+    expect(result).toEqual({
+      moved_to: "Other/Real.md",
+      links_updated: 1,
+      updated_notes: ["Linker.md"],
+      pruned_empty_folders: 0,
+    })
+    expect(await readNote("Linker.md")).toBe("See [[Other/Real]] for details.\n")
+    expect(vi.mocked(logger.info)).toHaveBeenCalledWith(
+      "backlink verification discovered sources the index missed",
+      {
+        from: "Folder/Real.md",
+        to: "Other/Real.md",
+        additionalSources: ["Linker.md"],
+        attempt: 0,
+      },
+    )
+  })
+
   it("discovers backlinks in frontmatter the index missed", async () => {
     const { writeFixture, moveNote, readNote } = setupVault()
     await writeFixture("Foo.md", "# Foo\n")

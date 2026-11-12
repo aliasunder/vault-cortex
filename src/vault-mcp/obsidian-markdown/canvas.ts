@@ -11,12 +11,12 @@ import { links } from "./links.js"
  * opaque node ids — a reader consuming the raw JSON spends most of its
  * attention on `x`/`y`/`width`/`height` noise and mental id-joins. This
  * transform keeps exactly what carries meaning and re-expresses it as
- * document structure: spatial grouping becomes heading nesting within
- * CANVAS_GROUP_WORK_BUDGET, canvas position becomes reading order
+ * document structure: spatial grouping becomes heading nesting (up to a size
+ * limit, see CANVAS_GROUP_PAIR_LIMIT), canvas position becomes reading order
  * (top-to-bottom, left-to-right), and edges become an `A → B (label)` list
- * with ids resolved to display names. Geometry is dropped entirely — it is presentation, and the
- * rendition is a reading surface, not a round-trippable format (callers
- * wanting fidelity request the raw source instead).
+ * with ids resolved to display names. Geometry is dropped entirely — it is
+ * presentation, and the rendition is a reading surface, not a round-trippable
+ * format (callers wanting fidelity request the raw source instead).
  *
  * The canvas-to-document idea has community precedent — e.g. the
  * Canvas2Document plugin (https://github.com/slnsys/obsidian-canvas2document)
@@ -112,14 +112,17 @@ const isContainedIn = (inner: CanvasNode, outer: CanvasNode): boolean => {
   )
 }
 
-/** The group that owns a node: the smallest-area group strictly containing
- *  it (groups nest, so the smallest container is the innermost). */
+/** The group that owns a node: the smallest-area group, other than the node
+ *  itself, whose rectangle contains it, edges included (groups nest, so the
+ *  smallest container is the innermost). */
 const smallestContainingGroup = (
   node: CanvasNode,
   groups: readonly CanvasNode[],
 ): CanvasNode | undefined => {
   const containing = groups.filter((group) => {
-    if (group.id === node.id || !isContainedIn(node, group)) return false
+    // The node is compared by object because IDs can repeat, and a card that
+    // shares its group's ID still belongs in that group.
+    if (group === node || !isContainedIn(node, group)) return false
     // Two groups with identical rectangles contain each other; without a
     // tiebreak each would claim the other as parent, neither would be
     // top-level, and both would drop out of the render entirely. Give the
@@ -180,12 +183,18 @@ const renderNode = (node: CanvasNode): string => {
   return `[${node.type}]`
 }
 
-// Nesting runs groups × (contentNodes + groups) containment checks, one per
-// node-group pair. The cap bounds that work and still nests 2,800 groups with 2,800 nodes.
-const CANVAS_GROUP_WORK_BUDGET = 16_000_000
+// Nesting needs each node's owning group, so every node is tested against
+// every group: groups × (content nodes + groups) pairs in all. A pair costs at
+// most two containment checks, because a group inside another group is also
+// checked the other way. 16 million pairs covers 4,000 groups alone, or 2,000
+// groups beside 6,000 cards, far past a hand-made canvas, while a crafted
+// canvas with more cannot stall indexing.
+const CANVAS_GROUP_PAIR_LIMIT = 16_000_000
 
+/** True when a canvas with these counts is small enough to render with its
+ *  group nesting; a larger one renders flat, in reading order. */
 export const canNestCanvasGroups = (counts: { contentNodes: number; groups: number }): boolean => {
-  return counts.groups * (counts.contentNodes + counts.groups) <= CANVAS_GROUP_WORK_BUDGET
+  return counts.groups * (counts.contentNodes + counts.groups) <= CANVAS_GROUP_PAIR_LIMIT
 }
 
 const groupHeading = (group: CanvasNode, depth: number): string => {
@@ -194,9 +203,10 @@ const groupHeading = (group: CanvasNode, depth: number): string => {
   return `${heading} Group: ${group.label ?? "(unlabeled)"}`
 }
 
-/** Renders ungrouped nodes, then each group under its heading, depth first.
- *  Buckets are keyed by the node object rather than its id, so a canvas that
- *  repeats an id still renders each node once. */
+/** The node sections with group nesting: ungrouped content first, then each
+ *  top-level group's heading, its content and its child groups, depth first,
+ *  all in reading order. Every node appears once, even when IDs repeat,
+ *  because ownership is keyed by node object, not by ID. */
 const renderNestedNodes = ({
   contentNodes,
   groups,
@@ -211,8 +221,12 @@ const renderNestedNodes = ({
   const sections = ungroupedNodes.map(renderNode)
   const frames = topLevelGroups.toReversed().map((group) => ({ group, depth: 0 }))
 
-  // Reverse pushes retain the buckets' reading order during depth-first traversal.
-  for (let frame = frames.pop(); frame; frame = frames.pop()) {
+  // A stack of groups still to render; the last one pushed renders next, so
+  // groups are pushed in reverse to come out in reading order.
+  while (frames.length) {
+    const frame = frames.pop()
+
+    if (!frame) break
     const { group, depth } = frame
 
     sections.push(groupHeading(group, depth))
@@ -259,9 +273,11 @@ const parseCanvasJson = (canvasJson: string): unknown => {
  * Linearizes .canvas JSON into readable markdown: an overview line, ungrouped
  * node content first, each group's content under a `Group:` heading (nested
  * groups one level deeper), then a `Connections` edge list in `A → B (label)`
- * form with ids resolved to display names. Above CANVAS_GROUP_WORK_BUDGET,
- * node content and group headings stay flat in reading order. Throws on
- * unparseable JSON. Every valid node is rendered once, even when IDs repeat.
+ * form with ids resolved to display names. A canvas too large for nesting
+ * (see canNestCanvasGroups) keeps node content and group headings flat, in
+ * reading order. Throws on unparseable JSON. Every valid node is rendered
+ * once, even when IDs repeat; an edge to a repeated ID names the last such
+ * node in reading order.
  */
 export const linearizeCanvas = (canvasJson: string): string => {
   const parsed = parseCanvasJson(canvasJson)

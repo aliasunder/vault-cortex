@@ -562,6 +562,247 @@ describe("task-mutations", () => {
       expect(content).toBe("## Active\n\n\n## Done\n- [ ] Walk the dog ➕ 2026-07-01 ^walk  \n")
     })
 
+    it("moves a task to a heading whose text is empty when that heading is given", async () => {
+      const vault = await createVault()
+      await writeTestNote(
+        vault,
+        "board.md",
+        "---\nkanban-plugin: board\n---\n\n## Active\n\n- [ ] Task A ➕ 2026-07-01 ^task-a\n- [ ] Task B ➕ 2026-07-02 ^task-b\n\n## \n\n- [ ] Unnamed ➕ 2026-06-01 ^unnamed\n\n## Done\n",
+      )
+
+      const result = await taskMutations.updateTask(
+        {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
+          vaultPath: vault,
+          path: "board.md",
+          blockId: "task-a",
+          heading: "",
+        },
+        logger,
+      )
+
+      expect(result).toEqual({
+        block_id: "task-a",
+        heading: "",
+        path: "board.md",
+        line: 10,
+        description: "Task A",
+        changes: ["heading: Active → "],
+      })
+      const content = await readTestNote(vault, "board.md")
+      expect(content).toBe(
+        "---\nkanban-plugin: board\n---\n\n## Active\n\n- [ ] Task B ➕ 2026-07-02 ^task-b\n\n## \n- [ ] Task A ➕ 2026-07-01 ^task-a\n\n- [ ] Unnamed ➕ 2026-06-01 ^unnamed\n\n## Done\n",
+      )
+    })
+
+    it("moves a task out of a later lane with the target's name into the first one", async () => {
+      const vault = await createVault()
+      await writeTestNote(
+        vault,
+        "board.md",
+        "## Done\n\n- [ ] First ➕ 2026-07-01 ^first\n\n## Active\n\n## Done\n\n- [ ] Second ➕ 2026-07-02 ^second\n",
+      )
+
+      const result = await taskMutations.updateTask(
+        {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
+          vaultPath: vault,
+          path: "board.md",
+          blockId: "second",
+          heading: "Done",
+        },
+        logger,
+      )
+
+      expect(result).toEqual({
+        block_id: "second",
+        heading: "Done",
+        path: "board.md",
+        line: 2,
+        description: "Second",
+        changes: ["heading: Done → Done"],
+      })
+      const content = await readTestNote(vault, "board.md")
+      expect(content).toBe(
+        "## Done\n- [ ] Second ➕ 2026-07-02 ^second\n\n- [ ] First ➕ 2026-07-01 ^first\n\n## Active\n\n## Done\n\n",
+      )
+    })
+
+    it("completes a task in a later lane named Done into the first one when no lane carries the marker", async () => {
+      const vault = await createVault()
+      await writeTestNote(
+        vault,
+        "board.md",
+        "---\nkanban-plugin: board\n---\n\n## Done\n\n- [x] First ➕ 2026-07-01 ^first\n\n## Active\n\n## Done\n\n- [ ] Second ➕ 2026-07-02 ^second\n",
+      )
+
+      const result = await taskMutations.updateTask(
+        {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
+          vaultPath: vault,
+          path: "board.md",
+          blockId: "second",
+          status: "done",
+        },
+        logger,
+      )
+
+      expect(result).toEqual({
+        block_id: "second",
+        heading: "Done",
+        path: "board.md",
+        line: 6,
+        description: "Second",
+        changes: ["status: todo → done", "heading: Done → Done"],
+      })
+      const content = await readTestNote(vault, "board.md")
+      expect(content).toBe(
+        `---\nkanban-plugin: board\n---\n\n## Done\n- [x] Second ➕ 2026-07-02 ✅ ${today()} ^second\n\n- [x] First ➕ 2026-07-01 ^first\n\n## Active\n\n## Done\n\n`,
+      )
+    })
+
+    it("moves a task out of a later lane with the target's name to the bottom of the first one", async () => {
+      const vault = await createVault()
+      await writeTestNote(
+        vault,
+        "board.md",
+        "## Done\n\n- [ ] First ➕ 2026-07-01 ^first\n\n## Active\n\n## Done\n\n- [ ] Second ➕ 2026-07-02 ^second\n",
+      )
+
+      const result = await taskMutations.updateTask(
+        {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
+          vaultPath: vault,
+          path: "board.md",
+          blockId: "second",
+          heading: "Done",
+          position: "bottom",
+        },
+        logger,
+      )
+
+      expect(result).toEqual({
+        block_id: "second",
+        heading: "Done",
+        path: "board.md",
+        line: 4,
+        description: "Second",
+        changes: ["heading: Done → Done"],
+      })
+      const content = await readTestNote(vault, "board.md")
+      expect(content).toBe(
+        "## Done\n\n- [ ] First ➕ 2026-07-01 ^first\n- [ ] Second ➕ 2026-07-02 ^second\n\n## Active\n\n## Done\n\n",
+      )
+    })
+
+    it("moves a task whose block holds an indented heading to the lane given", async () => {
+      const vault = await createVault()
+      await writeTestNote(
+        vault,
+        "notes.md",
+        "## Active\n\n- [ ] Task A ➕ 2026-07-01 ^task-a\n  ### Notes\n  - a sub-item\n\n## Done\n\n## Later\n",
+      )
+
+      const result = await taskMutations.updateTask(
+        {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
+          vaultPath: vault,
+          path: "notes.md",
+          blockId: "task-a",
+          heading: "Done",
+        },
+        logger,
+      )
+
+      expect(result).toEqual({
+        block_id: "task-a",
+        heading: "Done",
+        path: "notes.md",
+        line: 5,
+        description: "Task A",
+        changes: ["heading: Active → Done"],
+      })
+      const content = await readTestNote(vault, "notes.md")
+      expect(content).toBe(
+        "## Active\n\n\n## Done\n- [ ] Task A ➕ 2026-07-01 ^task-a\n  ### Notes\n  - a sub-item\n\n## Later\n",
+      )
+    })
+
+    it("moves a task to the heading given, not to a heading of that name inside its own block", async () => {
+      const vault = await createVault()
+      await writeTestNote(
+        vault,
+        "notes.md",
+        "## Active\n\n- [ ] Task A ➕ 2026-07-01 ^task-a\n  ### Notes\n  - a sub-item\n\n## Notes\n\n- [ ] Task B ➕ 2026-07-02 ^task-b\n",
+      )
+
+      const result = await taskMutations.updateTask(
+        {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
+          vaultPath: vault,
+          path: "notes.md",
+          blockId: "task-a",
+          heading: "Notes",
+        },
+        logger,
+      )
+
+      expect(result).toEqual({
+        block_id: "task-a",
+        heading: "Notes",
+        path: "notes.md",
+        line: 5,
+        description: "Task A",
+        changes: ["heading: Active → Notes"],
+      })
+      const content = await readTestNote(vault, "notes.md")
+      expect(content).toBe(
+        "## Active\n\n\n## Notes\n- [ ] Task A ➕ 2026-07-01 ^task-a\n  ### Notes\n  - a sub-item\n\n- [ ] Task B ➕ 2026-07-02 ^task-b\n",
+      )
+    })
+
+    it("reports a heading found only inside the task's own block as not found", async () => {
+      const vault = await createVault()
+      const content =
+        "## Active\n\n- [ ] Task A ➕ 2026-07-01 ^task-a\n  ### Notes\n  - a sub-item\n"
+      await writeTestNote(vault, "notes.md", content)
+
+      await expect(
+        taskMutations.updateTask(
+          {
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
+            vaultPath: vault,
+            path: "notes.md",
+            blockId: "task-a",
+            heading: "Notes",
+          },
+          logger,
+        ),
+      ).rejects.toThrow(new Error('heading "Notes" not found; available: Active'))
+      expect(await readTestNote(vault, "notes.md")).toBe(content)
+    })
+
+    it("reports no done lane when the only Done heading sits inside the completing card's block", async () => {
+      const vault = await createVault()
+      const content =
+        "---\nkanban-plugin: board\n---\n\n## Active\n\n- [ ] Task A ➕ 2026-07-01 ^task-a\n  ### Done\n  - [x] Step 1\n"
+      await writeTestNote(vault, "board.md", content)
+
+      await expect(
+        taskMutations.updateTask(
+          {
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
+            vaultPath: vault,
+            path: "board.md",
+            blockId: "task-a",
+            status: "done",
+          },
+          logger,
+        ),
+      ).rejects.toThrow(new Error("no done lane detected"))
+      expect(await readTestNote(vault, "board.md")).toBe(content)
+    })
+
     it("moves a task with sub-items", async () => {
       const vault = await createVault()
       await writeTestNote(vault, "board.md", KANBAN_WITH_SUBITEMS)
@@ -621,6 +862,105 @@ describe("task-mutations", () => {
       )
     })
 
+    it("auto-completes to a **Complete** marker lane whose heading has no text", async () => {
+      const vault = await createVault()
+      await writeTestNote(
+        vault,
+        "board.md",
+        "---\nkanban-plugin: board\n---\n\n## Active\n\n- [ ] Task A ➕ 2026-07-01 ^task-a\n\n## \n\n**Complete**\n- [x] Old task ➕ 2026-06-01 ✅ 2026-06-10\n",
+      )
+
+      const result = await taskMutations.updateTask(
+        {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
+          vaultPath: vault,
+          path: "board.md",
+          blockId: "task-a",
+          status: "done",
+        },
+        logger,
+      )
+
+      expect(result).toEqual({
+        block_id: "task-a",
+        heading: "",
+        path: "board.md",
+        line: 11,
+        description: "Task A",
+        changes: ["status: todo → done", "heading: Active → "],
+      })
+      const content = await readTestNote(vault, "board.md")
+      expect(content).toBe(
+        `---\nkanban-plugin: board\n---\n\n## Active\n\n\n## \n\n**Complete**\n- [x] Task A ➕ 2026-07-01 ✅ ${today()} ^task-a\n- [x] Old task ➕ 2026-06-01 ✅ 2026-06-10\n`,
+      )
+    })
+
+    it("auto-completes to the **Complete** lane, not an earlier lane with the same empty name", async () => {
+      const vault = await createVault()
+      await writeTestNote(
+        vault,
+        "board.md",
+        "---\nkanban-plugin: board\n---\n\n## \n\n- [ ] Unnamed ➕ 2026-06-01 ^unnamed\n\n## Active\n\n- [ ] Task A ➕ 2026-07-01 ^task-a\n\n## \n\n**Complete**\n- [x] Old task ➕ 2026-06-01 ✅ 2026-06-10\n",
+      )
+
+      const result = await taskMutations.updateTask(
+        {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
+          vaultPath: vault,
+          path: "board.md",
+          blockId: "task-a",
+          status: "done",
+        },
+        logger,
+      )
+
+      expect(result).toEqual({
+        block_id: "task-a",
+        heading: "",
+        path: "board.md",
+        line: 15,
+        description: "Task A",
+        changes: ["status: todo → done", "heading: Active → "],
+      })
+      const content = await readTestNote(vault, "board.md")
+      expect(content).toBe(
+        `---\nkanban-plugin: board\n---\n\n## \n\n- [ ] Unnamed ➕ 2026-06-01 ^unnamed\n\n## Active\n\n\n## \n\n**Complete**\n- [x] Task A ➕ 2026-07-01 ✅ ${today()} ^task-a\n- [x] Old task ➕ 2026-06-01 ✅ 2026-06-10\n`,
+      )
+    })
+
+    it("auto-completes to the **Complete** lane, not an earlier lane with the same name", async () => {
+      const vault = await createVault()
+      await writeTestNote(
+        vault,
+        "board.md",
+        "---\nkanban-plugin: board\n---\n\n## Active\n\n- [ ] Task A ➕ 2026-07-01 ^task-a\n\n## Done\n\n- [ ] Not finished ➕ 2026-06-01 ^not-finished\n\n## Done\n\n**Complete**\n- [x] Old task ➕ 2026-06-01 ✅ 2026-06-10\n",
+      )
+
+      const result = await taskMutations.updateTask(
+        {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
+          vaultPath: vault,
+          path: "board.md",
+          blockId: "task-a",
+          status: "done",
+        },
+        logger,
+      )
+
+      expect(result).toEqual({
+        block_id: "task-a",
+        heading: "Done",
+        path: "board.md",
+        line: 15,
+        description: "Task A",
+        changes: ["status: todo → done", "heading: Active → Done"],
+      })
+      const content = await readTestNote(vault, "board.md")
+      expect(content).toBe(
+        `---\nkanban-plugin: board\n---\n\n## Active\n\n\n## Done\n\n- [ ] Not finished ➕ 2026-06-01 ^not-finished\n\n## Done\n\n**Complete**\n- [x] Task A ➕ 2026-07-01 ✅ ${today()} ^task-a\n- [x] Old task ➕ 2026-06-01 ✅ 2026-06-10\n`,
+      )
+    })
+
     it("auto-completes to 'Done' heading as fallback", async () => {
       const vault = await createVault()
       await writeTestNote(vault, "board.md", KANBAN_BOARD)
@@ -650,6 +990,39 @@ describe("task-mutations", () => {
         `\n- [x] In-progress task ➕ 2026-07-01 ✅ ${today()} ^active-task\n\n- [x] Completed ➕ 2026-06-01 ✅ 2026-06-15\n\n`,
       )
       expect(result.changes).toEqual(["status: in_progress → done", "heading: Active → Done"])
+    })
+
+    it("auto-completes to the 'Done' lane, not a 'Done' heading inside the card", async () => {
+      const vault = await createVault()
+      await writeTestNote(
+        vault,
+        "board.md",
+        "---\nkanban-plugin: board\n---\n\n## Active\n\n- [ ] Task A ➕ 2026-07-01 ^task-a\n  ### Done\n  - [x] Step 1\n\n## Done\n",
+      )
+
+      const result = await taskMutations.updateTask(
+        {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
+          vaultPath: vault,
+          path: "board.md",
+          blockId: "task-a",
+          status: "done",
+        },
+        logger,
+      )
+
+      expect(result).toEqual({
+        block_id: "task-a",
+        heading: "Done",
+        path: "board.md",
+        line: 9,
+        description: "Task A",
+        changes: ["status: todo → done", "heading: Active → Done"],
+      })
+      const content = await readTestNote(vault, "board.md")
+      expect(content).toBe(
+        `---\nkanban-plugin: board\n---\n\n## Active\n\n\n## Done\n- [x] Task A ➕ 2026-07-01 ✅ ${today()} ^task-a\n  ### Done\n  - [x] Step 1\n`,
+      )
     })
 
     it("moves a task between headings in a non-Kanban note", async () => {
@@ -1046,6 +1419,40 @@ title: Tasks
       const content = await readTestNote(vault, "tasks.md")
       expect(content).toBe(
         `---\ntitle: Tasks\n---\n\n- [ ] Buy groceries ➕ 2026-07-01\n- [ ] Walk the dog ➕ 2026-07-02 ^walk-dog\n- [x] Done task ➕ 2026-07-01 ✅ 2026-07-10\n\n- [ ] New task ➕ ${today()} ^new-task\n`,
+      )
+    })
+
+    it("creates a task under a heading whose text is empty", async () => {
+      const vault = await createVault()
+      await writeTestNote(
+        vault,
+        "notes.md",
+        "## Ideas\n\n- [ ] First idea\n\n## \n\n- [ ] Unnamed\n",
+      )
+
+      const result = await taskMutations.createTask(
+        {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
+          vaultPath: vault,
+          path: "notes.md",
+          description: "Under the empty heading",
+          blockId: "unnamed-lane",
+          heading: "",
+        },
+        logger,
+      )
+
+      expect(result).toEqual({
+        path: "notes.md",
+        line: 8,
+        description: "Under the empty heading",
+        block_id: "unnamed-lane",
+        heading: "",
+        changes: [`created: (none) → ${today()}`],
+      })
+      const content = await readTestNote(vault, "notes.md")
+      expect(content).toBe(
+        `## Ideas\n\n- [ ] First idea\n\n## \n\n- [ ] Unnamed\n- [ ] Under the empty heading ➕ ${today()} ^unnamed-lane\n`,
       )
     })
 
@@ -1524,6 +1931,28 @@ kanban-plugin: board
       expect(content).toBe(KANBAN_BOARD)
     })
 
+    it("errors when a parent and a heading whose text is empty are both provided", async () => {
+      const vault = await createVault()
+      await writeTestNote(vault, "board.md", KANBAN_BOARD)
+
+      await expect(
+        taskMutations.createTask(
+          {
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
+            vaultPath: vault,
+            path: "board.md",
+            description: "Conflicting",
+            blockId: "conflicting",
+            parentBlockId: "active-task",
+            heading: "",
+          },
+          logger,
+        ),
+      ).rejects.toThrow(new Error("parent and heading are mutually exclusive"))
+      const content = await readTestNote(vault, "board.md")
+      expect(content).toBe(KANBAN_BOARD)
+    })
+
     it("errors when a subtasks item is whitespace-only", async () => {
       const vault = await createVault()
       await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
@@ -1556,6 +1985,26 @@ kanban-plugin: board
             vaultPath: vault,
             path: "tasks.md",
             description: "Line one\nLine two",
+            blockId: "two-lines",
+          },
+          logger,
+        ),
+      ).rejects.toThrow(new Error("description must be a single line"))
+      const content = await readTestNote(vault, "tasks.md")
+      expect(content).toBe(SIMPLE_NOTE)
+    })
+
+    it("errors when the description contains a Unicode line separator", async () => {
+      const vault = await createVault()
+      await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
+
+      await expect(
+        taskMutations.createTask(
+          {
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
+            vaultPath: vault,
+            path: "tasks.md",
+            description: "Line one\u2028Line two",
             blockId: "two-lines",
           },
           logger,
@@ -2148,6 +2597,39 @@ kanban-plugin: board
       )
     })
 
+    it("indents add_subtasks like the first checklist item when a blank line sits above it", async () => {
+      const vault = await createVault()
+      await writeTestNote(
+        vault,
+        "tasks.md",
+        "---\ntitle: Tasks\n---\n\n- [ ] Walk the dog ➕ 2026-07-02 ^walk-dog\n\n    - [x] Find the leash\n- [ ] Buy groceries ➕ 2026-07-01\n",
+      )
+
+      const result = await taskMutations.updateTask(
+        {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
+          vaultPath: vault,
+          path: "tasks.md",
+          blockId: "walk-dog",
+          addSubtasks: ["Lock the door"],
+        },
+        logger,
+      )
+
+      expect(result).toEqual({
+        block_id: "walk-dog",
+        path: "tasks.md",
+        line: 5,
+        description: "Walk the dog",
+        subtasks: [{ line: 8, description: "Lock the door" }],
+        changes: ["subtasks: 1 → 2"],
+      })
+      const content = await readTestNote(vault, "tasks.md")
+      expect(content).toBe(
+        "---\ntitle: Tasks\n---\n\n- [ ] Walk the dog ➕ 2026-07-02 ^walk-dog\n\n    - [x] Find the leash\n    - [ ] Lock the door\n- [ ] Buy groceries ➕ 2026-07-01\n",
+      )
+    })
+
     it("assigns a block_id to a task without one", async () => {
       const vault = await createVault()
       await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
@@ -2242,6 +2724,56 @@ kanban-plugin: board
       ).rejects.toThrow(new Error('blockId "dup" already exists in this note'))
       const content = await readTestNote(vault, "tasks.md")
       expect(content).toBe("- [ ] Task A ➕ 2026-01-01 ^dup  \n- [ ] Task B ➕ 2026-01-02 ^other\n")
+    })
+
+    it("rejects an empty assignBlockId instead of rewriting the note unchanged", async () => {
+      const vault = await createVault()
+      await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
+
+      await expect(
+        taskMutations.updateTask(
+          {
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
+            vaultPath: vault,
+            path: "tasks.md",
+            blockId: "walk-dog",
+            assignBlockId: "",
+          },
+          logger,
+        ),
+      ).rejects.toThrow(new Error("assignBlockId cannot be empty (use null to remove the id)"))
+      const content = await readTestNote(vault, "tasks.md")
+      expect(content).toBe(SIMPLE_NOTE)
+    })
+
+    it("reports a description ending in a block-id lookalike as the written line parses it", async () => {
+      const vault = await createVault()
+      // The task line has nothing after its description, so the new
+      // description placed on it alone would end in "^c1" as a block id.
+      await writeTestNote(vault, "tasks.md", "---\ntitle: Tasks\n---\n\n- [ ] Bare task\n")
+
+      // The priority edit appends metadata after the new description, so the
+      // written line holds "^c1" mid-line as text, not as a trailing block id.
+      const result = await taskMutations.updateTask(
+        {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
+          vaultPath: vault,
+          path: "tasks.md",
+          line: 5,
+          description: "Renamed ^c1",
+          priority: "high",
+        },
+        logger,
+      )
+
+      expect(result).toEqual({
+        path: "tasks.md",
+        line: 5,
+        description: "Renamed ^c1",
+        changes: ["priority: (none) → high", "description: Bare task → Renamed ^c1"],
+      })
+      const content = await readTestNote(vault, "tasks.md")
+      expect(content).toBe("---\ntitle: Tasks\n---\n\n- [ ] Renamed ^c1 ⏫\n")
     })
 
     it("replaces an existing block_id", async () => {
@@ -2341,6 +2873,42 @@ kanban-plugin: board
           "cannot move a sub-task to a heading — the parent's heading determines placement",
         ),
       )
+    })
+
+    it("errors when a heading whose text is empty is set on a sub-task", async () => {
+      const vault = await createVault()
+      await writeTestNote(vault, "board.md", KANBAN_WITH_SUBITEMS)
+
+      const created = await taskMutations.createTask(
+        {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
+          vaultPath: vault,
+          path: "board.md",
+          description: "Sub for empty heading test",
+          parentBlockId: "parent",
+        },
+        logger,
+      )
+      const contentBefore = await readTestNote(vault, "board.md")
+
+      await expect(
+        taskMutations.updateTask(
+          {
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
+            vaultPath: vault,
+            path: "board.md",
+            line: created.line,
+            heading: "",
+          },
+          logger,
+        ),
+      ).rejects.toThrow(
+        new Error(
+          "cannot move a sub-task to a heading — the parent's heading determines placement",
+        ),
+      )
+      const contentAfter = await readTestNote(vault, "board.md")
+      expect(contentAfter).toBe(contentBefore)
     })
 
     it("errors on a malformed date in update", async () => {
@@ -2465,6 +3033,26 @@ kanban-plugin: board
             path: "tasks.md",
             blockId: "walk-dog",
             description: "Walk the dog\nthen feed it",
+          },
+          logger,
+        ),
+      ).rejects.toThrow(new Error("description must be a single line"))
+      const content = await readTestNote(vault, "tasks.md")
+      expect(content).toBe(SIMPLE_NOTE)
+    })
+
+    it("errors when the new description contains a Unicode paragraph separator", async () => {
+      const vault = await createVault()
+      await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
+
+      await expect(
+        taskMutations.updateTask(
+          {
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
+            vaultPath: vault,
+            path: "tasks.md",
+            blockId: "walk-dog",
+            description: "Walk the dog\u2029then feed it",
           },
           logger,
         ),
@@ -2986,7 +3574,9 @@ kanban-plugin: board
 
       // ── integer position ──────────────────────────────────────
 
-      it("inserts at position 2 after counting a card that opens a comment", async () => {
+      // The index skips a task line that opens a `%%` comment, so the lane
+      // positions below count only First and Second.
+      it("inserts at position 2 without counting a task line that opens a comment", async () => {
         const vault = await createVault()
         const board =
           "## Active\n- [ ] Commented %%\n%%\n- [ ] First ^first\n- [ ] Second ^second\n"
@@ -3007,18 +3597,18 @@ kanban-plugin: board
 
         expect(created).toEqual({
           path: "board.md",
-          line: 4,
+          line: 5,
           description: "Inserted",
           block_id: "inserted",
           heading: "Active",
           changes: [`created: (none) → ${today()}`],
         })
         expect(await readTestNote(vault, "board.md")).toBe(
-          `## Active\n- [ ] Commented %%\n%%\n- [ ] Inserted ➕ ${today()} ^inserted\n- [ ] First ^first\n- [ ] Second ^second\n`,
+          `## Active\n- [ ] Commented %%\n%%\n- [ ] First ^first\n- [ ] Inserted ➕ ${today()} ^inserted\n- [ ] Second ^second\n`,
         )
       })
 
-      it("reports position 3 when reordering after a card that opens a comment", async () => {
+      it("reorders to position 1 without counting a task line that opens a comment", async () => {
         const vault = await createVault()
         const board =
           "## Active\n- [ ] Commented %%\n%%\n- [ ] First ^first\n- [ ] Second ^second\n"
@@ -3030,14 +3620,86 @@ kanban-plugin: board
             vaultPath: vault,
             path: "board.md",
             blockId: "second",
+            position: 1,
+          },
+          logger,
+        )
+
+        expect(moved.changes).toEqual(["position: 2 → 1"])
+        expect(await readTestNote(vault, "board.md")).toBe(
+          "## Active\n- [ ] Commented %%\n%%\n- [ ] Second ^second\n- [ ] First ^first\n",
+        )
+      })
+
+      // The updated task's own line is counted even when its new description
+      // opens a comment: the caller wrote that text, and the line was a card
+      // when the call found it.
+      it("reorders a task whose new description opens a comment", async () => {
+        const vault = await createVault()
+        await writeTestNote(
+          vault,
+          "board.md",
+          "## Active\n- [ ] First ^first\n- [ ] Second\n- [ ] Third ^third\n",
+        )
+
+        const moved = await taskMutations.updateTask(
+          {
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
+            vaultPath: vault,
+            path: "board.md",
+            line: 3,
+            description: "Call Bob %%private%%",
+            position: 1,
+          },
+          logger,
+        )
+
+        expect(moved).toEqual({
+          path: "board.md",
+          line: 2,
+          description: "Call Bob %%private%%",
+          heading: "Active",
+          changes: ["description: Second → Call Bob %%private%%", "position: 2 → 1"],
+        })
+        expect(await readTestNote(vault, "board.md")).toBe(
+          "## Active\n- [ ] Call Bob %%private%%\n- [ ] First ^first\n- [ ] Third ^third\n",
+        )
+      })
+
+      it("moves a task whose new description opens a comment to a position in another lane", async () => {
+        const vault = await createVault()
+        await writeTestNote(
+          vault,
+          "board.md",
+          "## Active\n- [ ] First ^first\n- [ ] Second\n## Up Next\n- [ ] Later ^later\n- [ ] Last ^last\n",
+        )
+
+        const moved = await taskMutations.updateTask(
+          {
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
+            vaultPath: vault,
+            path: "board.md",
+            line: 3,
+            description: "Call Bob %%private%%",
+            heading: "Up Next",
             position: 2,
           },
           logger,
         )
 
-        expect(moved.changes).toEqual(["position: 3 → 2"])
+        expect(moved).toEqual({
+          path: "board.md",
+          line: 5,
+          description: "Call Bob %%private%%",
+          heading: "Up Next",
+          changes: [
+            "description: Second → Call Bob %%private%%",
+            "heading: Active → Up Next",
+            "position: 2 → 2",
+          ],
+        })
         expect(await readTestNote(vault, "board.md")).toBe(
-          "## Active\n- [ ] Commented %%\n%%\n- [ ] Second ^second\n- [ ] First ^first\n",
+          "## Active\n- [ ] First ^first\n## Up Next\n- [ ] Later ^later\n- [ ] Call Bob %%private%%\n- [ ] Last ^last\n",
         )
       })
 
@@ -3573,6 +4235,36 @@ kanban-plugin: board
         expect(result.changes).toEqual(["position: 1 → 3"])
       })
 
+      it("same-lane reorder works in a lane whose heading has no text", async () => {
+        const vault = await createVault()
+        const board = `---\ntitle: Board\nkanban-plugin: board\n---\n\n## Active\n\n- [ ] Alpha ^alpha\n\n## \n\n- [ ] Bravo ^bravo\n- [ ] Charlie ^charlie\n\n## Done\n`
+        await writeTestNote(vault, "board.md", board)
+
+        const result = await taskMutations.updateTask(
+          {
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
+            vaultPath: vault,
+            path: "board.md",
+            blockId: "charlie",
+            position: 1,
+          },
+          logger,
+        )
+
+        expect(result).toEqual({
+          path: "board.md",
+          line: 12,
+          description: "Charlie",
+          block_id: "charlie",
+          heading: "",
+          changes: ["position: 2 → 1"],
+        })
+        const content = await readTestNote(vault, "board.md")
+        expect(content).toBe(
+          `---\ntitle: Board\nkanban-plugin: board\n---\n\n## Active\n\n- [ ] Alpha ^alpha\n\n## \n\n- [ ] Charlie ^charlie\n- [ ] Bravo ^bravo\n\n## Done\n`,
+        )
+      })
+
       it("same-lane reorder skips NON_TASK checkboxes in position count", async () => {
         const vault = await createVault()
         const board = [
@@ -3715,6 +4407,30 @@ kanban-plugin: board
         const content = await readTestNote(vault, "notes.md")
         expect(content).toBe(
           `---\ntitle: Notes\n---\n\n## Active\n\n- [ ] Alpha ^alpha\n- [ ] Bravo ^bravo\n- [ ] Charlie ➕ ${today()} ^charlie\n\nSome trailing notes about the lane.\n\n## Done\n`,
+        )
+      })
+
+      it("integer overshoot lands after the last card's sub-items", async () => {
+        const vault = await createVault()
+        const note = `---\ntitle: Notes\n---\n\n## Active\n\n- [ ] Alpha ^alpha\n- [ ] Bravo ^bravo\n  - [ ] Bravo step\n\nSome trailing notes about the lane.\n\n## Done\n`
+        await writeTestNote(vault, "notes.md", note)
+
+        await taskMutations.createTask(
+          {
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
+            vaultPath: vault,
+            path: "notes.md",
+            description: "Charlie",
+            blockId: "charlie",
+            heading: "Active",
+            position: 99,
+          },
+          logger,
+        )
+
+        const content = await readTestNote(vault, "notes.md")
+        expect(content).toBe(
+          `---\ntitle: Notes\n---\n\n## Active\n\n- [ ] Alpha ^alpha\n- [ ] Bravo ^bravo\n  - [ ] Bravo step\n- [ ] Charlie ➕ ${today()} ^charlie\n\nSome trailing notes about the lane.\n\n## Done\n`,
         )
       })
 
@@ -4048,6 +4764,35 @@ kanban-plugin: board
         })
         expect(await readTestNote(vault, "notes.md")).toBe(
           `---\ntitle: Notes\n---\n\n## Active\n\n- [ ] Loose ^loose\n- [ ] Alpha ^alpha\n`,
+        )
+      })
+
+      it("moves a task from above the first heading to a heading whose text is the no-heading placeholder", async () => {
+        const vault = await createVault()
+        const note = `---\ntitle: Notes\n---\n- [ ] Loose ^loose\n\n## (before first heading)\n\n- [ ] Alpha ^alpha\n`
+        await writeTestNote(vault, "notes.md", note)
+
+        const result = await taskMutations.updateTask(
+          {
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
+            vaultPath: vault,
+            path: "notes.md",
+            blockId: "loose",
+            heading: "(before first heading)",
+          },
+          logger,
+        )
+
+        expect(result).toEqual({
+          path: "notes.md",
+          line: 6,
+          description: "Loose",
+          block_id: "loose",
+          heading: "(before first heading)",
+          changes: ["heading: (before first heading) → (before first heading)"],
+        })
+        expect(await readTestNote(vault, "notes.md")).toBe(
+          `---\ntitle: Notes\n---\n\n## (before first heading)\n- [ ] Loose ^loose\n\n- [ ] Alpha ^alpha\n`,
         )
       })
 
@@ -7294,6 +8039,72 @@ title: Tasks
       ).rejects.toThrow(
         new Error("parent task not found: line 6 is inside a fenced code block or comment"),
       )
+    })
+
+    // The index skips a task line that opens a `%%` comment, so a line-addressed
+    // call refuses it the way it refuses a line inside the comment.
+    const COMMENT_OPENING_TASK_NOTE = `---\ntitle: Tasks\n---\n\n- [ ] Commented %%\n%%\n\n- [ ] Real task ➕ 2026-07-01 ^real\n`
+
+    it("updateTask rejects a line-addressed task line that opens a comment", async () => {
+      const vault = await createVault()
+      await writeTestNote(vault, "tasks.md", COMMENT_OPENING_TASK_NOTE)
+
+      await expect(
+        taskMutations.updateTask(
+          {
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
+            vaultPath: vault,
+            path: "tasks.md",
+            line: 5,
+            status: "done",
+          },
+          logger,
+        ),
+      ).rejects.toThrow(new Error("line 5 is inside a fenced code block or comment"))
+    })
+
+    it("createTask rejects a line-addressed parent that opens a comment", async () => {
+      const vault = await createVault()
+      await writeTestNote(vault, "tasks.md", COMMENT_OPENING_TASK_NOTE)
+
+      await expect(
+        taskMutations.createTask(
+          {
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
+            vaultPath: vault,
+            path: "tasks.md",
+            description: "Child",
+            blockId: "child",
+            parentLine: 5,
+          },
+          logger,
+        ),
+      ).rejects.toThrow(
+        new Error("parent task not found: line 5 is inside a fenced code block or comment"),
+      )
+      expect(await readTestNote(vault, "tasks.md")).toBe(COMMENT_OPENING_TASK_NOTE)
+    })
+
+    it("createTask treats a block id ending a line that opens a comment as taken", async () => {
+      const vault = await createVault()
+      await writeTestNote(
+        vault,
+        "tasks.md",
+        `---\ntitle: Tasks\n---\n\n%% note ^taken\n%%\n\n- [ ] Real task ➕ 2026-07-01 ^real\n`,
+      )
+
+      await expect(
+        taskMutations.createTask(
+          {
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
+            vaultPath: vault,
+            path: "tasks.md",
+            description: "New task",
+            blockId: "taken",
+          },
+          logger,
+        ),
+      ).rejects.toThrow(new Error('blockId "taken" already exists in this note'))
     })
   })
 })
