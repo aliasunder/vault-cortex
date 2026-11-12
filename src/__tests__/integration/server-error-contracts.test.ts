@@ -2515,6 +2515,28 @@ describe("task errors", () => {
     )
   })
 
+  it("vault_update_task with an empty expected_description for a task with text", async () => {
+    await callTool({
+      client,
+      name: "vault_write_note",
+      args: { path: "Projects/empty-expected.md", body: "- [ ] Has text\n" },
+    })
+    const result = await callTool({
+      client,
+      name: "vault_update_task",
+      args: {
+        path: "Projects/empty-expected.md",
+        line: 1,
+        expected_description: "",
+        status: "done",
+      },
+    })
+    expectToolError(
+      result,
+      'the task at line 1 in "Projects/empty-expected.md" has a different description',
+    )
+  })
+
   it("vault_create_task with duplicate block_id", async () => {
     const result = await callTool({
       client,
