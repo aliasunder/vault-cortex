@@ -99,6 +99,10 @@ type UpdateTaskParams = {
   statusRegistry: ReadonlyMap<string, StatusClassification>
   blockId?: string | undefined
   line?: number | undefined
+  /** The task's description as the caller last read it. A precondition, not
+   *  a change: the update is refused before any write when the located task's
+   *  parsed description differs. */
+  expectedDescription?: string | undefined
   status?: TaskStatus | undefined
   priority?: TaskPriority | null | undefined
   recurrence?: string | null | undefined
@@ -2326,6 +2330,7 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
     statusRegistry,
     blockId,
     line,
+    expectedDescription,
     status,
     onCompletion,
     heading: targetHeadingParam,
@@ -2391,6 +2396,18 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
     // scans disagree
     if (!taskBefore) {
       throw new Error(`task line index ${taskLineIndex} does not parse as a task`)
+    }
+
+    // A line from an earlier listing can hold a different task after another
+    // write shifts the note. The check runs before every edit, lane move,
+    // recurrence spawn and deletion below. Both descriptions come from
+    // extractTasks, which trims, so the comparison is exact. The strict
+    // undefined check keeps "" comparable, since a task's text can be empty.
+    const descriptionDiffers =
+      expectedDescription !== undefined && taskBefore.description !== expectedDescription.trim()
+
+    if (descriptionDiffers) {
+      throw new Error(`the task at line ${taskFileLine} in "${path}" has a different description`)
     }
     const isSubtask = taskBefore.depth > 0
 
