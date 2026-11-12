@@ -771,7 +771,7 @@ type BlockIdLookup =
   | { status: "not_found" }
 
 /** Finds the task line ending in ` ^blockId`, skipping the fenced code and
- *  `%% %%` comment lines validateBlockId also skips. Only actionable tasks
+ *  `%% %%` comment lines the task index skips. Only actionable tasks
  *  count toward a match, so an id on two of them is ambiguous. A NON_TASK
  *  checkbox is "found" only when no actionable task carries the id; the
  *  caller then refuses that line through rejectNonTaskCheckbox. */
@@ -785,51 +785,16 @@ const findTaskLineByBlockId = ({
   statusRegistry: ReadonlyMap<string, StatusClassification>
 }): BlockIdLookup => {
   const suffix = ` ^${blockId}`
-  // Sequential parser state — fence and comment scanners are inherently stateful.
-  let openFence: OpenFence = null
-  let commentOpen = false
-  let hasMatchInFenceOrComment = false
+  const { excludedFromTasks } = findFenceOrCommentLineIndices(bodyLines)
+  const fenceOrCommentIndices: number[] = []
   const actionableIndices: number[] = []
   const nonTaskIndices: number[] = []
 
-  for (let index = 0; index < bodyLines.length; index++) {
-    const lineText = bodyLines[index]
-
-    // Empty strings are valid body lines (blank lines), so only undefined is skipped.
-    if (lineText === undefined) continue
-
-    // - Each scanner hides the other's markers: an open %% comment hides fence
-    //   markers, and a code line hides %%. So the fence scanner skips lines
-    //   inside a comment, and the comment scanner skips code lines.
-    // - This comment test also marks a line that starts or ends with `%%`,
-    //   which validateBlockId's excludedFromBlockIds does not. A task line
-    //   ending in a valid ` ^id` does neither, so the two agree on it.
-    let isExcluded = false
-
-    if (!commentOpen) {
-      const fenceResult = advanceFence(lineText, openFence)
-      openFence = fenceResult.openFence
-
-      if (fenceResult.lineIsCode) {
-        isExcluded = true
-      }
-    }
-
-    if (!isExcluded) {
-      const commentResult = advanceComment(lineText, commentOpen)
-      commentOpen = commentResult.commentOpen
-
-      if (commentResult.lineIsComment) {
-        isExcluded = true
-      }
-    }
-
-    // The scanners must see every line to keep their state, so the id
-    // filter runs after them.
+  for (const [index, lineText] of bodyLines.entries()) {
     if (!lineText.trimEnd().endsWith(suffix) || !tasks.isTaskLine(lineText)) continue
 
-    if (isExcluded) {
-      hasMatchInFenceOrComment = true
+    if (excludedFromTasks.has(index)) {
+      fenceOrCommentIndices.push(index)
       continue
     }
 
@@ -854,7 +819,9 @@ const findTaskLineByBlockId = ({
   if (firstNonTaskIndex !== undefined) {
     return { status: "found", index: firstNonTaskIndex }
   }
-  return hasMatchInFenceOrComment ? { status: "only_in_fence_or_comment" } : { status: "not_found" }
+  return fenceOrCommentIndices.length > 0
+    ? { status: "only_in_fence_or_comment" }
+    : { status: "not_found" }
 }
 
 /** 1-based file lines for body-line indices, joined for an error message.
