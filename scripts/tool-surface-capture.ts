@@ -137,6 +137,16 @@ export const captureToolSurface = async (combo: SurfaceCombo): Promise<SurfaceCa
   const registrationContext = {
     server,
     vaultPath: "/vault",
+    pdfExtractor: {
+      extractForIndex: async () => {
+        throw new Error("registration must not extract PDFs")
+      },
+      readText: async () => {
+        throw new Error("registration must not read PDFs")
+      },
+      close: async () => {},
+      startIndexing: () => {},
+    },
     search: createSearchIndex(":memory:", undefined, undefined, {
       memoryDir: config.memoryDir,
     }),

@@ -1,3 +1,4 @@
+import { unusedPdfExtractor } from "../../../__tests__/helpers/pdf-extractor.js"
 import { describe, it, expect, beforeEach, afterEach, onTestFinished, vi } from "vitest"
 import express from "express"
 import { randomUUID } from "node:crypto"
@@ -6,6 +7,7 @@ import type { AddressInfo } from "node:net"
 import { createMcpRouter } from "../mcp-router.js"
 import { loadConfig } from "../../config.js"
 import type { SearchIndex } from "../../search/search-index.js"
+import { stubSearchIndex } from "./helpers/stub-search-index.js"
 import type { OAuthServerProvider } from "@modelcontextprotocol/sdk/server/auth/provider.js"
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js"
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
@@ -156,7 +158,7 @@ const setupHarness = async (
     (opts.authMiddleware ?? allowAuth) as unknown as ReturnType<typeof requireBearerAuth>,
   )
 
-  const search = {} as SearchIndex
+  const search = stubSearchIndex()
   const provider = {} as OAuthServerProvider
   const config = opts.config ?? DEFAULT_CONFIG
 
@@ -168,6 +170,7 @@ const setupHarness = async (
   app.use(
     createMcpRouter({
       vaultPath: VAULT_PATH,
+      pdfExtractor: unusedPdfExtractor,
       search,
       provider,
       config,
@@ -632,6 +635,7 @@ Vault content is Obsidian Flavored Markdown. Write tools pass content through wi
         server: harness.serverInstances[0],
         vaultPath: VAULT_PATH,
         search: harness.search,
+        pdfExtractor: unusedPdfExtractor,
         logger: sessionLoggerResult.value,
         config: DEFAULT_CONFIG,
       })

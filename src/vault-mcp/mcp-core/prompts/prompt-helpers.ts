@@ -41,6 +41,18 @@ export const formatNoteLine = (note: { path: string; title: string }): string =>
   return note.title.length > 0 ? `- ${note.path} — ${note.title}` : `- ${note.path}`
 }
 
+/** Runs a prompt handler as foreground work: the index counts it as in flight, and
+ *  background embedding waits while it runs, because model inference would share
+ *  the one JavaScript thread with it. The generic parameters carry the SDK's
+ *  `registerPrompt` callback type to the handler passed in, which types that
+ *  handler's `args` and `extra`. */
+export const trackedPromptHandler = <HandlerArgs extends unknown[], HandlerResult>(
+  search: Pick<SearchIndex, "trackForegroundWork">,
+  handler: (...handlerArgs: HandlerArgs) => Promise<HandlerResult>,
+): ((...handlerArgs: HandlerArgs) => Promise<HandlerResult>) => {
+  return (...handlerArgs) => search.trackForegroundWork(() => handler(...handlerArgs))
+}
+
 /** Wraps assembled text as a single user-role prompt message. */
 export const textResult = (text: string): GetPromptResult => ({
   messages: [{ role: "user", content: { type: "text", text } }],

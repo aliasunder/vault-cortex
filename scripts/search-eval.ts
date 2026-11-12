@@ -63,6 +63,8 @@ import {
 import type { EvalSearchProblem, JudgmentQuery } from "./search-eval-plan.js"
 import { createVaultSnapshot, snapshotMatchesProvenance } from "./search-eval-snapshot.js"
 import type { Logger } from "../src/logger.js"
+import { loadConfig } from "../src/vault-mcp/config.js"
+import { createPdfExtractor } from "../src/vault-mcp/vault-operations/pdf-extractor.js"
 import { createSearchModels } from "../src/vault-mcp/search/search-models.js"
 import { createSearchIndex } from "../src/vault-mcp/search/search-index.js"
 import {
@@ -228,33 +230,45 @@ const main = async (): Promise<void> => {
     console.log("rebuilding index (FTS + embedding — this takes minutes)…")
     const rebuildStartMs = performance.now()
     const bodyTagParser = createBodyTagParser({ timeoutMs: BODY_TAG_PARSE_TIMEOUT_MS })
-    const { count, embedding, bodyTags } = await search.rebuildFromVault(
-      { vaultPath: snapshotDir, bodyTagParser },
-      logger,
-    )
-
-    // Closing the parser settles every pending parse as "closed", so the body-tag pass ends
-    // without parsing the remaining notes. Tag filters therefore match frontmatter tags only.
-    await bodyTagParser.close()
-    await bodyTags
-
-    // Scoring against a partially embedded index measures indexing order,
-    // not ranking — wait for the background pass and fail on any error.
-    await embedding
-
-    // This finds the embedding pass's warn/error lines by their wording, so a
-    // message renamed without "embed" in it would slip past the check.
-    const embedProblems = problems.filter((problem) => {
-      return problem.message.includes("embed")
+    const { maxFileBytes } = loadConfig()
+    const pdfExtractor = createPdfExtractor({
+      vaultPath: snapshotDir,
+      maxFileBytes,
     })
-
-    if (embedProblems.length > 0) {
-      throw new Error(
-        `embedding pass logged ${embedProblems.length} problem(s) — fix before scoring`,
+    pdfExtractor.startIndexing()
+    try {
+      const { count, embedding, bodyTags, pdfPass } = await search.rebuildFromVault(
+        { vaultPath: snapshotDir, bodyTagParser, pdfExtractor, maxFileBytes },
+        logger,
       )
+
+      // Closing the parser settles every pending parse as "closed", so the body-tag pass ends
+      // without parsing the remaining notes. Tag filters therefore match frontmatter tags only.
+      await bodyTagParser.close()
+      await bodyTags
+
+      // Scoring against a partially embedded index measures indexing order,
+      // not ranking — wait for the background pass and fail on any error.
+      await Promise.all([embedding, pdfPass])
+
+      // This finds the embedding pass's warn/error lines by their wording, so a
+      // message renamed without "embed" in it would slip past the check.
+      const embedProblems = problems.filter((problem) => {
+        return problem.message.includes("embed")
+      })
+
+      if (embedProblems.length > 0) {
+        throw new Error(
+          `embedding pass logged ${embedProblems.length} problem(s) — fix before scoring`,
+        )
+      }
+      const rebuildSeconds = Math.round((performance.now() - rebuildStartMs) / 1000)
+      console.log(`indexed ${count} notes in ${rebuildSeconds}s`)
+    } finally {
+      await pdfExtractor.close()
+      // A second close after the one above is a no-op; this one covers the failure paths.
+      await bodyTagParser.close()
     }
-    const rebuildSeconds = Math.round((performance.now() - rebuildStartMs) / 1000)
-    console.log(`indexed ${count} notes in ${rebuildSeconds}s`)
   }
 
   // The run is only meaningful fully hybrid + reranked, so a probe query
