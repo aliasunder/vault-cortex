@@ -1684,8 +1684,9 @@ describe("fullTextSearch", () => {
 
   it("includes created when present", () => {
     const results = index.fullTextSearch({ query: "burnout" }, logger)
-    expect(results[0]).toHaveProperty("created")
-    expect(results[0]?.created).toContain("2025")
+    expect(results.map((result) => result.created)).toEqual([
+      DateTime.fromISO("2025-08-12T09:00:00-07:00").toISO(),
+    ])
   })
 
   it("returns modified as ISO 8601 string", () => {
@@ -1783,7 +1784,7 @@ describe("fullTextSearch", () => {
 
   it("respects type filter", () => {
     const results = index.fullTextSearch({ query: "notes", filters: { type: "project" } }, logger)
-    expect(results).toHaveLength(1)
+    expect(results.map((result) => result.path)).toEqual(["Projects/notes.md"])
   })
 
   it("respects limit", () => {
@@ -1806,8 +1807,7 @@ describe("fullTextSearch", () => {
       logger,
     )
     const results = index.fullTextSearch({ query: "run" }, logger)
-    expect(results.length).toBeGreaterThan(0)
-    expect(results.some((result) => result.path === "stem.md")).toBe(true)
+    expect(results.map((result) => result.path)).toEqual(["stem.md"])
   })
 
   it("multi-word query matches notes containing both terms (implicit AND)", () => {
@@ -2991,16 +2991,27 @@ describe("searchByProperty", () => {
 
   it("returns NoteMetadata with all fields", () => {
     const results = index.searchByProperty({ key: "status", value: "done" }, logger)
-    expect(results).toHaveLength(1)
-    const result = results[0]
-    expect(result).toBeDefined()
-    expect(result?.path).toBe("Projects/done.md")
-    expect(result?.title).toBe("Done Project")
-    expect(result?.tags).toEqual(["project", "done"])
-    expect(result?.folder).toBe("Projects")
-    expect(result?.type).toBe("project")
-    expect(result?.bytes).toBe(100)
-    expect(result?.properties).toEqual(expect.objectContaining({ status: "done", priority: "low" }))
+    expect(results).toEqual([
+      {
+        path: "Projects/done.md",
+        title: "Done Project",
+        tags: ["project", "done"],
+        related: [],
+        folder: "Projects",
+        type: "project",
+        created: null,
+        modified: isoFromMillis(2000),
+        bytes: 100,
+        properties: {
+          title: "Done Project",
+          type: "project",
+          tags: ["project", "done"],
+          status: "done",
+          priority: "low",
+        },
+        leading_callout: null,
+      },
+    ])
   })
 
   it("returns empty for non-matching value", () => {
