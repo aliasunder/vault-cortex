@@ -10186,7 +10186,12 @@ describe("canvas file content and links", () => {
       await writeFile(join(directory, "Boards/board.canvas"), PLAN_CANVAS)
       const search = createSearchIndex(":memory:")
       const rebuilt = await search.rebuildFromVault(
-        { vaultPath: directory, bodyTagParser: inProcessBodyTagParser },
+        {
+          vaultPath: directory,
+          bodyTagParser: inProcessBodyTagParser,
+          pdfExtractor: createInProcessPdfExtractor(directory),
+          maxFileBytes: 10_000_000,
+        },
         logger,
       )
       await rebuilt.embedding
