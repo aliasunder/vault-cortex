@@ -491,7 +491,7 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, changes, a
   // read, so that variant says what to leave out of the description.
   const expectedDescriptionParamText = isToolEnabled("vault_list_tasks")
     ? "The task's description as vault_list_tasks or an earlier update result returned it. The update is refused if it differs."
-    : "The task's description as an earlier update result returned it (the text after the checkbox, without its trailing metadata and block ID). The update is refused if it differs."
+    : "The task's description as read from the note or returned by a create or update result: the text after the checkbox, without its trailing metadata and block ID. The update is refused if it differs."
 
   registerTool(
     TOOL_NAMES.VAULT_UPDATE_TASK,
@@ -528,10 +528,10 @@ ${PATH_SAFETY_ERROR_ENTRY}
 - "blockId ... not found" / "blockId ... is inside a fenced code block or comment" — no task line outside a fenced code block or %% %% comment ends with that ^id; check the id${whenToolEnabledText("vault_list_tasks", " with vault_list_tasks")}, or target by line
 - "blockId ... matches N task lines" — the message lists the lines; target the intended task by line, then repair: on a regular note, give all but one line a new id with assign_block_id; on a Kanban board, where the plugin copies a sub-task's id onto its card, clear the sub-task's id (assign_block_id: null, by line) and give the card the id its links use, or a new one
 - "no task at line N" / "line N is inside a fenced code block or comment" — the line holds no task checkbox, or sits inside a fenced code block or %% %% comment; re-read line numbers${whenToolEnabledText("vault_list_tasks", " with vault_list_tasks (after a write, wait a few seconds first)")}, or target by block_id
-- "the task at line N in "X" has a different description" — the located task's description differs from expected_description; by line, the remedy above applies; by block_id, the task's text changed, so re-read it and decide whether the update still applies
+- "the task at line N in "X" has a different description" — the located task's description differs from expected_description; by line, re-read the task's current line and description${whenToolEnabledText("vault_list_tasks", " (after a write, wait a few seconds first)")}, then retry, or target by block_id; by block_id, the task's text changed, so re-read it and decide whether the update still applies
 - "checkbox "[c]" is a NON_TASK status" / "no checkbox symbol for status ..." — in the Tasks plugin's status settings, the task's checkbox character (c) is typed NON_TASK, or the named status has no symbol and its default character has another type; the user changes that character's type or adds the symbol there, then restarts the server
 - "at least one mutation" — the message lists the fields that count
-- "cannot move a sub-task to a heading" / "cannot reposition a sub-task" — a heading or position on a task nested under another task (depth > 0${whenToolEnabledText("vault_list_tasks", " in vault_list_tasks")}); sub-tasks move with their parent, so move or reposition the parent instead
+- "cannot move a sub-task to a heading" / "cannot reposition a sub-task" — a heading or position on a task nested under another task${whenToolEnabledText("vault_list_tasks", " (depth > 0 in vault_list_tasks)")}; sub-tasks move with their parent, so move or reposition the parent instead
 - "cannot reorder a task that sits above the first heading" — position without a heading on a task before the first section heading; the message names the fix
 - "cannot reorder within "X" — the heading appears N times" / "cannot place at position P under "X" — the heading appears N times" — the heading name is duplicated in the note: the task's own heading for a reorder in place, the one in heading for a move; for a cross-lane move use "top" or "bottom" (they place under the first match), or rename one section to make it unique
 ${TASK_HEADING_NOT_FOUND_ERROR_ENTRY}
