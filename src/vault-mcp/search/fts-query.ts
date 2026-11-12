@@ -3,7 +3,8 @@
 /** FTS5 reads these only in uppercase as operators; "and" and "Not" are
  *  ordinary terms, so sanitizedFtsParts drops only this exact spelling, and
  *  only from unquoted terms. NEAR is not listed: FTS5 reads it as an operator
- *  only when "(" follows, and every "(" is stripped before this check. */
+ *  only when "(" follows, and sanitizedFtsParts' ASCII punctuation sweep
+ *  removes every "(" before its reserved-word filter runs. */
 const FTS5_RESERVED = new Set(["AND", "OR", "NOT"])
 
 /** Every ASCII punctuation character except underscore, which FTS5 reads as
