@@ -2,6 +2,7 @@ import { z } from "zod"
 
 const requestIdSchema = z.number().int().nonnegative()
 
+// The child has no environment of its own, so the vault path and byte cap travel with each request.
 const requestFields = {
   requestId: requestIdSchema,
   vaultPath: z.string(),
@@ -35,8 +36,10 @@ const textResultSchema = z.object({
 export const pdfReplySchema = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("ready"),
+    /** Whether the child could ask the kernel to pick it, never the server, when host memory
+     *  runs out. */
     oomPreference: z.enum(["applied", "unavailable", "unsupported"]),
-    /** Why the preference is unavailable; the child's own log never reaches a sink. */
+    /** Why the preference is unavailable, for the parent to log. */
     oomPreferenceError: z.string().optional(),
   }),
   z.object({
@@ -52,10 +55,13 @@ export const pdfReplySchema = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("failure"),
     requestId: requestIdSchema,
-    /** The error's class name, so the parent rebuilds the error the tool boundary would have seen. */
+    /** The error's class name, so the parent rebuilds the error an MCP tool handler would have
+     *  seen had the extraction run in the server process. */
     name: z.string(),
     message: z.string(),
     cause: z.string().optional(),
+    /** The errno code and syscall of a Node error, so the rebuilt error gets the same
+     *  vault-relative path and remedy text as an in-process one. */
     systemError: z.object({ code: z.string(), syscall: z.string() }).optional(),
   }),
 ])

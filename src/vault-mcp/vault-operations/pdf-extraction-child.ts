@@ -13,11 +13,21 @@ import { vaultFs } from "./vault-filesystem.js"
 import { buildPdfTextResult, describePdfOpenFailure } from "./asset-text.js"
 import { pdfRequestSchema, type PdfRequest, type PdfReply } from "./pdf-extraction-protocol.js"
 
+/**
+ * The PDF extraction child process. The parent (`pdf-extractor.ts`) spawns it, sends one request
+ * at a time over IPC and waits for the reply before sending the next; this process reads the PDF,
+ * extracts its text and replies with the result or the error. The parent discards this process's
+ * stdout and stderr and sets `LOG_DIR=none`, so its logger writes nowhere; anything worth logging
+ * travels in a reply for the parent to log.
+ */
+
 // Prefer the disposable child as a victim during host memory pressure.
 const CHILD_OOM_SCORE_ADJUSTMENT = "1000"
 /** Matches a bracketed error name followed by a colon at the start of a formatted error. */
 const FORMATTED_ERROR_NAME_PREFIX = /^\[[^\]]+\]: /
 
+/** The errno code and syscall of an error that names one, so the parent can rebuild an error
+ *  whose path and remedy text match an in-process failure. */
 const getSystemErrorDetails = (error: unknown): { code: string; syscall: string } | undefined => {
   if (!isErrnoException(error)) return undefined
   const { syscall } = error
@@ -26,63 +36,70 @@ const getSystemErrorDetails = (error: unknown): { code: string; syscall: string 
   return { code: error.code, syscall }
 }
 
-const send = (reply: PdfReply): void => {
+/** Sends a reply to the parent. A parent that has gone has nothing to reply to, so this process
+ *  exits instead, with 0 because no parent is left to read a crash. */
+const sendReply = (reply: PdfReply): void => {
   if (!process.connected || !process.send) process.exit(0)
   process.send(reply, (error) => {
     if (error) process.exit(0)
   })
 }
 
-/** pdfjs's refusal to open the file becomes the server's own message; other failures pass through. */
-const extractTextOrDescribeRefusal = async (params: {
+/** Extracts the PDF's text. When pdfjs cannot open the file at all (password-protected, or not
+ *  a PDF), the error becomes the server's own message; other failures pass through. */
+const extractTextOrDescribeOpenFailure = async (params: {
   request: PdfRequest
   pdfData: Uint8Array
-  bytes: number
+  fileBytes: number
 }) => {
-  const { request, pdfData, bytes } = params
+  const { request, pdfData, fileBytes } = params
   const extractText = request.kind === "index" ? extractPdfIndexText : extractPdfText
   try {
     return await extractText(pdfData)
   } catch (error) {
-    const refusalMessage = describePdfOpenFailure({ error, path: request.path, bytes })
+    const openFailureMessage = describePdfOpenFailure({ error, path: request.path, fileBytes })
 
-    if (refusalMessage) throw new Error(refusalMessage, { cause: error })
+    if (openFailureMessage) throw new Error(openFailureMessage, { cause: error })
     throw error
   }
 }
 
 const extractAndReply = async (request: PdfRequest): Promise<void> => {
-  // The child's logger has no sink, so this context never reaches a log; readAsset requires one.
+  // readAsset requires a logger; this one writes nowhere (see the header).
   const requestLogger = logger.child({ extractionRequestId: request.requestId })
   const asset = await vaultFs.readAsset(
     { vaultPath: request.vaultPath, path: request.path, maxBytes: request.maxFileBytes },
     requestLogger,
   )
-  const result = await extractTextOrDescribeRefusal({
+  const result = await extractTextOrDescribeOpenFailure({
     request,
     pdfData: toPdfData(asset.buffer),
-    bytes: asset.bytes,
+    fileBytes: asset.bytes,
   })
 
   if (request.kind === "index") {
-    // The last page read can carry the rendition past the budget; the cut happens here so the
-    // parent never receives more than it indexes.
+    // Index extraction stops after the page that reaches MAX_INDEXED_PDF_BYTES, so its text can
+    // run past the cap by one page. The cut happens here so the parent never receives more than
+    // it indexes.
     const text = getUtf8BytePrefix(result.text, MAX_INDEXED_PDF_BYTES)
-    send({ kind: "index-result", requestId: request.requestId, result: { ...result, text } })
+    sendReply({ kind: "index-result", requestId: request.requestId, result: { ...result, text } })
     return
   }
   const textResult = buildPdfTextResult({
     ...result,
     path: request.path,
-    bytes: asset.bytes,
+    fileBytes: asset.bytes,
     startLine: request.startLine,
     limit: request.limit,
   })
-  send({ kind: "read-result", requestId: request.requestId, result: textResult })
+  sendReply({ kind: "read-result", requestId: request.requestId, result: textResult })
 }
 
+/** The error as a reply the parent can rebuild into the error a tool handler would have seen. */
 const errorToFailureReply = (params: { error: unknown; request: PdfRequest }): PdfReply => {
   const { error, request } = params
+  // The formatter is used for its vault-relative path rewrite; the name it prepends is sent as
+  // its own field instead, so it is stripped off the message.
   const description = describeErrorRelativeTo({ error, directory: request.vaultPath })
   const systemError = getSystemErrorDetails(error)
   const errorCause = error instanceof Error ? error.cause : undefined
@@ -106,27 +123,31 @@ const requestOomPreference = async (): Promise<
     await writeFile("/proc/self/oom_score_adj", CHILD_OOM_SCORE_ADJUSTMENT)
     return { oomPreference: "applied" }
   } catch (error) {
-    // Reported through the ready reply: the parent logs it, and this process's log has no sink.
+    // Reported through the ready reply, for the parent to log.
     return { oomPreference: "unavailable", oomPreferenceError: describeError(error) }
   }
 }
 
 const main = async (): Promise<void> => {
   const preference = await requestOomPreference()
-  // A disconnected parent has no deadline left; the child exits at its next event turn.
+  // With the parent gone, nobody would kill this process at the parent's deadline, so it exits.
   process.on("disconnect", () => process.exit(0))
+  // The parent sends one request at a time, so one handler runs at a time.
   process.on("message", async (message: unknown) => {
     const parsed = pdfRequestSchema.safeParse(message)
 
+    // A message outside the protocol did not come from this module's parent; exit 1, and the
+    // parent fails its active request on the exit.
     if (!parsed.success) process.exit(1)
     const request = parsed.data
     try {
       await extractAndReply(request)
     } catch (error) {
-      send(errorToFailureReply({ error, request }))
+      sendReply(errorToFailureReply({ error, request }))
     }
   })
-  send({ kind: "ready", ...preference })
+  // Sent after the listeners exist, so a request that follows it at once is not missed.
+  sendReply({ kind: "ready", ...preference })
 }
 
 await main()

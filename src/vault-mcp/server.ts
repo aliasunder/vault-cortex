@@ -27,6 +27,13 @@ import { urlHasCredentials } from "../utils/url-has-credentials.js"
 import { securityHeaders } from "../utils/security-headers.js"
 import env from "env-var"
 
+type ShutdownResources = {
+  httpServer: { close: (callback: () => void) => void }
+  bodyTagParser: Pick<BodyTagParser, "close">
+  pdfExtractor: Pick<PdfExtractor, "close">
+  forceExitMs?: number
+}
+
 /**
  * SIGTERM handler that drains in-flight requests before exiting, so a write
  * can't be interrupted mid-flight.
@@ -44,12 +51,7 @@ export const createShutdownHandler =
     bodyTagParser,
     pdfExtractor,
     forceExitMs = 10_000,
-  }: {
-    httpServer: { close: (callback: () => void) => void }
-    bodyTagParser: Pick<BodyTagParser, "close">
-    pdfExtractor: Pick<PdfExtractor, "close">
-    forceExitMs?: number
-  }): (() => void) =>
+  }: ShutdownResources): (() => void) =>
   (): void => {
     logger.info("SIGTERM received, draining")
 
@@ -196,7 +198,8 @@ export const startServer = async (): Promise<void> => {
   const bodyTagParser = createBodyTagParser({ timeoutMs: BODY_TAG_PARSE_TIMEOUT_MS })
   const pdfExtractor = createPdfExtractor({ vaultPath, maxFileBytes: config.maxFileBytes })
 
-  // Startup failure and a bind failure both leave the child and the worker to close.
+  // Startup failure and a bind failure both leave the PDF child process and the body-tag worker
+  // thread to close.
   const closeStartupResources = async (): Promise<void> => {
     const cleanupResults = await Promise.allSettled([pdfExtractor.close(), bodyTagParser.close()])
 
@@ -207,8 +210,10 @@ export const startServer = async (): Promise<void> => {
     }
   }
 
-  // The signal handler must exist before startup reconciliation can queue extraction, so it
-  // registers before the server listens; a SIGTERM before then has no requests to drain.
+  // The startup batch over held changes (reconcileHeldPaths in file-watcher.ts) queues PDF
+  // extractions before the server listens, so the handler registers now: a SIGTERM during that
+  // batch then closes the extractor and those requests reject instead of hanging the drain. A
+  // SIGTERM before listen has no requests to drain.
   let listeningServer: { close: (callback: () => void) => void } | undefined
   process.once(
     "SIGTERM",
@@ -225,9 +230,9 @@ export const startServer = async (): Promise<void> => {
   )
 
   try {
-    // Startup takes only the note count and leaves the rebuild's embedding and
-    // body-tag passes running, so the server takes requests while they run;
-    // rebuildFromVault logs either pass's failure itself.
+    // Startup takes only the note count and leaves the rebuild's embedding, body-tag and PDF
+    // passes running, so the server takes requests while they run; each pass logs its own
+    // failure.
     const { count } = await watchVaultAndBuildIndex(
       {
         vaultPath,

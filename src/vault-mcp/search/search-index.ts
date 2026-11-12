@@ -400,8 +400,10 @@ export type RebuildResult = {
   count: number
   embedding: Promise<void>
   bodyTags: Promise<void>
-  /** Resolves once every PDF's text and vectors are published; rejects when an embedding
-   *  failed. The extractor holds the extractions until the server releases them after listen. */
+  /** Resolves once every PDF's text and vectors are published. Rejects only when a PDF's
+   *  embedding failed; an extraction or publish failure is the PDF's own and is logged per file.
+   *  The extractor holds the extractions until `pdfExtractor.startIndexing()`, which server.ts
+   *  calls once it listens. */
   pdfPass: Promise<void>
 }
 
@@ -2580,7 +2582,9 @@ export const createSearchIndex = (
         modifiedAtMs: file.modifiedAtMs,
         sizeBytes: file.bytes,
       }))
-    // The version of each PDF's name-only row, which the PDF pass checks before it writes.
+    // The source version of each PDF's name-only row: the symbol upsertFileContent returned for
+    // it, which a later write or removal of the path replaces in sourceVersions. The PDF pass
+    // checks it before it writes, so a watcher change to the PDF wins over the pass.
     const nameOnlyRowVersions = new Map<string, symbol>()
 
     // Text formats decode leniently, so a text file with a stray invalid byte
@@ -3139,8 +3143,9 @@ export const createSearchIndex = (
      *  extractor until the server has listened, so the pass never delays startup. */
     const pdfPass = (async (): Promise<void> => {
       const passStart = performance.now()
-      // The pass finishes the other files after an embedding failure, then rejects so a caller
-      // awaiting completion sees the failure.
+      // An extraction or publish failure is the PDF's own, logged per file, and the pass goes on.
+      // An embedding failure is the server's, so the pass finishes the other files and then
+      // rejects, and a caller awaiting completion sees it.
       const embeddingFailures: unknown[] = []
       // Every PDF's text is published before any PDF is embedded. Each
       // embedding waits while a tool call or prompt runs, so embedding inside
@@ -3148,15 +3153,19 @@ export const createSearchIndex = (
       const publishedPdfs: Array<{ relativePath: string; sourceVersion: symbol }> = []
       for (const file of pdfsAwaitingText) {
         const nameOnlyRowVersion = nameOnlyRowVersions.get(file.relativePath)
-        // A name-only row whose write failed has no version. A later write or removal for the
-        // path changes its version, and that change wins over this pass.
+        // A name-only row whose write failed has no version. The live watcher writing or
+        // removing the same path replaces its version, and that change wins over this pass; the
+        // check runs again after each await.
         const nameOnlyRowIsCurrent = (): boolean => {
           if (!nameOnlyRowVersion) return false
           return sourceVersions.get(file.relativePath) === nameOnlyRowVersion
         }
         const tooLargeToExtract = file.sizeBytes > maxFileBytes
 
-        if (tooLargeToExtract) continue
+        if (tooLargeToExtract) {
+          logger.debug("PDF over MAX_FILE_BYTES kept name-only", { path: file.relativePath })
+          continue
+        }
         if (!nameOnlyRowIsCurrent()) continue
         const result = await extractPdfTextForIndex(file)
 

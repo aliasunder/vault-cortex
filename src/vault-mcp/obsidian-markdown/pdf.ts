@@ -3,11 +3,12 @@ import type { StructuredTextItem } from "unpdf"
 import type { PDFPageProxy } from "unpdf/pdfjs"
 import { createPdfDocumentProxy } from "./pdf-engine.js"
 
-// Pages read for the index when the text stays under the byte budget (sparse or image-heavy
-// pages), so index time stays bounded for any page count.
+// Page cap for index extraction. It binds only when this many pages stay under the byte cap
+// (sparse or image-heavy pages), so index time stays bounded for any page count.
 export const MAX_INDEXED_PDF_PAGES = 500
-// The search index keeps a file's first 100 KiB of text, so reading past that formatted size is
-// wasted work. The value matches the index's own cap; a test pins the two together.
+// Byte cap for index extraction, measured on the markdown text. It equals the search index's cap
+// on a file's text (MAX_INDEXED_CONTENT_BYTES in search-index.ts), because reading past what the
+// index keeps is wasted work; a test pins the two together.
 export const MAX_INDEXED_PDF_BYTES = 102_400
 
 /** pdfjs refuses a Node Buffer, so it gets a plain view over the same bytes; the byte range
@@ -522,17 +523,19 @@ const reconstructPdfMarkdown = (params: {
   ].join("\n")
 }
 
-/** Result of PDF text extraction — text is the markdown rendition,
- *  totalPages is preserved so callers can include it in error messages
- *  (e.g. scanned-PDF diagnostics that guide users toward raw mode). */
+/** Result of PDF text extraction. `text` is the markdown rendition; `totalPages` lets a caller
+ *  say in an error message that a scanned PDF has pages but no text, and point at the page-image
+ *  read (`raw: true` on vault_read_file). */
 export type PdfTextResult = Readonly<{
   text: string
   totalPages: number
 }>
 
-/** Reads pages in order until the formatted rendition reaches the byte budget or the page
- *  budget. The returned text can run past the byte budget by the last page read; the caller
- *  cuts it. */
+/** Reads pages in order until the markdown rendition reaches MAX_INDEXED_PDF_BYTES or the page
+ *  count reaches MAX_INDEXED_PDF_PAGES. The returned text can run past the byte cap by the last
+ *  page read; the caller cuts it. Every page read so far is rendered again after each page, so
+ *  the work grows with the square of the pages read; the byte cap stops a text-heavy PDF after a
+ *  few pages, and the page cap bounds a sparse one. */
 export const extractPdfIndexText = async (pdfData: Uint8Array): Promise<PdfTextResult> => {
   const proxy = await createPdfDocumentProxy(pdfData)
   try {
@@ -541,7 +544,8 @@ export const extractPdfIndexText = async (pdfData: Uint8Array): Promise<PdfTextR
     const pageLimit = Math.min(totalPages, MAX_INDEXED_PDF_PAGES)
     const itemsByPage: StructuredTextItem[][] = []
     const pdfLinks: string[] = []
-    // Holds the rendition of the pages read so far, for the loop's normal exit.
+    // Reassigned each page, because the loop can end on either cap and the result is whatever
+    // was rendered last.
     let rendition = ""
     for (let pageNumber = 1; pageNumber <= pageLimit; pageNumber += 1) {
       const page = await proxy.getPage(pageNumber)

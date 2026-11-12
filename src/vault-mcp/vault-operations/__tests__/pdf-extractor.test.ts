@@ -561,10 +561,12 @@ describe("PDF extraction ownership", () => {
       })
     })
     const closing = extractor.close()
+    // The read fails before the killed child's exit arrives, while close() still waits for it.
+    procStatusRead.reject(Object.assign(new Error("ENOENT: no such file"), { code: "ENOENT" }))
+    await settleEvents()
     child.emit("exit", null, "SIGKILL")
     await closing
     await rejection
-    procStatusRead.reject(Object.assign(new Error("ENOENT: no such file"), { code: "ENOENT" }))
     await vi.waitFor(() => expect(requestLogger.warn).toHaveBeenCalledTimes(1))
     expect(requestLogger.warn).toHaveBeenCalledExactlyOnceWith("PDF extraction reader discarded", {
       path: "one.pdf",
