@@ -1917,12 +1917,27 @@ export const createSearchIndex = (
    *  trackForegroundWork. */
   const foregroundWork = createActivityTracker()
 
-  /** Makes one model call for a chunk's text.
+  /** Makes one background model call (`callModel`: a chunk's text, or a batch of
+   *  memory entries).
    *  - It first waits while a tool call or prompt runs, for at most
    *    BACKGROUND_EMBED_MAX_WAIT_MS, then calls the model either way.
    *  - It returns null when a newer write to the source superseded the job
    *    during the wait.
-   *  - The caller checks the source version again before it writes the vector. */
+   *  - The caller checks the source version again before it writes the result. */
+  const callModelWhenIdle = async <ModelOutput>(
+    params: { sourcePath: string; sourceVersion: symbol; callModel: () => Promise<ModelOutput> },
+    logger: Logger,
+  ): Promise<ModelOutput | null> => {
+    const { sourcePath, sourceVersion, callModel } = params
+
+    await foregroundWork.waitUntilIdle({ maxWaitMs: BACKGROUND_EMBED_MAX_WAIT_MS })
+
+    if (!isCurrentSourceVersion({ sourcePath, sourceVersion }, logger)) return null
+    return callModel()
+  }
+
+  /** Embeds one chunk's text through callModelWhenIdle and returns the vector's
+   *  bytes, or null when the job was superseded during the wait. */
   const embedChunkWhenIdle = async (
     params: { text: string; sourcePath: string; sourceVersion: symbol },
     logger: Logger,
@@ -1932,12 +1947,12 @@ export const createSearchIndex = (
     // Callers return early without an embedder, so this throw only narrows its type
     if (!embedder) throw new Error("background embedding ran without an embedder")
 
-    await foregroundWork.waitUntilIdle({ maxWaitMs: BACKGROUND_EMBED_MAX_WAIT_MS })
+    const embedding = await callModelWhenIdle(
+      { sourcePath, sourceVersion, callModel: () => embedder.embedText(text) },
+      logger,
+    )
 
-    if (!isCurrentSourceVersion({ sourcePath, sourceVersion }, logger)) return null
-
-    const embedding = await embedder.embedText(text)
-
+    if (!embedding) return null
     return Buffer.from(embedding.buffer, embedding.byteOffset, embedding.byteLength)
   }
 
@@ -2115,21 +2130,19 @@ export const createSearchIndex = (
       batchStart < unembeddedRows.length;
       batchStart += MEMORY_EMBED_BATCH_SIZE
     ) {
-      // One batch is one background unit. This repeats embedChunkWhenIdle's wait
-      // and version checks, because that helper embeds one text and a batch goes
-      // to embedBatch.
-      await foregroundWork.waitUntilIdle({ maxWaitMs: BACKGROUND_EMBED_MAX_WAIT_MS })
-
-      if (!isCurrentSourceVersion({ sourcePath: notePath, sourceVersion }, logger))
-        return embeddedCount
-
       const batchRows = unembeddedRows.slice(batchStart, batchStart + MEMORY_EMBED_BATCH_SIZE)
-      const embeddings = await embedder.embedBatch(
-        batchRows.map((row) => `${row.file} > ${row.section}\n${row.entry_text}`),
+      const batchTexts = batchRows.map((row) => `${row.file} > ${row.section}\n${row.entry_text}`)
+      const embeddings = await callModelWhenIdle(
+        { sourcePath: notePath, sourceVersion, callModel: () => embedder.embedBatch(batchTexts) },
+        logger,
       )
 
-      if (!isCurrentSourceVersion({ sourcePath: notePath, sourceVersion }, logger))
-        return embeddedCount
+      if (!embeddings) return embeddedCount
+      // No await separates this check from the write below, so a job superseded
+      // while the model ran writes nothing
+      const isCurrentJob = isCurrentSourceVersion({ sourcePath: notePath, sourceVersion }, logger)
+
+      if (!isCurrentJob) return embeddedCount
 
       db.transaction(() => {
         for (const [rowIndexInBatch, row] of batchRows.entries()) {
