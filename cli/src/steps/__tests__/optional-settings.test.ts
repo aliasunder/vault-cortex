@@ -201,7 +201,9 @@ describe("askOptionalSettings per-setting prompts", () => {
         initialValue: true,
       },
     ])
-    expect(overrides).toEqual({ READONLY_MODE: "true" })
+    // Confirming the seeded value keeps it, so nothing is recorded.
+    expect(overrides).toEqual({})
+    expect(scripted.logs).toEqual(["Kept the current value (true)."])
   })
 
   it("offers the three Sync modes the client accepts, seeded with the default when the var is absent", async () => {
@@ -559,6 +561,44 @@ describe("askOptionalSettings per-setting prompts", () => {
     )
 
     expect(overrides).toEqual({ DAILY_NOTES_FORMAT: "YYYY/MM/DD" })
+  })
+
+  it("does not record a port kept at its current value", async () => {
+    const scripted = createScriptedPrompts([["PORT"], "8000"])
+
+    const overrides = await askOptionalSettings(
+      { portsInUse: new Map(), mode: "local", envContent: "PORT=8000\n" },
+      scripted.prompts,
+    )
+
+    expect(overrides).toEqual({})
+    expect(scripted.logs).toEqual(["Kept the current value (8000)."])
+  })
+
+  it("does not record a toggle confirmed at its current value", async () => {
+    const scripted = createScriptedPrompts([["MEMORY_ENABLED"], true])
+
+    const overrides = await askOptionalSettings(
+      { portsInUse: new Map(), mode: "local", envContent: "MEMORY_ENABLED=true\n" },
+      scripted.prompts,
+    )
+
+    expect(overrides).toEqual({})
+    expect(scripted.logs).toEqual(["Kept the current value (true)."])
+  })
+
+  it("records a toggle confirmed at its default when the var is unset", async () => {
+    // An unset var means the server default; writing it out explicitly is a
+    // change to the file, so it is recorded.
+    const scripted = createScriptedPrompts([["MEMORY_ENABLED"], true])
+
+    const overrides = await askOptionalSettings(
+      { portsInUse: new Map(), mode: "local", envContent: "" },
+      scripted.prompts,
+    )
+
+    expect(overrides).toEqual({ MEMORY_ENABLED: "true" })
+    expect(scripted.logs).toEqual([])
   })
 
   it("shows a set daily notes folder in its chooser hint", async () => {

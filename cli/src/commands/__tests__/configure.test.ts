@@ -258,6 +258,26 @@ describe("runConfigure with picked settings", () => {
     expect(scripted.outros).toEqual(["Configure complete."])
   })
 
+  it("neither claims an update nor offers a restart when the PORT is kept", async () => {
+    // Enter on the pre-filled current port is not a change, so configure must
+    // not derive PUBLIC_URL, rewrite a byte-identical file or offer a restart.
+    const targetDir = makeTempTargetDir()
+    const envFilePath = writeLocalEnv(targetDir)
+    const { docker, runParams } = createRecordingDocker()
+    const scripted = createScriptedPrompts([["PORT"], "8000"])
+
+    const exitCode = await runConfigure(
+      { dir: targetDir },
+      { prompts: scripted.prompts, docker, fetchFn: fetchNever },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(readFileSync(envFilePath, "utf8")).toBe(LOCAL_ENV_CONTENT)
+    expect(runParams).toEqual([])
+    expect(scripted.logs).toEqual(["Kept the current value (8000).", "No changes to apply."])
+    expect(scripted.confirmCalls).toEqual([])
+  })
+
   it("asks again for a PORT another container publishes, and accepts this install's own", async () => {
     const targetDir = makeTempTargetDir()
     const envFilePath = writeLocalEnv(targetDir)

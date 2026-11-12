@@ -378,18 +378,23 @@ export const askOptionalSettings = async (
     chooserOptions,
   )
 
-  // Sequential prompting: answers are gathered one at a time in the curated
-  // order, so the record builds up inside an honest loop. An undefined answer
-  // (an optionalText prompt left blank) writes nothing.
+  // Answers are gathered one at a time in the curated order, so the record
+  // builds up inside a plain loop. A blank optionalText answer writes nothing,
+  // and an answer equal to the current value is not a change, because
+  // recording it would make the caller rewrite the file and offer a restart
+  // for a byte-identical .env.
   const overrides: Record<string, string> = {}
   for (const setting of offeredSettings) {
     if (!pickedNames.includes(setting.name)) continue
-    const value = await askSettingValue(
-      { setting, currentValue: readEnvValue(envValues, setting.name), portsInUse },
-      prompts,
-    )
+    const currentValue = readEnvValue(envValues, setting.name)
+    const value = await askSettingValue({ setting, currentValue, portsInUse }, prompts)
 
-    if (value !== undefined) overrides[setting.name] = value
+    if (!value) continue
+    if (value === currentValue) {
+      prompts.log(`Kept the current value (${currentValue}).`)
+      continue
+    }
+    overrides[setting.name] = value
   }
   return overrides
 }
