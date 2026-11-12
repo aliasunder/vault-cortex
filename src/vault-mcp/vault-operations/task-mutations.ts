@@ -476,23 +476,6 @@ const isNonTaskCheckbox = ({
   return tasks.statusForChar(statusChar, statusRegistry) === "non_task"
 }
 
-/** A task line that the index would exclude — inside a fence/comment or
- *  typed NON_TASK in the status registry — is not a lane card for
- *  position-counting purposes. */
-const isExcludedFromLane = ({
-  line,
-  insideFenceOrComment,
-  statusRegistry,
-}: {
-  line: string
-  insideFenceOrComment: boolean
-  statusRegistry: ReadonlyMap<string, StatusClassification>
-}): boolean => {
-  if (insideFenceOrComment) return true
-
-  return isNonTaskCheckbox({ taskLine: line, statusRegistry })
-}
-
 /** The line of the first heading nested in a heading's section, or undefined
  *  when the section has none. The section ends at the next heading of the
  *  same or a shallower level, so every heading inside it is nested. */
@@ -553,11 +536,9 @@ const findLaneCards = ({
       continue
     }
     const isUpdatedTaskLine = walkIndex === updatedTaskLineIndex
-    const excludedFromLane = isExcludedFromLane({
-      line,
-      insideFenceOrComment: !isUpdatedTaskLine && excludedFromTasks.has(walkIndex),
-      statusRegistry,
-    })
+    const insideFenceOrComment = !isUpdatedTaskLine && excludedFromTasks.has(walkIndex)
+    const excludedFromLane =
+      insideFenceOrComment || isNonTaskCheckbox({ taskLine: line, statusRegistry })
 
     if (!excludedFromLane) cardStartIndices.push(walkIndex)
     walkIndex = findTaskBlockEnd(lines, walkIndex)
