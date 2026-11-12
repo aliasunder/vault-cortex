@@ -271,6 +271,7 @@ Every tag input (`tag` on `vault_search_by_tag` and `vault_list_tasks`, the `tag
 - **Blank folder in the file:** Obsidian's new-note location (`newFileLocation: "folder"` plus `newFileFolderPath` in `.obsidian/app.json`), otherwise the vault root
 - **Missing file:** takes the fallbacks
 - **Unparseable file:** takes the fallbacks and logs a `warn`
+- **Month and weekday names:** a format with `MMMM` or `dddd` writes and matches them in English, whatever Obsidian's app language is
 - **Forward references:** a broken link to a daily note not yet created is flagged `daily_note_forward_ref` by `vault_get_outgoing_links` and left out of `vault-orientation`'s broken-link count. Two rules find one:
   - **Into the daily folder:** the target starts with the daily folder, in any letter case, as a link resolves once its note exists
   - **Bare date:** the target has no folder, and its name, less a trailing `.md`, is a date written exactly as the format's file-name part writes it, ignoring letter case; that part must hold a year plus a month and day, or a day of the year
