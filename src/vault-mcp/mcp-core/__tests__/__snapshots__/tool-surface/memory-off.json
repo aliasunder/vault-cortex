@@ -1513,7 +1513,7 @@
             "maximum": 9007199254740991
           },
           "expected_description": {
-            "description": "The task's description as vault_list_tasks or an earlier update result returned it (empty for a task with no text).",
+            "description": "The task's description as vault_list_tasks returned it, or an earlier update result's description or next_occurrence.description (empty for a task with no text).",
             "type": "string"
           },
           "status": {

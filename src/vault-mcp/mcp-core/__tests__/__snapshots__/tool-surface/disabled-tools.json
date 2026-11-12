@@ -1389,7 +1389,7 @@
             "maximum": 9007199254740991
           },
           "expected_description": {
-            "description": "The task's description as read from the note or returned by an update result: the text after the checkbox, without its trailing metadata and block ID (empty for a task with no text).",
+            "description": "The task's description as read from the note, or an earlier update result's description or next_occurrence.description: the text after the checkbox, without its trailing metadata and block ID (empty for a task with no text).",
             "type": "string"
           },
           "status": {
