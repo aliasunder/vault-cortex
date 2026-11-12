@@ -490,8 +490,8 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, changes, a
   // Without vault_list_tasks a caller may have only the raw line from a note
   // read, so that variant says what to leave out of the description.
   const expectedDescriptionParamText = isToolEnabled("vault_list_tasks")
-    ? "The task's description as vault_list_tasks or an earlier update result returned it. The update is refused if it differs."
-    : "The task's description as read from the note or returned by a create or update result: the text after the checkbox, without its trailing metadata and block ID. The update is refused if it differs."
+    ? "The task's description as vault_list_tasks or an earlier update result returned it (empty for a task with no text)."
+    : "The task's description as read from the note or returned by a create or update result: the text after the checkbox, without its trailing metadata and block ID (empty for a task with no text)."
 
   registerTool(
     TOOL_NAMES.VAULT_UPDATE_TASK,
@@ -572,7 +572,9 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, next_occur
             "Stable task identifier — the ^block-id at the end of the task line, without the ^. Preferred over line.",
           ),
         line: z.number().int().min(1).optional().describe(updateTaskLineDescription),
-        expected_description: z.string().min(1).optional().describe(expectedDescriptionParamText),
+        // No .min(1): a task with no text has an empty description, and the
+        // listing returns it as "", which the caller passes back unchanged.
+        expected_description: z.string().optional().describe(expectedDescriptionParamText),
         status: z
           .enum(["todo", "in_progress", "done", "cancelled"])
           .optional()

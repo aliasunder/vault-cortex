@@ -1513,9 +1513,8 @@
             "maximum": 9007199254740991
           },
           "expected_description": {
-            "description": "The task's description as vault_list_tasks or an earlier update result returned it. The update is refused if it differs.",
-            "type": "string",
-            "minLength": 1
+            "description": "The task's description as vault_list_tasks or an earlier update result returned it (empty for a task with no text).",
+            "type": "string"
           },
           "status": {
             "description": "Target status. \"done\" adds the ✅ date and \"cancelled\" the ❌ date, when the Tasks plugin's settings stamp them; moving a task out of either status removes its date.",

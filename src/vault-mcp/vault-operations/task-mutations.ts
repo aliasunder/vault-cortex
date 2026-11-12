@@ -2405,7 +2405,7 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
     // - The listing and an update result both take a description from
     //   parseTaskMetadata, which trims only its ends.
     // - The caller's value is trimmed the same way and then compared exactly,
-    //   so a whitespace-only value matches a task with no text.
+    //   so an empty or whitespace-only value matches a task with no text.
     const descriptionDiffers =
       expectedDescription !== undefined && taskBefore.description !== expectedDescription.trim()
 
