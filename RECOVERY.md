@@ -247,11 +247,10 @@ downtime.
   - Fresh instance with no snapshot to restore (Scenario C): `oauth.db`
     starts empty, so every client must sign in again; your vault is
     unaffected. A client may still present the `client_id` the old
-    `oauth.db` issued and be rejected with `invalid_client` until you clear
-    its stored sign-in for this server; the local guide's
-    [Troubleshooting](./deploy/local/README.md#troubleshooting) lists the
-    steps for each client (use your server's `/mcp` URL where they show
-    `localhost`).
+    `oauth.db` issued, and its sign-in then stops at a "This sign-in can't
+    continue" page until you clear its stored sign-in for this server; the
+    remote guide's [Troubleshooting](./deploy/remote/README.md#troubleshooting)
+    lists the steps for each client.
 - **`MCP_AUTH_TOKEN`** signs access JWTs and keys the lookup of stored
   refresh tokens. It's in SST secrets and gets redeployed to
   `/opt/vault-cortex/.env` on any fresh boot. If you also rotated it during

@@ -30,10 +30,11 @@ import env from "env-var"
 /**
  * SIGTERM handler that drains in-flight requests before exiting, so a write
  * can't be interrupted mid-flight.
- * - The body-tag parser refuses new parses before requests drain; worker
- *   termination continues in the background.
+ * - The PDF extractor and the body-tag parser close as the drain starts.
  * - `httpServer.close()` stops accepting new connections and waits for active
  *   requests to finish.
+ * - The process exits once all three finish: with 0 when each succeeded, and
+ *   with 1 after any failure.
  * - The fallback forces exit if a connection hangs the drain longer than
  *   `forceExitMs`.
  */
@@ -63,6 +64,7 @@ export const createShutdownHandler =
       for (const failedCleanup of failedCleanups) {
         logger.warn("shutdown cleanup failed", { error: describeError(failedCleanup.reason) })
       }
+
       const cleanupSucceeded = failedCleanups.length === 0
 
       if (cleanupSucceeded) logger.info("drained, exiting")
@@ -109,6 +111,10 @@ export const resolveDataPaths = (indexDbPathSetting: string | undefined): DataPa
 
 /** Matches `*`, `?`, or `[`, which the `:remote` init scripts' `find -path` reads as wildcards. */
 const GLOB_CHARS = /[*?[]/
+
+// 32 hex characters carry 128 bits, past guessing. Every documented install
+// path generates 256 random bits: 64 hex characters, or 44 in base64.
+const MIN_UNGUESSABLE_TOKEN_LENGTH = 32
 
 /** Exported for the startup-failure tests; the entry-point guard below keeps a test import from starting it. */
 export const startServer = async (): Promise<void> => {
@@ -186,27 +192,30 @@ export const startServer = async (): Promise<void> => {
   // Before the watcher starts, so its template writes are not held and re-read.
   await bootstrapMemoryIfEnabled(config, vaultPath)
 
-  // Lives until SIGTERM, when the shutdown handler closes it
+  // Both live until SIGTERM, when the shutdown handler closes them
   const bodyTagParser = createBodyTagParser({ timeoutMs: BODY_TAG_PARSE_TIMEOUT_MS })
   const pdfExtractor = createPdfExtractor({ vaultPath, maxFileBytes: config.maxFileBytes })
+
   // Startup failure and a bind failure both leave the child and the worker to close.
   const closeStartupResources = async (): Promise<void> => {
     const cleanupResults = await Promise.allSettled([pdfExtractor.close(), bodyTagParser.close()])
 
-    for (const result of cleanupResults) {
-      if (result.status === "rejected") {
-        logger.error("startup cleanup failed", describeErrorForLog(result.reason))
+    for (const cleanupResult of cleanupResults) {
+      if (cleanupResult.status === "rejected") {
+        logger.error("startup cleanup failed", describeErrorForLog(cleanupResult.reason))
       }
     }
   }
-  // The signal handler must exist before startup reconciliation can queue extraction.
-  const lifecycle: { httpServer?: { close: (callback: () => void) => void } } = {}
+
+  // The signal handler must exist before startup reconciliation can queue extraction, so it
+  // registers before the server listens; a SIGTERM before then has no requests to drain.
+  let listeningServer: { close: (callback: () => void) => void } | undefined
   process.once(
     "SIGTERM",
     createShutdownHandler({
       httpServer: {
         close: (callback) => {
-          if (lifecycle.httpServer) lifecycle.httpServer.close(callback)
+          if (listeningServer) listeningServer.close(callback)
           else callback()
         },
       },
@@ -278,6 +287,19 @@ export const startServer = async (): Promise<void> => {
         logger,
       }),
     )
+    // A generated token (every documented install path makes one) cannot be
+    // guessed, and a limiter that refuses requests before checking the token
+    // lets anyone sharing the owner's client IP lock the owner's clients out.
+    // So /mcp rate-limits failed sign-in attempts only for a token short enough
+    // to guess, where the lockout cost is worth paying. Length stands in for
+    // randomness, since the server cannot measure randomness.
+    const failedAuthLimiterEnabled = authToken.length < MIN_UNGUESSABLE_TOKEN_LENGTH
+
+    if (failedAuthLimiterEnabled) {
+      logger.warn(
+        `MCP_AUTH_TOKEN is shorter than ${MIN_UNGUESSABLE_TOKEN_LENGTH} characters, so failed sign-in attempts on /mcp are rate-limited; a generated token needs no limiter`,
+      )
+    }
     app.use(
       createMcpRouter({
         vaultPath,
@@ -286,6 +308,7 @@ export const startServer = async (): Promise<void> => {
         serverUrl,
         provider: oauthProvider.provider,
         config,
+        failedAuthLimiterEnabled,
       }),
     )
 
@@ -305,10 +328,11 @@ export const startServer = async (): Promise<void> => {
         return
       }
       logger.info("server started", { host, port })
-      // This is the shared boundary for rebuild and held/live watcher PDF work.
+      // PDF text extraction for the rebuild and for held and live watcher changes waits for
+      // this call, so it never delays listening.
       void startPdfPass()
     })
-    lifecycle.httpServer = httpServer
+    listeningServer = httpServer
 
     // Started after listen so a large trash backlog (unlinks at bind-mount
     // latency) can never stall /healthz past container health-check budgets.

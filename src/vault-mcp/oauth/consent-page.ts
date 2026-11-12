@@ -1,4 +1,5 @@
-/** Minimal HTML consent page for OAuth authorization flow. */
+/** Minimal HTML consent page for OAuth authorization flow, and the page a
+ *  denied sign-in ends on. */
 
 import { escapeHtml } from "../../utils/escape-html.js"
 
@@ -95,10 +96,37 @@ export const renderConsentPage = ({
       </div>
     </div>
     <div class="actions">
-      <button type="submit" name="action" value="deny" class="deny">Deny</button>
+      <button type="submit" name="action" value="deny" class="deny" formnovalidate>Deny</button>
       <button type="submit" name="action" value="approve" class="approve">Approve</button>
     </div>
   </form>
+</div>
+</body>
+</html>`
+}
+
+/** Shown after Deny. The denial is answered here, never by a redirect to
+ *  the client's registered address, for the same reason /authorize answers
+ *  its errors here: anyone can register an address. */
+export const renderAccessDeniedPage = (): string => {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Access denied — Vault Cortex</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:system-ui,-apple-system,sans-serif;background:#0f1117;color:#e4e4e7;display:flex;justify-content:center;align-items:center;min-height:100vh;padding:1rem}
+  .card{background:#1c1c22;border:1px solid #2e2e38;border-radius:12px;padding:2rem;max-width:420px;width:100%}
+  h1{font-size:1.25rem;margin-bottom:1rem;color:#fafafa}
+  p{font-size:.9rem;line-height:1.5}
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>Access denied</h1>
+  <p>This sign-in was denied and the application was not given access. You can close this window.</p>
 </div>
 </body>
 </html>`

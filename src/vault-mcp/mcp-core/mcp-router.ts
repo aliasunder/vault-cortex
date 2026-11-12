@@ -1,7 +1,8 @@
 /** MCP session routes — transport lifecycle, session creation, request routing. */
 
 import express, { Router } from "express"
-import type { Request, Response } from "express"
+import type { NextFunction, Request, Response } from "express"
+import { ipKeyGenerator, rateLimit } from "express-rate-limit"
 import { randomUUID } from "node:crypto"
 import type { PdfExtractor } from "../vault-operations/pdf-extractor.js"
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
@@ -27,7 +28,19 @@ type McpRouterOptions = {
   provider: OAuthServerProvider
   config: VaultConfig
   serverUrl: URL
+  /** Whether /mcp rate-limits failed sign-in attempts. server.ts turns it
+   *  on only for an MCP_AUTH_TOKEN short enough to guess. */
+  failedAuthLimiterEnabled: boolean
 }
+
+// How many 401 answers a minute one client IP (an IPv6 client by its /56)
+// may collect before /mcp answers 429, when the limiter is on. A valid
+// client produces a 401 on its first request, which carries no token, when
+// its six-hour access token expires, and once more after a revocation or a
+// token rotation, so thirty a minute is far above any honest rate. The OAuth endpoints allow five because a sign-in
+// touches each of them at most twice a minute.
+const MCP_FAILED_AUTH_LIMIT = 30
+const MCP_FAILED_AUTH_WINDOW_MS = 60 * 1000
 
 /**
  * Server icon for MCP clients (spec 2025-11-25, SEP-973). Clients that
@@ -67,8 +80,9 @@ export const buildServerMetadata = (
     : "Vault content is Obsidian Flavored Markdown. No tools that modify the vault are available."
 
   // Build instruction sentences from separator-free fragments so any
-  // combination (including all-disabled) produces clean prose. Each filter
-  // is conjunctive: these are complementary entry points, not alternatives.
+  // combination (including all-disabled) produces clean prose. Each list of
+  // enabled tools is joined with "and", because the tools are complementary
+  // entry points, not alternatives.
   const fileToolsFragment = whenToolEnabledText(
     "vault_read_file",
     "vault_read_file for images, canvases, and other non-markdown files",
@@ -112,6 +126,7 @@ export const createMcpRouter = ({
   provider,
   config,
   serverUrl,
+  failedAuthLimiterEnabled,
 }: McpRouterOptions): Router => {
   const router = Router()
   // MCP spec: a 401 MUST carry WWW-Authenticate with a resource_metadata
@@ -123,9 +138,61 @@ export const createMcpRouter = ({
   })
   const transports = new Map<string, StreamableHTTPServerTransport>()
 
+  // The MCP Streamable HTTP spec requires servers to validate Origin against
+  // DNS rebinding, where a page on another site points its own hostname at
+  // a local install and reads the answers. Bearer auth stops such a page
+  // unless it has the token; this check stops it either way. MCP clients
+  // send no Origin, so only the server's own origin, PUBLIC_URL's, is
+  // admitted.
+  const originCheck = (req: Request, res: Response, next: NextFunction): void => {
+    const origin = headerAsString(req.headers.origin)
+
+    if (!origin || origin === serverUrl.origin) {
+      next()
+      return
+    }
+    logger.warn("mcp_origin_rejected", {
+      clientIp: extractClientIp(req, config.trustForwardedHops),
+      origin,
+    })
+    res.status(403).json({ error: "origin not allowed" })
+  }
+
+  // Counts only 401 answers: a valid client's 404 (unknown session), 400 (no
+  // session) and 405 (GET) never count.
+  // - The library counts every request when it arrives and takes it back
+  //   when its response finishes with any status but 401. A response the
+  //   client abandons never finishes, so its request counts until the
+  //   window resets each minute. A client IP with MCP_FAILED_AUTH_LIMIT
+  //   unfinished requests is therefore refused its next one too.
+  // - Refusing before the token is checked is what bounds guessing, so a
+  //   full bucket refuses a valid token from the same client IP for the
+  //   rest of the window; see server.ts for why the limiter is on at all.
+  const failedAuthLimiter = rateLimit({
+    windowMs: MCP_FAILED_AUTH_WINDOW_MS,
+    max: MCP_FAILED_AUTH_LIMIT,
+    skipSuccessfulRequests: true,
+    requestWasSuccessful: (_req: Request, res: Response) => res.statusCode !== 401,
+    keyGenerator: (req: Request) => {
+      return ipKeyGenerator(extractClientIp(req, config.trustForwardedHops))
+    },
+    standardHeaders: true,
+    legacyHeaders: false,
+    handler: (req: Request, res: Response) => {
+      logger.warn("mcp_auth_rate_limited", {
+        clientIp: extractClientIp(req, config.trustForwardedHops),
+      })
+      res
+        .status(429)
+        .set("Cache-Control", "no-store")
+        .json({ error: "too many failed authentication attempts" })
+    },
+  })
+  const guards = failedAuthLimiterEnabled ? [originCheck, failedAuthLimiter] : [originCheck]
+
   const parseMcpJson = express.json({ limit: MCP_JSON_BODY_LIMIT })
 
-  router.post("/mcp", bearerAuth, parseMcpJson, async (req: Request, res: Response) => {
+  router.post("/mcp", ...guards, bearerAuth, parseMcpJson, async (req: Request, res: Response) => {
     const sessionId = headerAsString(req.headers["mcp-session-id"])
     const clientIp = extractClientIp(req, config.trustForwardedHops)
     logger.info("mcp_request", { sessionId, clientIp, method: "POST" })
@@ -143,81 +210,23 @@ export const createMcpRouter = ({
       return
     }
 
-    if (!sessionId) {
-      const body = req.body
+    // A session ID the server does not hold: the session closed or the
+    // server restarted.
+    if (sessionId) {
+      logger.warn("mcp_response", {
+        sessionId,
+        clientIp,
+        status: 404,
+        outcome: "session not found",
+      })
+      res.status(404).json({ error: "session not found" })
+      return
+    }
 
-      if (isInitializeRequest(body)) {
-        const transport = new StreamableHTTPServerTransport({
-          sessionIdGenerator: () => randomUUID(),
-        })
-        transport.onclose = () => {
-          if (transport.sessionId) {
-            transports.delete(transport.sessionId)
-            logger.info("session_closed", {
-              sessionId: transport.sessionId,
-            })
-          }
-        }
-        const { instructions, description } = buildServerMetadata(
-          config,
-          computeEnabledToolNames(config),
-        )
-        const server = new McpServer(
-          {
-            name: "vault-cortex",
-            title: "Vault Cortex",
-            version: "1.0.0",
-            description,
-            icons: SERVER_ICONS,
-            websiteUrl: SERVER_WEBSITE_URL,
-          },
-          { instructions },
-        )
+    // No session ID: only an initialize request may start a session.
+    const body = req.body
 
-        const sessionLogger = logger.child({
-          // Lazy: the transport generates its session id while handling the
-          // initialize request — after this child is created. Resolved per-emit.
-          sessionId: () => transport.sessionId,
-          clientIp,
-        })
-        registerTools({
-          server,
-          vaultPath,
-          search,
-          pdfExtractor,
-          logger: sessionLogger,
-          config,
-        })
-        registerPrompts({
-          server,
-          vaultPath,
-          search,
-          logger: sessionLogger,
-          config,
-        })
-
-        await server.connect(transport)
-        await transport.handleRequest(req, res, body)
-        if (!transport.sessionId) {
-          // The transport rejected the initialize request before generating a
-          // session id (e.g. missing Accept header → 406) — no session exists,
-          // so don't log "session created" with a hardcoded 200.
-          logger.warn("mcp_response", {
-            clientIp,
-            status: res.statusCode,
-            outcome: "initialize rejected, no session created",
-          })
-          return
-        }
-        transports.set(transport.sessionId, transport)
-        logger.info("mcp_response", {
-          sessionId: transport.sessionId,
-          clientIp,
-          status: 200,
-          outcome: "session created",
-        })
-        return
-      }
+    if (!isInitializeRequest(body)) {
       logger.warn("mcp_response", {
         clientIp,
         status: 400,
@@ -226,14 +235,75 @@ export const createMcpRouter = ({
       res.status(400).json({ error: "no session" })
       return
     }
-
-    logger.warn("mcp_response", {
-      sessionId,
-      clientIp,
-      status: 404,
-      outcome: "session not found",
+    const transport = new StreamableHTTPServerTransport({
+      sessionIdGenerator: () => randomUUID(),
     })
-    res.status(404).json({ error: "session not found" })
+    transport.onclose = () => {
+      if (transport.sessionId) {
+        transports.delete(transport.sessionId)
+        logger.info("session_closed", {
+          sessionId: transport.sessionId,
+        })
+      }
+    }
+    const { instructions, description } = buildServerMetadata(
+      config,
+      computeEnabledToolNames(config),
+    )
+    const server = new McpServer(
+      {
+        name: "vault-cortex",
+        title: "Vault Cortex",
+        version: "1.0.0",
+        description,
+        icons: SERVER_ICONS,
+        websiteUrl: SERVER_WEBSITE_URL,
+      },
+      { instructions },
+    )
+
+    const sessionLogger = logger.child({
+      // Lazy: the transport generates its session id while handling the
+      // initialize request — after this child is created. Resolved per-emit.
+      sessionId: () => transport.sessionId,
+      clientIp,
+    })
+    registerTools({
+      server,
+      vaultPath,
+      search,
+      pdfExtractor,
+      logger: sessionLogger,
+      config,
+    })
+    registerPrompts({
+      server,
+      vaultPath,
+      search,
+      logger: sessionLogger,
+      config,
+    })
+
+    await server.connect(transport)
+    await transport.handleRequest(req, res, body)
+    if (!transport.sessionId) {
+      // The transport rejected the initialize request before generating a
+      // session id (e.g. missing Accept header → 406) — no session exists,
+      // so don't log "session created" with a hardcoded 200.
+      logger.warn("mcp_response", {
+        clientIp,
+        status: res.statusCode,
+        outcome: "initialize rejected, no session created",
+      })
+      return
+    }
+    transports.set(transport.sessionId, transport)
+    logger.info("mcp_response", {
+      sessionId: transport.sessionId,
+      clientIp,
+      status: 200,
+      outcome: "session created",
+    })
   })
 
   // The Streamable HTTP spec lets a client open a standalone SSE stream via
@@ -241,7 +311,7 @@ export const createMcpRouter = ({
   // don't offer one to reject the request with 405. vault-cortex never sends
   // server-initiated messages, so a held stream would only ever sit idle
   // until an upstream proxy timeout kills it (surfacing as gateway 5xx).
-  router.get("/mcp", bearerAuth, (req: Request, res: Response) => {
+  router.get("/mcp", ...guards, bearerAuth, (req: Request, res: Response) => {
     const sessionId = headerAsString(req.headers["mcp-session-id"])
     const clientIp = extractClientIp(req, config.trustForwardedHops)
     logger.info("mcp_request", { sessionId, clientIp, method: "GET" })
@@ -256,7 +326,7 @@ export const createMcpRouter = ({
     })
   })
 
-  router.delete("/mcp", bearerAuth, async (req: Request, res: Response) => {
+  router.delete("/mcp", ...guards, bearerAuth, async (req: Request, res: Response) => {
     const sessionId = headerAsString(req.headers["mcp-session-id"])
     const clientIp = extractClientIp(req, config.trustForwardedHops)
     logger.info("mcp_request", { sessionId, clientIp, method: "DELETE" })

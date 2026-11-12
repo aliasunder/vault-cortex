@@ -7,6 +7,7 @@ import {
   extractPdfIndexText,
   extractPdfText,
   MAX_INDEXED_PDF_BYTES,
+  toPdfData,
 } from "../obsidian-markdown/pdf.js"
 import { vaultFs } from "./vault-filesystem.js"
 import { buildPdfTextResult, describePdfOpenFailure } from "./asset-text.js"
@@ -32,11 +33,6 @@ const send = (reply: PdfReply): void => {
   })
 }
 
-/** pdfjs refuses a Node Buffer, so it gets a plain view over the same bytes. */
-const toPdfData = (buffer: Buffer): Uint8Array => {
-  return new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength)
-}
-
 /** pdfjs's refusal to open the file becomes the server's own message; other failures pass through. */
 const extractTextOrDescribeRefusal = async (params: {
   request: PdfRequest
@@ -48,14 +44,14 @@ const extractTextOrDescribeRefusal = async (params: {
   try {
     return await extractText(pdfData)
   } catch (error) {
-    const message = describePdfOpenFailure({ error, path: request.path, bytes })
+    const refusalMessage = describePdfOpenFailure({ error, path: request.path, bytes })
 
-    if (message) throw new Error(message, { cause: error })
+    if (refusalMessage) throw new Error(refusalMessage, { cause: error })
     throw error
   }
 }
 
-const extract = async (request: PdfRequest): Promise<void> => {
+const extractAndReply = async (request: PdfRequest): Promise<void> => {
   // The child's logger has no sink, so this context never reaches a log; readAsset requires one.
   const requestLogger = logger.child({ extractionRequestId: request.requestId })
   const asset = await vaultFs.readAsset(
@@ -85,8 +81,25 @@ const extract = async (request: PdfRequest): Promise<void> => {
   send({ kind: "read-result", requestId: request.requestId, result: textResult })
 }
 
+const errorToFailureReply = (params: { error: unknown; request: PdfRequest }): PdfReply => {
+  const { error, request } = params
+  const description = describeErrorRelativeTo({ error, directory: request.vaultPath })
+  const systemError = getSystemErrorDetails(error)
+  const errorCause = error instanceof Error ? error.cause : undefined
+
+  return {
+    kind: "failure",
+    requestId: request.requestId,
+    name: error instanceof Error ? error.name : "Error",
+    message: description.replace(FORMATTED_ERROR_NAME_PREFIX, ""),
+    ...(errorCause !== undefined ? { cause: describeError(errorCause) } : {}),
+    ...(systemError ? { systemError } : {}),
+  }
+}
+
 const requestOomPreference = async (): Promise<
-  { oomPreference: "applied" | "unsupported" } | { oomPreference: "unavailable"; error: string }
+  | { oomPreference: "applied" | "unsupported" }
+  | { oomPreference: "unavailable"; oomPreferenceError: string }
 > => {
   if (process.platform !== "linux") return { oomPreference: "unsupported" }
   try {
@@ -94,7 +107,7 @@ const requestOomPreference = async (): Promise<
     return { oomPreference: "applied" }
   } catch (error) {
     // Reported through the ready reply: the parent logs it, and this process's log has no sink.
-    return { oomPreference: "unavailable", error: describeError(error) }
+    return { oomPreference: "unavailable", oomPreferenceError: describeError(error) }
   }
 }
 
@@ -102,31 +115,18 @@ const main = async (): Promise<void> => {
   const preference = await requestOomPreference()
   // A disconnected parent has no deadline left; the child exits at its next event turn.
   process.on("disconnect", () => process.exit(0))
-  process.on("message", (message: unknown) => {
+  process.on("message", async (message: unknown) => {
     const parsed = pdfRequestSchema.safeParse(message)
 
     if (!parsed.success) process.exit(1)
     const request = parsed.data
-    void extract(request).catch((error: unknown) => {
-      const description = describeErrorRelativeTo({ error, directory: request.vaultPath })
-      const systemError = getSystemErrorDetails(error)
-      send({
-        kind: "failure",
-        requestId: request.requestId,
-        name: error instanceof Error ? error.name : "Error",
-        message: description.replace(FORMATTED_ERROR_NAME_PREFIX, ""),
-        ...(error instanceof Error && error.cause !== undefined
-          ? { cause: describeError(error.cause) }
-          : {}),
-        ...(systemError ? { systemError } : {}),
-      })
-    })
+    try {
+      await extractAndReply(request)
+    } catch (error) {
+      send(errorToFailureReply({ error, request }))
+    }
   })
-  send(
-    preference.oomPreference === "unavailable"
-      ? { kind: "ready", oomPreference: "unavailable", oomPreferenceError: preference.error }
-      : { kind: "ready", oomPreference: preference.oomPreference },
-  )
+  send({ kind: "ready", ...preference })
 }
 
 await main()

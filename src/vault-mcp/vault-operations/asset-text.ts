@@ -45,13 +45,8 @@ const assertTextWithinCap = (params: {
   )
 }
 
-/**
- * Builds the text result for a rendition — whole or paged. Without paging
- * params the full text returns byte-identical, within the text output cap. With
- * paging, delegates line splitting, validation, and slicing to the shared
- * pageTextByLines primitive, then enforces the asset-specific byte cap on
- * the resulting window.
- */
+/** Without paging params the full text returns byte-identical; a paged read returns its line
+ *  window. Either way, text past the text output cap is rejected. */
 export const buildTextResult = (params: {
   text: string
   path: string

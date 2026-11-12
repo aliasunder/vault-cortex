@@ -24,8 +24,9 @@ const LINUX_DATA_BUDGET_MIB = 512
 const VM_DATA_PATTERN = /^VmData:\s+(?<startupDataKiB>\d+)\s+kB$/m
 const execFileAsync = promisify(execFile)
 // The child's extension follows this module's, so tsx runs spawn .ts and compiled images spawn .js.
+const MODULE_EXTENSION = extname(fileURLToPath(import.meta.url))
 const CHILD_ENTRY = fileURLToPath(
-  new URL(`./pdf-extraction-child${extname(fileURLToPath(import.meta.url))}`, import.meta.url),
+  new URL(`./pdf-extraction-child${MODULE_EXTENSION}`, import.meta.url),
 )
 // The child's paths and byte cap arrive over IPC, so it gets only what Node and tsx need to run;
 // the server's tokens and vault settings never enter the process that parses untrusted PDFs.
@@ -95,16 +96,22 @@ type Job = {
   reject: (error: Error) => void
   queueTimer?: ReturnType<typeof setTimeout>
 }
-type Reader = { child: ChildProcess; ready: boolean; exited: Promise<void>; ended: boolean }
+type Reader = { child: ChildProcess; ready: boolean; exited: Promise<void>; hasExited: boolean }
+
+/** A reader whose process exited or whose IPC channel closed cannot take a request. */
+const isLiveReader = (candidate: Reader | undefined): candidate is Reader => {
+  if (!candidate) return false
+  return !candidate.hasExited && candidate.child.connected
+}
 
 const applyLinuxDataLimit = async (child: ChildProcess, logger: Logger): Promise<void> => {
   if (!child.pid) throw new Error("PDF child has no process ID")
-  const status = await readFile(`/proc/${child.pid}/status`, "utf8")
-  const startupDataKiB = Number(VM_DATA_PATTERN.exec(status)?.groups?.startupDataKiB)
+  const processStatus = await readFile(`/proc/${child.pid}/status`, "utf8")
+  const startupDataKiB = Number(VM_DATA_PATTERN.exec(processStatus)?.groups?.startupDataKiB)
+  const footprintAvailable = Number.isSafeInteger(startupDataKiB) && startupDataKiB > 0
 
-  if (!Number.isSafeInteger(startupDataKiB) || startupDataKiB <= 0) {
-    throw new Error("PDF child data footprint is unavailable")
-  }
+  if (!footprintAvailable) throw new Error("PDF child data footprint is unavailable")
+
   const dataLimitKiB = startupDataKiB + LINUX_DATA_BUDGET_MIB * 1024
   // prlimit comes with util-linux. Without it the limit cannot be applied, and every PDF
   // request fails as a reader start failure rather than running unbounded.
@@ -126,26 +133,29 @@ export const createPdfExtractor = (params: {
   // queue is edited in place: a job leaves it when dispatched, expired, superseded or closed.
   const queue: Job[] = []
   let reader: Reader | undefined
-  let running = false
+  let draining = false
   let closed = false
   let nextRequestId = 0
-  let cancelActive: (() => void) | undefined
+  let cancelActiveJob: (() => void) | undefined
   // Concurrent shutdown and request failure must await the same child death.
-  let stopping: Promise<void> = Promise.resolve()
+  let readerStopped: Promise<void> = Promise.resolve()
 
   const stopReader = async (): Promise<void> => {
-    const discarded = reader
+    const discardedReader = reader
     reader = undefined
-    if (!discarded) return stopping
-    if (!discarded.ended) discarded.child.kill("SIGKILL")
-    stopping = discarded.exited
-    await stopping
+
+    if (!discardedReader) return readerStopped
+    if (!discardedReader.hasExited) discardedReader.child.kill("SIGKILL")
+    readerStopped = discardedReader.exited
+    await readerStopped
   }
 
   const startReader = (): Reader => {
+    const childNeedsTsx = CHILD_ENTRY.endsWith(".ts")
+    const tsxRunsOnLinux = childNeedsTsx && process.platform === "linux"
     const nodeArgs = [
       `--max-old-space-size=${CHILD_HEAP_LIMIT_MIB}`,
-      ...(CHILD_ENTRY.endsWith(".ts") ? ["--import", "tsx"] : []),
+      ...(childNeedsTsx ? ["--import", "tsx"] : []),
       CHILD_ENTRY,
     ]
     const child = spawn(process.execPath, nodeArgs, {
@@ -154,29 +164,25 @@ export const createPdfExtractor = (params: {
         ...childEnvironment(),
         LOG_DIR: "none",
         // Avoid tsx's extra esbuild V8 isolate inflating the Linux startup footprint.
-        ...(process.platform === "linux" && CHILD_ENTRY.endsWith(".ts")
-          ? { ESBUILD_WORKER_THREADS: "0" }
-          : {}),
+        ...(tsxRunsOnLinux ? { ESBUILD_WORKER_THREADS: "0" } : {}),
       },
       stdio: ["ignore", "ignore", "ignore", "ipc"],
     })
-    const state: Reader = { child, ready: false, ended: false, exited: Promise.resolve() }
-    state.exited = new Promise((resolveExit) => {
-      child.once("exit", () => {
-        state.ended = true
-        resolveExit()
-      })
-      // A failed spawn emits error with no exit, so the promise settles here; a child that
-      // has a process ID gets its exit event later and settles above.
-      child.once("error", () => {
-        if (!child.pid) {
-          state.ended = true
-          resolveExit()
-        }
-      })
+    const childExit = Promise.withResolvers<undefined>()
+    const newReader: Reader = { child, ready: false, hasExited: false, exited: childExit.promise }
+    const markExited = (): void => {
+      newReader.hasExited = true
+      childExit.resolve(undefined)
+    }
+
+    child.once("exit", markExited)
+    // A failed spawn emits error with no exit, so the error marks the reader exited; a child
+    // that has a process ID gets its exit event later.
+    child.once("error", () => {
+      if (!child.pid) markExited()
     })
-    reader = state
-    return state
+    reader = newReader
+    return newReader
   }
 
   /**
@@ -189,16 +195,17 @@ export const createPdfExtractor = (params: {
   const dispatch = (job: Job): Promise<void> => {
     return new Promise((resolveDispatch) => {
       const requestLogger = job.logger.child({ extractionRequestId: job.request.requestId })
-      const liveReader = reader && !reader.ended && reader.child.connected ? reader : undefined
-      const state = liveReader ?? startReader()
-      const { child } = state
+      const jobReader = isLiveReader(reader) ? reader : startReader()
+      const { child } = jobReader
       // Settlement may race a deadline, IPC disconnect and process exit.
       let settled = false
       // Readiness spans the asynchronous Linux limit application.
       let initializing = false
 
       // A reader that never became ready failed to start; one that was ready failed on this PDF.
-      const failureForReaderState = (): FailureCode => (state.ready ? "pdf-resource" : "pdf-start")
+      const failureForReaderState = (): FailureCode => {
+        return jobReader.ready ? "pdf-resource" : "pdf-start"
+      }
 
       const finish = ({
         outcome,
@@ -209,20 +216,23 @@ export const createPdfExtractor = (params: {
       }): void => {
         if (settled) return
         settled = true
-        clearTimeout(timer)
+
+        clearTimeout(deadlineTimer)
         child.off("message", onMessage)
         child.off("exit", onExit)
         child.off("error", onError)
         child.off("disconnect", onDisconnect)
-        cancelActive = undefined
+        cancelActiveJob = undefined
+
         requestLogger.debug("PDF extraction finished", {
           path: job.request.path,
           outcome: outcome instanceof Error ? outcome.message : outcome.kind,
         })
         if (outcome instanceof Error) job.reject(outcome)
         else job.resolve(outcome)
+
         // The queue awaits termination even though the caller can receive its error immediately.
-        const complete = async (): Promise<void> => {
+        const releaseQueue = async (): Promise<void> => {
           if (readerDisposition === "reap") {
             await stopReader()
             requestLogger.warn("PDF extraction reader discarded", {
@@ -233,8 +243,9 @@ export const createPdfExtractor = (params: {
           }
           resolveDispatch()
         }
-        void complete()
+        void releaseQueue()
       }
+
       const fail = ({
         reason,
         failure = failureForReaderState(),
@@ -256,6 +267,7 @@ export const createPdfExtractor = (params: {
           readerDisposition: "reap",
         })
       }
+
       const send = (): void => {
         requestLogger.debug("PDF extraction dispatched", {
           path: job.request.path,
@@ -267,6 +279,7 @@ export const createPdfExtractor = (params: {
           if (error) fail({ reason: "send", failure: "pdf-start", error })
         })
       }
+
       const initialize = async (): Promise<void> => {
         if (process.platform === "linux") {
           try {
@@ -283,9 +296,10 @@ export const createPdfExtractor = (params: {
           }
         }
         if (settled) return
-        state.ready = true
+        jobReader.ready = true
         send()
       }
+
       const onMessage = (message: unknown): void => {
         const parsed = pdfReplySchema.safeParse(message)
 
@@ -296,7 +310,9 @@ export const createPdfExtractor = (params: {
         const reply = parsed.data
 
         if (reply.kind === "ready") {
-          if (state.ready || initializing) {
+          const isDuplicateReadiness = jobReader.ready || initializing
+
+          if (isDuplicateReadiness) {
             fail({ reason: "duplicate readiness" })
             return
           }
@@ -318,11 +334,12 @@ export const createPdfExtractor = (params: {
           // The child catches per-file errors after the request unwinds, leaving its loop reusable.
           // The error keeps its library name, and a Node error keeps its code and syscall, so the
           // tool boundary describes it exactly as an in-process failure.
-          const failure = Object.assign(
-            new Error(reply.message, reply.cause ? { cause: reply.cause } : undefined),
-            { name: reply.name, ...reply.systemError },
-          )
-          finish({ outcome: failure, readerDisposition: "reuse" })
+          const errorOptions = reply.cause ? { cause: reply.cause } : undefined
+          const childError = Object.assign(new Error(reply.message, errorOptions), {
+            name: reply.name,
+            ...reply.systemError,
+          })
+          finish({ outcome: childError, readerDisposition: "reuse" })
           return
         }
         const expectedReplyKind = job.request.kind === "index" ? "index-result" : "read-result"
@@ -333,12 +350,14 @@ export const createPdfExtractor = (params: {
         }
         finish({ outcome: reply, readerDisposition: "reuse" })
       }
+
       // The exit code and signal reach the log through fail.
       const onExit = (): void => fail({ reason: "exit" })
       const onError = (error: Error): void => fail({ reason: "process error", error })
       // Exit delivers code/signal diagnostics; killing also reaps a live disconnected reader.
       const onDisconnect = (): void => fail({ reason: "IPC disconnected" })
-      const timer = setTimeout(() => {
+
+      const deadlineTimer = setTimeout(() => {
         requestLogger.warn("PDF extraction deadline exceeded", {
           path: job.request.path,
           timeoutMs: ACTIVE_TIMEOUT_MS,
@@ -348,28 +367,30 @@ export const createPdfExtractor = (params: {
           readerDisposition: "reap",
         })
       }, ACTIVE_TIMEOUT_MS)
-      cancelActive = () => {
+      cancelActiveJob = () => {
         finish({
           outcome: extractionError(job.request.path, "pdf-closed"),
           readerDisposition: "reap",
         })
       }
+
       child.on("message", onMessage)
       child.once("exit", onExit)
       child.once("error", onError)
       child.once("disconnect", onDisconnect)
-      if (state.ready) send()
+      if (jobReader.ready) send()
     })
   }
 
   const drain = async (): Promise<void> => {
-    if (running) return
-    running = true
+    if (draining) return
+    draining = true
     try {
       while (!closed && queue.length) {
         // Reads answer a waiting tool call, so they go ahead of queued index jobs.
-        const readIndex = queue.findIndex((job) => job.request.kind === "read")
-        const [job] = queue.splice(readIndex < 0 ? 0 : readIndex, 1)
+        const readPosition = queue.findIndex((queued) => queued.request.kind === "read")
+        const hasQueuedRead = readPosition >= 0
+        const [job] = queue.splice(hasQueuedRead ? readPosition : 0, 1)
 
         // splice on a non-empty queue always yields a job; the guard narrows the type.
         if (!job) continue
@@ -387,8 +408,19 @@ export const createPdfExtractor = (params: {
         }
       }
     } finally {
-      running = false
+      draining = false
     }
+  }
+
+  /** Removes a queued index job for the path and settles it as superseded. */
+  const supersedeQueuedIndexJob = (path: string): void => {
+    const supersededJob = queue.find((queued) => {
+      return queued.request.kind === "index" && queued.request.path === path
+    })
+
+    if (!supersededJob) return
+    queue.splice(queue.indexOf(supersededJob), 1)
+    supersededJob.reject(extractionError(path, "pdf-superseded"))
   }
 
   const enqueue = (
@@ -397,20 +429,15 @@ export const createPdfExtractor = (params: {
   ): Promise<PdfReply> => {
     if (closed) return Promise.reject(extractionError(request.path, "pdf-closed"))
     return new Promise((resolveReply, reject) => {
-      if (coalesce) {
-        const previousIndex = queue.findIndex(
-          (queued) => queued.request.kind === "index" && queued.request.path === request.path,
-        )
-        const previous = previousIndex < 0 ? undefined : queue.splice(previousIndex, 1)[0]
-        previous?.reject(extractionError(request.path, "pdf-superseded"))
-      }
+      if (coalesce) supersedeQueuedIndexJob(request.path)
       const job: Job = { request, logger, resolve: resolveReply, reject }
 
       if (request.kind === "read") {
         job.queueTimer = setTimeout(() => {
           const position = queue.indexOf(job)
+          const isStillQueued = position >= 0
 
-          if (position < 0) return
+          if (!isStillQueued) return
           queue.splice(position, 1)
           logger.warn("PDF extraction queue wait expired", {
             path: request.path,
@@ -472,7 +499,7 @@ export const createPdfExtractor = (params: {
         clearTimeout(job.queueTimer)
         job.reject(extractionError(job.request.path, "pdf-closed"))
       }
-      cancelActive?.()
+      cancelActiveJob?.()
       await stopReader()
     },
   }

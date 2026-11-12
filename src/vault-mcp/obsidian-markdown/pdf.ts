@@ -10,6 +10,12 @@ export const MAX_INDEXED_PDF_PAGES = 500
 // wasted work. The value matches the index's own cap; a test pins the two together.
 export const MAX_INDEXED_PDF_BYTES = 102_400
 
+/** pdfjs refuses a Node Buffer, so it gets a plain view over the same bytes; the byte range
+ *  excludes any other Buffer sharing the same pool. */
+export const toPdfData = (buffer: Buffer): Uint8Array => {
+  return new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength)
+}
+
 type PageTextContent = Awaited<ReturnType<PDFPageProxy["getTextContent"]>>
 
 /** unpdf's own item mapping reads every page at once, so this per-page copy of it lets index
@@ -20,10 +26,9 @@ const structuredPageItems = (content: PageTextContent): StructuredTextItem[] => 
   ): StructuredTextItem => {
     const [, , verticalBasisX, verticalBasisY, xCoordinate, yCoordinate] = textItem.transform
     const direction = textItem.dir
+    const isKnownDirection = direction === "ltr" || direction === "rtl" || direction === "ttb"
 
-    if (direction !== "ltr" && direction !== "rtl" && direction !== "ttb") {
-      throw new Error("PDF text has an invalid direction")
-    }
+    if (!isKnownDirection) throw new Error("PDF text has an invalid direction")
 
     return {
       str: textItem.str,
@@ -38,6 +43,7 @@ const structuredPageItems = (content: PageTextContent): StructuredTextItem[] => 
       hasEOL: textItem.hasEOL,
     }
   }
+
   return content.items.filter((textItem) => "str" in textItem).map(toStructuredItem)
 }
 
@@ -540,7 +546,9 @@ export const extractPdfIndexText = async (pdfData: Uint8Array): Promise<PdfTextR
     for (let pageNumber = 1; pageNumber <= pageLimit; pageNumber += 1) {
       const page = await proxy.getPage(pageNumber)
       try {
-        itemsByPage.push(structuredPageItems(await page.getTextContent()))
+        const textContent = await page.getTextContent()
+        itemsByPage.push(structuredPageItems(textContent))
+
         const annotations = await page.getAnnotations()
         for (const annotation of annotations) {
           const isWebLink =
@@ -564,8 +572,9 @@ export const extractPdfIndexText = async (pdfData: Uint8Array): Promise<PdfTextR
         itemsByPage,
         pdfLinks,
       })
+      const reachedByteBudget = Buffer.byteLength(rendition, "utf8") >= MAX_INDEXED_PDF_BYTES
 
-      if (Buffer.byteLength(rendition, "utf8") >= MAX_INDEXED_PDF_BYTES) break
+      if (reachedByteBudget) break
     }
     // The title and link footer render without visible text, so the check is on the items.
     const hasContent = itemsByPage.some((pageItems) => pageItems.some(hasVisibleText))

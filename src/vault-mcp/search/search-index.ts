@@ -2485,12 +2485,12 @@ export const createSearchIndex = (
         return null
       }
     }
-    const nonMarkdownFileSizeResults = await mapWithConcurrency({
+    const nonMarkdownFileStatResults = await mapWithConcurrency({
       items: allNonMdFiles,
       concurrency: INDEXING_FILE_READ_CONCURRENCY,
       mapper: readFileStat,
     })
-    const nonMarkdownFileSizes = nonMarkdownFileSizeResults.filter((entry) => entry !== null)
+    const nonMarkdownFileStats = nonMarkdownFileStatResults.filter((entry) => entry !== null)
     // A canvas is read for its links whether or not file tools are on. Text,
     // HTML and script content is read only when the file content tables exist;
     // PDFs join their separate deferred pass below. The switch
@@ -2565,7 +2565,7 @@ export const createSearchIndex = (
 
     // A PDF is found by name from this write on; its old text, chunks and vectors are removed at
     // the same time, so nothing stale answers until the deferred pass publishes its text.
-    const pdfPlaceholders = nonMarkdownFileSizes
+    const pdfPlaceholders = nonMarkdownFileStats
       .filter((file) => fileToolsEnabled && getFileKind(file.relativePath) === "pdf")
       .map((file) => ({
         relativePath: file.relativePath,
@@ -2673,7 +2673,7 @@ export const createSearchIndex = (
       db.transaction(() => {
         // Index non-markdown files so extensionless wikilinks to .canvas, .base,
         // etc. are recognized as file references rather than broken note links.
-        const nonMdCount = indexNonMarkdownFiles(nonMarkdownFileSizes)
+        const nonMdCount = indexNonMarkdownFiles(nonMarkdownFileStats)
         logger.debug("indexed non-md files", { count: nonMdCount })
 
         // Pass 1 indexes note content before links can resolve against the complete path list.
@@ -3140,17 +3140,24 @@ export const createSearchIndex = (
       const publishedPdfs: Array<{ relativePath: string; sourceVersion: symbol }> = []
       for (const file of pdfPlaceholders) {
         const scheduledVersion = pdfVersionsForExtraction.get(file.relativePath)
+        // A placeholder whose write failed has no version. A later write or removal for the
+        // path changes its version, and that change wins over this pass.
+        const isPlaceholderCurrent = (): boolean => {
+          if (!scheduledVersion) return false
+          return sourceVersions.get(file.relativePath) === scheduledVersion
+        }
+        const tooLargeToExtract = file.sizeBytes > maxFileBytes
 
-        if (!scheduledVersion) continue
-        if (sourceVersions.get(file.relativePath) !== scheduledVersion) continue
-        if (file.sizeBytes > maxFileBytes) continue
+        if (tooLargeToExtract) continue
+        if (!isPlaceholderCurrent()) continue
         const result = await extractScheduledPdf(file)
 
-        if (!result || sourceVersions.get(file.relativePath) !== scheduledVersion) continue
-        const sourceVersion = publishPdfText(file, result.text)
+        if (!result) continue
+        if (!isPlaceholderCurrent()) continue
+        const publishedVersion = publishPdfText(file, result.text)
 
-        if (!sourceVersion) continue
-        publishedPdfs.push({ relativePath: file.relativePath, sourceVersion })
+        if (!publishedVersion) continue
+        publishedPdfs.push({ relativePath: file.relativePath, sourceVersion: publishedVersion })
       }
 
       for (const { relativePath, sourceVersion } of publishedPdfs) {
