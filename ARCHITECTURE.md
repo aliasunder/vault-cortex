@@ -907,8 +907,10 @@ proxy-trust config:
 - Behind API Gateway, `Forwarded` is the only carrier of the client IP:
   the gateway writes that header, folds a client-supplied
   `X-Forwarded-For` into it as leading elements, and sends no
-  `X-Forwarded-For` of its own. The reference deployment therefore runs
-  `TRUST_FORWARDED_HOPS=1`.
+  `X-Forwarded-For` of its own. The reference deployment therefore keeps
+  `TRUST_FORWARDED_HOPS=0` while port 8000 is open, when anyone reaching
+  the port directly could write the header, and sets it to `1` once the
+  hardening makes the gateway the only way in.
 - `TRUST_PROXY_HOPS` (default `0`) sets Express `trust proxy` — how many
   `X-Forwarded-For` hops feed `req.ip`, the bucket key whenever `Forwarded`
   isn't trusted. These counts prevent forged client IPs only when requests

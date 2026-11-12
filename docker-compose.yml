@@ -53,7 +53,9 @@ services:
       # or absent.
       #
       #   What sits in front of this container   TRUST_PROXY_HOPS  TRUST_FORWARDED_HOPS  Client IP is
-      #   API Gateway (default)                  1                 1                     the visitor
+      #   API Gateway directly (default):        0                 0                     the socket peer: the
+      #     port 8000 open to the gateway,                                                 gateway or the visitor
+      #     and so to everyone
       #   Gateway → tunnel (ORIGIN_URL) that     2                 0                     the gateway's address
       #     admits any client
       #   Gateway → tunnel that admits only      2                 1                     the visitor
@@ -64,10 +66,10 @@ services:
       #
       # On the rows where the client IP is the visitor, it comes from the
       # Forwarded header and TRUST_PROXY_HOPS is not consulted. On the
-      # TRUST_FORWARDED_HOPS=0 row, the Forwarded header is ignored and the
-      # client IP is whatever TRUST_PROXY_HOPS resolves from X-Forwarded-For —
-      # the gateway's own address, never the visitor, since the gateway sends
-      # no X-Forwarded-For.
+      # TRUST_FORWARDED_HOPS=0 rows, the Forwarded header is ignored and the
+      # client IP is what TRUST_PROXY_HOPS resolves: behind the gateway, the
+      # gateway's own address, since it sends no X-Forwarded-For; at 0, the
+      # connection's own address.
       #
       # A tunnel host admits only the gateway once the
       # ORIGIN_ACCESS_SERVICE_TOKEN_ENABLED repo Variable is set and the Access
@@ -76,13 +78,15 @@ services:
       # which is why the "admits any client" row sets TRUST_FORWARDED_HOPS to
       # 0.
       #
-      # Port 8000 is open to the internet. With the default settings (the
-      # "API Gateway" row), anyone can send a fake Forwarded header straight
-      # to the server. To fix this, follow the steps in DEPLOY.md under "Port
-      # 8000 Hardening". They close the port and lock the tunnel to the
-      # gateway. After that, set TRUST_PROXY_HOPS=2 and TRUST_FORWARDED_HOPS=1.
-      TRUST_PROXY_HOPS: ${TRUST_PROXY_HOPS:-1}
-      TRUST_FORWARDED_HOPS: ${TRUST_FORWARDED_HOPS:-1}
+      # Port 8000 is open to the internet until MCP_PORT_CIDRS=none, and
+      # anyone reaching it directly can write either header, so the defaults
+      # trust neither: every visitor through the gateway then shares the
+      # gateway's bucket, but no visitor can pick one. Without ORIGIN_URL the
+      # gateway reaches this port directly, so the port cannot close; once the
+      # tunnel is locked to the gateway (DEPLOY.md "Port 8000 Hardening"), set
+      # TRUST_PROXY_HOPS=2 and TRUST_FORWARDED_HOPS=1.
+      TRUST_PROXY_HOPS: ${TRUST_PROXY_HOPS:-0}
+      TRUST_FORWARDED_HOPS: ${TRUST_FORWARDED_HOPS:-0}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       LOG_DIR: ${LOG_DIR:-/data/logs}
       LOG_RETENTION_DAYS: ${LOG_RETENTION_DAYS:-90}

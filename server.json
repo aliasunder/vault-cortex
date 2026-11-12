@@ -133,7 +133,7 @@
         },
         {
           "name": "TRUST_FORWARDED_HOPS",
-          "description": "How many entries from the end of the RFC 7239 Forwarded header's for= list to count to reach the client IP for OAuth rate limiting and request logs. 0 ignores the header; 1 when the proxy in front writes it (e.g. AWS API Gateway); 2 when a CDN fronts that proxy and is the only way to reach it.",
+          "description": "How many entries from the end of the RFC 7239 Forwarded header's for= list to count to reach the client IP for OAuth rate limiting and request logs. 0 ignores the header; 1 when the proxy in front writes it (e.g. AWS API Gateway) and is the only way to reach the server; 2 when a CDN fronts that proxy and is the only way to reach it.",
           "default": "0"
         },
         {

@@ -214,7 +214,7 @@ of a Cloudflare Tunnel that keeps every port closed):
 | Option                                                      | Cost                          | Domain needed       | Ports open on your server |
 | ----------------------------------------------------------- | ----------------------------- | ------------------- | ------------------------- |
 | [Cloudflare Tunnel](#cloudflare-tunnel-no-open-ports--free) | Free                          | Yes (on Cloudflare) | None                      |
-| [API Gateway](#api-gateway-aws--no-domain-needed)           | Free tier covers personal use | No                  | 8000                      |
+| [API Gateway](#api-gateway-aws--no-domain-needed)           | Free tier covers personal use | No                  | 8000 (see the recipe)     |
 | [Reverse proxy](#reverse-proxy-requires-a-domain)           | Free (Caddy/nginx)            | Yes                 | 443                       |
 | [Direct access](#direct-access-testing-only)                | Free                          | No                  | 8000 (testing only)       |
 
@@ -237,9 +237,12 @@ point it at `http://localhost:8000`. Set `PUBLIC_URL` to the tunnel URL
 with a proxy in front, that's what lets OAuth rate limiting tell clients
 apart (otherwise they all share the tunnel's budget).
 
-Once the tunnel is working, close port 8000 on your server's firewall — all
-traffic flows through the tunnel, so the direct port is no longer needed.
-See [Hardening](#hardening-recommended) below.
+Once the tunnel is working, stop publishing port 8000 to the internet, as
+[Close port 8000](#hardening-recommended) describes. The tunnel runs on the
+same machine and reaches `localhost:8000`, so nothing else needs the port.
+Set `TRUST_PROXY_HOPS=1` only after the port is closed: while it stays open,
+anyone reaching it directly can write their own `X-Forwarded-For` header
+and pick their own rate-limit budget.
 
 ### API Gateway (AWS — no domain needed)
 
@@ -256,12 +259,18 @@ requests/month for 12 months — effectively free for personal use.
 
 Create an HTTP API in API Gateway with a route that proxies to
 `http://<your-server-ip>:8000/{proxy+}`. Set `PUBLIC_URL` to the API Gateway
-URL, `TRUST_FORWARDED_HOPS=1`, and `TRUST_PROXY_HOPS=1` in `.env` — the
-gateway reports clients through the
-[RFC 7239](https://www.rfc-editor.org/rfc/rfc7239) `Forwarded` header, and
-this tells the server to read it for OAuth rate limiting and request logs.
-See the project's [full cloud deployment](../../DEPLOY.md) for the SST IaC
-approach, which adds a Lambda authorizer for an extra auth layer.
+URL in `.env`, and leave `TRUST_PROXY_HOPS` and `TRUST_FORWARDED_HOPS` at
+their default of `0` while port 8000 is reachable from the internet. The
+gateway reports each visitor through the
+[RFC 7239](https://www.rfc-editor.org/rfc/rfc7239) `Forwarded` header and
+sends no `X-Forwarded-For`, but anyone reaching port 8000 directly can write
+either header and pick their own OAuth rate-limit budget, so the server
+reads neither until the gateway is the only way in. Until then every visitor
+through the gateway shares one budget, the gateway's address, and one
+client's burst of sign-ins can block another's for a minute. The project's
+[full cloud deployment](../../DEPLOY.md) closes port 8000 behind a locked
+tunnel and then sets `TRUST_FORWARDED_HOPS=1`; it also adds a Lambda
+authorizer for an extra auth layer.
 
 > **Need a VPS?** Any provider works — [AWS Lightsail](https://aws.amazon.com/lightsail/),
 > DigitalOcean, Hetzner, etc. A 2 GiB instance handles semantic search fine for
@@ -287,6 +296,13 @@ vault.yourdomain.com {
 Set `PUBLIC_URL` to `https://vault.yourdomain.com` and `TRUST_PROXY_HOPS=1`
 in `.env` — with a proxy in front, that's what lets OAuth rate limiting tell
 clients apart (otherwise they all share the proxy's budget).
+
+The proxy runs on the same machine and reaches `localhost:8000`, so stop
+publishing port 8000 to the internet, as
+[Close port 8000](#hardening-recommended) describes. Set `TRUST_PROXY_HOPS=1`
+only after the port is closed: while it stays open, anyone reaching it
+directly can write their own `X-Forwarded-For` header and pick their own
+rate-limit budget.
 
 ### Direct access (testing only)
 
@@ -751,7 +767,7 @@ These optional settings are worth knowing about:
 | `DAILY_NOTES_FOLDER`    | from vault config             | Sets the daily notes folder (see [Daily notes](#daily-notes))                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | `DAILY_NOTES_FORMAT`    | from vault config             | Sets the daily note filename format (see [Daily notes](#daily-notes))                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | `TRUST_PROXY_HOPS`      | `0`                           | Set `1` when a tunnel or reverse proxy fronts the server — OAuth rate limiting then buckets by the real client IP, not the proxy's                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| `TRUST_FORWARDED_HOPS`  | `0`                           | How many trailing `for=` entries in the [RFC 7239](https://www.rfc-editor.org/rfc/rfc7239) `Forwarded` header belong to proxies you control. `0` ignores the header; `1` when the proxy in front writes it (e.g. AWS API Gateway); `2` when a CDN fronts that proxy and is the only way to reach it                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `TRUST_FORWARDED_HOPS`  | `0`                           | How many trailing `for=` entries in the [RFC 7239](https://www.rfc-editor.org/rfc/rfc7239) `Forwarded` header belong to proxies you control. `0` ignores the header; `1` when the proxy in front writes it (e.g. AWS API Gateway) and is the only way to reach the server; `2` when a CDN fronts that proxy and is the only way to reach it                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | `LOG_RETENTION_DAYS`    | `90`                          | Days to keep log files; cleanup runs at startup and each day. The current day is also kept.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | `LOG_MAX_DAILY_MB`      | `25`                          | Maximum MB per daily log file. At the cap, file logging pauses until midnight in `TZ` (UTC by default); the container log continues. Whole numbers of at least 1, or `none` to disable the cap. On small disks, lower this or `LOG_RETENTION_DAYS`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | `STORAGE_ROOT`          | —                             | One directory for everything that must persist, for hosting platforms that allow a single volume (see **Single persistent volume** under [Setup](#setup)). Must not contain `*`, `?`, or `[`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
@@ -764,10 +780,21 @@ All settings are documented in `.env.example` and in the
 MCP requests require your token or an OAuth session; health checks and the
 sign-in pages are public. These optional measures add defense-in-depth:
 
-- **Close port 8000** — once a tunnel or reverse proxy handles HTTPS, close
-  direct access to port 8000, and to each other install's `PORT`, wherever you manage your server's firewall
-  (provider panel, AWS security groups, infrastructure-as-code). All traffic
-  then flows through the encrypted path.
+- **Close port 8000** — once a tunnel or reverse proxy on the same machine
+  handles HTTPS, publish the port on that machine only. With Compose, change
+  the `ports` line in `docker-compose.yml` to
+  `"127.0.0.1:${PORT:-8000}:8000"`, for each install's `PORT`, and run
+  `docker compose up -d`; a restart keeps the old mapping. With `docker run`,
+  re-create the container with `-p 127.0.0.1:8000:8000` in place of
+  `-p 8000:8000` (keep your own host port if you changed the first `8000`).
+  The CLI publishes the port on every interface and has no loopback option,
+  so move a CLI install to one of those two commands for this step. A
+  firewall on the machine itself (ufw, firewalld) does not close a published
+  port, because Docker publishes ports past it; a rule in your provider's
+  firewall (provider panel, AWS security groups, infrastructure-as-code) is
+  applied before traffic reaches the machine and does close it. All traffic
+  then flows through the encrypted path, and only the proxy you chose can
+  set the client IP that `TRUST_PROXY_HOPS` and `TRUST_FORWARDED_HOPS` read.
 
 - **Restrict SSH access** — limit SSH to a VPN or trusted IPs instead of the
   open internet. [Tailscale](https://tailscale.com/) (free for personal use)
