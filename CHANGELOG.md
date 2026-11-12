@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.57.3] — 2026-11-12
+
+### Bug Fixes
+
+- Keep background embedding from stalling tool calls past the gateway timeout (#757)
+- Isolate PDF text extraction so one crafted PDF cannot crash the server (#755)
+
+### CI / Infrastructure
+
+- **dependabot:** Group GitHub Actions bumps into one weekly PR (#786)
+- **dependabot:** Bump each CLI dependency's two copies in one PR (#780)
+
+### Maintenance
+
+- **deps:** Bump github/codeql-action/upload-sarif from 4.39.2 to 4.39.3 (#781)
+- **deps:** Bump sigstore/cosign-installer from 4.1.2 to 4.1.3 (#782)
+- **deps:** Bump docker/login-action from 4.7.0 to 4.8.0 (#783)
+- **deps:** Bump aliasunder/umm-actually from 0.4.11 to 0.4.12 (#784)
+
 ## [0.57.2] — 2026-11-12
 
 ### Bug Fixes
