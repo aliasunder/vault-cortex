@@ -700,7 +700,8 @@ describe("file watcher — obsolete events and embedding queues", () => {
 
       if (!handler) throw new Error(`${event} handler was not registered`)
       // EventEmitter types listeners as void, but the change handler returns
-      // its actual promise, so awaiting it observes all indexing work.
+      // its actual promise, so awaiting it observes the keyword write; a note's
+      // or non-PDF file's embedding keeps running after it resolves.
       await handler(join(testVault, fileName))
     }
     return { testVault, search, database, fire }
@@ -1782,14 +1783,23 @@ describe("file watcher — obsolete events and embedding queues", () => {
           return sourceVersion
         },
       )
-      const finalFileEmbedFinished = Promise.withResolvers<undefined>()
+      const finalEmbedFinished = Promise.withResolvers<undefined>()
       const independentEmbedFinished = Promise.withResolvers<undefined>()
       const independentFileName = fileName.endsWith(".md") ? "sentry.md" : "sentry.txt"
+      // The listener resolves before the embedding, so each path's embed signals its end
+      const markEmbedFinished = (embeddedPath: string): void => {
+        if (embeddedPath === fileName) finalEmbedFinished.resolve(undefined)
+        if (embeddedPath === independentFileName) independentEmbedFinished.resolve(undefined)
+      }
+      const realNoteEmbed = search.embedNote
+      vi.spyOn(search, "embedNote").mockImplementation(async (params, requestLogger) => {
+        await realNoteEmbed(params, requestLogger)
+        markEmbedFinished(params.notePath)
+      })
       const realFileEmbed = search.embedFileContent
       vi.spyOn(search, "embedFileContent").mockImplementation(async (params, requestLogger) => {
         await realFileEmbed(params, requestLogger)
-        if (params.filePath === fileName) finalFileEmbedFinished.resolve(undefined)
-        if (params.filePath === independentFileName) independentEmbedFinished.resolve(undefined)
+        markEmbedFinished(params.filePath)
       })
       await writeFile(filePath, "finalamber")
       const finalChange = fire("change", fileName)
@@ -1798,7 +1808,7 @@ describe("file watcher — obsolete events and embedding queues", () => {
       // any incorrectly unqueued final job time to reach its model call.
       await writeFile(join(testVault, independentFileName), "independentjade")
       await fire("change", independentFileName)
-      if (!fileName.endsWith(".md")) await independentEmbedFinished.promise
+      await independentEmbedFinished.promise
       expect(embedder.embedText).toHaveBeenCalledTimes(3)
       releaseReplacement.resolve(vector)
       await replacementChange
@@ -1810,7 +1820,7 @@ describe("file watcher — obsolete events and embedding queues", () => {
       ).toEqual([])
       releaseFinal.resolve(vector)
       await finalChange
-      if (!fileName.endsWith(".md")) await finalFileEmbedFinished.promise
+      await finalEmbedFinished.promise
       const storedChunks = database
         .prepare(
           `SELECT ${pathColumn} AS path, chunk_text FROM ${chunkTable} WHERE ${pathColumn} = ?`,
@@ -2131,27 +2141,40 @@ describe("file watcher — obsolete events and embedding queues", () => {
       if (params.rawContent === "newopal") sourceWritten.resolve(undefined)
       return sourceVersion
     })
-    const errorSpy = vi.spyOn(logger, "error")
+    // The listener resolves before the embedding, so each job signals its own end
+    const independentEmbedFinished = Promise.withResolvers<undefined>()
+    const recoveredEmbedFinished = Promise.withResolvers<undefined>()
+    const failureLogged = Promise.withResolvers<undefined>()
+    const realEmbed = search.embedNote
+    vi.spyOn(search, "embedNote").mockImplementation(async (params, requestLogger) => {
+      await realEmbed(params, requestLogger)
+      if (params.notePath === "other.md") independentEmbedFinished.resolve(undefined)
+      if (params.rawContent === "newopal") recoveredEmbedFinished.resolve(undefined)
+    })
+    const errorSpy = vi.spyOn(logger, "error").mockImplementation((message) => {
+      if (message === "failed to process file change") failureLogged.resolve(undefined)
+    })
     const debugSpy = vi.spyOn(logger, "debug")
     onTestFinished(() => {
       errorSpy.mockRestore()
       debugSpy.mockRestore()
     })
     await writeFile(join(testVault, "note.md"), "oldquartz")
-    const failingChange = fire("change", "note.md")
+    await fire("change", "note.md")
     await failingEntered.promise
     await writeFile(join(testVault, "note.md"), "newopal")
-    const recoveredChange = fire("change", "note.md")
+    await fire("change", "note.md")
     await sourceWritten.promise
     await writeFile(join(testVault, "other.md"), "independentjade")
     await fire("change", "other.md")
+    await independentEmbedFinished.promise
     expect(database.prepare("SELECT note_path, chunk_text FROM note_chunks").all()).toEqual([
       { note_path: "other.md", chunk_text: "other\n\nindependentjade" },
     ])
     releaseFailure.reject(new Error("controlled model failure"))
-    await failingChange
+    await failureLogged.promise
     await recoveredEntered.promise
-    expect(errorSpy).toHaveBeenCalledWith("failed to process file change", {
+    expect(errorSpy).toHaveBeenCalledExactlyOnceWith("failed to process file change", {
       path: "note.md",
       error: "[Error]: controlled model failure",
     })
@@ -2160,7 +2183,7 @@ describe("file watcher — obsolete events and embedding queues", () => {
       error: "[Error]: controlled model failure",
     })
     releaseRecovered.resolve(vector)
-    await recoveredChange
+    await recoveredEmbedFinished.promise
     expect(
       database.prepare("SELECT note_path, chunk_text FROM note_chunks ORDER BY note_path").all(),
     ).toEqual([

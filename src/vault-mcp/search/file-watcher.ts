@@ -110,10 +110,10 @@ type WatcherState =
  *  indexes what it read, only while the reservation is still the path's token. */
 type ReservedPath = Readonly<{ filePath: string; reservation: symbol }>
 
-/** What indexing one changed file did. A note's embedding is still running when
- *  this returns, so whoever receives `note-indexed` reports its failure. */
+/** What indexing one changed file did. A note's embedding, and a non-PDF file's,
+ *  is still running when this returns and logs its own failure. */
 type ChangeIndexResult =
-  | { status: "note-indexed"; embedding: Promise<void> }
+  | { status: "note-indexed" }
   | { status: "file-indexed" }
   // The file was gone when read.
   | { status: "vanished" }
@@ -510,15 +510,22 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
         })
       pendingEmbeds.set(relativePath, currentEmbed)
 
-      // The caller gets the cleanup promise, not currentEmbed, because a
-      // promise nobody holds rejects unhandled: `.finally` passes currentEmbed's
-      // rejection through to it. The cleanup leaves a newer queued job registered.
-      const embedding = currentEmbed.finally(() => {
-        if (pendingEmbeds.get(relativePath) === currentEmbed) {
-          pendingEmbeds.delete(relativePath)
-        }
-      })
-      return { status: "note-indexed", embedding }
+      // Nobody awaits the embedding, so its failure is logged here under the same
+      // message as a failed read: each change reports one error whichever step
+      // failed. The cleanup leaves a newer queued job registered.
+      currentEmbed
+        .finally(() => {
+          if (pendingEmbeds.get(relativePath) === currentEmbed) {
+            pendingEmbeds.delete(relativePath)
+          }
+        })
+        .catch((embedError) => {
+          logger.error("failed to process file change", {
+            path: relativePath,
+            error: describeError(embedError),
+          })
+        })
+      return { status: "note-indexed" }
     } catch (err) {
       logger.error("failed to process file change", {
         path: relativePath,
@@ -564,57 +571,22 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
     }
   }
 
-  /** Logs a note embedding's failure under the same message as a failed read,
-   *  so each change reports one error whichever step failed. */
-  const reportEmbeddingFailure = (filePath: string, error: unknown): void => {
-    logger.error("failed to process file change", {
-      path: relative(vaultPath, filePath),
-      error: describeError(error),
-    })
-  }
-
-  /** Indexes one changed file, or records it for applyHeldChanges while the
-   *  watcher holds. Resolves once the file's keyword text is written, with
-   *  `embedding` for the work that may still be running:
-   *  - A note's embedding comes back unawaited and never rejects, so a caller
-   *    indexing several files can publish each file's keyword text without
-   *    waiting for the model.
-   *  - A PDF's embedding finishes before this resolves. Any other non-note
-   *    file's embedding is queued inside indexChangedFile and never comes back,
-   *    so for those files a settled `embedding` does not mean the vectors are
-   *    written. */
-  const indexChange = async (filePath: string): Promise<{ embedding: Promise<void> }> => {
-    const nothingToAwait = { embedding: Promise.resolve() }
-
-    if (watcherState.mode === "closed") return nothingToAwait
+  /** chokidar's add and change listener. While the watcher holds, it records
+   *  the path for applyHeldChanges instead of indexing it. It resolves once the
+   *  file's text is in the keyword index; a note's or non-PDF file's embedding
+   *  keeps running and logs its own failure, and a PDF's finishes first. chokidar
+   *  ignores the returned promise, so the listener never rejects. */
+  const handleChange = async (filePath: string): Promise<void> => {
+    if (watcherState.mode === "closed") return
     if (watcherState.mode === "holding") {
       watcherState.heldPaths.set(filePath, "change")
       logger.debug("held a change until startup indexing ends", {
         path: relative(vaultPath, filePath),
       })
-      return nothingToAwait
+      return
     }
 
-    const indexResult = await indexChangedFile(filePath)
-
-    if (indexResult.status !== "note-indexed") return nothingToAwait
-
-    const awaitEmbeddingAndReportFailure = async (): Promise<void> => {
-      try {
-        await indexResult.embedding
-      } catch (error) {
-        reportEmbeddingFailure(filePath, error)
-      }
-    }
-    return { embedding: awaitEmbeddingAndReportFailure() }
-  }
-
-  /** chokidar's add and change listener. chokidar ignores the returned
-   *  promise, so each step logs its own failure and the listener never
-   *  rejects. */
-  const handleChange = async (filePath: string): Promise<void> => {
-    const { embedding } = await indexChange(filePath)
-    await embedding
+    await indexChangedFile(filePath)
   }
 
   /** Removes a deleted file from the index — the asset table for non-md
@@ -893,9 +865,9 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
         // later deletion would emit no unlink, leaving a ghost index entry.
         watchPathUnlessClosed(fullPath)
         logger.debug("rescan indexing missed file", { path: relativePath })
-        // The embedding is left running, so it never holds back the next missed file's
-        // keyword text; it logs its own failure.
-        await indexChange(fullPath)
+        // A note's or non-PDF file's embedding keeps running, so it never holds back the
+        // next missed file's text; a PDF's text and vectors arrive together.
+        await handleChange(fullPath)
       } catch (err) {
         logger.debug("rescan skipped unreadable entry", {
           path: relativePath,
@@ -1009,20 +981,7 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
 
     // Awaited inside the try, so the reservation is released only once indexing ends.
     try {
-      const indexResult = await indexFileUnderToken({
-        filePath,
-        relativePath,
-        eventToken: reservation,
-      })
-
-      if (indexResult.status !== "note-indexed") return
-
-      // The batch does not wait for embeddings, so the failure handler is
-      // attached now. Attached after the batch, an embedding that rejected
-      // first would be reported as an unhandled rejection.
-      indexResult.embedding.catch((error) => {
-        reportEmbeddingFailure(filePath, error)
-      })
+      await indexFileUnderToken({ filePath, relativePath, eventToken: reservation })
     } finally {
       releaseEventToken(relativePath, reservation)
     }
