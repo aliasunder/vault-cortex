@@ -603,13 +603,15 @@ const resolveAssetInLetterCase = (params: {
 
   // ── Full-filename family: exact → relative → path suffix ──
 
-  const exactMatch = shortestOf(findPathsWhere((assetPath) => assetPath === comparableTarget))
+  const exactMatch = shortestOf(
+    findPathsWhere((comparableAssetPath) => comparableAssetPath === comparableTarget),
+  )
 
   if (exactMatch) return exactMatch
 
   if (comparableRelativeTarget !== null) {
     const relativeMatch = shortestOf(
-      findPathsWhere((assetPath) => assetPath === comparableRelativeTarget),
+      findPathsWhere((comparableAssetPath) => comparableAssetPath === comparableRelativeTarget),
     )
 
     if (relativeMatch) return relativeMatch
@@ -635,14 +637,18 @@ const resolveAssetInLetterCase = (params: {
   // ── Stem family: exact → relative → suffix/basename ──
 
   const exactStemMatch = shortestOf(
-    findPathsWhere((assetPath) => stripExtension(assetPath) === comparableTarget),
+    findPathsWhere(
+      (comparableAssetPath) => stripExtension(comparableAssetPath) === comparableTarget,
+    ),
   )
 
   if (exactStemMatch) return exactStemMatch
 
   if (comparableRelativeTarget !== null) {
     const relativeStemMatch = shortestOf(
-      findPathsWhere((assetPath) => stripExtension(assetPath) === comparableRelativeTarget),
+      findPathsWhere(
+        (comparableAssetPath) => stripExtension(comparableAssetPath) === comparableRelativeTarget,
+      ),
     )
 
     if (relativeStemMatch) return relativeStemMatch
@@ -663,7 +669,10 @@ const resolveAssetInLetterCase = (params: {
     )
   }
   return shortestOf(
-    findPathsWhere((assetPath) => stripExtension(posix.basename(assetPath)) === comparableTarget),
+    findPathsWhere(
+      (comparableAssetPath) =>
+        stripExtension(posix.basename(comparableAssetPath)) === comparableTarget,
+    ),
   )
 }
 
