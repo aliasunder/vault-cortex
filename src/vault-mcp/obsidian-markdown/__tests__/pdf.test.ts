@@ -216,6 +216,32 @@ describe("extractPdfIndexText", () => {
     },
   )
 
+  it("reads past a textless first page whose links footer alone crosses the byte cap", async () => {
+    // 3,500 distinct links render to 112 KB of footer with no visible text before them.
+    const linkUrls = Array.from(
+      { length: 3_500 },
+      (_, linkIndex) => `https://links.example/${String(linkIndex).padStart(5, "0")}`,
+    )
+    const pdfData = toPdfData(
+      buildLinkedPdf({
+        title: "Linked",
+        pages: [
+          { text: "", linkUrls },
+          { text: "FIRST TEXT PAGE", linkUrls: [] },
+        ],
+      }),
+    )
+    const probe = await createIndexProbe({ pdfData })
+    const footer = `\n\nLinks:\n${linkUrls.map((url) => `- ${url}`).join("\n")}`
+
+    expect(await extractPdfIndexText(pdfData)).toEqual({
+      text: `Title: Linked | Pages: 2 | Links: 3500\n\n\n--- Page 2 ---\n\nFIRST TEXT PAGE${footer}`,
+      totalPages: 2,
+    })
+    expect(probe.requestedPages).toEqual([1, 2])
+    expect(probe.destroy).toHaveBeenCalledExactlyOnceWith()
+  })
+
   it("measures the stop against the index's own content budget", () => {
     expect(MAX_INDEXED_PDF_BYTES).toBe(102_400)
     expect(MAX_INDEXED_CONTENT_BYTES).toBe(102_400)

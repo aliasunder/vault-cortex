@@ -888,11 +888,15 @@ describe("PDF extraction ownership", () => {
       },
     },
     { label: "duplicate readiness", reply: { kind: "ready", oomPreference: "unsupported" } },
-  ])("discards a reader that sends $label", async ({ reply }) => {
+  ])("discards a reader that sends $label and tells the caller to retry", async ({ reply }) => {
     const { extractor, child } = startControlledExtractor()
     const request = extractor.readText({ path: "one.pdf" }, logger)
+    // A protocol break says nothing about the PDF, so the caller is not told to split it.
     const rejection = expect(request).rejects.toThrow(
-      pdfFailureError(stoppedMessage("one.pdf"), "pdf-resource"),
+      pdfFailureError(
+        'PDF text extraction stopped: "one.pdf" could not be completed; retry later',
+        "pdf-protocol",
+      ),
     )
     await ready(child)
     child.emit("message", reply)
