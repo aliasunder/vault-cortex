@@ -46,10 +46,13 @@ export const computeEnabledToolNames = (config: VaultConfig): ReadonlySet<ToolNa
 
 /** Binds the SDK server and the enabled set into the gate every group module
  *  registers through. See RegisterGatedTool for the contract. */
-const createGatedRegisterTool = (
-  server: McpServer,
-  enabledToolNames: ReadonlySet<ToolName>,
-): RegisterGatedTool => {
+const createGatedRegisterTool = (params: {
+  server: McpServer
+  enabledToolNames: ReadonlySet<ToolName>
+  search: Pick<SearchIndex, "trackForegroundWork">
+}): RegisterGatedTool => {
+  const { server, enabledToolNames, search } = params
+
   return (name, config, handler) => {
     const entry = TOOL_REGISTRY_BY_NAME.get(name)
 
@@ -57,7 +60,16 @@ const createGatedRegisterTool = (
       throw new Error(`tool is not in the registry: ${name}`)
     }
     if (!enabledToolNames.has(name)) return
-    // Inference picks the raw shape for InputArgs; no tool has an output schema
+
+    // The index counts the call as in flight and returns the handler's own result; background
+    // embedding waits while the count is above zero, for a few seconds at most per model call,
+    // because model inference would share the one JavaScript thread with the call.
+    const trackedHandler: typeof handler = (args, extra) => {
+      // The async wrapper turns a handler's synchronous result into a promise
+      return search.trackForegroundWork(async () => handler(args, extra))
+    }
+
+    // Type inference picks the raw shape for InputArgs; no tool has an output schema
     server.registerTool<ZodRawShapeCompat, ToolInputObject<typeof config.inputSchema>>(
       name,
       {
@@ -65,7 +77,7 @@ const createGatedRegisterTool = (
         inputSchema: createStrictInputObject(config.inputSchema),
         annotations: entry.annotations,
       },
-      handler,
+      trackedHandler,
     )
   }
 }
@@ -101,7 +113,11 @@ export const registerTools = (params: {
       isToolEnabled: availability.isToolEnabled,
       vaultPath: params.vaultPath,
     }),
-    registerTool: createGatedRegisterTool(params.server, enabledToolNames),
+    registerTool: createGatedRegisterTool({
+      server: params.server,
+      enabledToolNames,
+      search: params.search,
+    }),
     vaultPath: params.vaultPath,
     search: params.search,
     pdfExtractor: params.pdfExtractor,

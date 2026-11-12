@@ -566,7 +566,7 @@ When no embedder is configured (`EMBEDDING_ENABLED=false`), no vectors are index
 2. **Pass 2** — extract links (with the complete path list for resolution), then index canvas, text, HTML and script content. A PDF gets its file-name row now and its text in the PDF pass
 3. **Pass 3 (background)** — embed notes, then the file content pass 2 indexed. Until a note's vectors exist, search finds it by keyword only
 4. **Body-tag pass (background)** — parse each note's body tags again in the body-tag worker thread and write the ones that changed (see **Body tags column**)
-5. **PDF pass (after the server listens)** — extract the PDFs the rebuild and the watcher queued, one at a time in the PDF child (see [Files](#files)), while search answers; publish each PDF's text when the file is still the version that was read, then embed it. A PDF whose extraction fails keeps its file-name row
+5. **PDF pass (after the server listens)** — extract the PDFs the rebuild and the watcher queued, one at a time in the PDF child (see [Files](#files)), while search answers; publish each PDF's text when the file is still the version that was read, then embed the published PDFs. A PDF whose extraction fails keeps its file-name row
 
 **Startup order:** `watchVaultAndBuildIndex` starts the file watcher before the rebuild, so a change that lands while the rebuild reads the vault is neither missed nor replaced by the rebuild's older read:
 
@@ -590,6 +590,9 @@ Vector tables persist across restarts and rebuilds (only FTS, notes, links, task
 - Each successful source upsert returns a unique `sourceVersion`. Queued watcher jobs and background rebuild snapshots retain that version, so deletion or replacement invalidates earlier work even when content or modification time repeats.
 - Note, file-content and memory-entry writers check the captured version before model work and after each model await. Obsolete jobs skip derived writes, note/file tail pruning and later memory batches.
 - The watcher assigns an event token before reading each file and checks it before indexing. Unlink or a newer event invalidates earlier reads; embedding stays serialized per path to limit model concurrency.
+- Each note and file reaches the keyword index before its own embedding is queued.
+
+**Background embedding and tool calls:** model inference runs synchronously on the server's one JavaScript thread, so before each background model call (a chunk, or a 16-entry memory batch) the job waits until no tool call or prompt is running, for at most 5 seconds (`BACKGROUND_EMBED_MAX_WAIT_MS`). A tool call or prompt that arrives while a model call runs still waits for the model call to finish.
 
 **Embedding pipeline:** Controlled by `EMBEDDING_ENABLED` (default: `true`). Markdown syntax is stripped before embedding (`plaintext.ts`). Short notes (under 500 body tokens) stay a single title-prefixed chunk. Longer notes split into per-heading sections via `chunker.ts`:
 
@@ -601,7 +604,7 @@ Vector tables persist across restarts and rebuilds (only FTS, notes, links, task
 - **Table-of-contents chunk:** each split note with named headings emits one short chunk with its folder path and title on the first line, followed by heading names in document order within the chunk budget. This gives a broad query a compact view of the note's topics without requiring one section to represent the whole note
 - **Sub-splitting:** oversized sections split at paragraph boundaries (MAX_CHUNK_TOKENS = 450, minus each chunk's prefix cost), with a sub-minimum trailing fragment merged backward
 
-Content-hash gating (SHA-256 per chunk) skips re-embedding unchanged content on both incremental file-watcher updates and full rebuilds.
+Content-hash gating (SHA-256 per chunk) skips re-embedding unchanged content on both incremental file-watcher updates and full rebuilds. A chunk whose text already has a stored vector elsewhere in the same note or file gets that vector copied, so an edit near the top of a long note re-embeds only the chunks whose text changed.
 
 **Vector schema:** Four tables in the same SQLite database as FTS5 (which also holds the `tasks` table — see [Tasks](#tasks)):
 
@@ -629,7 +632,7 @@ flowchart TD
     FC --> BTP[Body-Tag Pass\nparse in worker → write changed tags]
     FC --> PG[After HTTP Listen]
     PG --> PX[Shared PDF Text Child\nsequential bounded extraction]
-    PX --> PP[Publish Current PDF Text\nthen embed fresh version]
+    PX --> PP[Publish Every PDF's Text\nthen embed the published PDFs]
 
     FW[File Watcher\nchokidar] --> |.md add/change| BT[Parse Body Tags\nworker thread]
     BT --> UP[upsertNote]

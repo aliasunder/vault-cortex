@@ -1,4 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach, onTestFinished } from "vitest"
+import type { Mock } from "vitest"
+import { createHash } from "node:crypto"
 import { mkdtemp, rm, writeFile, mkdir, symlink, readFile } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
@@ -98,15 +100,34 @@ const seedEmbeddingSource = (
   )
 }
 
-const createEmbeddingRaceIndex = async (sourceKind: "note" | "file") => {
+/** Lets every already-queued callback run. A background model call starts
+ *  after the job's wait for foreground work, so a test that holds a model
+ *  call lets the job reach it first. */
+const letQueuedWorkRun = async (): Promise<void> => {
+  await setImmediateAsync()
+  await setImmediateAsync()
+}
+
+/** A fake embedder whose calls the test can read back */
+type RecordingEmbedder = {
+  embedText: Mock<(text: string) => Promise<Float32Array>>
+  embedBatch: Mock<(texts: readonly string[]) => Promise<Float32Array[]>>
+}
+
+/** Every text gets the same vector, for tests that count model calls only */
+const createSameVectorEmbedder = (): RecordingEmbedder => ({
+  embedText: vi.fn((_text: string) => Promise.resolve(new Float32Array(384).fill(0.1))),
+  embedBatch: vi.fn((texts: readonly string[]) => {
+    return Promise.resolve(texts.map(() => new Float32Array(384).fill(0.1)))
+  }),
+})
+
+const createEmbeddingRaceIndex = async (
+  sourceKind: "note" | "file",
+  embedder: RecordingEmbedder = createSameVectorEmbedder(),
+) => {
   const dir = await mkdtemp(join(tmpdir(), "embedding-race-"))
   onTestFinished(() => rm(dir, { recursive: true, force: true }))
-  const embedder = {
-    embedText: vi.fn().mockResolvedValue(new Float32Array(384).fill(0.1)),
-    embedBatch: vi.fn().mockImplementation((texts: string[]) => {
-      return Promise.resolve(texts.map(() => new Float32Array(384).fill(0.1)))
-    }),
-  }
   const dbPath = join(dir, "index.db")
   const searchIndex = createSearchIndex(dbPath, embedder, undefined, { fileToolsEnabled: true })
   const inspect = new Database(dbPath)
@@ -3908,6 +3929,41 @@ describe("rebuildFromVault deferred PDF content", () => {
       vectorFor,
     }
   }
+
+  it("publishes every PDF's text before embedding any of them", async () => {
+    const fixture = await createPdfRebuildFixture()
+    await writeFile(join(fixture.vaultPath, "Healthy.PDF"), "healthy disk bytes")
+    fixture.extractForIndex.mockImplementation(async ({ path }) => ({
+      status: "extracted",
+      result: {
+        text: path === fixture.path ? "New newcobalt" : "Second healthyamber",
+        totalPages: 1,
+      },
+    }))
+    const rebuilt = await fixture.rebuild()
+    await rebuilt.embedding
+    fixture.embedder.embedText.mockClear()
+    const heldEmbedding = Promise.withResolvers<Float32Array>()
+    fixture.embedder.embedText.mockImplementationOnce(() => heldEmbedding.promise)
+    fixture.startIndexing()
+    const pass = rebuilt.pdfPass
+    onTestFinished(async () => {
+      heldEmbedding.resolve(fixture.vectorFor("healthyamber"))
+      await Promise.allSettled([pass])
+    })
+
+    await vi.waitFor(() => {
+      expect(fixture.keywordPaths("newcobalt OR healthyamber")).toEqual([
+        { path: "Healthy.PDF" },
+        { path: "Report.PDF" },
+      ])
+    })
+    expect(fixture.embedder.embedText).toHaveBeenCalledTimes(1)
+
+    heldEmbedding.resolve(fixture.vectorFor("healthyamber"))
+    await pass
+    expect(fixture.embedder.embedText).toHaveBeenCalledTimes(2)
+  })
 
   it("skips deferred extraction after a failed PDF placeholder write and continues other PDFs", async () => {
     const fixture = await createPdfRebuildFixture()
@@ -8315,6 +8371,322 @@ describe("canvas note catalog reuse", () => {
   })
 })
 
+describe("vectors reused by chunk text", () => {
+  /** A vector unique to each text, so a row holding another text's vector fails */
+  const vectorForText = (text: string): Float32Array => {
+    const digest = createHash("sha256").update(text).digest()
+    return Float32Array.from({ length: 384 }, (_, position) => (digest[position % 32] ?? 0) / 255)
+  }
+
+  const createTextVectorEmbedder = (): RecordingEmbedder => ({
+    embedText: vi.fn((text: string) => Promise.resolve(vectorForText(text))),
+    embedBatch: vi.fn((texts: readonly string[]) => Promise.resolve(texts.map(vectorForText))),
+  })
+
+  /** A section of distinct words, long enough that a note of several sections
+   *  is split into one chunk per section */
+  const section = (name: string): string => {
+    const words = Array.from({ length: 130 }, (_, wordIndex) => `${name}word${String(wordIndex)}`)
+    return `## ${name}\n\n${words.join(" ")}\n`
+  }
+
+  const noteOf = (sectionNames: readonly string[]): string => {
+    return sectionNames.map(section).join("\n")
+  }
+
+  type StoredChunkRow = { id: number; chunk_index: number; chunk_text: string; embedding: Buffer }
+
+  const readStoredChunks = (
+    fixture: Awaited<ReturnType<typeof createEmbeddingRaceIndex>>,
+    sourceKind: "note" | "file",
+  ): StoredChunkRow[] => {
+    const chunkTable = sourceKind === "note" ? "note_chunks" : "file_content_chunks"
+    const vectorTable = sourceKind === "note" ? "note_vectors" : "file_content_vectors"
+    return fixture.inspect
+      .prepare<[], StoredChunkRow>(
+        `SELECT chunk.id, chunk.chunk_index, chunk.chunk_text, vector.embedding
+         FROM ${chunkTable} AS chunk
+         JOIN ${vectorTable} AS vector ON vector.chunk_id = chunk.id
+         ORDER BY chunk.chunk_index`,
+      )
+      .all()
+  }
+
+  /** Each stored row paired with its own vector and with the vector its text should have */
+  const vectorsAgainstText = (rows: readonly StoredChunkRow[]) => ({
+    stored: rows.map((row) => ({ index: row.chunk_index, vector: row.embedding })),
+    expected: rows.map((row) => ({
+      index: row.chunk_index,
+      vector: Buffer.from(vectorForText(row.chunk_text).buffer),
+    })),
+  })
+
+  const saveAndEmbed = async (
+    fixture: Awaited<ReturnType<typeof createEmbeddingRaceIndex>>,
+    content: string,
+  ): Promise<void> => {
+    await fixture.embed(content, fixture.upsert(content))
+  }
+
+  const sourceKinds = [
+    { label: "note", sourceKind: "note" },
+    { label: "file", sourceKind: "file" },
+  ] as const
+
+  it.each(sourceKinds)(
+    "$label: a top insertion calls the model only for new text, and every row keeps its own text's vector",
+    async ({ sourceKind }) => {
+      const embedder = createTextVectorEmbedder()
+      const fixture = await createEmbeddingRaceIndex(sourceKind, embedder)
+      await saveAndEmbed(fixture, noteOf(["alpha", "beta", "gamma", "delta", "epsilon"]))
+      const textsBefore = new Set(
+        readStoredChunks(fixture, sourceKind).map((row) => row.chunk_text),
+      )
+      embedder.embedText.mockClear()
+
+      await saveAndEmbed(fixture, noteOf(["zeta", "alpha", "beta", "gamma", "delta", "epsilon"]))
+
+      const rowsAfter = readStoredChunks(fixture, sourceKind)
+      const newTexts = rowsAfter
+        .map((row) => row.chunk_text)
+        .filter((text) => !textsBefore.has(text))
+      expect(newTexts.length).toBeLessThan(rowsAfter.length - 1)
+      expect(embedder.embedText).toHaveBeenCalledTimes(newTexts.length)
+      for (const text of newTexts) expect(embedder.embedText).toHaveBeenCalledWith(text)
+      const { stored, expected } = vectorsAgainstText(rowsAfter)
+      expect(stored).toEqual(expected)
+    },
+  )
+
+  it.each(sourceKinds)(
+    "$label: two new chunks with identical text call the model once and both hold its vector",
+    async ({ sourceKind }) => {
+      const embedder = createTextVectorEmbedder()
+      const fixture = await createEmbeddingRaceIndex(sourceKind, embedder)
+      await saveAndEmbed(fixture, noteOf(["alpha", "beta", "gamma", "delta"]))
+      const textsBefore = new Set(
+        readStoredChunks(fixture, sourceKind).map((row) => row.chunk_text),
+      )
+      embedder.embedText.mockClear()
+
+      await saveAndEmbed(fixture, noteOf(["twin", "twin", "alpha", "beta", "gamma", "delta"]))
+
+      const rowsAfter = readStoredChunks(fixture, sourceKind)
+      const twinRows = rowsAfter.filter((row) => row.chunk_text.includes("twinword0"))
+      const distinctNewTexts = [
+        ...new Set(rowsAfter.map((row) => row.chunk_text).filter((text) => !textsBefore.has(text))),
+      ]
+      expect(twinRows.map((row) => row.chunk_index)).toEqual([0, 1])
+      expect(embedder.embedText).toHaveBeenCalledTimes(distinctNewTexts.length)
+      for (const text of distinctNewTexts) expect(embedder.embedText).toHaveBeenCalledWith(text)
+      const { stored, expected } = vectorsAgainstText(rowsAfter)
+      expect(stored).toEqual(expected)
+    },
+  )
+
+  it.each(sourceKinds)(
+    "$label: an unchanged save calls no model and rewrites no rows",
+    async ({ sourceKind }) => {
+      const embedder = createTextVectorEmbedder()
+      const fixture = await createEmbeddingRaceIndex(sourceKind, embedder)
+      const content = noteOf(["alpha", "beta", "gamma", "delta"])
+      await saveAndEmbed(fixture, content)
+      const rowIdsBefore = readStoredChunks(fixture, sourceKind).map((row) => row.id)
+      embedder.embedText.mockClear()
+
+      await saveAndEmbed(fixture, content)
+
+      expect(embedder.embedText).not.toHaveBeenCalled()
+      expect(readStoredChunks(fixture, sourceKind).map((row) => row.id)).toEqual(rowIdsBefore)
+    },
+  )
+
+  // Shortening worked before reuse too, so this guards that reuse never keeps the old tail
+  it.each(sourceKinds)(
+    "$label: a shortened source loses its stale tail and keeps every other vector",
+    async ({ sourceKind }) => {
+      const embedder = createTextVectorEmbedder()
+      const fixture = await createEmbeddingRaceIndex(sourceKind, embedder)
+      await saveAndEmbed(fixture, noteOf(["alpha", "beta", "gamma", "delta", "epsilon"]))
+      const chunkCountBefore = readStoredChunks(fixture, sourceKind).length
+
+      await saveAndEmbed(fixture, noteOf(["beta", "gamma", "delta", "epsilon"]))
+
+      const rowsAfter = readStoredChunks(fixture, sourceKind)
+      expect(rowsAfter.map((row) => row.chunk_index)).toEqual(
+        Array.from({ length: rowsAfter.length }, (_, position) => position),
+      )
+      expect(rowsAfter.length).toBe(chunkCountBefore - 1)
+      expect(fixture.vectorCount()).toBe(rowsAfter.length)
+      const { stored, expected } = vectorsAgainstText(rowsAfter)
+      expect(stored).toEqual(expected)
+    },
+  )
+})
+
+describe("background embedding waits for foreground work", () => {
+  /** Holds a tracked call open until the returned release runs */
+  const holdForegroundCall = (searchIndex: SearchIndex) => {
+    const call = Promise.withResolvers<undefined>()
+    const tracked = searchIndex.trackForegroundWork(() => call.promise)
+    return async (): Promise<void> => {
+      call.resolve(undefined)
+      await tracked
+    }
+  }
+
+  const MEMORY_FILE_CONTENT = "## Practices\n\n- **2026-07-01**: Keep current entries."
+
+  it.each([
+    { label: "note chunks", sourceKind: "note" },
+    { label: "file chunks", sourceKind: "file" },
+  ] as const)(
+    "$label wait while a tool call runs and embed after it returns",
+    async ({ sourceKind }) => {
+      const fixture = await createEmbeddingRaceIndex(sourceKind)
+      const content = "Body text that the background job embeds."
+      const sourceVersion = fixture.upsert(content)
+      const releaseCall = holdForegroundCall(fixture.searchIndex)
+
+      const embedding = fixture.embed(content, sourceVersion)
+      await letQueuedWorkRun()
+
+      expect(fixture.embedder.embedText).not.toHaveBeenCalled()
+
+      await releaseCall()
+      await embedding
+
+      expect(fixture.embedder.embedText).toHaveBeenCalledTimes(1)
+      expect(fixture.vectorCount()).toBe(1)
+    },
+  )
+
+  it("a chunk's model call runs after 5 seconds while a tool call is still running", async () => {
+    const fixture = await createEmbeddingRaceIndex("note")
+    const content = "Body text that the background job embeds."
+    const sourceVersion = fixture.upsert(content)
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
+    onTestFinished(() => {
+      vi.useRealTimers()
+    })
+    const call = Promise.withResolvers<undefined>()
+    const trackedCall = fixture.searchIndex.trackForegroundWork(() => call.promise)
+    onTestFinished(async () => {
+      call.resolve(undefined)
+      await trackedCall
+    })
+
+    const embedding = fixture.embed(content, sourceVersion)
+    await vi.advanceTimersByTimeAsync(4999)
+
+    expect(fixture.embedder.embedText).not.toHaveBeenCalled()
+
+    await vi.advanceTimersByTimeAsync(1)
+    await embedding
+
+    expect(fixture.embedder.embedText).toHaveBeenCalledTimes(1)
+    expect(fixture.vectorCount()).toBe(1)
+  })
+
+  it("a memory-entry batch runs after 5 seconds while a tool call is still running", async () => {
+    const embedder = createSameVectorEmbedder()
+    const searchIndex = createSearchIndex(":memory:", embedder, undefined, {
+      memoryDir: "About Me",
+    })
+    const notePath = "About Me/Practices.md"
+    const sourceVersion = seedEmbeddingSource(searchIndex, {
+      notePath,
+      rawContent: MEMORY_FILE_CONTENT,
+    })
+    // The first pass stores the note's chunks but no entry vectors, so the
+    // second pass has work for the memory loop alone
+    embedder.embedBatch.mockRejectedValueOnce(new Error("model unavailable"))
+    await expect(
+      searchIndex.embedNote({ notePath, rawContent: MEMORY_FILE_CONTENT, sourceVersion }, logger),
+    ).rejects.toThrow(new Error("model unavailable"))
+    embedder.embedBatch.mockClear()
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
+    onTestFinished(() => {
+      vi.useRealTimers()
+    })
+    const call = Promise.withResolvers<undefined>()
+    const trackedCall = searchIndex.trackForegroundWork(() => call.promise)
+    onTestFinished(async () => {
+      call.resolve(undefined)
+      await trackedCall
+    })
+
+    const embedding = searchIndex.embedNote(
+      { notePath, rawContent: MEMORY_FILE_CONTENT, sourceVersion },
+      logger,
+    )
+    await vi.advanceTimersByTimeAsync(4999)
+
+    expect(embedder.embedBatch).not.toHaveBeenCalled()
+
+    await vi.advanceTimersByTimeAsync(1)
+    await embedding
+
+    expect(embedder.embedBatch).toHaveBeenCalledTimes(1)
+  })
+
+  it("memory-entry batches wait while a tool call runs and embed after it returns", async () => {
+    const embedder = createSameVectorEmbedder()
+    const searchIndex = createSearchIndex(":memory:", embedder, undefined, {
+      memoryDir: "About Me",
+    })
+    const notePath = "About Me/Practices.md"
+    const sourceVersion = seedEmbeddingSource(searchIndex, {
+      notePath,
+      rawContent: MEMORY_FILE_CONTENT,
+    })
+    // The first pass stores the note's chunks but no entry vectors, so the
+    // second pass has work for the memory loop alone
+    embedder.embedBatch.mockRejectedValueOnce(new Error("model unavailable"))
+    await expect(
+      searchIndex.embedNote({ notePath, rawContent: MEMORY_FILE_CONTENT, sourceVersion }, logger),
+    ).rejects.toThrow(new Error("model unavailable"))
+    embedder.embedText.mockClear()
+    embedder.embedBatch.mockClear()
+    const releaseCall = holdForegroundCall(searchIndex)
+
+    const embedding = searchIndex.embedNote(
+      { notePath, rawContent: MEMORY_FILE_CONTENT, sourceVersion },
+      logger,
+    )
+    await letQueuedWorkRun()
+
+    expect(embedder.embedText).not.toHaveBeenCalled()
+    expect(embedder.embedBatch).not.toHaveBeenCalled()
+
+    await releaseCall()
+    await embedding
+
+    expect(embedder.embedBatch).toHaveBeenCalledTimes(1)
+  })
+
+  it.each([
+    { label: "note", sourceKind: "note" },
+    { label: "file", sourceKind: "file" },
+  ] as const)(
+    "a $label job superseded during the wait makes no model call",
+    async ({ sourceKind }) => {
+      const fixture = await createEmbeddingRaceIndex(sourceKind)
+      const firstVersion = fixture.upsert("First body text.")
+      const releaseCall = holdForegroundCall(fixture.searchIndex)
+
+      const firstEmbedding = fixture.embed("First body text.", firstVersion)
+      await letQueuedWorkRun()
+      fixture.upsert("Second body text.")
+      await releaseCall()
+      await firstEmbedding
+
+      expect(fixture.embedder.embedText).not.toHaveBeenCalled()
+      expect(fixture.vectorCount()).toBe(0)
+    },
+  )
+})
+
 describe("canvas file content and links", () => {
   it.each([{ fileToolsEnabled: true }, { fileToolsEnabled: false }])(
     "resolves canvas links to existing notes and assets with file tools $fileToolsEnabled",
@@ -9491,6 +9863,7 @@ describe("committed embedding source versions", () => {
       onTestFinished(() => debugSpy.mockRestore())
       const sourceVersion = fixture.upsert("Old oldquartz")
       const job = fixture.embed("Old oldquartz", sourceVersion)
+      await letQueuedWorkRun()
       expect(fixture.embedder.embedText).toHaveBeenCalledTimes(1)
 
       fixture.remove()
@@ -9519,9 +9892,11 @@ describe("committed embedding source versions", () => {
       const replacementTitle = sourceKind === "note" ? "New" : "reuse"
       const originalVersion = fixture.upsert(originalContent)
       const oldJob = fixture.embed(originalContent, originalVersion)
+      await letQueuedWorkRun()
       fixture.remove()
       const replacementVersion = fixture.upsert(replacementContent)
       const replacementJob = fixture.embed(replacementContent, replacementVersion)
+      await letQueuedWorkRun()
       expect(fixture.embedder.embedText).toHaveBeenCalledTimes(2)
 
       oldModel.resolve(new Float32Array(384).fill(0.1))
@@ -9566,6 +9941,7 @@ describe("committed embedding source versions", () => {
       const shortVersion = fixture.upsert("Short obsolete body.")
       fixture.embedder.embedText.mockImplementationOnce(() => staleModel.promise)
       const staleJob = fixture.embed("Short obsolete body.", shortVersion)
+      await letQueuedWorkRun()
       const longContent = Array.from({ length: 8 }, (_, paragraphIndex) => {
         return `## Section ${String(paragraphIndex)}\n\n${"Current content about cobalt systems. ".repeat(25)}`
       }).join("\n\n")

@@ -24,6 +24,7 @@ import {
   wrapWithDataMarkers,
   exceedsCharCap,
   maxCharsArg,
+  trackedPromptHandler,
 } from "./prompt-helpers.js"
 
 const PROMPT_NAMES = {
@@ -164,7 +165,7 @@ export const registerDailyReviewPrompt = ({
         max_chars: maxCharsArg,
       },
     },
-    async (args, extra) => {
+    trackedPromptHandler(search, async (args, extra) => {
       const reqLogger = sessionLogger.child({
         requestId: extra.requestId,
         prompt: PROMPT_NAMES.DAILY_REVIEW,
@@ -339,9 +340,6 @@ export const registerDailyReviewPrompt = ({
           ? `**Surface durable facts** — any preference, decision, or fact worth remembering long-term — and propose saving it to ${config.memoryDir}/ memory via vault_update_memory (append-with-dates, newest-first). Confirm before writing.`
           : "**Surface durable facts** — any preference, decision, or fact worth remembering long-term — and tell me so I can record them."
         const memoryStep = config.memoryEnabled ? memoryStepText : ""
-        // vault_update_task is the atomic path for status, priority, and lane
-        // moves, but it takes no date fields — rescheduling is still a note
-        // edit. Each sentence stands alone so any subset reads correctly.
         const rescheduleTools = formatEnabledToolList([
           TOOL_NAMES.VAULT_PATCH_NOTE,
           TOOL_NAMES.VAULT_REPLACE_IN_NOTE,
@@ -349,9 +347,9 @@ export const registerDailyReviewPrompt = ({
         const taskUpdateDirective = [
           whenToolEnabledText(
             TOOL_NAMES.VAULT_UPDATE_TASK,
-            "Update status or priority with vault_update_task.",
+            "Update status, priority, or dates with vault_update_task.",
           ),
-          rescheduleTools.length > 0
+          !isToolEnabled(TOOL_NAMES.VAULT_UPDATE_TASK) && rescheduleTools.length > 0
             ? `Reschedule by editing the date with ${rescheduleTools}.`
             : "",
         ]
@@ -450,6 +448,6 @@ export const registerDailyReviewPrompt = ({
           `Could not assemble the daily review (${clientMessage}).${dailyFallbackHint}`,
         )
       }
-    },
+    }),
   )
 }

@@ -36,6 +36,7 @@ import { readFileTextPrefix, statOrNull } from "../../utils/fs.js"
 import { hasHiddenPathSegment } from "../../utils/has-hidden-path-segment.js"
 import { getUtf8BytePrefix } from "../../utils/get-utf8-byte-prefix.js"
 import { mapWithConcurrency } from "../../utils/map-with-concurrency.js"
+import { createActivityTracker } from "../../utils/activity-tracker.js"
 import {
   isString,
   coerceToArray,
@@ -420,6 +421,53 @@ const readStoredBodyTags = (
   } catch (error) {
     logger.warn("ignored damaged stored body tags", { path, error: describeError(error) })
     return []
+  }
+}
+
+// ── Background embedding ────────────────────────────────────────
+
+/** How long a background model call (a chunk's text, or a batch of memory
+ *  entries) waits for running tool calls and prompts to finish.
+ *  - A model call holds the JavaScript thread until it returns (see
+ *    `embedText` in embedder.ts), so one made during a tool call delays that
+ *    call by one inference.
+ *  - The cap keeps a stream of overlapping calls from stalling the index for
+ *    good: a tool call that runs longer than 5 seconds is delayed by one
+ *    inference every 5 seconds, so a 30-second call pays for about six. */
+const BACKGROUND_EMBED_MAX_WAIT_MS = 5000
+
+/** A stored chunk's content hash and the raw bytes of its vector. */
+type StoredVectorRow = { content_hash: string; embedding: Buffer }
+
+type StoredVectorLookup = {
+  find: (hash: string) => Buffer | undefined
+  remember: (hash: string, vectorBytes: Buffer) => void
+}
+
+/** The vectors one note or file already has, keyed by the content hash of
+ *  their chunk text, so a chunk whose text moved to another position keeps
+ *  its vector without a model call.
+ *  - The rows are read at the first lookup. The caller skips a chunk whose text
+ *    is unchanged at its own position without looking it up, so a job with no
+ *    moved chunks reads no rows.
+ *  - Vectors the model returns during the job are added, so repeated new text
+ *    reaches the model once. */
+const createStoredVectorLookup = (
+  readStoredVectors: () => readonly StoredVectorRow[],
+): StoredVectorLookup => {
+  // Null until the first lookup reads the stored rows
+  let vectorsByHash: Map<string, Buffer> | null = null
+
+  const loadVectorsByHash = (): Map<string, Buffer> => {
+    vectorsByHash ??= new Map(readStoredVectors().map((row) => [row.content_hash, row.embedding]))
+    return vectorsByHash
+  }
+
+  return {
+    find: (hash: string): Buffer | undefined => loadVectorsByHash().get(hash),
+    remember: (hash: string, vectorBytes: Buffer): void => {
+      loadVectorsByHash().set(hash, vectorBytes)
+    },
   }
 }
 
@@ -977,6 +1025,14 @@ export const createSearchIndex = (
         `DELETE FROM note_vectors WHERE chunk_id IN (SELECT id FROM note_chunks WHERE note_path = ? AND chunk_index >= ?)`,
       )
     : null
+  const selectNoteVectorsStmt = embedder
+    ? db.prepare<[string], StoredVectorRow>(
+        `SELECT chunk.content_hash, vector.embedding
+         FROM note_chunks AS chunk
+         JOIN note_vectors AS vector ON vector.chunk_id = chunk.id
+         WHERE chunk.note_path = ?`,
+      )
+    : null
 
   // ── File content vector prepared statements (conditional on fileToolsEnabled + embedder) ──
   const fileContentVectorEnabled = fileToolsEnabled && Boolean(embedder)
@@ -1016,6 +1072,14 @@ export const createSearchIndex = (
   const deleteStaleFileVectorsStmt = fileContentVectorEnabled
     ? db.prepare(
         `DELETE FROM file_content_vectors WHERE chunk_id IN (SELECT id FROM file_content_chunks WHERE file_path = ? AND chunk_index >= ?)`,
+      )
+    : null
+  const selectFileVectorsStmt = fileContentVectorEnabled
+    ? db.prepare<[string], StoredVectorRow>(
+        `SELECT chunk.content_hash, vector.embedding
+         FROM file_content_chunks AS chunk
+         JOIN file_content_vectors AS vector ON vector.chunk_id = chunk.id
+         WHERE chunk.file_path = ?`,
       )
     : null
   // Reads the processed content from file_content for embedding.
@@ -1847,6 +1911,51 @@ export const createSearchIndex = (
 
   // ── Embedding pipeline ─────────────────────────────────────────
 
+  /** Tool calls and prompts in flight. Background model calls wait on it. The MCP
+   *  layer runs each tool call (`createGatedRegisterTool` in tool-definitions.ts)
+   *  and each prompt (`trackedPromptHandler` in prompt-helpers.ts) through
+   *  trackForegroundWork. */
+  const foregroundWork = createActivityTracker()
+
+  /** Makes one background model call (`callModel`: a chunk's text, or a batch of
+   *  memory entries).
+   *  - It first waits while a tool call or prompt runs, for at most
+   *    BACKGROUND_EMBED_MAX_WAIT_MS, then calls the model either way.
+   *  - It returns null when a newer write to the source superseded the job
+   *    during the wait.
+   *  - The caller checks the source version again before it writes the result. */
+  const callModelWhenIdle = async <ModelOutput>(
+    params: { sourcePath: string; sourceVersion: symbol; callModel: () => Promise<ModelOutput> },
+    logger: Logger,
+  ): Promise<ModelOutput | null> => {
+    const { sourcePath, sourceVersion, callModel } = params
+
+    await foregroundWork.waitUntilIdle({ maxWaitMs: BACKGROUND_EMBED_MAX_WAIT_MS })
+
+    if (!isCurrentSourceVersion({ sourcePath, sourceVersion }, logger)) return null
+    return callModel()
+  }
+
+  /** Embeds one chunk's text through callModelWhenIdle and returns the vector's
+   *  bytes, or null when the job was superseded during the wait. */
+  const embedChunkWhenIdle = async (
+    params: { text: string; sourcePath: string; sourceVersion: symbol },
+    logger: Logger,
+  ): Promise<Buffer | null> => {
+    const { text, sourcePath, sourceVersion } = params
+
+    // Callers return early without an embedder, so this throw only narrows its type
+    if (!embedder) throw new Error("background embedding ran without an embedder")
+
+    const embedding = await callModelWhenIdle(
+      { sourcePath, sourceVersion, callModel: () => embedder.embedText(text) },
+      logger,
+    )
+
+    if (!embedding) return null
+    return Buffer.from(embedding.buffer, embedding.byteOffset, embedding.byteLength)
+  }
+
   /** Embeds a note's chunks.
    *  - `rawContent` is the content upsertNote indexed under `sourceVersion`, so upsertNote
    *    has already warned about an unreadable properties block in it.
@@ -1865,7 +1974,8 @@ export const createSearchIndex = (
       !selectChunkIdStmt ||
       !deleteStaleChunksStmt ||
       !insertVectorStmt ||
-      !deleteVectorByChunkIdStmt
+      !deleteVectorByChunkIdStmt ||
+      !selectNoteVectorsStmt
     ) {
       return 0
     }
@@ -1900,32 +2010,37 @@ export const createSearchIndex = (
       selectChunkHashesStmt.all(notePath).map((row) => [row.chunk_index, row.content_hash]),
     )
 
-    // Counter tracking how many chunks were actually (re-)embedded — returned for logging
+    const storedVectors = createStoredVectorLookup(() => selectNoteVectorsStmt.all(notePath))
+
+    // The debug log line reports the rows written and how many of them reused
+    // a stored vector instead of calling the model
     let embeddedCount = 0
+    let reusedCount = 0
 
     for (const chunk of chunks) {
-      if (
-        !isCurrentSourceVersion(
-          { sourcePath: notePath, sourceVersion: params.sourceVersion },
-          logger,
-        )
-      )
-        return embeddedCount
-
       const hash = contentHash(chunk.text)
 
       // Skip if content hasn't changed
       if (existingHashes.get(chunk.index) === hash) continue
 
-      const embedding = await embedder.embedText(chunk.text)
-
-      if (
-        !isCurrentSourceVersion(
-          { sourcePath: notePath, sourceVersion: params.sourceVersion },
+      const storedVector = storedVectors.find(hash)
+      const vectorBytes =
+        storedVector ??
+        (await embedChunkWhenIdle(
+          { text: chunk.text, sourcePath: notePath, sourceVersion: params.sourceVersion },
           logger,
-        )
+        ))
+
+      if (!vectorBytes) return embeddedCount
+      // No await separates this check from the write below, so a job
+      // superseded while it waited or while the model ran writes nothing
+      const isCurrentJob = isCurrentSourceVersion(
+        { sourcePath: notePath, sourceVersion: params.sourceVersion },
+        logger,
       )
-        return embeddedCount
+
+      if (!isCurrentJob) return embeddedCount
+      if (!storedVector) storedVectors.remember(hash, vectorBytes)
 
       // Wrap the DB writes in a transaction so the content hash is never
       // saved without its corresponding vector — prevents a crash between
@@ -1953,12 +2068,11 @@ export const createSearchIndex = (
             `chunk row missing after upsert: ${notePath} chunk ${String(chunk.index)}`,
           )
         }
-        insertVectorStmt.run(
-          BigInt(chunkRow.id),
-          Buffer.from(embedding.buffer, embedding.byteOffset, embedding.byteLength),
-        )
+        insertVectorStmt.run(BigInt(chunkRow.id), vectorBytes)
       })()
       embeddedCount++
+
+      if (storedVector) reusedCount++
     }
 
     if (
@@ -1977,6 +2091,7 @@ export const createSearchIndex = (
       path: notePath,
       totalChunks: chunks.length,
       embeddedCount,
+      reusedCount,
     })
     return embeddedCount
   }
@@ -2015,16 +2130,19 @@ export const createSearchIndex = (
       batchStart < unembeddedRows.length;
       batchStart += MEMORY_EMBED_BATCH_SIZE
     ) {
-      if (!isCurrentSourceVersion({ sourcePath: notePath, sourceVersion }, logger))
-        return embeddedCount
-
       const batchRows = unembeddedRows.slice(batchStart, batchStart + MEMORY_EMBED_BATCH_SIZE)
-      const embeddings = await embedder.embedBatch(
-        batchRows.map((row) => `${row.file} > ${row.section}\n${row.entry_text}`),
+      const batchTexts = batchRows.map((row) => `${row.file} > ${row.section}\n${row.entry_text}`)
+      const embeddings = await callModelWhenIdle(
+        { sourcePath: notePath, sourceVersion, callModel: () => embedder.embedBatch(batchTexts) },
+        logger,
       )
 
-      if (!isCurrentSourceVersion({ sourcePath: notePath, sourceVersion }, logger))
-        return embeddedCount
+      if (!embeddings) return embeddedCount
+      // No await separates this check from the write below, so a job superseded
+      // while the model ran writes nothing
+      const isCurrentJob = isCurrentSourceVersion({ sourcePath: notePath, sourceVersion }, logger)
+
+      if (!isCurrentJob) return embeddedCount
 
       db.transaction(() => {
         for (const [rowIndexInBatch, row] of batchRows.entries()) {
@@ -2080,7 +2198,9 @@ export const createSearchIndex = (
 
   /** Embeds a file's indexed text from file_content. The return counts changed
    *  chunks committed before completion or obsolescence. Zero covers disabled,
-   *  unembedded-kind, cached and obsolete calls. */
+   *  unembedded-kind, cached and obsolete calls. The chunk loop mirrors
+   *  embedAndStoreChunks above, so a change to its wait, check and write
+   *  sequence goes in both. */
   const embedAndStoreFileChunks = async (
     params: { filePath: string; sourceVersion: symbol },
     logger: Logger,
@@ -2093,7 +2213,8 @@ export const createSearchIndex = (
       !selectFileChunkIdStmt ||
       !deleteStaleFileChunksStmt ||
       !insertFileVectorStmt ||
-      !deleteFileVectorByChunkIdStmt
+      !deleteFileVectorByChunkIdStmt ||
+      !selectFileVectorsStmt
     ) {
       return 0
     }
@@ -2126,30 +2247,36 @@ export const createSearchIndex = (
         .map((chunkHashRow) => [chunkHashRow.chunk_index, chunkHashRow.content_hash]),
     )
 
+    const storedVectors = createStoredVectorLookup(() => selectFileVectorsStmt.all(params.filePath))
+
+    // The debug log line reports the rows written and how many of them reused
+    // a stored vector instead of calling the model
     let embeddedCount = 0
+    let reusedCount = 0
 
     for (const chunk of chunks) {
-      if (
-        !isCurrentSourceVersion(
-          { sourcePath: params.filePath, sourceVersion: params.sourceVersion },
-          logger,
-        )
-      )
-        return embeddedCount
-
       const hash = contentHash(chunk.text)
 
       if (existingHashes.get(chunk.index) === hash) continue
 
-      const embedding = await embedder.embedText(chunk.text)
-
-      if (
-        !isCurrentSourceVersion(
-          { sourcePath: params.filePath, sourceVersion: params.sourceVersion },
+      const storedVector = storedVectors.find(hash)
+      const vectorBytes =
+        storedVector ??
+        (await embedChunkWhenIdle(
+          { text: chunk.text, sourcePath: params.filePath, sourceVersion: params.sourceVersion },
           logger,
-        )
+        ))
+
+      if (!vectorBytes) return embeddedCount
+      // No await separates this check from the write below, so a job
+      // superseded while it waited or while the model ran writes nothing
+      const isCurrentJob = isCurrentSourceVersion(
+        { sourcePath: params.filePath, sourceVersion: params.sourceVersion },
+        logger,
       )
-        return embeddedCount
+
+      if (!isCurrentJob) return embeddedCount
+      if (!storedVector) storedVectors.remember(hash, vectorBytes)
 
       db.transaction(() => {
         const existingChunk = selectFileChunkIdStmt.get(params.filePath, chunk.index)
@@ -2173,12 +2300,11 @@ export const createSearchIndex = (
             `file chunk row missing after upsert: ${params.filePath} chunk ${String(chunk.index)}`,
           )
         }
-        insertFileVectorStmt.run(
-          BigInt(chunkRow.id),
-          Buffer.from(embedding.buffer, embedding.byteOffset, embedding.byteLength),
-        )
+        insertFileVectorStmt.run(BigInt(chunkRow.id), vectorBytes)
       })()
       embeddedCount++
+
+      if (storedVector) reusedCount++
     }
 
     if (
@@ -2200,6 +2326,7 @@ export const createSearchIndex = (
       path: params.filePath,
       totalChunks: chunks.length,
       embeddedCount,
+      reusedCount,
     })
     return embeddedCount
   }
@@ -2817,7 +2944,10 @@ export const createSearchIndex = (
               }
 
               // Yield to the event loop between notes so pending I/O callbacks
-              // (Express healthz, MCP tool handlers) can drain.
+              // (Express healthz, MCP tool handlers) can drain. The foreground
+              // wait before each model call does not replace this: a run of
+              // unchanged notes makes no model call, and a request's handler has
+              // to start before the wait can see it.
               await setImmediateAsync()
             }
             // ── File content embedding ──────────────────────────────
@@ -3025,17 +3155,19 @@ export const createSearchIndex = (
       }
     }
 
-    /** Extracts, publishes and embeds each PDF in turn. The first extraction waits inside the
-     *  extractor until the server has listened, so the pass never delays startup. */
+    /** Extracts and publishes each PDF in turn, then embeds the published PDFs. The first
+     *  extraction waits inside the extractor until the server has listened, so the pass never
+     *  delays startup. */
     const pdfPass = (async (): Promise<void> => {
       const passStart = performance.now()
       // An extraction or publish failure is the PDF's own, logged per file, and the pass goes on.
       // An embedding failure is the server's, so the pass finishes the other files and then
       // rejects, and a caller awaiting completion sees it.
       const embeddingFailures: unknown[] = []
-      // Counts the files whose text reached the index, so the summary reports coverage rather
-      // than the schedule.
-      let publishedFiles = 0
+      // Every PDF's text is published before any PDF is embedded. Each
+      // embedding waits while a tool call or prompt runs, so embedding inside
+      // this loop would also hold back the next PDF's keyword text.
+      const publishedPdfs: Array<{ relativePath: string; sourceVersion: symbol }> = []
       for (const file of pdfsAwaitingText) {
         const nameOnlyRowVersion = nameOnlyRowVersions.get(file.relativePath)
         // A name-only row whose write failed has no version. The live watcher writing or
@@ -3059,23 +3191,25 @@ export const createSearchIndex = (
         const publishedVersion = publishPdfText(file, result.text)
 
         if (!publishedVersion) continue
-        publishedFiles += 1
+        publishedPdfs.push({ relativePath: file.relativePath, sourceVersion: publishedVersion })
+      }
+
+      for (const { relativePath, sourceVersion } of publishedPdfs) {
         try {
-          await embedFileContent(
-            { filePath: file.relativePath, sourceVersion: publishedVersion },
-            logger,
-          )
+          await embedFileContent({ filePath: relativePath, sourceVersion }, logger)
         } catch (error) {
           embeddingFailures.push(error)
           logger.error("PDF embedding failed", {
-            path: file.relativePath,
+            path: relativePath,
             ...describeErrorForLog(error),
           })
         }
       }
       logger.info("PDF content pass complete", {
         scheduledFiles: pdfsAwaitingText.length,
-        publishedFiles,
+        // Files whose text reached the index, so the summary reports coverage
+        // rather than the schedule
+        publishedFiles: publishedPdfs.length,
         durationMs: Math.round(performance.now() - passStart),
       })
 
@@ -3233,6 +3367,7 @@ export const createSearchIndex = (
     vaultStats: bindQueryContext(queries.vaultStats),
     fileContentIndexingEnabled: fileToolsEnabled,
     statusRegistry,
+    trackForegroundWork: foregroundWork.track,
   }
 }
 

@@ -1,5 +1,6 @@
 /** vault-orientation prompt — zero-arg survey of vault structure and health. */
 
+import type { ZodRawShapeCompat } from "@modelcontextprotocol/sdk/server/zod-compat.js"
 import { createMemoryStore, type MemoryFileOutline } from "../../vault-operations/memory-store.js"
 import { vaultFs } from "../../vault-operations/vault-filesystem.js"
 import { resolveEffectiveOrphanExcludeFolders } from "../../vault-operations/vault-folder-config.js"
@@ -12,6 +13,7 @@ import {
   describeErrorForPromptFallback,
   textResult,
   formatNoteLine,
+  trackedPromptHandler,
 } from "./prompt-helpers.js"
 
 const PROMPT_NAMES = {
@@ -151,9 +153,11 @@ export const registerVaultOrientationPrompt = ({
     ? createMemoryStore({ memoryDir: config.memoryDir })
     : undefined
 
-  // Zero-arg: omit argsSchema entirely so the SDK calls back as (extra) =>.
-  // An empty {} schema would be treated as "has schema" and break arg parsing.
-  server.registerPrompt(
+  // This prompt takes no arguments, so it omits argsSchema entirely and the SDK
+  // calls back as (extra) =>; an empty {} schema would count as a schema and
+  // break arg parsing. With no argsSchema to infer from, the explicit type
+  // argument keeps the callback passed to trackedPromptHandler typed.
+  server.registerPrompt<ZodRawShapeCompat>(
     PROMPT_NAMES.VAULT_ORIENTATION,
     {
       title: "Orient to this vault",
@@ -161,7 +165,7 @@ export const registerVaultOrientationPrompt = ({
         ? `Survey this vault's structure and health — stats, folders, tags, properties (with adoption rates), orphans, recent notes, and the ${config.memoryDir}/ memory layer.`
         : `Survey this vault's structure and health — stats, folders, tags, properties (with adoption rates), orphans, and recent notes.`,
     },
-    async (extra) => {
+    trackedPromptHandler(search, async (extra) => {
       const reqLogger = sessionLogger.child({
         requestId: extra.requestId,
         prompt: PROMPT_NAMES.VAULT_ORIENTATION,
@@ -354,6 +358,6 @@ export const registerVaultOrientationPrompt = ({
           : ""
         return textResult(`Could not fully survey the vault (${clientMessage}).${fallbackHint}`)
       }
-    },
+    }),
   )
 }

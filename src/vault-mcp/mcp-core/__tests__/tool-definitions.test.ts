@@ -15,6 +15,7 @@ import { loadConfig } from "../../config.js"
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { createSearchIndex } from "../../search/search-index.js"
 import type { SearchIndex } from "../../search/search-index.js"
+import { stubSearchIndex } from "./helpers/stub-search-index.js"
 import { assetOperations } from "../../vault-operations/asset-operations.js"
 import { logger, type Logger } from "../../../logger.js"
 import { withBodyTags } from "../../search/__tests__/body-tag-test-helpers.js"
@@ -71,7 +72,7 @@ beforeEach(() => {
     server: mockServer as unknown as McpServer,
     vaultPath: "/test-vault",
     pdfExtractor: createTestPdfExtractor("/test-vault"),
-    search: {} as SearchIndex,
+    search: stubSearchIndex(),
     logger,
     config: loadConfig({}),
   })
@@ -88,7 +89,7 @@ const registerWithConfig = (
     server: server as unknown as McpServer,
     vaultPath: context.vaultPath ?? "/test-vault",
     pdfExtractor: unusedPdfExtractor,
-    search: context.search ?? ({} as SearchIndex),
+    search: context.search ?? stubSearchIndex(),
     logger: context.logger ?? logger,
     config: loadConfig(env),
   })
@@ -963,7 +964,7 @@ describe("vault_read_note line paging", () => {
       server: server as unknown as McpServer,
       vaultPath: tempVault,
       pdfExtractor: createTestPdfExtractor(tempVault),
-      search: {} as SearchIndex,
+      search: stubSearchIndex(),
       logger,
       config: loadConfig({}),
     })
@@ -1202,7 +1203,7 @@ describe("vault_update_memory handler", () => {
       server: server as unknown as McpServer,
       vaultPath: tempVault,
       pdfExtractor: createTestPdfExtractor(tempVault),
-      search: {} as SearchIndex,
+      search: stubSearchIndex(),
       logger,
       config: loadConfig(configEnv),
     })
@@ -1308,7 +1309,7 @@ describe("vault_patch_note handler", () => {
       server: server as unknown as McpServer,
       vaultPath: tempVault,
       pdfExtractor: createTestPdfExtractor(tempVault),
-      search: {} as SearchIndex,
+      search: stubSearchIndex(),
       logger,
       config: loadConfig({}),
     })
@@ -1430,7 +1431,7 @@ describe("vault_read_note outline mode", () => {
       server: server as unknown as McpServer,
       vaultPath: tempVault,
       pdfExtractor: createTestPdfExtractor(tempVault),
-      search: {} as SearchIndex,
+      search: stubSearchIndex(),
       logger,
       config: loadConfig({}),
     })
@@ -2678,7 +2679,7 @@ describe("file tool handlers", () => {
       server: server as unknown as McpServer,
       vaultPath: tempVault,
       pdfExtractor: createTestPdfExtractor(tempVault),
-      search: {} as SearchIndex,
+      search: stubSearchIndex(),
       logger,
       config: loadConfig({}),
     })
@@ -4336,7 +4337,7 @@ describe("flag-combination matrix", () => {
         server: server as unknown as McpServer,
         vaultPath: "/test-vault",
         pdfExtractor: createTestPdfExtractor("/test-vault"),
-        search: {} as SearchIndex,
+        search: stubSearchIndex(),
         logger,
         config,
       })
@@ -4346,4 +4347,30 @@ describe("flag-combination matrix", () => {
       expect(registeredNames).toHaveLength(computeEnabledToolNames(config).size)
     },
   )
+})
+
+describe("foreground tracking", () => {
+  it("runs a registered tool handler through the search index's trackForegroundWork", async () => {
+    const search = stubSearchIndex()
+    const trackForegroundWork = vi.spyOn(search, "trackForegroundWork")
+    const registered = registerWithConfig({}, { search })
+    const readNoteCall = registered.find(([toolName]) => toolName === TOOL_NAMES.VAULT_READ_NOTE)
+
+    if (!readNoteCall) throw new Error("vault_read_note was not registered")
+    const result = await readNoteCall[2](
+      { path: "note.md", outline: true, heading: "Active" },
+      { requestId: "test-1", sessionId: "session-1" },
+    )
+
+    expect(trackForegroundWork).toHaveBeenCalledTimes(1)
+    expect(result).toEqual({
+      content: [
+        {
+          type: "text",
+          text: "outline, heading, and properties_only are mutually exclusive — set at most one",
+        },
+      ],
+      isError: true,
+    })
+  })
 })

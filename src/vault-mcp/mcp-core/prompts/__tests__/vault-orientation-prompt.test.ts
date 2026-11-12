@@ -26,6 +26,21 @@ afterEach(() => {
 
 // ── vault-orientation handler ────────────────────────────────────
 
+describe("vault-orientation foreground tracking", () => {
+  it("assembles the survey through the search index's trackForegroundWork", async () => {
+    const vault = await mkdtemp(join(tmpdir(), "orientation-tracked-"))
+    onTestFinished(() => rm(vault, { recursive: true, force: true }))
+    const search = createSearchIndex(":memory:")
+    const trackForegroundWork = vi.spyOn(search, "trackForegroundWork")
+    const handler = findCall(registerWithSearch(vault, search), PROMPT_NAMES.VAULT_ORIENTATION)[2]
+
+    const surveyText = textOf(await handler(fakeExtra))
+
+    expect(trackForegroundWork).toHaveBeenCalledTimes(1)
+    expect(surveyText.split("\n")[0]).toBe("# Vault orientation")
+  })
+})
+
 describe("vault-orientation live orphan folders", () => {
   const dailyForwardReferences =
     "[[Journal/2026-10-06]] [[Journal/2026-10-07]] [[Daily Notes/2026-10-06]] [[missing]]"

@@ -700,7 +700,8 @@ describe("file watcher — obsolete events and embedding queues", () => {
 
       if (!handler) throw new Error(`${event} handler was not registered`)
       // EventEmitter types listeners as void, but the change handler returns
-      // its actual promise, so awaiting it observes all indexing work.
+      // its actual promise, so awaiting it observes the keyword write; a note's
+      // or non-PDF file's embedding keeps running after it resolves.
       await handler(join(testVault, fileName))
     }
     return { testVault, search, database, fire }
@@ -1782,14 +1783,23 @@ describe("file watcher — obsolete events and embedding queues", () => {
           return sourceVersion
         },
       )
-      const finalFileEmbedFinished = Promise.withResolvers<undefined>()
+      const finalEmbedFinished = Promise.withResolvers<undefined>()
       const independentEmbedFinished = Promise.withResolvers<undefined>()
       const independentFileName = fileName.endsWith(".md") ? "sentry.md" : "sentry.txt"
+      // The listener resolves before the embedding, so each path's embed signals its end
+      const markEmbedFinished = (embeddedPath: string): void => {
+        if (embeddedPath === fileName) finalEmbedFinished.resolve(undefined)
+        if (embeddedPath === independentFileName) independentEmbedFinished.resolve(undefined)
+      }
+      const realNoteEmbed = search.embedNote
+      vi.spyOn(search, "embedNote").mockImplementation(async (params, requestLogger) => {
+        await realNoteEmbed(params, requestLogger)
+        markEmbedFinished(params.notePath)
+      })
       const realFileEmbed = search.embedFileContent
       vi.spyOn(search, "embedFileContent").mockImplementation(async (params, requestLogger) => {
         await realFileEmbed(params, requestLogger)
-        if (params.filePath === fileName) finalFileEmbedFinished.resolve(undefined)
-        if (params.filePath === independentFileName) independentEmbedFinished.resolve(undefined)
+        markEmbedFinished(params.filePath)
       })
       await writeFile(filePath, "finalamber")
       const finalChange = fire("change", fileName)
@@ -1798,7 +1808,7 @@ describe("file watcher — obsolete events and embedding queues", () => {
       // any incorrectly unqueued final job time to reach its model call.
       await writeFile(join(testVault, independentFileName), "independentjade")
       await fire("change", independentFileName)
-      if (!fileName.endsWith(".md")) await independentEmbedFinished.promise
+      await independentEmbedFinished.promise
       expect(embedder.embedText).toHaveBeenCalledTimes(3)
       releaseReplacement.resolve(vector)
       await replacementChange
@@ -1810,7 +1820,7 @@ describe("file watcher — obsolete events and embedding queues", () => {
       ).toEqual([])
       releaseFinal.resolve(vector)
       await finalChange
-      if (!fileName.endsWith(".md")) await finalFileEmbedFinished.promise
+      await finalEmbedFinished.promise
       const storedChunks = database
         .prepare(
           `SELECT ${pathColumn} AS path, chunk_text FROM ${chunkTable} WHERE ${pathColumn} = ?`,
@@ -2131,27 +2141,40 @@ describe("file watcher — obsolete events and embedding queues", () => {
       if (params.rawContent === "newopal") sourceWritten.resolve(undefined)
       return sourceVersion
     })
-    const errorSpy = vi.spyOn(logger, "error")
+    // The listener resolves before the embedding, so each job signals its own end
+    const independentEmbedFinished = Promise.withResolvers<undefined>()
+    const recoveredEmbedFinished = Promise.withResolvers<undefined>()
+    const failureLogged = Promise.withResolvers<undefined>()
+    const realEmbed = search.embedNote
+    vi.spyOn(search, "embedNote").mockImplementation(async (params, requestLogger) => {
+      await realEmbed(params, requestLogger)
+      if (params.notePath === "other.md") independentEmbedFinished.resolve(undefined)
+      if (params.rawContent === "newopal") recoveredEmbedFinished.resolve(undefined)
+    })
+    const errorSpy = vi.spyOn(logger, "error").mockImplementation((message) => {
+      if (message === "failed to process file change") failureLogged.resolve(undefined)
+    })
     const debugSpy = vi.spyOn(logger, "debug")
     onTestFinished(() => {
       errorSpy.mockRestore()
       debugSpy.mockRestore()
     })
     await writeFile(join(testVault, "note.md"), "oldquartz")
-    const failingChange = fire("change", "note.md")
+    await fire("change", "note.md")
     await failingEntered.promise
     await writeFile(join(testVault, "note.md"), "newopal")
-    const recoveredChange = fire("change", "note.md")
+    await fire("change", "note.md")
     await sourceWritten.promise
     await writeFile(join(testVault, "other.md"), "independentjade")
     await fire("change", "other.md")
+    await independentEmbedFinished.promise
     expect(database.prepare("SELECT note_path, chunk_text FROM note_chunks").all()).toEqual([
       { note_path: "other.md", chunk_text: "other\n\nindependentjade" },
     ])
     releaseFailure.reject(new Error("controlled model failure"))
-    await failingChange
+    await failureLogged.promise
     await recoveredEntered.promise
-    expect(errorSpy).toHaveBeenCalledWith("failed to process file change", {
+    expect(errorSpy).toHaveBeenCalledExactlyOnceWith("failed to process file change", {
       path: "note.md",
       error: "[Error]: controlled model failure",
     })
@@ -2160,7 +2183,7 @@ describe("file watcher — obsolete events and embedding queues", () => {
       error: "[Error]: controlled model failure",
     })
     releaseRecovered.resolve(vector)
-    await recoveredChange
+    await recoveredEmbedFinished.promise
     expect(
       database.prepare("SELECT note_path, chunk_text FROM note_chunks ORDER BY note_path").all(),
     ).toEqual([
@@ -3958,6 +3981,40 @@ describe("file watcher — new-directory rescan", () => {
     },
   )
 
+  it(
+    "indexes every missed note's keywords while an earlier note's embedding is still running",
+    { timeout: 15000 },
+    async () => {
+      const newDirectory = join(vault, "new-folder")
+      await mkdir(newDirectory)
+      for (const missedNote of [
+        { name: "first.md", text: "first missedalpha note\n" },
+        { name: "second.md", text: "second missedbeta note\n" },
+      ]) {
+        const missedPath = join(newDirectory, missedNote.name)
+        await writeFile(missedPath, missedNote.text, "utf8")
+        await backdateMtime(missedPath)
+      }
+      const heldEmbedding = Promise.withResolvers<undefined>()
+      const embedNoteSpy = vi
+        .spyOn(index, "embedNote")
+        .mockImplementationOnce(async () => heldEmbedding.promise)
+      onTestFinished(() => heldEmbedding.resolve(undefined))
+
+      const { fireAddDir } = await startWatcherWithFakeChokidar({}, RESCAN_TEST_OPTIONS)
+      fireAddDir(newDirectory)
+
+      await waitFor(() => index.fullTextSearch({ query: "missedbeta" }, logger).length > 0)
+      expect(index.fullTextSearch({ query: "missedalpha" }, logger).map((hit) => hit.path)).toEqual(
+        ["new-folder/first.md"],
+      )
+      expect(index.fullTextSearch({ query: "missedbeta" }, logger).map((hit) => hit.path)).toEqual([
+        "new-folder/second.md",
+      ])
+      expect(embedNoteSpy).toHaveBeenCalledTimes(2)
+    },
+  )
+
   it("does not re-index a file chokidar already tracks", { timeout: 15000 }, async () => {
     const newDirectory = join(vault, "new-folder")
     await mkdir(newDirectory)
@@ -4086,6 +4143,78 @@ describe("file watcher — new-directory rescan", () => {
     // The inner file registers during the recursion, then the link itself.
     expect(addedPaths).toEqual([join(linkedDirectory, "inside.md"), linkedDirectory])
   })
+
+  it(
+    "logs a missed note's failed embedding instead of leaving the rejection unhandled",
+    { timeout: 15000 },
+    async () => {
+      const newDirectory = join(vault, "new-folder")
+      await mkdir(newDirectory)
+      const missedPath = join(newDirectory, "missed.md")
+      await writeFile(missedPath, "missed failingzeta note\n", "utf8")
+      await backdateMtime(missedPath)
+      vi.spyOn(index, "embedNote").mockRejectedValueOnce(new Error("model unavailable"))
+      const errorSpy = vi.spyOn(logger, "error")
+      onTestFinished(() => errorSpy.mockRestore())
+
+      const { fireAddDir } = await startWatcherWithFakeChokidar({}, RESCAN_TEST_OPTIONS)
+      fireAddDir(newDirectory)
+
+      await vi.waitFor(() => {
+        expect(errorSpy).toHaveBeenCalledWith("failed to process file change", {
+          path: "new-folder/missed.md",
+          error: "[Error]: model unavailable",
+        })
+      })
+      expect(index.fullTextSearch({ query: "failingzeta" }, logger).map((hit) => hit.path)).toEqual(
+        ["new-folder/missed.md"],
+      )
+    },
+  )
+
+  it(
+    "indexes a missed note after a symlinked directory while that directory's note is still embedding",
+    { timeout: 15000 },
+    async () => {
+      const targetDirectory = join(vault, "target-dir")
+      await mkdir(targetDirectory)
+      const insidePath = join(targetDirectory, "inside.md")
+      await writeFile(insidePath, "inside symlinkedgamma note\n", "utf8")
+      await backdateMtime(insidePath)
+      const newDirectory = join(vault, "new-folder")
+      await mkdir(newDirectory)
+      await symlink(targetDirectory, join(newDirectory, "linked-dir"))
+      // The recursive listing reaches a subfolder's files after every
+      // top-level entry, so this note comes after the symlinked directory.
+      await mkdir(join(newDirectory, "sub"))
+      const laterPath = join(newDirectory, "sub", "later.md")
+      await writeFile(laterPath, "later missedepsilon note\n", "utf8")
+      await backdateMtime(laterPath)
+      const heldEmbedding = Promise.withResolvers<undefined>()
+      const embedNoteSpy = vi
+        .spyOn(index, "embedNote")
+        .mockImplementationOnce(async () => heldEmbedding.promise)
+      onTestFinished(() => heldEmbedding.resolve(undefined))
+
+      const { fireAddDir } = await startWatcherWithFakeChokidar({}, RESCAN_TEST_OPTIONS)
+      fireAddDir(newDirectory)
+
+      await waitFor(() => index.fullTextSearch({ query: "missedepsilon" }, logger).length > 0)
+      expect(
+        index.fullTextSearch({ query: "missedepsilon" }, logger).map((hit) => hit.path),
+      ).toEqual(["new-folder/sub/later.md"])
+      expect(embedNoteSpy).toHaveBeenNthCalledWith(
+        1,
+        {
+          notePath: "new-folder/linked-dir/inside.md",
+          rawContent: "inside symlinkedgamma note\n",
+          sourceVersion: expect.any(Symbol),
+        },
+        logger,
+      )
+      expect(embedNoteSpy).toHaveBeenCalledTimes(2)
+    },
+  )
 
   it(
     "retries and indexes a still-being-written file inside a missed symlinked directory",
