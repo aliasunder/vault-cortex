@@ -1,10 +1,23 @@
 version: 2
 updates:
   - package-ecosystem: npm
-    directory: /
+    directories:
+      - /
+      - /cli
     schedule:
       interval: weekly
     groups:
+      # The CLI's dependencies are pinned in two places: cli/package.json
+      # (what npx installs) and the root devDependencies (what the CLI builds
+      # and tests against). group-by puts both edits of one bump in a single
+      # PR, so the cli dependency pinning test passes without a hand edit.
+      # Dependabot assigns a dependency to the first group it matches, so this
+      # group stays above production and development.
+      cli:
+        patterns:
+          - "@clack/prompts"
+          - commander
+        group-by: dependency-name
       production:
         dependency-type: production
       development:

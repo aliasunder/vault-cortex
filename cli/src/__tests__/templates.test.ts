@@ -398,18 +398,34 @@ describe("SYNC_CONFIGS default", () => {
   })
 })
 
+type CliManifest = { dependencies: Record<string, string> }
+
+type DependabotConfig = {
+  updates: Array<{ "package-ecosystem": string; groups?: Record<string, { patterns?: string[] }> }>
+}
+
 describe("cli dependency pinning", () => {
   it("cli dependencies match the root devDependencies versions (single install for dev, real deps for npx)", () => {
-    const cliManifest = JSON.parse(readRepoFile("cli/package.json")) as {
-      dependencies: Record<string, string>
-    }
-    const rootManifest = JSON.parse(readRepoFile("package.json")) as {
-      devDependencies: Record<string, string>
-    }
+    const cliManifest: CliManifest = JSON.parse(readRepoFile("cli/package.json"))
+    const rootManifest: { devDependencies: Record<string, string> } = JSON.parse(
+      readRepoFile("package.json"),
+    )
 
     expect(Object.keys(cliManifest.dependencies)).toEqual(["@clack/prompts", "commander"])
     for (const [dependency, version] of Object.entries(cliManifest.dependencies)) {
       expect(rootManifest.devDependencies[dependency]).toBe(version)
     }
+  })
+
+  // A dependency missing from the group gets two Dependabot PRs, one per copy,
+  // and each fails the test above.
+  it("Dependabot's cli group lists every cli dependency", () => {
+    const cliManifest: CliManifest = JSON.parse(readRepoFile("cli/package.json"))
+    const dependabotConfig: DependabotConfig = parseYaml(readRepoFile(".github/dependabot.yml"))
+    const npmUpdate = dependabotConfig.updates.find(
+      (update) => update["package-ecosystem"] === "npm",
+    )
+
+    expect(npmUpdate?.groups?.["cli"]?.patterns).toEqual(Object.keys(cliManifest.dependencies))
   })
 })
