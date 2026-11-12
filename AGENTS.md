@@ -811,9 +811,7 @@ the description and each parameter's Zod `.describe()` text.
    `PromptRegistrationContext`. Wrap the handler in `trackedPromptHandler`
    (`prompt-helpers.ts`) so background embedding waits while the prompt
    runs. `tool-definitions.ts` wraps every tool handler centrally, but
-   nothing wraps prompts for you: a prompt registered without the wrapper
-   runs untracked, and only that prompt's own tracking test (step 3)
-   catches it.
+   nothing wraps prompts for you.
 2. **Registration** — add the register call in
    `prompt-definitions.ts`. If the prompt depends on a specific tool,
    gate it on `context.isToolEnabled(TOOL_NAMES.*)`.
