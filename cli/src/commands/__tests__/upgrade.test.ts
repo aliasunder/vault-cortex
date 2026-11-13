@@ -214,6 +214,15 @@ describe("runUpgrade", () => {
       "http://127.0.0.1:8000/healthz",
       "https://vault.example.com/healthz",
     ])
+    expect(scripted.spinnerMessages).toEqual([
+      "start: Pulling ghcr.io/aliasunder/vault-cortex:remote",
+      "stop: Image pulled.",
+      "start: Waiting for the server to come up",
+      "stop: Server is up — health check passed.",
+      "start: Checking the public URL (https://vault.example.com/healthz)",
+      "stop: Public URL responds — https://vault.example.com/healthz answered from this machine.",
+    ])
+    expect(scripted.warnings).toEqual([])
   })
 
   it("keeps a successful remote upgrade at exit 0 when the public URL does not answer", async () => {

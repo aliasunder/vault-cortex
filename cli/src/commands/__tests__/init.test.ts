@@ -699,6 +699,15 @@ describe("runInit remote flow", () => {
       "http://127.0.0.1:8000/healthz",
       "https://vault.example.com/healthz",
     ])
+    expect(scripted.spinnerMessages).toEqual([
+      "start: Signing in to Obsidian...",
+      "stop: Signed in as user@example.com.",
+      "start: Waiting for the server to come up (first run may take a moment)",
+      "stop: Server is up — health check passed.",
+      "start: Checking the public URL (https://vault.example.com/healthz)",
+      "stop: Public URL responds — https://vault.example.com/healthz answered from this machine.",
+    ])
+    expect(scripted.warnings).toEqual([])
   })
 
   it("starts the server without a Sync token and points at its sign-in page", async () => {
