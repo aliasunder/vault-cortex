@@ -214,9 +214,20 @@ describe("heading traversal compatibility", () => {
         { encoding: "utf8", timeout: CHILD_DEADLINE_MS, killSignal: "SIGKILL" },
       )
 
-      expect(
-        JSON.parse(output).map((measurement: { variant: string }) => measurement.variant),
-      ).toEqual(["closing", "traversal"])
+      const measurements: unknown = JSON.parse(output)
+
+      expect(measurements).toEqual([
+        {
+          variant: "closing",
+          sizes: [25_000, 50_000, 100_000],
+          medians: [expect.any(Number), expect.any(Number), expect.any(Number)],
+        },
+        {
+          variant: "traversal",
+          sizes: [16_000, 32_000, 64_000],
+          medians: [expect.any(Number), expect.any(Number), expect.any(Number)],
+        },
+      ])
       process.stdout.write(`Heading parser timings ${output}\n`)
     },
     CHILD_TEST_TIMEOUT_MS,

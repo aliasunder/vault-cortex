@@ -235,10 +235,21 @@ describe("task metadata clear compatibility", () => {
 
       const result: unknown = JSON.parse(output)
 
+      // The child times each of the eleven fields in emoji format (suffix 0) and Dataview format
+      // (suffix 1), then the two nested fixtures.
+      const fixtureNames = [
+        ...Array.from({ length: 11 }, (_, fieldIndex) => [
+          `${fieldIndex}-0`,
+          `${fieldIndex}-1`,
+        ]).flat(),
+        "nested-emoji-date",
+        "nested-dataview-date",
+      ]
+
       expect(result).toEqual({
         sizes: [10000, 20000, 40000],
-        timings: Array.from({ length: 24 }, () => ({
-          name: expect.any(String),
+        timings: fixtureNames.map((name) => ({
+          name,
           medians: [expect.any(Number), expect.any(Number), expect.any(Number)],
         })),
       })
