@@ -366,9 +366,10 @@ export type OutgoingLinkEntry = {
    *  (.canvas, .base, images, etc.). Defaults to "note" for broken links. */
   kind: "note" | "file"
   bytes: number | null
-  /** True when the target is under the daily notes folder and the note
-   *  does not exist yet — a forward-reference ("create on click"
-   *  navigation), not a genuinely broken link. */
+  /** True when the link is broken and names a daily note not yet created:
+   *  a target under the daily notes folder, or a date with no folder written
+   *  in the daily-note format. The link resolves to that note once it exists, so it is not
+   *  genuinely broken. */
   daily_note_forward_ref: boolean
 }
 
@@ -1474,8 +1475,8 @@ export const createSearchIndex = (
 
   /** Adds a single non-markdown file to the index and re-resolves any
    *  unresolved links that now match it. Called by the file watcher on
-   *  add/change. Mirrors the note forward-reference re-resolution pattern:
-   *  updates the link target from the raw text to the resolved non-md path. */
+   *  add/change. Mirrors how a new note re-resolves links written before it
+   *  existed: updates the link target from the raw text to the resolved non-md path. */
   const upsertNonMdFile = (filePath: string, bytes: number): void => {
     const basePath = links.stripExtension(filePath)
     const baseFilename = links.stripExtension(basename(filePath))

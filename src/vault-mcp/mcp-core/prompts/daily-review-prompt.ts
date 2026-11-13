@@ -9,12 +9,13 @@
 import { DateTime } from "luxon"
 import { z } from "zod"
 import {
+  STRICT_ISO_DATE_RE,
   describeNonCalendarDate,
   getDailyNote,
   readDailyNotesConfig,
 } from "../../vault-operations/daily-notes.js"
 import { describeErrorForLog } from "../../../utils/describe-error.js"
-import type { TaskEntry } from "../../search/search-index.js"
+import type { OutgoingLinkEntry, TaskEntry } from "../../search/search-index.js"
 import { TOOL_NAMES } from "../tool-registry.js"
 import {
   type PromptRegistrationContext,
@@ -32,25 +33,19 @@ const PROMPT_NAMES = {
 } as const
 export { PROMPT_NAMES as DAILY_REVIEW_PROMPT_NAMES }
 
-/** Matches strict YYYY-MM-DD date strings (no time component, no partial dates). */
-const ISO_DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/
-
 const DAILY_RECENT_LIMIT = 10
 const DAILY_TASK_LIMIT = 20
 
-type OutgoingLink = {
-  path: string
-  title: string | null
-  exists: boolean
-  daily_note_forward_ref?: boolean
+/** A link to a daily note not created yet resolves to that note once it
+ *  exists, so it is not a broken link. */
+const isBrokenLink = (link: OutgoingLinkEntry): boolean => {
+  return !link.exists && !link.daily_note_forward_ref
 }
 
 /** Formats a single outgoing link as a bullet, flagging broken targets. */
-const formatOutgoingLink = (link: OutgoingLink): string => {
-  // A link to a daily note not created yet is Obsidian's create-on-click
-  // navigation, not a broken link
+const formatOutgoingLink = (link: OutgoingLinkEntry): string => {
   if (link.daily_note_forward_ref) return `- ${link.path} (daily note not created yet)`
-  if (!link.exists) return `- ${link.path} (**broken** — target does not exist)`
+  if (isBrokenLink(link)) return `- ${link.path} (**broken** — target does not exist)`
 
   const titleSuffix = link.title ? ` — ${link.title}` : ""
   return `- ${link.path}${titleSuffix}`
@@ -59,8 +54,8 @@ const formatOutgoingLink = (link: OutgoingLink): string => {
 /** Assembles the outgoing links section with a broken-link summary. */
 const formatOutgoingLinksSection = (
   noteExists: boolean,
-  outgoingLinks: readonly OutgoingLink[],
-  brokenLinks: readonly OutgoingLink[],
+  outgoingLinks: readonly OutgoingLinkEntry[],
+  brokenLinks: readonly OutgoingLinkEntry[],
 ): string => {
   if (!noteExists) return "_Daily note does not exist — no link analysis available._"
   if (outgoingLinks.length === 0) return "No outgoing links in this daily note."
@@ -159,7 +154,7 @@ export const registerDailyReviewPrompt = ({
       argsSchema: {
         date: z
           .string()
-          .regex(ISO_DATE_REGEX, "use YYYY-MM-DD")
+          .regex(STRICT_ISO_DATE_RE, "use YYYY-MM-DD")
           .optional()
           .describe("Day to review in YYYY-MM-DD format (defaults to today)"),
         max_chars: maxCharsArg,
@@ -227,6 +222,7 @@ export const registerDailyReviewPrompt = ({
               {
                 path: dailyNote.path,
                 dailyNotesFolder: dailyNotesConfig.dedicatedFolder,
+                dailyNotesFormat: dailyNotesConfig.format,
               },
               reqLogger,
             )
@@ -291,9 +287,7 @@ export const registerDailyReviewPrompt = ({
         }
         const dailySection = describeDailySection()
 
-        const brokenLinks = outgoingLinks.filter(
-          (link) => !link.exists && !link.daily_note_forward_ref,
-        )
+        const brokenLinks = outgoingLinks.filter(isBrokenLink)
         const outgoingSection = formatOutgoingLinksSection(
           dailyNote.exists,
           outgoingLinks,

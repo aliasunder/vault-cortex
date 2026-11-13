@@ -2489,6 +2489,60 @@ describe("vault_get_outgoing_links daily forward references", () => {
       })
     },
   )
+
+  it("flags a bare date link written in the vault's daily-note format", async () => {
+    const vaultPath = await mkdtemp(join(tmpdir(), "outgoing-links-handler-"))
+    onTestFinished(() => rm(vaultPath, { recursive: true, force: true }))
+    await mkdir(join(vaultPath, ".obsidian"))
+    // A format other than Obsidian's default, so only the format read from
+    // this file flags 17.06.2026 and leaves 2026-06-18 broken.
+    await writeFile(
+      join(vaultPath, ".obsidian/daily-notes.json"),
+      '{"folder":"Inbox","format":"DD.MM.YYYY"}',
+    )
+    const search = createSearchIndex(":memory:")
+    const rawContent = "[[17.06.2026]] [[2026-06-18]]\n"
+    search.upsertNote(
+      withBodyTags({
+        filePath: "plan.md",
+        rawContent,
+        fileStat: { mtimeMs: 1000, size: Buffer.byteLength(rawContent) },
+      }),
+      logger,
+    )
+    const outgoingLinksCall = registerWithConfig({}, { vaultPath, search }).find(
+      ([name]) => name === TOOL_NAMES.VAULT_GET_OUTGOING_LINKS,
+    )
+
+    if (!outgoingLinksCall) throw new Error("vault_get_outgoing_links not registered")
+
+    const result = z
+      .object({ content: z.array(z.object({ text: z.string() })) })
+      .parse(await outgoingLinksCall[2]({ path: "plan.md" }, { requestId: "links-2" }))
+
+    expect(JSON.parse(requireTextContent(result))).toEqual({
+      path: "plan.md",
+      outgoing_links: [
+        {
+          path: "17.06.2026",
+          title: null,
+          exists: false,
+          kind: "note",
+          bytes: null,
+          daily_note_forward_ref: true,
+        },
+        {
+          path: "2026-06-18",
+          title: null,
+          exists: false,
+          kind: "note",
+          bytes: null,
+          daily_note_forward_ref: false,
+        },
+      ],
+      count: 2,
+    })
+  })
 })
 
 describe("vault_list_tasks handler", () => {

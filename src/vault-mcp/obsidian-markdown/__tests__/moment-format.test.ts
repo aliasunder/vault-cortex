@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest"
-import { momentToLuxonFormat, findUnsupportedTokens } from "../moment-format.js"
+import {
+  dailyNoteFormatToNameFormat,
+  findUnsupportedTokens,
+  matchesDailyNoteName,
+  momentToLuxonFormat,
+} from "../moment-format.js"
 
 describe("momentToLuxonFormat", () => {
   const scenarios = [
@@ -143,9 +148,9 @@ describe("findUnsupportedTokens", () => {
   })
 
   it("detects weekday number d without false-positive on D or DD", () => {
-    expect(findUnsupportedTokens("YYYY-MM-DD d")).toContain("d")
-    expect(findUnsupportedTokens("YYYY-MM-DD")).not.toContain("d")
-    expect(findUnsupportedTokens("D")).not.toContain("d")
+    expect(findUnsupportedTokens("YYYY-MM-DD d")).toEqual(["d"])
+    expect(findUnsupportedTokens("YYYY-MM-DD")).toEqual([])
+    expect(findUnsupportedTokens("D")).toEqual([])
   })
 
   it("detects localized format tokens (L, LL, LLL, LLLL, LT, LTS)", () => {
@@ -162,5 +167,145 @@ describe("findUnsupportedTokens", () => {
 
   it("detects e (locale weekday number)", () => {
     expect(findUnsupportedTokens("YYYY e")).toEqual(["e"])
+  })
+})
+
+describe("dailyNoteFormatToNameFormat", () => {
+  it("converts a plain date format", () => {
+    expect(dailyNoteFormatToNameFormat("YYYY-MM-DD")).toEqual({ luxonFormat: "yyyy-MM-dd" })
+  })
+
+  it("keeps only the part after the last slash, which names the file", () => {
+    expect(dailyNoteFormatToNameFormat("YYYY/MM/YYYY-MM-DD")).toEqual({
+      luxonFormat: "yyyy-MM-dd",
+    })
+  })
+
+  it("splits at a slash inside a [literal] escape, which Obsidian also makes a folder", () => {
+    expect(dailyNoteFormatToNameFormat("YYYY/[Week/Day] YYYY-MM-DD")).toEqual({
+      luxonFormat: "'Day' yyyy-MM-dd",
+    })
+  })
+
+  it("drops a literal that ends at the slash", () => {
+    expect(dailyNoteFormatToNameFormat("[Journal/]YYYY-MM-DD")).toEqual({
+      luxonFormat: "yyyy-MM-dd",
+    })
+  })
+
+  it("trims a space at the end of the format, as Obsidian trims the file name", () => {
+    expect(dailyNoteFormatToNameFormat("YYYY-MM-DD ")).toEqual({ luxonFormat: "yyyy-MM-dd" })
+  })
+
+  it("trims a space at the start of the format, as Obsidian trims the file name", () => {
+    expect(dailyNoteFormatToNameFormat(" YYYY-MM-DD")).toEqual({ luxonFormat: "yyyy-MM-dd" })
+  })
+
+  it("ignores an unsupported token in the folder part", () => {
+    expect(dailyNoteFormatToNameFormat("YYYY/w/YYYY-MM-DD")).toEqual({
+      luxonFormat: "yyyy-MM-dd",
+    })
+  })
+
+  it("accepts a year with a day of the year", () => {
+    expect(dailyNoteFormatToNameFormat("YYYY-DDDD")).toEqual({ luxonFormat: "yyyy-ooo" })
+  })
+
+  it("returns null when the file name has no year", () => {
+    expect(dailyNoteFormatToNameFormat("YYYY/MM/DD")).toBeNull()
+  })
+
+  it("returns null when the file name has a year but no month and day", () => {
+    expect(dailyNoteFormatToNameFormat("YYYY")).toBeNull()
+  })
+
+  it("returns null when the file name has a month but no day", () => {
+    expect(dailyNoteFormatToNameFormat("YYYY-MM")).toBeNull()
+  })
+
+  it("returns null when the file name has a day but no month", () => {
+    expect(dailyNoteFormatToNameFormat("YYYY-DD")).toBeNull()
+  })
+
+  it("returns null when the year appears only inside a [literal]", () => {
+    expect(dailyNoteFormatToNameFormat("[YYYY] MM-DD")).toBeNull()
+  })
+
+  it("returns null when the file name holds an unsupported token", () => {
+    expect(dailyNoteFormatToNameFormat("Do MMMM YYYY")).toBeNull()
+  })
+
+  // Luxon throws on reading a name in either format, so a null keeps the
+  // forward-reference check from throwing on a date-shaped link.
+  it("returns null when the file name holds a week beside the date", () => {
+    expect(dailyNoteFormatToNameFormat("YYYY-MM-DD [W]WW")).toBeNull()
+  })
+
+  it("returns null when the file name holds a day of the year beside a month", () => {
+    expect(dailyNoteFormatToNameFormat("YYYY-MM-DDDD")).toBeNull()
+  })
+
+  it.each([
+    { label: "an unmapped o (Luxon's day of the year)", momentFormat: "YYYY-MM-DD o" },
+    { label: "an unmapped kkkk (Luxon's week year)", momentFormat: "YYYY-MM-DD kkkk" },
+  ])("returns null when the file name holds $label", ({ momentFormat }) => {
+    expect(dailyNoteFormatToNameFormat(momentFormat)).toBeNull()
+  })
+
+  it("accepts a W inside a [literal], which is not a week token", () => {
+    expect(dailyNoteFormatToNameFormat("YYYY-MM-DD [Week]")).toEqual({
+      luxonFormat: "yyyy-MM-dd 'Week'",
+    })
+  })
+})
+
+describe("matchesDailyNoteName", () => {
+  /** The name format for a daily-note format the test knows is complete. */
+  const toNameFormat = (momentFormat: string): { luxonFormat: string } => {
+    const nameFormat = dailyNoteFormatToNameFormat(momentFormat)
+
+    if (!nameFormat) throw new Error(`no name format for "${momentFormat}"`)
+    return nameFormat
+  }
+
+  it.each([
+    { label: "a date in the default format", name: "2026-10-07", momentFormat: "YYYY-MM-DD" },
+    {
+      label: "the file-name part of a format with folders",
+      name: "2026-10-07",
+      momentFormat: "YYYY/MM/YYYY-MM-DD",
+    },
+    {
+      label: "the file-name part after a slash inside a literal",
+      name: "2026-10-07",
+      momentFormat: "[Journal/]YYYY-MM-DD",
+    },
+    {
+      label: "a weekday name in other letter case",
+      name: "2026-10-07 wednesday",
+      momentFormat: "YYYY-MM-DD dddd",
+    },
+    { label: "a format with a trailing space", name: "2026-10-07", momentFormat: "YYYY-MM-DD " },
+    { label: "unpadded numbers under unpadded tokens", name: "2026-1-7", momentFormat: "YYYY-M-D" },
+    { label: "a day of the year", name: "2026-280", momentFormat: "YYYY-DDDD" },
+  ])("matches $label", ({ name, momentFormat }) => {
+    expect(matchesDailyNoteName({ name, format: toNameFormat(momentFormat) })).toBe(true)
+  })
+
+  it.each([
+    {
+      label: "padded numbers that Obsidian writes unpadded",
+      name: "2026-01-07",
+      momentFormat: "YYYY-M-D",
+    },
+    {
+      label: "a weekday that is not the date's",
+      name: "2026-10-07 Thursday",
+      momentFormat: "YYYY-MM-DD dddd",
+    },
+    { label: "an ordinary note name", name: "Meeting notes", momentFormat: "YYYY-MM-DD" },
+    { label: "a day the calendar lacks", name: "2026-13-40", momentFormat: "YYYY-MM-DD" },
+  ])("does not match $label", ({ name, momentFormat }) => {
+    expect(matchesDailyNoteName({ name, format: toNameFormat(momentFormat) })).toBe(false)
   })
 })
