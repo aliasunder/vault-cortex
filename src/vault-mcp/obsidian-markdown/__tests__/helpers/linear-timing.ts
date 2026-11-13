@@ -8,5 +8,5 @@ export const LINEAR_GROWTH_ALLOWANCE = 2
  */
 export const CHILD_DEADLINE_MS = 60_000
 
-/** Gives a killed child time to report its failure before vitest abandons the test. */
+/** Sits above the child deadline, so vitest never reports a child that finished within it as a test timeout. */
 export const CHILD_TEST_TIMEOUT_MS = CHILD_DEADLINE_MS + 10_000
