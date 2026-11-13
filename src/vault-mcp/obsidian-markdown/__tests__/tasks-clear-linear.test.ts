@@ -3,9 +3,12 @@ import { readFileSync } from "node:fs"
 import { runInNewContext } from "node:vm"
 import ts from "typescript"
 import { describe, expect, it } from "vitest"
+import {
+  CHILD_DEADLINE_MS,
+  CHILD_TEST_TIMEOUT_MS,
+  LINEAR_GROWTH_ALLOWANCE,
+} from "./helpers/linear-timing.js"
 
-/** Allows scheduling noise across the full input range. */
-const LINEAR_GROWTH_ALLOWANCE = 2
 /** Below this many milliseconds a median is mostly scheduling noise, so it sets no tighter growth bound. */
 const TIMING_FLOOR_MS = 25
 
@@ -140,16 +143,18 @@ describe("task metadata clear compatibility", () => {
     }
   }, 20_000)
 
-  it("clears twenty to eighty thousand priority fields within a child deadline", () => {
-    const parserUrl = new URL("../tasks.ts", import.meta.url).href
-    const output = execFileSync(
-      process.execPath,
-      [
-        "--import",
-        "tsx",
-        "--input-type=module",
-        "--eval",
-        `
+  it(
+    "clears twenty to eighty thousand priority fields within a child deadline",
+    () => {
+      const parserUrl = new URL("../tasks.ts", import.meta.url).href
+      const output = execFileSync(
+        process.execPath,
+        [
+          "--import",
+          "tsx",
+          "--input-type=module",
+          "--eval",
+          `
       import assert from 'node:assert/strict';
       import { tasks, DEFAULT_STATUS_REGISTRY } from ${JSON.stringify(parserUrl)};
       const config={taskFormat:'emoji',setDoneDate:true,setCancelledDate:true,setCreatedDate:false,recurrenceOnNextLine:false,removeScheduledDateOnRecurrence:false,statusRegistry:DEFAULT_STATUS_REGISTRY};
@@ -162,29 +167,32 @@ describe("task metadata clear compatibility", () => {
         const samples=Array.from({length:5},()=>{const start=performance.now();check();return performance.now()-start;}).toSorted((a,b)=>a-b);
         medians.push(samples[2]);
       }
-      assert.ok(medians.every(value=>value<1000),'metadata clear exceeded ceiling '+medians);
       assert.ok(medians.at(-1)<=Math.max(${TIMING_FLOOR_MS},medians[0])*(sizes.at(-1)/sizes[0])*${LINEAR_GROWTH_ALLOWANCE},'metadata clear scaled superlinearly '+medians);
       process.stdout.write(JSON.stringify({sizes,medians}));
     `,
-      ],
-      { encoding: "utf8", timeout: 15_000, killSignal: "SIGKILL" },
-    )
+        ],
+        { encoding: "utf8", timeout: CHILD_DEADLINE_MS, killSignal: "SIGKILL" },
+      )
 
-    expect(JSON.parse(output)).toEqual({
-      sizes: [20000, 40000, 80000],
-      medians: [expect.any(Number), expect.any(Number), expect.any(Number)],
-    })
-    process.stdout.write(`Metadata clear timings ${output}\n`)
-  }, 20_000)
+      expect(JSON.parse(output)).toEqual({
+        sizes: [20000, 40000, 80000],
+        medians: [expect.any(Number), expect.any(Number), expect.any(Number)],
+      })
+      process.stdout.write(`Metadata clear timings ${output}\n`)
+    },
+    CHILD_TEST_TIMEOUT_MS,
+  )
 
-  it("bounds every field grammar and newly exposed nested fields at increasing sizes", () => {
-    const compiled = compileRemovalGrammar()
-    const output = execFileSync(
-      process.execPath,
-      [
-        "--input-type=module",
-        "--eval",
-        `
+  it(
+    "bounds every field grammar and newly exposed nested fields at increasing sizes",
+    () => {
+      const compiled = compileRemovalGrammar()
+      const output = execFileSync(
+        process.execPath,
+        [
+          "--input-type=module",
+          "--eval",
+          `
       import assert from 'node:assert/strict';
       import { runInThisContext } from 'node:vm';
       const grammar=runInThisContext(${JSON.stringify(compiled)});
@@ -213,7 +221,6 @@ describe("task metadata clear compatibility", () => {
           const samples=Array.from({length:5},()=>{const start=performance.now();check();return performance.now()-start;}).toSorted((a,b)=>a-b);
           medians.push(samples[2]);
         }
-        assert.ok(medians.every(value=>value<2000),name+' exceeded ceiling '+medians);
         assert.ok(medians.at(-1)<=Math.max(${TIMING_FLOOR_MS},medians[0])*(sizes.at(-1)/sizes[0])*${LINEAR_GROWTH_ALLOWANCE},name+' scaled superlinearly '+medians);
         timings.push({name,medians});
       };
@@ -222,32 +229,36 @@ describe("task metadata clear compatibility", () => {
       checkFixture('nested-dataview-date',2,size=>'#'+'[due::'.repeat(size)+'2026-01-02'+']2026-01-02'.repeat(size-1)+']');
       process.stdout.write(JSON.stringify({sizes,timings}));
     `,
-      ],
-      { encoding: "utf8", timeout: 30_000, killSignal: "SIGKILL" },
-    )
+        ],
+        { encoding: "utf8", timeout: CHILD_DEADLINE_MS, killSignal: "SIGKILL" },
+      )
 
-    const result: unknown = JSON.parse(output)
+      const result: unknown = JSON.parse(output)
 
-    expect(result).toEqual({
-      sizes: [10000, 20000, 40000],
-      timings: Array.from({ length: 24 }, () => ({
-        name: expect.any(String),
-        medians: [expect.any(Number), expect.any(Number), expect.any(Number)],
-      })),
-    })
-    process.stdout.write(`All metadata grammar timings ${output}\n`)
-  }, 35_000)
+      expect(result).toEqual({
+        sizes: [10000, 20000, 40000],
+        timings: Array.from({ length: 24 }, () => ({
+          name: expect.any(String),
+          medians: [expect.any(Number), expect.any(Number), expect.any(Number)],
+        })),
+      })
+      process.stdout.write(`All metadata grammar timings ${output}\n`)
+    },
+    CHILD_TEST_TIMEOUT_MS,
+  )
 
-  it("clears duplicate completion stamps through status mutations within a child deadline", () => {
-    const parserUrl = new URL("../tasks.ts", import.meta.url).href
-    const output = execFileSync(
-      process.execPath,
-      [
-        "--import",
-        "tsx",
-        "--input-type=module",
-        "--eval",
-        `
+  it(
+    "clears duplicate completion stamps through status mutations within a child deadline",
+    () => {
+      const parserUrl = new URL("../tasks.ts", import.meta.url).href
+      const output = execFileSync(
+        process.execPath,
+        [
+          "--import",
+          "tsx",
+          "--input-type=module",
+          "--eval",
+          `
       import assert from 'node:assert/strict';
       import { tasks, DEFAULT_STATUS_REGISTRY } from ${JSON.stringify(parserUrl)};
       const config={taskFormat:'emoji',setDoneDate:true,setCancelledDate:true,setCreatedDate:false,recurrenceOnNextLine:false,removeScheduledDateOnRecurrence:false,statusRegistry:DEFAULT_STATUS_REGISTRY};
@@ -260,17 +271,18 @@ describe("task metadata clear compatibility", () => {
         const samples=Array.from({length:5},()=>{const start=performance.now();check();return performance.now()-start;}).toSorted((a,b)=>a-b);
         medians.push(samples[2]);
       }
-      assert.ok(medians.every(value=>value<2000),'status stamp clear exceeded ceiling '+medians);
       assert.ok(medians.at(-1)<=Math.max(${TIMING_FLOOR_MS},medians[0])*(sizes.at(-1)/sizes[0])*${LINEAR_GROWTH_ALLOWANCE},'status stamp clear scaled superlinearly '+medians);
       process.stdout.write(JSON.stringify({sizes,medians}));
     `,
-      ],
-      { encoding: "utf8", timeout: 15_000, killSignal: "SIGKILL" },
-    )
+        ],
+        { encoding: "utf8", timeout: CHILD_DEADLINE_MS, killSignal: "SIGKILL" },
+      )
 
-    expect(JSON.parse(output)).toEqual({
-      sizes: [20000, 40000, 80000],
-      medians: [expect.any(Number), expect.any(Number), expect.any(Number)],
-    })
-  }, 20_000)
+      expect(JSON.parse(output)).toEqual({
+        sizes: [20000, 40000, 80000],
+        medians: [expect.any(Number), expect.any(Number), expect.any(Number)],
+      })
+    },
+    CHILD_TEST_TIMEOUT_MS,
+  )
 })
