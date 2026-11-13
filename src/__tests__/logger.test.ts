@@ -1524,9 +1524,9 @@ describe("logger child lazy props", () => {
   })
 })
 
-// The test setup file that routes log lines to vitest's console capture
-// (helpers/route-log-lines-to-console.ts) recognizes a line by these two
-// facts, so a change to either would print every log line again unnoticed.
+// The test setup file helpers/route-log-lines-to-console.ts sends a write to
+// the console only when it has this shape. A write of any other shape goes to
+// the stream, so passing tests would print every log line again.
 describe("console write shape", () => {
   it("writes each line as one string that opens with its timestamp field, with no encoding or callback", () => {
     const stdoutSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true)

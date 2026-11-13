@@ -16,8 +16,8 @@ const LOG_LINE_START = '{"timestamp":'
 
 type WriteCallback = (error?: Error | null) => void
 
-const createLogLineRoutingWrite = (
-  stream: NodeJS.WriteStream,
+export const createLogLineRoutingWrite = (
+  stream: Pick<NodeJS.WriteStream, "write">,
   logToConsole: (line: string) => void,
 ) => {
   const originalWrite = stream.write.bind(stream)
