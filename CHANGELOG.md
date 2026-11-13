@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.57.4] — 2026-11-13
+
+### Bug Fixes
+
+- **tasks:** Refuse a task update whose expected description differs (#777)
+
+### Maintenance
+
+- **deps:** Bump @hono/node-server from 2.1.5 to 2.1.8 (#789)
+
 ## [0.57.3] — 2026-11-12
 
 ### Bug Fixes
