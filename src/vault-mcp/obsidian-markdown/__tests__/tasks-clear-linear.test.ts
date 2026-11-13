@@ -293,6 +293,7 @@ describe("task metadata clear compatibility", () => {
         sizes: [20000, 40000, 80000],
         medians: [expect.any(Number), expect.any(Number), expect.any(Number)],
       })
+      process.stdout.write(`Status stamp clear timings ${output}\n`)
     },
     CHILD_TEST_TIMEOUT_MS,
   )

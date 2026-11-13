@@ -12,6 +12,9 @@ import {
   LINEAR_GROWTH_ALLOWANCE,
 } from "./helpers/linear-timing.js"
 
+/** Below this many milliseconds a median is mostly scheduling noise, so it sets no tighter growth bound. */
+const TIMING_FLOOR_MS = 10
+
 type HeadingParser = (lines: readonly string[]) => HeadingInfo[]
 
 /** Keeps the former suffix and boundary rules as a small-input oracle. */
@@ -205,7 +208,7 @@ describe("heading traversal compatibility", () => {
           const samples=Array.from({length:5},()=>{const start=performance.now();check();return performance.now()-start}).toSorted((a,b)=>a-b);
           medians.push(samples[2]);
         }
-        assert.ok(medians.at(-1)<=Math.max(10,medians[0])*(sizes.at(-1)/sizes[0])*${LINEAR_GROWTH_ALLOWANCE},variant+' scaled superlinearly '+medians);
+        assert.ok(medians.at(-1)<=Math.max(${TIMING_FLOOR_MS},medians[0])*(sizes.at(-1)/sizes[0])*${LINEAR_GROWTH_ALLOWANCE},variant+' scaled superlinearly '+medians);
         measurements.push({variant,sizes,medians});
       }
       process.stdout.write(JSON.stringify(measurements));

@@ -11,6 +11,9 @@ import {
   LINEAR_GROWTH_ALLOWANCE,
 } from "./helpers/linear-timing.js"
 
+/** Below this many milliseconds a median is mostly scheduling noise, so it sets no tighter growth bound. */
+const TIMING_FLOOR_MS = 10
+
 type Deduplication = ReturnType<typeof tasks.deduplicateDescriptionTags>
 
 /** Freezes the original per-tag search while sharing the separately verified boundary parser. */
@@ -108,7 +111,7 @@ describe("task description tag deduplication", () => {
           const samples = Array.from({length:5},()=>{const start=performance.now();check();return performance.now()-start;}).toSorted((a,b)=>a-b);
           medians.push(samples[2]);
         }
-        assert.ok(medians.at(-1)<=Math.max(10,medians[0])*(sizes.at(-1)/sizes[0])*${LINEAR_GROWTH_ALLOWANCE},'description tag searches scaled superlinearly '+medians);
+        assert.ok(medians.at(-1)<=Math.max(${TIMING_FLOOR_MS},medians[0])*(sizes.at(-1)/sizes[0])*${LINEAR_GROWTH_ALLOWANCE},'description tag searches scaled superlinearly '+medians);
         process.stdout.write(JSON.stringify({sizes,medians}));
         `,
         ],
