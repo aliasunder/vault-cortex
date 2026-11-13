@@ -144,7 +144,7 @@ describe("task metadata clear compatibility", () => {
   }, 20_000)
 
   it(
-    "clears twenty to eighty thousand priority fields within a child deadline",
+    "clears twenty to eighty thousand priority fields in time linear in their count",
     () => {
       const parserUrl = new URL("../tasks.ts", import.meta.url).href
       const output = execFileSync(
@@ -259,7 +259,7 @@ describe("task metadata clear compatibility", () => {
   )
 
   it(
-    "clears duplicate completion stamps through status mutations within a child deadline",
+    "clears duplicate completion stamps through status mutations in time linear in their count",
     () => {
       const parserUrl = new URL("../tasks.ts", import.meta.url).href
       const output = execFileSync(
