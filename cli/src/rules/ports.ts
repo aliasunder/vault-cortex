@@ -3,6 +3,9 @@ import type { PublishedPort } from "../adapters/docker.js"
 /** Default host port — matches the container's internal port. */
 export const DEFAULT_PORT = 8000
 
+/** The highest TCP port number. */
+const HIGHEST_PORT = 65535
+
 /** Host ports that containers on this machine publish, mapped to each container's name. */
 export type PortsInUse = ReadonlyMap<number, string>
 
@@ -32,7 +35,7 @@ export type PortDecision =
 export const isValidPort = (value: string): boolean => {
   if (!/^[1-9]\d*$/.test(value)) return false
   const port = Number(value)
-  return port >= 1 && port <= 65535
+  return port >= 1 && port <= HIGHEST_PORT
 }
 
 /** What isValidPort accepts, in the words every invalid-port error uses. */
@@ -47,14 +50,17 @@ export const portInUseMessage = (params: { port: string; containerName: string }
   return `Port ${params.port} is already used by the "${params.containerName}" container on this machine.`
 }
 
-/** The first port, counting up from the default, that no container publishes. */
-export const suggestFreePort = (portsInUse: PortsInUse): string => {
+/**
+ * The first port, counting up from the default, that no container publishes,
+ * or undefined when containers publish every port from the default to 65535.
+ */
+export const suggestFreePort = (portsInUse: PortsInUse): string | undefined => {
   // A loop, not recursion: a container can publish tens of thousands of
   // consecutive host ports, which would overflow the stack.
   let candidatePort = DEFAULT_PORT
 
-  while (portsInUse.has(candidatePort)) candidatePort += 1
-  return String(candidatePort)
+  while (candidatePort <= HIGHEST_PORT && portsInUse.has(candidatePort)) candidatePort += 1
+  return candidatePort <= HIGHEST_PORT ? String(candidatePort) : undefined
 }
 
 export const buildPortsInUse = (publishedPorts: ReadonlyArray<PublishedPort>): PortsInUse => {

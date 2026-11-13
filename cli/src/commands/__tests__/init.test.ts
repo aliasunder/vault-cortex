@@ -1784,6 +1784,11 @@ const dockerWithPorts = (params: {
   }
 }
 
+/** One container publishing every host port from 8000 to 65535, so no port from the default up is free. */
+const everyPortFromDefaultTaken = (): Array<readonly [number, string]> => {
+  return Array.from({ length: 65535 - 8000 + 1 }, (_, offset) => [8000 + offset, "ranged"] as const)
+}
+
 const readEnvLines = (targetDir: string): string[] => {
   return readFileSync(join(targetDir, ".env"), "utf8").split("\n")
 }
@@ -2551,6 +2556,52 @@ describe("runInit when another container publishes the new install's port", () =
       'Port 8000 is already used by the "other-app" container on this machine. Re-run with a free port, such as --port 8001.',
     ])
     expect(existsSync(join(targetDir, ".env"))).toBe(false)
+  })
+
+  it("stops --yes without naming a port when every port from 8000 to 65535 is taken", async () => {
+    const vaultDir = makeVault()
+    const targetDir = makeTargetDir()
+    const scripted = createScriptedPrompts()
+
+    const exitCode = await runInit(
+      { mode: "local", vaultPath: vaultDir, dir: targetDir, yes: true },
+      {
+        prompts: scripted.prompts,
+        docker: dockerWithPorts({ existingNames: [], publishedPorts: everyPortFromDefaultTaken() }),
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(exitCode).toBe(1)
+    expect(scripted.errors).toEqual([
+      'Port 8000 is already used by the "ranged" container on this machine. Re-run with a free port.',
+    ])
+    expect(existsSync(join(targetDir, ".env"))).toBe(false)
+  })
+
+  it("asks with no default port when every port from 8000 to 65535 is taken", async () => {
+    const vaultDir = makeVault()
+    const targetDir = makeTargetDir()
+    const scripted = createScriptedPrompts(["7000", [], false])
+
+    const exitCode = await runInit(
+      { mode: "local", vaultPath: vaultDir, dir: targetDir },
+      {
+        prompts: scripted.prompts,
+        docker: dockerWithPorts({ existingNames: [], publishedPorts: everyPortFromDefaultTaken() }),
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(scripted.textCalls).toEqual([
+      { message: PORT_QUESTION, defaultValue: undefined, placeholder: undefined },
+    ])
+    expect(readIdentityLines(targetDir)).toEqual([
+      "PUBLIC_URL=http://localhost:7000",
+      "INSTANCE_NAME=vault-cortex",
+      "PORT=7000",
+    ])
   })
 
   it("warns and asks for another port when the default one is taken", async () => {

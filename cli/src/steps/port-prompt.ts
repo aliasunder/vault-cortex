@@ -14,7 +14,8 @@ type PortSettingResult = { kind: "ok"; settings: Record<string, string> } | { ki
 
 /**
  * Re-prompts until the answer is a valid port no other container on the
- * machine publishes. Without a suggested port, it offers the first free one.
+ * machine publishes. Without a suggested port, it offers the first free one
+ * from 8000 up, and no default when there is none.
  */
 export const askFreePort = async (
   params: { suggestedPort?: string; portsInUse: PortsInUse },
@@ -23,7 +24,8 @@ export const askFreePort = async (
   const { portsInUse } = params
   const suggestedPort = params.suggestedPort ?? suggestFreePort(portsInUse)
   // A value that isn't a port is never offered, since it would be rejected.
-  const offeredPort = isValidPort(suggestedPort) ? suggestedPort : suggestFreePort(portsInUse)
+  const offeredPort =
+    suggestedPort && isValidPort(suggestedPort) ? suggestedPort : suggestFreePort(portsInUse)
   const answer = (
     await prompts.text("Host port for the server:", {
       defaultValue: offeredPort,
@@ -62,9 +64,10 @@ export const choosePort = async (
       const message = portInUseMessage(decision)
 
       if (!interactive) {
-        prompts.error(
-          `${message} Re-run with a free port, such as --port ${suggestFreePort(portsInUse)}.`,
-        )
+        const freePort = suggestFreePort(portsInUse)
+        const example = freePort ? `, such as --port ${freePort}` : ""
+
+        prompts.error(`${message} Re-run with a free port${example}.`)
         return { kind: "exit" }
       }
       prompts.warn(message)

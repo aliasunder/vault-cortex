@@ -44,6 +44,14 @@ describe("suggestFreePort", () => {
 
     expect(suggestFreePort(buildPortsInUse(takenPorts))).toBe("58000")
   })
+
+  it("suggests no port when containers publish every port from the default to 65535", () => {
+    const takenPorts = Array.from({ length: 65535 - 8000 + 1 }, (_, offset) => {
+      return { hostPort: 8000 + offset, containerName: "ranged" }
+    })
+
+    expect(suggestFreePort(buildPortsInUse(takenPorts))).toBeUndefined()
+  })
 })
 
 describe("portsOfOtherContainers", () => {
