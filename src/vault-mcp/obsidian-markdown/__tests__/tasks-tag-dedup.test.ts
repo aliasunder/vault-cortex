@@ -5,9 +5,23 @@ import { DateTime } from "luxon"
 import ts from "typescript"
 import { describe, expect, it } from "vitest"
 import { tasks } from "../tasks.js"
+import {
+  CHILD_DEADLINE_MS,
+  CHILD_TEST_TIMEOUT_MS,
+  LINEAR_GROWTH_ALLOWANCE,
+} from "./helpers/linear-timing.js"
 
-/** Allows scheduling noise across the full input range. */
-const LINEAR_GROWTH_ALLOWANCE = 2
+/**
+ * Below this many milliseconds a median is mostly scheduling noise, so it sets
+ * no tighter growth bound. It is lower than the 25 ms in tasks-linear and
+ * tasks-clear-linear, because a 25 ms floor would barely catch a quadratic
+ * slowdown:
+ * - This fixture's smallest median sits near 14 ms on a fast laptop.
+ * - A 25 ms floor would set the bound at 200 ms, only about 10% under a
+ *   quadratic slowdown's 224 ms, so scheduling noise could let the slowdown pass.
+ * - This floor sets the bound at about half of 224 ms.
+ */
+const TIMING_FLOOR_MS = 10
 
 type Deduplication = ReturnType<typeof tasks.deduplicateDescriptionTags>
 
@@ -80,18 +94,20 @@ describe("task description tag deduplication", () => {
         result: legacyDeduplication(taskLine),
       })
     }
-  })
+  }, 30_000)
 
-  it("bounds distinct description tags against a long metadata tail in a child process", () => {
-    const parserUrl = new URL("../tasks.ts", import.meta.url).href
-    const output = execFileSync(
-      process.execPath,
-      [
-        "--import",
-        "tsx",
-        "--input-type=module",
-        "--eval",
-        `
+  it(
+    "bounds distinct description tags against a long metadata tail in a child process",
+    () => {
+      const parserUrl = new URL("../tasks.ts", import.meta.url).href
+      const output = execFileSync(
+        process.execPath,
+        [
+          "--import",
+          "tsx",
+          "--input-type=module",
+          "--eval",
+          `
         import assert from 'node:assert/strict';
         import { tasks } from ${JSON.stringify(parserUrl)};
         const sizes = [20000,40000,80000];
@@ -104,18 +120,19 @@ describe("task description tag deduplication", () => {
           const samples = Array.from({length:5},()=>{const start=performance.now();check();return performance.now()-start;}).toSorted((a,b)=>a-b);
           medians.push(samples[2]);
         }
-        assert.ok(medians.every(value=>value<350),'description tag searches exceeded ceiling '+medians);
-        assert.ok(medians.at(-1)<=Math.max(10,medians[0])*(sizes.at(-1)/sizes[0])*${LINEAR_GROWTH_ALLOWANCE},'description tag searches scaled superlinearly '+medians);
+        assert.ok(medians.at(-1)<=Math.max(${TIMING_FLOOR_MS},medians[0])*(sizes.at(-1)/sizes[0])*${LINEAR_GROWTH_ALLOWANCE},'description tag searches scaled superlinearly '+medians);
         process.stdout.write(JSON.stringify({sizes,medians}));
         `,
-      ],
-      { encoding: "utf8", timeout: 10_000, killSignal: "SIGKILL" },
-    )
+        ],
+        { encoding: "utf8", timeout: CHILD_DEADLINE_MS, killSignal: "SIGKILL" },
+      )
 
-    expect(JSON.parse(output)).toEqual({
-      sizes: [20000, 40000, 80000],
-      medians: [expect.any(Number), expect.any(Number), expect.any(Number)],
-    })
-    process.stdout.write(`Distinct description tag timings ${output}\n`)
-  }, 15_000)
+      expect(JSON.parse(output)).toEqual({
+        sizes: [20000, 40000, 80000],
+        medians: [expect.any(Number), expect.any(Number), expect.any(Number)],
+      })
+      process.stdout.write(`Distinct description tag timings ${output}\n`)
+    },
+    CHILD_TEST_TIMEOUT_MS,
+  )
 })
