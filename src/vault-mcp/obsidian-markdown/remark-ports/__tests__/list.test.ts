@@ -211,6 +211,7 @@ describe("list tokenizer", () => {
     { label: "CRLF lines", document: "- a\r\n\r\n  b\r\n- c" },
     { label: "a single CRLF line break", document: "- a\r\n- b" },
     { label: "task and nested items", document: "- [x] a\n\n  b\n  - c" },
+    { label: "a dash and no-break space, which is no bullet", document: "- a\n-\u00a0\n- b" },
   ])("preserves the upstream AST for $label", ({ document }) => {
     expect(parseList(document, list)).toEqual(parseList(document))
   })

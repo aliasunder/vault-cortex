@@ -3,7 +3,7 @@
   "name": "io.github.aliasunder/vault-cortex",
   "title": "Vault Cortex",
   "description": "Standalone MCP server for Obsidian vaults — hybrid search, notes & files, memory, tasks, OAuth 2.1",
-  "version": "0.57.1",
+  "version": "0.57.3",
   "websiteUrl": "https://github.com/aliasunder/vault-cortex",
   "repository": {
     "url": "https://github.com/aliasunder/vault-cortex",
@@ -13,7 +13,7 @@
   "packages": [
     {
       "registryType": "oci",
-      "identifier": "ghcr.io/aliasunder/vault-cortex:0.57.1",
+      "identifier": "ghcr.io/aliasunder/vault-cortex:0.57.3",
       "runtimeHint": "docker",
       "runtimeArguments": [
         {
@@ -133,7 +133,7 @@
         },
         {
           "name": "TRUST_FORWARDED_HOPS",
-          "description": "How many entries from the end of the RFC 7239 Forwarded header's for= list to count to reach the client IP for OAuth rate limiting and request logs. 0 ignores the header; 1 when the proxy in front writes it (e.g. AWS API Gateway); 2 when a CDN fronts that proxy and is the only way to reach it.",
+          "description": "How many entries from the end of the RFC 7239 Forwarded header's for= list to count to reach the client IP for OAuth rate limiting and request logs. 0 ignores the header; 1 when the proxy in front writes it (e.g. AWS API Gateway) and is the only way to reach the server; 2 when a CDN fronts that proxy and is the only way to reach it.",
           "default": "0"
         },
         {

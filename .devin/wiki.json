@@ -45,7 +45,7 @@
     },
     {
       "title": "Vault Operations",
-      "purpose": "The filesystem I/O layer in vault-operations/: vault-filesystem.ts (base primitives including atomic writes and path safety), vault-patcher.ts, note-mover.ts, memory-store.ts, daily-notes.ts, vault-folder-config.ts (protected folders and orphan exclusion defaults), task-mutations.ts, task-format-config.ts, trash-sweeper.ts (boot-time orphan-row purge + daily retention sweep over recorded .trash/ entries), and asset-operations.ts (the use-case behind vault_read_file and vault_list_files). Derive the safety mechanisms (locking modes, TOCTOU guards, protected paths) from ARCHITECTURE.md's Data integrity section.",
+      "purpose": "The filesystem I/O layer in vault-operations/: vault-filesystem.ts (base primitives including atomic writes and path safety), vault-patcher.ts, note-mover.ts, memory-store.ts, daily-notes.ts, vault-folder-config.ts (protected folders and orphan exclusion defaults), task-mutations.ts, task-format-config.ts, trash-sweeper.ts (boot-time orphan-row purge + daily retention sweep over recorded .trash/ entries), asset-operations.ts (the file-tool use-case), asset-text.ts (shared text paging), and pdf-extractor.ts with pdf-extraction-child.ts and pdf-extraction-protocol.ts (PDF text process ownership and IPC). Derive the safety mechanisms from ARCHITECTURE.md's Data integrity and Files sections.",
       "parent": "Architecture"
     },
     {
@@ -65,7 +65,7 @@
     },
     {
       "title": "Non-Markdown Files",
-      "purpose": "How non-markdown vault files (images, PDFs, canvases, text and data files, HTML pages, scripts) are read, browsed, and searched. Modules: asset-operations.ts (the use-case layer behind the file tools); obsidian-markdown/file-kinds.ts (extension to file kind); utils/decode-text-buffer.ts (the UTF-8 text check reads and indexing share); obsidian-markdown/html.ts (HTML visible text); canvas.ts (JSON Canvas to readable markdown); fit-image-to-byte-budget.ts (image byte-budget fitting); obsidian-markdown/pdf-engine.ts (the pdfjs bootstrap); obsidian-markdown/pdf.ts (PDF text extraction); the file_content and file_content_fts tables in the search index. Derive supported formats and size limits from the source at index time.",
+      "purpose": "How non-markdown vault files are read, browsed, and searched. Modules: asset-operations.ts (file-tool use-case), asset-text.ts (text paging), pdf-extractor.ts and pdf-extraction-child.ts with pdf-extraction-protocol.ts (shared PDF text child and IPC); obsidian-markdown/file-kinds.ts (extension routing), html.ts, canvas.ts, pdf-engine.ts and pdf.ts (renditions); utils/decode-text-buffer.ts and fit-image-to-byte-budget.ts; search-index.ts and file-watcher.ts (file_content and file_content_fts publication and deferred PDF extraction). Derive formats, limits, lifecycle and rendering boundaries from ARCHITECTURE.md's Files and Indexing sections.",
       "parent": "Architecture"
     },
     {

@@ -708,6 +708,29 @@ describe("canvas ownership work and rendering depth", () => {
     )
   })
 
+  it("nests a card under the group around it when the two share an ID", () => {
+    const nodes = [
+      { ...groupNode(0), id: "shared", label: "Box", width: 100, height: 100 },
+      textNode({ id: "shared", text: "Inside", x: 10, y: 10, width: 10, height: 10 }),
+      textNode({ id: "loose", text: "Outside", x: 200, y: 0, width: 10, height: 10 }),
+    ]
+    expect(linearizeCanvas(canvasJson(nodes))).toBe(
+      ["# Canvas: 3 nodes, 0 edges", "[text]\nOutside", "## Group: Box", "[text]\nInside"].join(
+        "\n\n",
+      ),
+    )
+  })
+
+  it("nests a group under a larger group that shares its ID", () => {
+    const nodes = [
+      { ...groupNode(0), id: "shared", label: "Outer", width: 100, height: 100 },
+      { ...groupNode(0), id: "shared", label: "Inner", x: 10, y: 10, width: 20, height: 20 },
+    ]
+    expect(linearizeCanvas(canvasJson(nodes))).toBe(
+      ["# Canvas: 2 nodes, 0 edges", "## Group: Outer", "### Group: Inner"].join("\n\n"),
+    )
+  })
+
   it("renders 28 duplicate-ID groups once within the parent watchdog", () => {
     expect(readParserComplexityReport("canvas-duplicate-ids")).toEqual({
       fixture: "canvas-duplicate-ids",

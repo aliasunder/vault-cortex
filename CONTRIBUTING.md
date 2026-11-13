@@ -173,6 +173,15 @@ truth. Key points:
 
 ## Pull Request Process
 
+**Before a feature PR:** a new feature (a tool, a prompt, a setting, a
+parameter, a change to what a tool does) starts as a
+[feature request](https://github.com/aliasunder/vault-cortex/issues/new?template=feature_request.yml),
+so the design is agreed with the maintainer before you write code. A bug fix
+can go straight to a PR. A feature PR ships with the tests
+[AGENTS.md](./AGENTS.md) asks for and walks the checklist under
+[Files that track feature surface](./AGENTS.md#files-that-track-feature-surface),
+updating each doc or generated file the change affects.
+
 1. **Branch from `main`** — use a descriptive prefix (`feat/`, `fix/`, `docs/`,
    `refactor/`, `chore/`)
 2. **Keep PRs focused** — one logical change per PR
@@ -204,10 +213,12 @@ truth. Key points:
 
 ## Issues
 
-- **Bug reports:** use the bug report template — include steps to reproduce and
-  your environment
-- **Feature requests:** use the feature request template — describe the problem
-  before the solution
+- **Bug reports:** use the
+  [bug report template](https://github.com/aliasunder/vault-cortex/issues/new?template=bug_report.yml)
+  — include steps to reproduce and your environment
+- **Feature requests:** use the
+  [feature request template](https://github.com/aliasunder/vault-cortex/issues/new?template=feature_request.yml)
+  — describe the problem before the solution; required before a feature PR
 - **Security issues:** see [SECURITY.md](./SECURITY.md) — report privately, not
   as a public issue
 

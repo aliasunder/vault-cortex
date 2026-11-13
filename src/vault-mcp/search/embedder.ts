@@ -85,7 +85,10 @@ export const createEmbedder = (logger: Logger) => {
     )
   }
 
-  /** Embed a single text. Returns a 384-dim Float32Array (mean-pooled, L2-normalized). */
+  /** Embed a single text. Returns a 384-dim Float32Array (mean-pooled, L2-normalized).
+   *  Inference runs on the calling thread (onnxruntime-node, one intra-op thread), and
+   *  the returned promise settles on a later event-loop turn, so a call holds the
+   *  thread for one inference and pending I/O callbacks run between two calls. */
   const embedText = async (text: string): Promise<Float32Array> => {
     const pipe = await getPipeline()
     const output = await pipe(text, { pooling: "mean", normalize: true })

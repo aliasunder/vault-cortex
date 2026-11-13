@@ -1,5 +1,47 @@
 # Changelog
 
+## [0.57.3] — 2026-11-12
+
+### Bug Fixes
+
+- Keep background embedding from stalling tool calls past the gateway timeout (#757)
+- Isolate PDF text extraction so one crafted PDF cannot crash the server (#755)
+
+### CI / Infrastructure
+
+- **dependabot:** Group GitHub Actions bumps into one weekly PR (#786)
+- **dependabot:** Bump each CLI dependency's two copies in one PR (#780)
+
+### Maintenance
+
+- **deps:** Bump github/codeql-action/upload-sarif from 4.39.2 to 4.39.3 (#781)
+- **deps:** Bump sigstore/cosign-installer from 4.1.2 to 4.1.3 (#782)
+- **deps:** Bump docker/login-action from 4.7.0 to 4.8.0 (#783)
+- **deps:** Bump aliasunder/umm-actually from 0.4.11 to 0.4.12 (#784)
+
+## [0.57.2] — 2026-11-12
+
+### Bug Fixes
+
+- **server:** Check Origin on /mcp and rate-limit failed sign-ins for a short token (#769)
+- **oauth:** Cap registration bodies at 8 KB and sweep unused registrations after an hour (#768)
+- **oauth:** Show a person whose client registration is gone how to reconnect (#766)
+- **oauth:** Answer malformed /authorize requests directly instead of redirecting (#765)
+
+### Refactoring
+
+- **parsers:** Say what each rewritten parser matches, in names and comments (#763)
+- **tasks:** Split updateTask into validation, line-edit, deletion and lane stages (#760)
+
+### Documentation
+
+- **remote:** Keep header trust off or the port closed in each proxy recipe (#771)
+- Feature-request step in CONTRIBUTING and a roadmap refresh (#759)
+
+### Other Changes
+
+- **deps:** Bump @clack/prompts to 1.9.0 and commander to 15.1.0 in the CLI (#779)
+
 ## [0.57.1] — 2026-11-09
 
 ### Bug Fixes

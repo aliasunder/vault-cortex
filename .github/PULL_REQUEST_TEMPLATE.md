@@ -4,7 +4,7 @@
 
 ## Type of change
 
-- [ ] New MCP tool
+- [ ] New feature (a tool, a prompt, a setting, a parameter, or a change to what a tool does)
 - [ ] Bug fix
 - [ ] Refactoring
 - [ ] Documentation
@@ -17,5 +17,6 @@
 - [ ] The pre-commit hook passed: typecheck, knip, and ESLint, Prettier, markdownlint and ShellCheck on the staged files
 - [ ] `npm test` passes
 - [ ] `npm run build` succeeds
+- [ ] If this adds a feature, the description links the feature request it came from
 - [ ] New MCP tools follow the naming and description conventions in AGENTS.md
 - [ ] README or ARCHITECTURE.md updated (if user-facing behavior changed)

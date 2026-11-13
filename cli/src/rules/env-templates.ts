@@ -36,7 +36,8 @@ const LOCAL_OPTIONAL_BLOCK = `# Optional ─────────────
 PUBLIC_URL=http://localhost:8000
 
 # Largest file vault_read_file will read, in bytes (default: 52428800 = 50 MiB).
-# Reading a larger file returns an error instead of content.
+# Reading a larger file returns an error instead of content, and a larger PDF
+# is found in search by name only.
 MAX_FILE_BYTES=52428800
 
 # Byte budget for images returned by vault_read_file, in binary bytes before
@@ -236,7 +237,8 @@ RERANK_MODE=blended
 WINDOWS_MODE=false
 
 # Largest file vault_read_file will read, in bytes (default: 52428800 = 50 MiB).
-# Reading a larger file returns an error instead of content.
+# Reading a larger file returns an error instead of content, and a larger PDF
+# is found in search by name only.
 MAX_FILE_BYTES=52428800
 
 # Byte budget for images returned by vault_read_file, in binary bytes before

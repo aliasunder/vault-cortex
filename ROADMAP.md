@@ -4,7 +4,7 @@ Where vault-cortex is heading over roughly the next year — and what it
 deliberately won't do. Priorities shift with real-world usage, and this
 document is updated when they do.
 
-_Last updated: 2026-09-02._
+_Last updated: 2026-11-11._
 
 ## Direction
 
@@ -15,15 +15,16 @@ knowledge — knowledge that should be reachable from
 wherever the person works, in a shape AI tools can navigate, and
 findable by meaning as well as by exact keywords. The planned work
 clusters around those goals: making setup accessible, deepening the task
-and memory layers, and hardening the project for long-term use.
+layer, matching what Obsidian itself can do, and hardening the project
+for long-term use.
 
 ## Delivered
 
 The foundations the planned work builds on:
 
 - Vault reads, writes, and surgical edits, with hybrid search (keyword +
-  semantic + cross-encoder reranking) and the About Me/ memory layer
-  with entry-level recall
+  semantic + cross-encoder reranking) and a memory layer of dated entries
+  in an About Me/ folder, recalled entry by entry
 - A vault-wide task layer — structured queries and one-call updates in
   both Tasks-plugin formats (emoji and Dataview)
 - OAuth 2.1 alongside static token auth
@@ -33,50 +34,57 @@ The foundations the planned work builds on:
 - A guided CLI (`npx vault-cortex`) that walks through setup and handles
   configuration, upgrades, restarts, and logs
 - One-click Render and Railway deploys, with browser-based Obsidian Sync
-  sign-in when no token is configured
+  sign-in when no Sync token is configured
 
 ## Planned
 
 ### Setup without a terminal
 
-One-click deploys (Render, Railway) and browser-based Obsidian Sync
-sign-in already remove most of the command line from remote setup. Next:
-
-- `vault-cortex init` starts the container into setup mode when no Sync
-  token is available, so the browser flow covers the CLI path too
-- Platform-aware hints on the setup page (where to find your token on
-  Render vs Railway)
-- Friction fixes as early adopters work through the guides
+The rough edges early adopters hit as they work through the setup guides.
 
 ### Guided vault onboarding
 
 A vault that works well with AI needs structure — memory files, session
-protocols, a task board. The companion project
+protocols (the routine an agent follows at the start and end of a working
+session), a task board. The companion project
 [vault-onboarding](https://github.com/aliasunder/vault-onboarding)
 scaffolds that structure through a conversational interview, with
 per-client instructions for Claude Code, Cursor, Perplexity, Copilot, and
-others. Expect the two projects to pair more tightly: onboarding output
-that is ready to serve through vault-cortex on day one.
+others. Expect the two projects to pair more tightly: a scaffolded vault
+that vault-cortex can use as it is, on day one.
 
 ### Deeper task management
 
-- Checklist progress on task listings, so filtered board reads show how
-  far along each card is
-- Safer structured edits — atomic markdown table row operations instead
-  of find-and-replace splices
+Finding a task by its subject without listing the whole board: a text
+query on task listings, and the same for tags by meaning.
 
 ### v1.0.0 — a stability contract
 
-A v1 release that MCP clients can build on:
+A v1 release that MCP clients can build on, with a written compatibility
+policy for what future versions may change.
 
-- A final naming sweep across tool inputs and outputs
-- Unknown input parameters rejected instead of silently ignored
-- A written compatibility policy for what future versions may change
+### Obsidian parity after 1.0
+
+Features Obsidian users reach for that the server does not offer yet,
+planned for the 1.x releases:
+
+- Folder create, rename and move, with links rewritten
+- Periodic notes (weekly, monthly, quarterly, yearly) beside daily notes
+- Creating today's daily note from the vault's template
+- Vault-wide tag rename
+- Templates on note creation, with the core plugin's date, time and
+  title placeholders
 
 ### Files beyond markdown
 
-Write support for canvas, base, and other text files, closing the gap
-where remote vaults can read but not edit them.
+The server reads Obsidian canvas and Bases files, and other non-markdown
+files, but cannot write them. Planned:
+
+- Write support for non-markdown text files, canvas and Bases first
+  because they are Obsidian's own formats
+- Whether a file can be written or deleted decided by its content, not by
+  a list of allowed extensions
+- Image and PDF attachments through the same write tool, in a later step
 
 ### Supply-chain hardening
 
@@ -85,6 +93,8 @@ where remote vaults can read but not edit them.
 
 ## Exploring — not committed
 
+- Atomic markdown table row operations instead of find-and-replace
+  splices
 - Graph queries over the vault's wikilink graph (multi-hop paths,
   neighborhoods)
 - MCP resources as a third primitive alongside tools and prompts

@@ -94,12 +94,13 @@ src/
   vault-mcp/
     server.ts, config.ts # Entry point and env-var loader, the only loose files here
     obsidian-markdown/ # Pure parsers and transforms with no I/O (pdf-engine excepted): lines, frontmatter, callouts, headings, links, tags, body-tags + obsidian-remark-parser + remark-ports/, tasks, recurrence, memory-entries, canvas, file-kinds, html, plaintext, pdf + pdf-engine, moment-format
-    vault-operations/ # Vault read, write, and patch: vault-filesystem (base I/O), vault-patcher, note-mover, memory-store, daily-notes, vault-folder-config, task-mutations, task-format-config, trash-config, trash-sweeper, asset-operations
+    vault-operations/ # Vault read, write, and patch: vault-filesystem (base I/O), vault-patcher, note-mover, memory-store, daily-notes, vault-folder-config, task-mutations, task-format-config, trash-config, trash-sweeper, asset-operations, asset-text
+      pdf-extractor.ts, pdf-extraction-child.ts, pdf-extraction-protocol.ts # One shared child owns PDF text reads and deferred indexing; raw page rendering stays in the server
     mcp-core/ # MCP protocol surface: mcp-router, tool-registry, tool-availability, tool-definitions, prompt-definitions, coded-error-remedy
       tools/ # One <domain>-tools module per data-layer domain (vault-crud, search, task, memory, daily-note, asset), plus tool-helpers
       prompts/ # One <name>-prompt module per prompt (vault-orientation, memory-review, daily-review), plus prompt-helpers
     search/ # SQLite FTS5, hybrid search, file watching, embedding: search-index, search-queries, fts-query, hybrid-search, search-helpers, rrf, embedder, reranker, search-models, chunker, file-watcher, body-tag-parser + body-tag-worker (body tags parsed in a worker thread)
-    oauth/ # OAuth 2.1: oauth-provider, oauth-routes, consent-page
+    oauth/ # OAuth 2.1: oauth-provider, oauth-routes, authorize-guard, consent-page, unknown-client-page
     setup/ # Setup mode (browser sign-in to Obsidian Sync while the :remote image has no working token): setup-server (entry), setup-routes, setup-page, obsidian-api, vault-key, sync-token-store
 ```
 
@@ -484,7 +485,9 @@ while writing, not after. `eslint.config.ts` enforces this subset:
 - A blank line between a declaration and the guard that consumes it.
 - In `src/` only: no `console`; Luxon over `Date` and no `process.env`
   member access outside `config.ts` (tests exempt). The rule misses a
-  destructured `import { env } from "node:process"`, which `logger.ts` uses.
+  destructured `import { env } from "node:process"`, which `logger.ts` uses
+  and `pdf-extractor.ts` uses for the environment allowlist handed to the
+  PDF child.
 - The Module layering bans (layer imports, `config.readOnlyMode`, a local
   `TOOL_NAMES`).
 
@@ -850,12 +853,18 @@ the description and each parameter's Zod `.describe()` text.
 
 1. **Group module** — create or extend a module in `prompts/`. Export
    `PROMPT_NAMES` and a `register*Prompt` function taking
-   `PromptRegistrationContext`.
+   `PromptRegistrationContext`. Wrap the handler in `trackedPromptHandler`
+   (`prompt-helpers.ts`) so background embedding waits while the prompt
+   runs. `tool-definitions.ts` wraps every tool handler centrally, but
+   nothing wraps prompts for you.
 2. **Registration** — add the register call in
    `prompt-definitions.ts`. If the prompt depends on a specific tool,
    gate it on `context.isToolEnabled(TOOL_NAMES.*)`.
 3. **Tests** — co-located at `prompts/__tests__/`. Use the shared
    `prompt-test-harness.ts` in that folder for registration capture.
+   Add a foreground tracking test, like the existing prompts' ones, that
+   spies on `trackForegroundWork` and fails when the handler skips the
+   wrapper.
 4. **Availability keying** — use `whenToolEnabledText`,
    `isToolEnabled`, and `formatEnabledToolList` from the context for
    any tool references in the prompt text or fallback paths.
