@@ -16,8 +16,8 @@ const readRepoFile = (repoRelativePath: string): string => {
 
 // --- Env var consistency helpers ---
 
-/** Matches compose variable interpolations: `${VAR:-...}` and `${VAR:?...}`. */
-const COMPOSE_INTERPOLATION = /\$\{([A-Z_]+):[-?]/g
+/** Matches compose variable interpolations: `${VAR:-...}`, `${VAR:?...}` and `${VAR:+...}`. */
+const COMPOSE_INTERPOLATION = /\$\{([A-Z_]+):[-?+]/g
 
 /** Matches commented env var assignments: `# VAR_NAME=value`. */
 const COMMENTED_VAR_LINE = /^# ([A-Z_]+)=/gm
@@ -191,6 +191,43 @@ describe("instance naming in the compose templates", () => {
       })
     },
   )
+})
+
+describe("port publishing in the compose templates", () => {
+  it.each([
+    {
+      label: "local publishes on BIND_ADDRESS, loopback by default",
+      composePath: "deploy/local/docker-compose.yml",
+      published: "${BIND_ADDRESS:-127.0.0.1}:${PORT:-8000}:8000",
+    },
+    {
+      label: "remote publishes on BIND_ADDRESS, every IPv4 and IPv6 address when it is empty",
+      composePath: "deploy/remote/docker-compose.yml",
+      published: "${BIND_ADDRESS:+${BIND_ADDRESS}:}${PORT:-8000}:8000",
+    },
+  ])("$label", ({ composePath, published }) => {
+    const composeFile: { services: { "vault-cortex": { ports: string[] } } } = parseYaml(
+      readRepoFile(composePath),
+    )
+
+    expect(composeFile.services["vault-cortex"].ports).toEqual([published])
+  })
+})
+
+describe("port publishing in the MCP registry manifest", () => {
+  it("server.json publishes the registry install's port on loopback", () => {
+    const serverJson: { packages: Array<{ runtimeArguments: unknown[] }> } = JSON.parse(
+      readRepoFile("server.json"),
+    )
+
+    expect(serverJson.packages[0].runtimeArguments[0]).toEqual({
+      type: "named",
+      name: "-p",
+      description:
+        "Publish the container's port 8000 on the host's loopback address, so only this machine can reach it. Use 8000:8000 to reach it from other machines.",
+      value: "127.0.0.1:8000:8000",
+    })
+  })
 })
 
 describe("hosted platform templates", () => {

@@ -3,7 +3,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { describe, expect, it, onTestFinished, vi } from "vitest"
 
-import { runInit, validatePublicUrl } from "../init.js"
+import { runInit } from "../init.js"
 import { LOCAL_IMAGE, pollHealth, type DockerRunner } from "../docker.js"
 import { buildDaemonNotRunningMessage, buildDockerNotInstalledMessage } from "../messages.js"
 import { readEnvInstanceName } from "../scaffold.js"
@@ -1138,6 +1138,66 @@ describe("runInit with a kept existing .env", () => {
     expect(exitCode).toBe(0)
     expect(recording.runParams.map((params) => params.vaultPath)).toEqual([keptVaultDir])
   })
+
+  it("publishes on the kept file's BIND_ADDRESS and polls health there, as start does", async () => {
+    const vaultDir = makeVault()
+    const targetDir = makeTargetDir()
+    mkdirSync(targetDir, { recursive: true })
+    writeFileSync(
+      join(targetDir, ".env"),
+      `MCP_AUTH_TOKEN=existing\nVAULT_PATH=${vaultDir}\nBIND_ADDRESS=192.168.1.20\nPUBLIC_URL=http://192.168.1.20:8000\n`,
+    )
+    const scripted = createScriptedPrompts([
+      ...keepEnvAnswers(vaultDir, targetDir),
+      true, // start the server now
+    ])
+    const recording = createRecordingDocker()
+    const fetchedUrls: string[] = []
+    const fetchRecorder: typeof fetch = async (url) => {
+      fetchedUrls.push(String(url))
+      return new Response(null, { status: 200 })
+    }
+
+    const exitCode = await runInit(
+      {},
+      { prompts: scripted.prompts, docker: recording.docker, fetchFn: fetchRecorder },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(recording.runParams.map((params) => params.bindAddress)).toEqual(["192.168.1.20"])
+    expect(fetchedUrls).toEqual(["http://192.168.1.20:8000/healthz"])
+  })
+
+  it("prints the connect URLs from a kept file's network PUBLIC_URL, not localhost", async () => {
+    const vaultDir = makeVault()
+    const targetDir = makeTargetDir()
+    mkdirSync(targetDir, { recursive: true })
+    writeFileSync(
+      join(targetDir, ".env"),
+      `MCP_AUTH_TOKEN=existing\nVAULT_PATH=${vaultDir}\nBIND_ADDRESS=0.0.0.0\nPUBLIC_URL=http://192.168.1.20:8000\n`,
+    )
+    const scripted = createScriptedPrompts([
+      ...keepEnvAnswers(vaultDir, targetDir),
+      true, // start the server now
+    ])
+    const fetchHealthy: typeof fetch = async () => {
+      return new Response(null, { status: 200 })
+    }
+
+    const exitCode = await runInit(
+      {},
+      { prompts: scripted.prompts, docker: dockerReadyEmptyHost, fetchFn: fetchHealthy },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(scripted.prints[0]).toContain(
+      "claude mcp add --scope user --transport http vault-cortex http://192.168.1.20:8000/mcp\n",
+    )
+    expect(scripted.prints[0]).toContain(
+      '"args": ["-y", "mcp-remote", "http://192.168.1.20:8000/mcp", "--allow-http",\n',
+    )
+    expect(scripted.prints[0]).not.toContain("localhost:8000")
+  })
 })
 
 describe("runInit --vault-path flag in interactive mode", () => {
@@ -1646,117 +1706,6 @@ describe("runInit health-timeout returns starting status", () => {
     expect(scripted.prints[0]).toContain("starting in the background")
     expect(scripted.prints[0]).not.toContain("Start the server:")
     expect(scripted.prints[0]).not.toContain("The server is running.")
-  })
-})
-
-describe("validatePublicUrl", () => {
-  it("accepts a valid https URL", () => {
-    expect(validatePublicUrl("https://vault.example.com")).toEqual({
-      kind: "ok",
-      url: "https://vault.example.com",
-    })
-  })
-
-  it("accepts a valid http URL with port", () => {
-    expect(validatePublicUrl("http://203.0.113.10:8000")).toEqual({
-      kind: "ok",
-      url: "http://203.0.113.10:8000",
-    })
-  })
-
-  it("strips a trailing slash", () => {
-    expect(validatePublicUrl("https://vault.example.com/")).toEqual({
-      kind: "ok",
-      url: "https://vault.example.com",
-    })
-  })
-
-  it("rejects a URL with username and password", () => {
-    expect(validatePublicUrl("https://user:pass@vault.example.com")).toEqual({
-      kind: "error",
-      message: "PUBLIC_URL must not contain credentials (user:password@).",
-    })
-  })
-
-  it("rejects a URL with username only", () => {
-    expect(validatePublicUrl("https://user@vault.example.com")).toEqual({
-      kind: "error",
-      message: "PUBLIC_URL must not contain credentials (user:password@).",
-    })
-  })
-
-  it("rejects a URL with password only", () => {
-    expect(validatePublicUrl("https://:pass@vault.example.com")).toEqual({
-      kind: "error",
-      message: "PUBLIC_URL must not contain credentials (user:password@).",
-    })
-  })
-
-  it("rejects a non-http URL", () => {
-    expect(validatePublicUrl("ws://vault.example.com")).toEqual({
-      kind: "error",
-      message:
-        "PUBLIC_URL must be a full http:// or https:// URL (e.g. https://vault.example.com).",
-    })
-  })
-
-  it("rejects a URL with a trailing /mcp path", () => {
-    expect(validatePublicUrl("https://vault.example.com/mcp")).toEqual({
-      kind: "error",
-      message:
-        "Leave /mcp off PUBLIC_URL — it's the base URL and the server adds /mcp itself (e.g. https://vault.example.com).",
-    })
-  })
-
-  it("rejects invalid syntax", () => {
-    expect(validatePublicUrl("not-a-url")).toEqual({
-      kind: "error",
-      message:
-        "PUBLIC_URL must be a full http:// or https:// URL (e.g. https://vault.example.com).",
-    })
-  })
-
-  it("rejects a URL with a query string", () => {
-    expect(validatePublicUrl("https://vault.example.com/?tab=2")).toEqual({
-      kind: "error",
-      message: "PUBLIC_URL must be a bare origin — no query string (?...) or fragment (#...).",
-    })
-  })
-
-  it("rejects a URL with a hash fragment", () => {
-    expect(validatePublicUrl("https://vault.example.com/#section")).toEqual({
-      kind: "error",
-      message: "PUBLIC_URL must be a bare origin — no query string (?...) or fragment (#...).",
-    })
-  })
-
-  it("rejects a bare trailing query delimiter", () => {
-    expect(validatePublicUrl("https://vault.example.com/?")).toEqual({
-      kind: "error",
-      message: "PUBLIC_URL must be a bare origin — no query string (?...) or fragment (#...).",
-    })
-  })
-
-  it("rejects a bare trailing hash delimiter", () => {
-    expect(validatePublicUrl("https://vault.example.com/#")).toEqual({
-      kind: "error",
-      message: "PUBLIC_URL must be a bare origin — no query string (?...) or fragment (#...).",
-    })
-  })
-
-  it("rejects a URL with a path prefix", () => {
-    expect(validatePublicUrl("https://vault.example.com/vault/")).toEqual({
-      kind: "error",
-      message:
-        "PUBLIC_URL must be a bare origin — no path (e.g. https://vault.example.com, not https://vault.example.com/vault/).",
-    })
-  })
-
-  it("accepts a bare origin with redundant trailing slashes", () => {
-    expect(validatePublicUrl("https://vault.example.com//")).toEqual({
-      kind: "ok",
-      url: "https://vault.example.com",
-    })
   })
 })
 
@@ -2841,6 +2790,32 @@ describe("runInit re-run keeps the instance identity", () => {
     ])
   })
 
+  it("keeps the BIND_ADDRESS that a carried network PUBLIC_URL needs", async () => {
+    const vaultDir = makeVault()
+    const targetDir = makeTargetDir()
+    mkdirSync(targetDir, { recursive: true })
+    writeFileSync(
+      join(targetDir, ".env"),
+      `MCP_AUTH_TOKEN=old\nVAULT_PATH=${vaultDir}\nBIND_ADDRESS=0.0.0.0\nPUBLIC_URL=http://192.168.1.20:8000\n`,
+    )
+    const scripted = createScriptedPrompts([true, [], true, false])
+
+    const exitCode = await runInit(
+      { mode: "local", vaultPath: vaultDir, dir: targetDir },
+      {
+        prompts: scripted.prompts,
+        docker: dockerWithExisting(["vault-cortex"]),
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(exitCode).toBe(0)
+    const addressLines = readEnvLines(targetDir).filter((line) => {
+      return line.startsWith("PUBLIC_URL=") || line.startsWith("BIND_ADDRESS=")
+    })
+    expect(addressLines).toEqual(["PUBLIC_URL=http://192.168.1.20:8000", "BIND_ADDRESS=0.0.0.0"])
+  })
+
   it("refuses a re-run whose --instance-name renames the install, and keeps its file", async () => {
     const vaultDir = makeVault()
     const targetDir = makeTargetDir()
@@ -2914,6 +2889,60 @@ describe("runInit re-run keeps the instance identity", () => {
     ])
     expect(scripted.asked).toHaveLength(1)
     expect(readFileSync(join(targetDir, ".env"), "utf8")).toBe(existingEnv)
+  })
+
+  it("stops a re-run whose kept BIND_ADDRESS is not an address, before writing .env", async () => {
+    const vaultDir = makeVault()
+    const targetDir = makeTargetDir()
+    mkdirSync(targetDir, { recursive: true })
+    const existingEnv = `MCP_AUTH_TOKEN=old\nVAULT_PATH=${vaultDir}\nBIND_ADDRESS=localhost\nPUBLIC_URL=http://localhost:8000\n`
+    writeFileSync(join(targetDir, ".env"), existingEnv)
+    const dockerRun = vi.fn(() => true)
+    const scripted = createScriptedPrompts([true]) // re-run setup anyway
+
+    const exitCode = await runInit(
+      { mode: "local", vaultPath: vaultDir, dir: targetDir },
+      {
+        prompts: scripted.prompts,
+        docker: { ...dockerReadyEmptyHost, dockerRun },
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(exitCode).toBe(1)
+    expect(scripted.errors).toEqual([
+      `BIND_ADDRESS "localhost" is not an address Docker can publish on — use an IPv4 address such as 127.0.0.1 or 0.0.0.0, or an IPv6 address in brackets such as [::1]. Fix it in ${targetDir}/.env.`,
+    ])
+    expect(scripted.asked).toEqual(["Re-run setup for this directory anyway?"])
+    expect(readFileSync(join(targetDir, ".env"), "utf8")).toBe(existingEnv)
+    expect(dockerRun).not.toHaveBeenCalled()
+  })
+
+  it("stops a re-run whose kept PUBLIC_URL is not a bare origin, before writing .env", async () => {
+    const vaultDir = makeVault()
+    const targetDir = makeTargetDir()
+    mkdirSync(targetDir, { recursive: true })
+    const existingEnv = `MCP_AUTH_TOKEN=old\nVAULT_PATH=${vaultDir}\nPUBLIC_URL=http://localhost:8000/vault\n`
+    writeFileSync(join(targetDir, ".env"), existingEnv)
+    const dockerRun = vi.fn(() => true)
+    const scripted = createScriptedPrompts([true]) // re-run setup anyway
+
+    const exitCode = await runInit(
+      { mode: "local", vaultPath: vaultDir, dir: targetDir },
+      {
+        prompts: scripted.prompts,
+        docker: { ...dockerReadyEmptyHost, dockerRun },
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(exitCode).toBe(1)
+    expect(scripted.errors).toEqual([
+      `PUBLIC_URL must be a bare origin — no path (e.g. https://vault.example.com, not https://vault.example.com/vault/). Fix it in ${targetDir}/.env.`,
+    ])
+    expect(scripted.asked).toEqual(["Re-run setup for this directory anyway?"])
+    expect(readFileSync(join(targetDir, ".env"), "utf8")).toBe(existingEnv)
+    expect(dockerRun).not.toHaveBeenCalled()
   })
 
   it("warns when --port moves a re-run off the port its custom PUBLIC_URL serves", async () => {
@@ -3063,6 +3092,39 @@ describe("runInit re-run keeps the instance identity", () => {
       "INSTANCE_NAME=work",
       "PORT=8001",
       "DEVICE_NAME=work-sync",
+    ])
+  })
+
+  it("keeps a remote install's loopback BIND_ADDRESS instead of the template's every-address default", async () => {
+    const targetDir = makeTargetDir()
+    mkdirSync(targetDir, { recursive: true })
+    writeFileSync(
+      join(targetDir, ".env"),
+      "MCP_AUTH_TOKEN=old\nOBSIDIAN_AUTH_TOKEN=sync-token\nVAULT_NAME=Work\nPUBLIC_URL=https://work.example.com\nBIND_ADDRESS=127.0.0.1\n",
+    )
+    const scripted = createScriptedPrompts([
+      true, // re-run setup anyway
+      "https://work.example.com",
+      "Work",
+      false, // don't generate a new token
+      false, // no encryption
+      [], // no optional settings
+      true, // overwrite the existing file
+      false, // don't start now
+    ])
+
+    const exitCode = await runInit(
+      { mode: "remote", dir: targetDir },
+      {
+        prompts: scripted.prompts,
+        docker: dockerWithExisting(["vault-cortex"]),
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(readEnvLines(targetDir).filter((line) => line.startsWith("BIND_ADDRESS="))).toEqual([
+      "BIND_ADDRESS=127.0.0.1",
     ])
   })
 

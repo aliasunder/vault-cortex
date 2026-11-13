@@ -7,12 +7,14 @@ import {
   buildFilesToWrite,
   detectMode,
   patchEnvObsidianToken,
+  readEnvBindAddress,
   readEnvInstanceName,
   readEnvObsidianToken,
   readEnvPort,
   readEnvPublicUrl,
   readEnvVaultPath,
   stripEnvQuotedValues,
+  validatePublicUrl,
   writeFiles,
 } from "../scaffold.js"
 
@@ -179,6 +181,107 @@ describe("readEnvPort", () => {
       expect(readEnvPort(envPath)).toEqual({
         kind: "invalid",
         message: `PORT "${reportedValue}" is not a valid port — use a whole number between 1 and 65535.`,
+      })
+    },
+  )
+})
+
+describe("readEnvBindAddress", () => {
+  const writeEnv = (content: string): string => {
+    const envPath = join(mkdtempSync(join(tmpdir(), "vault-cli-")), ".env")
+    writeFileSync(envPath, content)
+    return envPath
+  }
+
+  it.each([
+    { label: "loopback in local mode", mode: "local" as const, bindAddress: "127.0.0.1" },
+    { label: "no address in remote mode", mode: "remote" as const, bindAddress: "" },
+  ])("defaults to $label when no .env exists", ({ mode, bindAddress }) => {
+    const missingPath = join(tmpdir(), "vault-cli-no-such-env", ".env")
+
+    expect(readEnvBindAddress(missingPath, mode)).toEqual({ kind: "ok", bindAddress })
+  })
+
+  it.each([
+    { label: "only present as a comment", content: "MCP_AUTH_TOKEN=abc\n# BIND_ADDRESS=0.0.0.0\n" },
+    { label: "empty on its last line", content: "BIND_ADDRESS=0.0.0.0\nBIND_ADDRESS=\n" },
+  ])("uses the mode's default when BIND_ADDRESS is $label", ({ content }) => {
+    const envPath = writeEnv(content)
+
+    expect(readEnvBindAddress(envPath, "local")).toEqual({ kind: "ok", bindAddress: "127.0.0.1" })
+    expect(readEnvBindAddress(envPath, "remote")).toEqual({ kind: "ok", bindAddress: "" })
+  })
+
+  it.each([
+    {
+      label: "every address in local mode",
+      mode: "local" as const,
+      envValue: "0.0.0.0",
+      bindAddress: "0.0.0.0",
+    },
+    {
+      label: "loopback in remote mode",
+      mode: "remote" as const,
+      envValue: "127.0.0.1",
+      bindAddress: "127.0.0.1",
+    },
+    {
+      label: "the IPv4 wildcard in remote mode",
+      mode: "remote" as const,
+      envValue: "0.0.0.0",
+      bindAddress: "0.0.0.0",
+    },
+    {
+      label: "a quoted address",
+      mode: "local" as const,
+      envValue: '"192.168.1.20"',
+      bindAddress: "192.168.1.20",
+    },
+    {
+      label: "a bracketed IPv6 address",
+      mode: "local" as const,
+      envValue: "[::1]",
+      bindAddress: "[::1]",
+    },
+  ])("returns $label set in .env", ({ mode, envValue, bindAddress }) => {
+    const envPath = writeEnv(`MCP_AUTH_TOKEN=abc\nBIND_ADDRESS=${envValue}\n`)
+
+    expect(readEnvBindAddress(envPath, mode)).toEqual({ kind: "ok", bindAddress })
+  })
+
+  it("takes the last active BIND_ADDRESS line, as docker --env-file does", () => {
+    const envPath = writeEnv("BIND_ADDRESS=0.0.0.0\nMCP_AUTH_TOKEN=abc\nBIND_ADDRESS=127.0.0.1\n")
+
+    expect(readEnvBindAddress(envPath, "remote")).toEqual({ kind: "ok", bindAddress: "127.0.0.1" })
+  })
+
+  it.each([
+    { label: "a hostname", envValue: "localhost", reportedValue: "localhost" },
+    { label: "a bare IPv6 address", envValue: "::1", reportedValue: "::1" },
+    {
+      label: "a zone-scoped IPv6 address",
+      envValue: "[fe80::1%eth0]",
+      reportedValue: "[fe80::1%eth0]",
+    },
+    {
+      label: "an address with a port",
+      envValue: "127.0.0.1:8000",
+      reportedValue: "127.0.0.1:8000",
+    },
+    { label: "an incomplete IPv4 address", envValue: "192.168.1", reportedValue: "192.168.1" },
+    {
+      label: "a quoted value padded with spaces",
+      envValue: '" 127.0.0.1 "',
+      reportedValue: " 127.0.0.1 ",
+    },
+  ])(
+    "reports $label as an invalid address instead of using the default",
+    ({ envValue, reportedValue }) => {
+      const envPath = writeEnv(`BIND_ADDRESS=0.0.0.0\nBIND_ADDRESS=${envValue}\n`)
+
+      expect(readEnvBindAddress(envPath, "local")).toEqual({
+        kind: "invalid",
+        message: `BIND_ADDRESS "${reportedValue}" is not an address Docker can publish on — use an IPv4 address such as 127.0.0.1 or 0.0.0.0, or an IPv6 address in brackets such as [::1].`,
       })
     },
   )
@@ -415,6 +518,117 @@ describe("readEnvPublicUrl", () => {
     writeFileSync(envPath, 'MCP_AUTH_TOKEN=abc\nPUBLIC_URL=" https://vault.example.com/ "\n')
 
     expect(readEnvPublicUrl(envPath)).toBe("https://vault.example.com")
+  })
+})
+
+describe("validatePublicUrl", () => {
+  it("accepts a valid https URL", () => {
+    expect(validatePublicUrl("https://vault.example.com")).toEqual({
+      kind: "ok",
+      url: "https://vault.example.com",
+    })
+  })
+
+  it("accepts a valid http URL with port", () => {
+    expect(validatePublicUrl("http://203.0.113.10:8000")).toEqual({
+      kind: "ok",
+      url: "http://203.0.113.10:8000",
+    })
+  })
+
+  it("strips a trailing slash", () => {
+    expect(validatePublicUrl("https://vault.example.com/")).toEqual({
+      kind: "ok",
+      url: "https://vault.example.com",
+    })
+  })
+
+  it("rejects a URL with username and password", () => {
+    expect(validatePublicUrl("https://user:pass@vault.example.com")).toEqual({
+      kind: "error",
+      message: "PUBLIC_URL must not contain credentials (user:password@).",
+    })
+  })
+
+  it("rejects a URL with username only", () => {
+    expect(validatePublicUrl("https://user@vault.example.com")).toEqual({
+      kind: "error",
+      message: "PUBLIC_URL must not contain credentials (user:password@).",
+    })
+  })
+
+  it("rejects a URL with password only", () => {
+    expect(validatePublicUrl("https://:pass@vault.example.com")).toEqual({
+      kind: "error",
+      message: "PUBLIC_URL must not contain credentials (user:password@).",
+    })
+  })
+
+  it("rejects a non-http URL", () => {
+    expect(validatePublicUrl("ws://vault.example.com")).toEqual({
+      kind: "error",
+      message:
+        "PUBLIC_URL must be a full http:// or https:// URL (e.g. https://vault.example.com).",
+    })
+  })
+
+  it("rejects a URL with a trailing /mcp path", () => {
+    expect(validatePublicUrl("https://vault.example.com/mcp")).toEqual({
+      kind: "error",
+      message:
+        "Leave /mcp off PUBLIC_URL — it's the base URL and the server adds /mcp itself (e.g. https://vault.example.com).",
+    })
+  })
+
+  it("rejects invalid syntax", () => {
+    expect(validatePublicUrl("not-a-url")).toEqual({
+      kind: "error",
+      message:
+        "PUBLIC_URL must be a full http:// or https:// URL (e.g. https://vault.example.com).",
+    })
+  })
+
+  it("rejects a URL with a query string", () => {
+    expect(validatePublicUrl("https://vault.example.com/?tab=2")).toEqual({
+      kind: "error",
+      message: "PUBLIC_URL must be a bare origin — no query string (?...) or fragment (#...).",
+    })
+  })
+
+  it("rejects a URL with a hash fragment", () => {
+    expect(validatePublicUrl("https://vault.example.com/#section")).toEqual({
+      kind: "error",
+      message: "PUBLIC_URL must be a bare origin — no query string (?...) or fragment (#...).",
+    })
+  })
+
+  it("rejects a bare trailing query delimiter", () => {
+    expect(validatePublicUrl("https://vault.example.com/?")).toEqual({
+      kind: "error",
+      message: "PUBLIC_URL must be a bare origin — no query string (?...) or fragment (#...).",
+    })
+  })
+
+  it("rejects a bare trailing hash delimiter", () => {
+    expect(validatePublicUrl("https://vault.example.com/#")).toEqual({
+      kind: "error",
+      message: "PUBLIC_URL must be a bare origin — no query string (?...) or fragment (#...).",
+    })
+  })
+
+  it("rejects a URL with a path prefix", () => {
+    expect(validatePublicUrl("https://vault.example.com/vault/")).toEqual({
+      kind: "error",
+      message:
+        "PUBLIC_URL must be a bare origin — no path (e.g. https://vault.example.com, not https://vault.example.com/vault/).",
+    })
+  })
+
+  it("accepts a bare origin with redundant trailing slashes", () => {
+    expect(validatePublicUrl("https://vault.example.com//")).toEqual({
+      kind: "ok",
+      url: "https://vault.example.com",
+    })
   })
 })
 

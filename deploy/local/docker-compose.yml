@@ -72,7 +72,12 @@ services:
       - "${VAULT_PATH:?Set VAULT_PATH to your Obsidian vault folder}:/vault:rw"
       - mcp_data:/data
     ports:
-      - "${PORT:-8000}:8000"
+      # Published on this machine only. To reach the server from other
+      # computers on your network, set BIND_ADDRESS=0.0.0.0 in .env and set
+      # PUBLIC_URL to this computer's network address, such as
+      # http://192.168.1.20:8000. The local README's "Other computers on your
+      # network" section has the full steps.
+      - "${BIND_ADDRESS:-127.0.0.1}:${PORT:-8000}:8000"
     healthcheck:
       test:
         [

@@ -323,7 +323,10 @@ describe("runStart", () => {
     expect(exitCode).toBe(0)
     // The health-check spinner proves the cycle actually ran — the labels
     // alone could pass on an early return.
-    expect(scripted.spinnerMessages).toContain("stop: Server is up — health check passed.")
+    expect(scripted.spinnerMessages).toEqual([
+      "start: Waiting for the server to come up",
+      "stop: Server is up — health check passed.",
+    ])
     expect(scripted.logs).toEqual(["Starting container...", "Started with the settings from .env."])
     expect(scripted.outros).toEqual(["Start complete."])
   })
@@ -539,6 +542,7 @@ describe("runRestart", () => {
           instanceName: "vault-cortex",
           envFilePath: join(targetDir, ".env"),
           port: 8000,
+          bindAddress: "127.0.0.1",
           vaultPath: "/home/user/MyVault",
         },
       ],
@@ -561,9 +565,9 @@ describe("runRestart", () => {
     )
 
     const envAfter = readFileSync(join(targetDir, ".env"), "utf8")
-    expect(envAfter).toContain("VAULT_PATH=/home/user/My Vault\n")
-    expect(envAfter).toContain("PORT=9000\n")
-    expect(envAfter).not.toMatch(/^(VAULT_PATH|PORT)="/m)
+    expect(envAfter).toBe(
+      "MCP_AUTH_TOKEN=abc123\nVAULT_PATH=/home/user/My Vault\nPORT=9000\nPUBLIC_URL=http://localhost:9000\n",
+    )
   })
 
   it("re-creates a remote container without a vault path", async () => {
@@ -592,6 +596,7 @@ describe("runRestart", () => {
           instanceName: "vault-cortex",
           envFilePath: join(targetDir, ".env"),
           port: 8000,
+          bindAddress: "",
           vaultPath: undefined,
         },
       ],
@@ -650,7 +655,10 @@ describe("runRestart", () => {
 
     // Exit 0 with the probe provably fired — informational, never a gate.
     expect(exitCode).toBe(0)
-    expect(fetchedUrls).toContain("https://vault.example.com/healthz")
+    expect(fetchedUrls).toEqual([
+      "http://127.0.0.1:8000/healthz",
+      "https://vault.example.com/healthz",
+    ])
     expect(scripted.spinnerMessages).toEqual([
       "start: Waiting for the server to come up",
       "stop: Server is up — health check passed.",
@@ -794,6 +802,205 @@ describe("runRestart", () => {
     expect(exitCode).toBe(0)
     expect(fetchedUrls).toEqual(["http://127.0.0.1:9000/healthz"])
   })
+
+  it("publishes on the BIND_ADDRESS from .env and polls health there", async () => {
+    const targetDir = makeTempTargetDir("vault-cli-restart-")
+    writeFileSync(
+      join(targetDir, ".env"),
+      "MCP_AUTH_TOKEN=abc123\nVAULT_PATH=/vault\nBIND_ADDRESS=192.168.1.20\nPUBLIC_URL=http://192.168.1.20:8000\n",
+    )
+    const recording = createRecordingDocker()
+    const fetchedUrls: string[] = []
+    const fetchRecorder: typeof fetch = async (url) => {
+      fetchedUrls.push(String(url))
+      return new Response(null, { status: 200 })
+    }
+    const scripted = createScriptedPrompts()
+
+    const exitCode = await runRestart(
+      { dir: targetDir },
+      { prompts: scripted.prompts, docker: recording.docker, fetchFn: fetchRecorder },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(recording.runParams).toEqual([
+      {
+        mode: "local",
+        instanceName: "vault-cortex",
+        envFilePath: join(targetDir, ".env"),
+        port: 8000,
+        bindAddress: "192.168.1.20",
+        vaultPath: "/vault",
+      },
+    ])
+    expect(fetchedUrls).toEqual(["http://192.168.1.20:8000/healthz"])
+  })
+
+  it("exits 1 when .env's BIND_ADDRESS is not an address", async () => {
+    const targetDir = makeTempTargetDir("vault-cli-restart-")
+    writeFileSync(
+      join(targetDir, ".env"),
+      "MCP_AUTH_TOKEN=abc123\nVAULT_PATH=/vault\nBIND_ADDRESS=localhost\nPUBLIC_URL=http://localhost:8000\n",
+    )
+    const scripted = createScriptedPrompts()
+    const recording = createRecordingDocker()
+
+    const exitCode = await runRestart(
+      { dir: targetDir },
+      { prompts: scripted.prompts, docker: recording.docker, fetchFn: fetchNever },
+    )
+
+    expect(exitCode).toBe(1)
+    expect(scripted.errors).toEqual([
+      `BIND_ADDRESS "localhost" is not an address Docker can publish on — use an IPv4 address such as 127.0.0.1 or 0.0.0.0, or an IPv6 address in brackets such as [::1]. Fix it in ${targetDir}/.env.`,
+    ])
+    expect(recording.runParams).toEqual([])
+  })
+
+  it.each([
+    {
+      label: "no http(s) scheme",
+      publicUrl: "localhost:8000",
+      message:
+        "PUBLIC_URL must be a full http:// or https:// URL (e.g. https://vault.example.com).",
+    },
+    {
+      label: "credentials",
+      publicUrl: "http://user:secret@localhost:8000",
+      message: "PUBLIC_URL must not contain credentials (user:password@).",
+    },
+    {
+      label: "a query string",
+      publicUrl: "http://localhost:8000/?tab=2",
+      message: "PUBLIC_URL must be a bare origin — no query string (?...) or fragment (#...).",
+    },
+    {
+      label: "the /mcp path",
+      publicUrl: "http://localhost:8000/mcp",
+      message:
+        "Leave /mcp off PUBLIC_URL — it's the base URL and the server adds /mcp itself (e.g. https://vault.example.com).",
+    },
+    {
+      label: "a path prefix",
+      publicUrl: "http://localhost:8000/vault/",
+      message:
+        "PUBLIC_URL must be a bare origin — no path (e.g. https://vault.example.com, not https://vault.example.com/vault/).",
+    },
+  ])(
+    "exits 1 before running Docker when .env's PUBLIC_URL has $label",
+    async ({ publicUrl, message }) => {
+      const targetDir = makeTempTargetDir("vault-cli-restart-")
+      writeFileSync(
+        join(targetDir, ".env"),
+        `MCP_AUTH_TOKEN=abc123\nVAULT_PATH=/vault\nPUBLIC_URL=${publicUrl}\n`,
+      )
+      const scripted = createScriptedPrompts()
+      const recording = createRecordingDocker()
+
+      const exitCode = await runRestart(
+        { dir: targetDir },
+        { prompts: scripted.prompts, docker: recording.docker, fetchFn: fetchNever },
+      )
+
+      expect(exitCode).toBe(1)
+      expect(scripted.errors).toEqual([`${message} Fix it in ${targetDir}/.env.`])
+      expect(recording.runParams).toEqual([])
+    },
+  )
+
+  it.each([
+    { label: "the local default", bindAddress: "127.0.0.1", publicUrl: "http://localhost:8000" },
+    {
+      label: "a network http address",
+      bindAddress: "192.168.1.20",
+      publicUrl: "http://192.168.1.20:8000",
+    },
+  ])("starts with $label as PUBLIC_URL", async ({ bindAddress, publicUrl }) => {
+    const targetDir = makeTempTargetDir("vault-cli-restart-")
+    writeFileSync(
+      join(targetDir, ".env"),
+      `MCP_AUTH_TOKEN=abc123\nVAULT_PATH=/vault\nBIND_ADDRESS=${bindAddress}\nPUBLIC_URL=${publicUrl}\n`,
+    )
+    const scripted = createScriptedPrompts()
+    const recording = createRecordingDocker()
+
+    const exitCode = await runRestart(
+      { dir: targetDir },
+      { prompts: scripted.prompts, docker: recording.docker, fetchFn: fetchOk },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(scripted.errors).toEqual([])
+    expect(recording.runParams.map((runParams) => runParams.bindAddress)).toEqual([bindAddress])
+  })
+
+  it.each([
+    { label: "localhost", publicUrl: "http://localhost:8000" },
+    { label: "127.0.0.1", publicUrl: "http://127.0.0.1:8000" },
+    { label: "[::1]", publicUrl: "http://[::1]:8000" },
+  ])(
+    "warns and still starts when a network BIND_ADDRESS leaves a $label PUBLIC_URL unreachable",
+    async ({ publicUrl }) => {
+      const targetDir = makeTempTargetDir("vault-cli-restart-")
+      writeFileSync(
+        join(targetDir, ".env"),
+        `MCP_AUTH_TOKEN=abc123\nVAULT_PATH=/vault\nBIND_ADDRESS=192.168.1.20\nPUBLIC_URL=${publicUrl}\n`,
+      )
+      const recording = createRecordingDocker()
+      const scripted = createScriptedPrompts()
+
+      const exitCode = await runRestart(
+        { dir: targetDir },
+        { prompts: scripted.prompts, docker: recording.docker, fetchFn: fetchOk },
+      )
+
+      expect(exitCode).toBe(0)
+      expect(recording.runParams.map((runParams) => runParams.bindAddress)).toEqual([
+        "192.168.1.20",
+      ])
+      expect(scripted.warnings).toEqual([
+        `BIND_ADDRESS publishes the port on 192.168.1.20 only, so PUBLIC_URL (${publicUrl}) no longer reaches the server — ` +
+          `set PUBLIC_URL to the address clients use, such as http://192.168.1.20:8000, in ${targetDir}/.env.`,
+      ])
+    },
+  )
+
+  it.each([
+    {
+      label: "a loopback BIND_ADDRESS",
+      bindAddress: "127.0.0.1",
+      publicUrl: "http://localhost:8000",
+    },
+    {
+      label: "an IPv6 loopback BIND_ADDRESS",
+      bindAddress: "[::1]",
+      publicUrl: "http://[::1]:8000",
+    },
+    { label: "BIND_ADDRESS 0.0.0.0", bindAddress: "0.0.0.0", publicUrl: "http://localhost:8000" },
+    { label: "BIND_ADDRESS [::]", bindAddress: "[::]", publicUrl: "http://localhost:8000" },
+    {
+      label: "a PUBLIC_URL at the network BIND_ADDRESS",
+      bindAddress: "192.168.1.20",
+      publicUrl: "http://192.168.1.20:8000",
+    },
+  ])("does not warn about PUBLIC_URL with $label", async ({ bindAddress, publicUrl }) => {
+    const targetDir = makeTempTargetDir("vault-cli-restart-")
+    writeFileSync(
+      join(targetDir, ".env"),
+      `MCP_AUTH_TOKEN=abc123\nVAULT_PATH=/vault\nBIND_ADDRESS=${bindAddress}\nPUBLIC_URL=${publicUrl}\n`,
+    )
+    const recording = createRecordingDocker()
+    const scripted = createScriptedPrompts()
+
+    const exitCode = await runRestart(
+      { dir: targetDir },
+      { prompts: scripted.prompts, docker: recording.docker, fetchFn: fetchOk },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(recording.runParams.map((runParams) => runParams.bindAddress)).toEqual([bindAddress])
+    expect(scripted.warnings).toEqual([])
+  })
 })
 
 describe("commands on an install with a custom INSTANCE_NAME", () => {
@@ -933,6 +1140,7 @@ describe("commands on an install with a custom INSTANCE_NAME", () => {
         instanceName: "work",
         envFilePath: join(targetDir, ".env"),
         port: 8001,
+        bindAddress: "127.0.0.1",
         vaultPath: "/home/user/WorkVault",
       },
     ])
