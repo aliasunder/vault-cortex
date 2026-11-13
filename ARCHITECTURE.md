@@ -417,11 +417,11 @@ How extracted text reaches the index, and when, is under [Indexing](#indexing).
 
 ### Tasks
 
-| Tool                | Input                                                                                                                                                                                                             | Annotation       |
-| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------- |
-| `vault_list_tasks`  | `status?, due?, scheduled?, start?, created?, done?, cancelled?, priority?, folder?, tag?, heading?, path?, top_level_only?, sort_by?, sort_direction?, limit?`                                                   | readOnlyHint     |
-| `vault_create_task` | `path, description, block_id?, heading?, parent_block_id?, parent_line?, position?, priority?, recurrence?, on_completion?, due?, scheduled?, start?, task_id?, depends_on?, subtasks?, format?`                  | !destructiveHint |
-| `vault_update_task` | `path, block_id?, line?, status?, priority?, recurrence?, on_completion?, description?, due?, scheduled?, start?, created?, task_id?, depends_on?, add_subtasks?, assign_block_id?, heading?, position?, format?` | destructiveHint  |
+| Tool                | Input                                                                                                                                                                                                                                    | Annotation       |
+| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------- |
+| `vault_list_tasks`  | `status?, due?, scheduled?, start?, created?, done?, cancelled?, priority?, folder?, tag?, heading?, path?, top_level_only?, sort_by?, sort_direction?, limit?`                                                                          | readOnlyHint     |
+| `vault_create_task` | `path, description, block_id?, heading?, parent_block_id?, parent_line?, position?, priority?, recurrence?, on_completion?, due?, scheduled?, start?, task_id?, depends_on?, subtasks?, format?`                                         | !destructiveHint |
+| `vault_update_task` | `path, block_id?, line?, expected_description?, status?, priority?, recurrence?, on_completion?, description?, due?, scheduled?, start?, created?, task_id?, depends_on?, add_subtasks?, assign_block_id?, heading?, position?, format?` | destructiveHint  |
 
 A `tasks` table in the same SQLite database stores checkbox task lines, parsed by the pure `obsidian-markdown/tasks.ts` grammar — a reimplementation of the [Tasks plugin](https://publish.obsidian.md/tasks/)'s own parser:
 
@@ -460,6 +460,8 @@ Four design choices shape the query surface:
 - **Heading moves and position** — `heading` moves the task and its indented sub-items to another section; on a Kanban board that is a lane move, but any note with headings works. `position` (`"top"`, `"bottom"`, or a 1-based integer) selects where within the target heading the card lands; without a `heading`, it triggers a same-lane reorder (rejected when the task sits above the first heading or the lane's heading name is duplicated). A sub-task (depth > 0) never moves or reorders: an explicit `heading` or `position` is rejected, and `status: "done"` changes its checkbox in place.
 - **`add_subtasks`** — appends checklist items under the task's existing ones.
 - **Block IDs** — `assign_block_id` adds or replaces the line's ID, and `null` removes it. On a Kanban board, no new ID goes on an indented line, for the reason given above: `assign_block_id` is refused there, as is any edit that would leave the line ending in a new `^id`, such as a description ending in one with no fields after it. A checklist item ending in a `^id` is refused under any card on a board.
+
+`vault_update_task` takes an optional `expected_description` and refuses the update, before any change, when the located task's description differs from it. The caller copies that value from `vault_list_tasks`, or from an earlier update result's `description` or `next_occurrence.description`; all three come from the parser the check uses, so a line number left stale by another write is caught whenever it now points at a task with different text.
 
 Both tools refuse a `block_id` found at the end of more than one task line, as the task to update or as a new sub-task's parent, and list every matching line instead of acting on the first.
 

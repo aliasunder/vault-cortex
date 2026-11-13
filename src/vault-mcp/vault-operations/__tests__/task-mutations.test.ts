@@ -9388,3 +9388,282 @@ describe("lines reported after a write rewrites the properties block", () => {
     )
   })
 })
+
+describe("expected description", () => {
+  it("refuses a stale line whose expected description belongs to the task one line below", async () => {
+    const vault = await createVault()
+    await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
+
+    await expect(
+      taskMutations.updateTask(
+        {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
+          vaultPath: vault,
+          path: "tasks.md",
+          line: 5,
+          expectedDescription: "Walk the dog",
+          status: "done",
+        },
+        logger,
+      ),
+    ).rejects.toThrow(new Error('the task at line 5 in "tasks.md" has a different description'))
+    expect(await readTestNote(vault, "tasks.md")).toBe(SIMPLE_NOTE)
+  })
+
+  it("applies the update when the trimmed expected description matches", async () => {
+    const vault = await createVault()
+    await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
+
+    const result = await taskMutations.updateTask(
+      {
+        statusRegistry: DEFAULT_STATUS_REGISTRY,
+        vaultPath: vault,
+        path: "tasks.md",
+        line: 6,
+        expectedDescription: "  Walk the dog \n",
+        status: "done",
+      },
+      logger,
+    )
+
+    expect(result).toEqual({
+      path: "tasks.md",
+      line: 6,
+      description: "Walk the dog",
+      block_id: "walk-dog",
+      changes: ["status: todo → done"],
+    })
+    expect(await readTestNote(vault, "tasks.md")).toBe(
+      `---\ntitle: Tasks\n---\n\n- [ ] Buy groceries ➕ 2026-07-01\n- [x] Walk the dog ➕ 2026-07-02 ✅ ${today()} ^walk-dog\n- [x] Done task ➕ 2026-07-01 ✅ 2026-07-10\n`,
+    )
+  })
+
+  it("compares against the description before a rename in the same call", async () => {
+    const vault = await createVault()
+    await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
+
+    const result = await taskMutations.updateTask(
+      {
+        statusRegistry: DEFAULT_STATUS_REGISTRY,
+        vaultPath: vault,
+        path: "tasks.md",
+        line: 6,
+        expectedDescription: "Walk the dog",
+        description: "Walk the cat",
+      },
+      logger,
+    )
+
+    expect(result).toEqual({
+      path: "tasks.md",
+      line: 6,
+      description: "Walk the cat",
+      block_id: "walk-dog",
+      changes: ["description: Walk the dog → Walk the cat"],
+    })
+    expect(await readTestNote(vault, "tasks.md")).toBe(
+      SIMPLE_NOTE.replace("- [ ] Walk the dog ", "- [ ] Walk the cat "),
+    )
+  })
+
+  it("matches a whitespace-only expected description against a task with no text", async () => {
+    const vault = await createVault()
+    const noTextNote = "---\ntitle: Tasks\n---\n\n- [ ] ➕ 2026-07-01 ^no-text\n"
+    await writeTestNote(vault, "tasks.md", noTextNote)
+
+    const result = await taskMutations.updateTask(
+      {
+        statusRegistry: DEFAULT_STATUS_REGISTRY,
+        vaultPath: vault,
+        path: "tasks.md",
+        line: 5,
+        expectedDescription: "  ",
+        priority: "high",
+      },
+      logger,
+    )
+
+    expect(result).toEqual({
+      path: "tasks.md",
+      line: 5,
+      description: "",
+      block_id: "no-text",
+      changes: ["priority: (none) → high"],
+    })
+    expect(await readTestNote(vault, "tasks.md")).toBe(
+      "---\ntitle: Tasks\n---\n\n- [ ] ⏫ ➕ 2026-07-01 ^no-text\n",
+    )
+  })
+
+  it("refuses a whitespace-only expected description for a task with text", async () => {
+    const vault = await createVault()
+    await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
+
+    await expect(
+      taskMutations.updateTask(
+        {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
+          vaultPath: vault,
+          path: "tasks.md",
+          line: 5,
+          expectedDescription: "  ",
+          status: "done",
+        },
+        logger,
+      ),
+    ).rejects.toThrow(new Error('the task at line 5 in "tasks.md" has a different description'))
+    expect(await readTestNote(vault, "tasks.md")).toBe(SIMPLE_NOTE)
+  })
+
+  it("refuses a blockId update whose task text no longer matches", async () => {
+    const vault = await createVault()
+    await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
+
+    await expect(
+      taskMutations.updateTask(
+        {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
+          vaultPath: vault,
+          path: "tasks.md",
+          blockId: "walk-dog",
+          expectedDescription: "Walk the cat",
+          priority: "high",
+        },
+        logger,
+      ),
+    ).rejects.toThrow(new Error('the task at line 6 in "tasks.md" has a different description'))
+    expect(await readTestNote(vault, "tasks.md")).toBe(SIMPLE_NOTE)
+  })
+
+  it("refuses a stale-line completion on a board before the lane move and checklist append", async () => {
+    const vault = await createVault()
+    await writeTestNote(vault, "board.md", KANBAN_BOARD)
+
+    await expect(
+      taskMutations.updateTask(
+        {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
+          vaultPath: vault,
+          path: "board.md",
+          line: 9,
+          expectedDescription: "In-progress task",
+          status: "done",
+          heading: "Done",
+          addSubtasks: ["Write the release notes"],
+        },
+        logger,
+      ),
+    ).rejects.toThrow(new Error('the task at line 9 in "board.md" has a different description'))
+    expect(await readTestNote(vault, "board.md")).toBe(KANBAN_BOARD)
+  })
+
+  it("writes no next occurrence when a recurring task's line is stale", async () => {
+    const vault = await createVault()
+    const recurringBelowNote = `---
+title: Tasks
+---
+
+- [ ] Feed the cat ➕ 2026-01-01
+- [ ] Water plants 🔁 every week 📅 2026-01-05 ➕ 2026-01-01
+`
+    await writeTestNote(vault, "tasks.md", recurringBelowNote)
+
+    await expect(
+      taskMutations.updateTask(
+        {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
+          vaultPath: vault,
+          path: "tasks.md",
+          line: 6,
+          expectedDescription: "Feed the cat",
+          status: "done",
+        },
+        logger,
+      ),
+    ).rejects.toThrow(new Error('the task at line 6 in "tasks.md" has a different description'))
+    expect(await readTestNote(vault, "tasks.md")).toBe(recurringBelowNote)
+  })
+
+  it("deletes nothing when a stale line points at a delete-on-completion task", async () => {
+    const vault = await createVault()
+    const deleteOnDoneNote = `---
+title: Tasks
+---
+
+- [ ] Keep this task ➕ 2026-07-01
+- [ ] Delete on done 🏁 delete ➕ 2026-07-02
+`
+    await writeTestNote(vault, "tasks.md", deleteOnDoneNote)
+
+    await expect(
+      taskMutations.updateTask(
+        {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
+          vaultPath: vault,
+          path: "tasks.md",
+          line: 6,
+          expectedDescription: "Keep this task",
+          status: "done",
+        },
+        logger,
+      ),
+    ).rejects.toThrow(new Error('the task at line 6 in "tasks.md" has a different description'))
+    expect(await readTestNote(vault, "tasks.md")).toBe(deleteOnDoneNote)
+  })
+
+  it("matches a Dataview task's parsed description, which keeps a mid-line completion field", async () => {
+    const vault = await createVault()
+    await writeTasksPluginConfig(vault, { taskFormat: "dataview" })
+    await writeTestNote(
+      vault,
+      "tasks.md",
+      "---\ntitle: Tasks\n---\n\n- [ ] Review [completion:: 2026-01-01] the draft [due:: 2026-02-01] ^review\n",
+    )
+
+    const result = await taskMutations.updateTask(
+      {
+        statusRegistry: DEFAULT_STATUS_REGISTRY,
+        vaultPath: vault,
+        path: "tasks.md",
+        line: 5,
+        expectedDescription: "Review [completion:: 2026-01-01] the draft",
+        due: "2026-03-01",
+      },
+      logger,
+    )
+
+    expect(result).toEqual({
+      path: "tasks.md",
+      line: 5,
+      description: "Review [completion:: 2026-01-01] the draft",
+      block_id: "review",
+      changes: ["due: 2026-02-01 → 2026-03-01"],
+    })
+    expect(await readTestNote(vault, "tasks.md")).toBe(
+      "---\ntitle: Tasks\n---\n\n- [ ] Review [completion:: 2026-01-01] the draft [due:: 2026-03-01] ^review\n",
+    )
+  })
+
+  it("does not count the expected description as a mutation", async () => {
+    const vault = await createVault()
+    await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
+
+    await expect(
+      taskMutations.updateTask(
+        {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
+          vaultPath: vault,
+          path: "tasks.md",
+          line: 5,
+          expectedDescription: "Buy groceries",
+        },
+        logger,
+      ),
+    ).rejects.toThrow(
+      new Error(
+        "at least one mutation (status, priority, recurrence, onCompletion, heading, position, description, due, scheduled, start, created, taskId, dependsOn, addSubtasks, or assignBlockId) is required",
+      ),
+    )
+    expect(await readTestNote(vault, "tasks.md")).toBe(SIMPLE_NOTE)
+  })
+})

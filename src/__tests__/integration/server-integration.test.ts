@@ -782,6 +782,31 @@ describe("default config", () => {
       })
     })
 
+    it("vault_update_task — an empty expected_description matches a task with no text", async () => {
+      await callTool({
+        client,
+        name: "vault_write_note",
+        args: { path: "Projects/textless-task.md", body: "- [ ] ➕ 2026-07-01\n" },
+      })
+      const result = await callTool({
+        client,
+        name: "vault_update_task",
+        args: {
+          path: "Projects/textless-task.md",
+          line: 1,
+          expected_description: "",
+          status: "in_progress",
+        },
+      })
+      expect(result.isError).not.toBe(true)
+      expect(JSON.parse(textContent(result))).toEqual({
+        path: "Projects/textless-task.md",
+        line: 1,
+        description: "",
+        changes: ["status: todo → in_progress"],
+      })
+    })
+
     it("vault_update_task — verify priority applied", async () => {
       const result = await callTool({
         client,

@@ -2970,6 +2970,53 @@ describe("task errors", () => {
     expectToolError(result, 'blockId "nonexistent-block-id" not found')
   })
 
+  it("vault_update_task by a stale line whose expected_description names another task", async () => {
+    await callTool({
+      client,
+      name: "vault_write_note",
+      args: {
+        path: "Projects/stale-line.md",
+        body: "- [ ] First task\n- [ ] Second task\n",
+      },
+    })
+    const result = await callTool({
+      client,
+      name: "vault_update_task",
+      args: {
+        path: "Projects/stale-line.md",
+        line: 2,
+        expected_description: "First task",
+        status: "done",
+      },
+    })
+    expectToolError(
+      result,
+      'the task at line 2 in "Projects/stale-line.md" has a different description',
+    )
+  })
+
+  it("vault_update_task with an empty expected_description for a task with text", async () => {
+    await callTool({
+      client,
+      name: "vault_write_note",
+      args: { path: "Projects/empty-expected.md", body: "- [ ] Has text\n" },
+    })
+    const result = await callTool({
+      client,
+      name: "vault_update_task",
+      args: {
+        path: "Projects/empty-expected.md",
+        line: 1,
+        expected_description: "",
+        status: "done",
+      },
+    })
+    expectToolError(
+      result,
+      'the task at line 1 in "Projects/empty-expected.md" has a different description',
+    )
+  })
+
   it("vault_create_task with duplicate block_id", async () => {
     const result = await callTool({
       client,
