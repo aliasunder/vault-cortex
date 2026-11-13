@@ -900,6 +900,10 @@ Two naming layers — MCP (JSON wire format) and TypeScript (internal):
   `src/__tests__/runs-as-root.ts`. CI runs it as a normal user. To run
   these tests from a root shell, such as a cloud session, use
   `npm run test:as-nobody`; it takes the same arguments as `vitest run`.
+- Vitest prints a test's console output, the server's log lines included,
+  only when that test fails (`silent: "passed-only"`, with the log lines
+  routed to the console by `src/__tests__/helpers/route-log-lines-to-console.ts`).
+  To see a passing test's output, run its file with `--silent=false`.
 - Tests read as a behavioral spec: one focused `it()` per behavior, named
   so a failure identifies the regressed behavior without reading the
   body, and matching what is asserted. For every guard or invariant,
