@@ -214,6 +214,66 @@ describe("moveNote — link rewriting forms", () => {
     expect(await readNote("Hub.md")).toBe("See [[Archive/Foo]] here.\n")
   })
 
+  it("rewrites a folder-path wikilink whose letter case differs from the moved note's path", async () => {
+    const { writeFixture, moveNote, readNote } = setupVault()
+    await writeFixture("Folder/Real.md", "content\n")
+    await writeFixture("src.md", "See [[folder/real]] here.\n")
+
+    const result = await moveNote({
+      oldPath: "Folder/Real.md",
+      newPath: "Other/Real.md",
+      backlinkSources: ["src.md"],
+    })
+
+    expect(result).toEqual({
+      moved_to: "Other/Real.md",
+      links_updated: 1,
+      updated_notes: ["src.md"],
+      pruned_empty_folders: 0,
+    })
+    expect(await readNote("src.md")).toBe("See [[Other/Real]] here.\n")
+  })
+
+  it("leaves a bare wikilink in another letter case alone on a move that keeps the file name", async () => {
+    const { writeFixture, moveNote, readNote } = setupVault()
+    await writeFixture("Folder/Real.md", "content\n")
+    await writeFixture("src.md", "See [[real]] and [[folder/real]].\n")
+
+    const result = await moveNote({
+      oldPath: "Folder/Real.md",
+      newPath: "Other/Real.md",
+      backlinkSources: ["src.md"],
+    })
+
+    expect(result).toEqual({
+      moved_to: "Other/Real.md",
+      links_updated: 1,
+      updated_notes: ["src.md"],
+      pruned_empty_folders: 0,
+    })
+    expect(await readNote("src.md")).toBe("See [[real]] and [[Other/Real]].\n")
+  })
+
+  it("keeps the source-relative form of a wikilink whose letter case differs from the moved note's path", async () => {
+    const { writeFixture, moveNote, readNote } = setupVault()
+    await writeFixture("Notes/Sub/Target.md", "content\n")
+    await writeFixture("Notes/Hub.md", "See [[sub/target]] here.\n")
+
+    const result = await moveNote({
+      oldPath: "Notes/Sub/Target.md",
+      newPath: "Notes/Sub/Renamed.md",
+      backlinkSources: ["Notes/Hub.md"],
+    })
+
+    expect(result).toEqual({
+      moved_to: "Notes/Sub/Renamed.md",
+      links_updated: 1,
+      updated_notes: ["Notes/Hub.md"],
+      pruned_empty_folders: 0,
+    })
+    expect(await readNote("Notes/Hub.md")).toBe("See [[Sub/Renamed]] here.\n")
+  })
+
   it("preserves an alias when rewriting a wikilink", async () => {
     const { writeFixture, moveNote, readNote } = setupVault()
     await writeFixture("Foo.md", "content\n")
@@ -298,7 +358,12 @@ describe("moveNote — link rewriting forms", () => {
     })
 
     expect(await readNote("Hub.md")).toBe("See [doc](report.pdf) and [summary](New.md).\n")
-    expect(result.links_updated).toBe(1)
+    expect(result).toEqual({
+      moved_to: "New.md",
+      links_updated: 1,
+      updated_notes: ["Hub.md"],
+      pruned_empty_folders: 0,
+    })
   })
 
   it("leaves the moved note's own relative markdown asset link untouched while rewriting its relative note link", async () => {
@@ -318,7 +383,12 @@ describe("moveNote — link rewriting forms", () => {
     expect(await readNote("C/Deep/Draft.md")).toBe(
       "![img](../assets/photo.png) and [sib](../../A/Sibling.md).\n",
     )
-    expect(result.links_updated).toBe(1)
+    expect(result).toEqual({
+      moved_to: "C/Deep/Draft.md",
+      links_updated: 1,
+      updated_notes: [],
+      pruned_empty_folders: 0,
+    })
   })
 
   it("rewrites a wikilink stored in a frontmatter property", async () => {
@@ -333,7 +403,12 @@ describe("moveNote — link rewriting forms", () => {
     })
 
     expect(await readNote("Hub.md")).toBe('---\nrelated:\n  - "[[Bar]]"\n---\nBody\n')
-    expect(result.links_updated).toBe(1)
+    expect(result).toEqual({
+      moved_to: "Bar.md",
+      links_updated: 1,
+      updated_notes: ["Hub.md"],
+      pruned_empty_folders: 0,
+    })
   })
 
   it("rewrites a wikilink with an escaped pipe in a table cell", async () => {
@@ -354,7 +429,12 @@ describe("moveNote — link rewriting forms", () => {
       "\n",
     )
     expect(await readNote("Hub.md")).toBe(`${expected}\n`)
-    expect(result.links_updated).toBe(1)
+    expect(result).toEqual({
+      moved_to: "Bar.md",
+      links_updated: 1,
+      updated_notes: ["Hub.md"],
+      pruned_empty_folders: 0,
+    })
   })
 
   it("rewrites multiple escaped pipe wikilinks in a single table", async () => {
@@ -381,7 +461,12 @@ describe("moveNote — link rewriting forms", () => {
       "| [[Bar\\|second]] | Row 2 |",
     ].join("\n")
     expect(await readNote("Hub.md")).toBe(`${expected}\n`)
-    expect(result.links_updated).toBe(2)
+    expect(result).toEqual({
+      moved_to: "Bar.md",
+      links_updated: 2,
+      updated_notes: ["Hub.md"],
+      pruned_empty_folders: 0,
+    })
   })
 
   it("preserves an escaped pipe in a non-table context", async () => {
@@ -396,7 +481,12 @@ describe("moveNote — link rewriting forms", () => {
     })
 
     expect(await readNote("Hub.md")).toBe("See [[Bar\\|display text]].\n")
-    expect(result.links_updated).toBe(1)
+    expect(result).toEqual({
+      moved_to: "Bar.md",
+      links_updated: 1,
+      updated_notes: ["Hub.md"],
+      pruned_empty_folders: 0,
+    })
   })
 
   it("preserves a heading anchor adjacent to an escaped pipe during rewrite", async () => {
@@ -419,7 +509,12 @@ describe("moveNote — link rewriting forms", () => {
       "| [[Bar#Setup\\|link]] | A topic |",
     ].join("\n")
     expect(await readNote("Hub.md")).toBe(`${expected}\n`)
-    expect(result.links_updated).toBe(1)
+    expect(result).toEqual({
+      moved_to: "Bar.md",
+      links_updated: 1,
+      updated_notes: ["Hub.md"],
+      pruned_empty_folders: 0,
+    })
   })
 
   it("rewrites a source-relative wikilink in another folder", async () => {
@@ -488,7 +583,12 @@ describe("moveNote — selectivity (must-not-rewrite cases)", () => {
     })
 
     expect(await readNote("Hub.md")).toBe("Both [[Bar]] and [[Keep]] matter.\n")
-    expect(result.links_updated).toBe(1)
+    expect(result).toEqual({
+      moved_to: "Bar.md",
+      links_updated: 1,
+      updated_notes: ["Hub.md"],
+      pruned_empty_folders: 0,
+    })
   })
 
   it("does not rewrite a link inside a fenced code block", async () => {
@@ -506,7 +606,12 @@ describe("moveNote — selectivity (must-not-rewrite cases)", () => {
     expect(await readNote("Hub.md")).toBe(
       "Real link [[Bar]].\n\n```\nExample: [[Foo]] in code\n```\n",
     )
-    expect(result.links_updated).toBe(1)
+    expect(result).toEqual({
+      moved_to: "Bar.md",
+      links_updated: 1,
+      updated_notes: ["Hub.md"],
+      pruned_empty_folders: 0,
+    })
   })
 
   it("does not rewrite a link inside an inline code span", async () => {
@@ -548,7 +653,12 @@ describe("moveNote — selectivity (must-not-rewrite cases)", () => {
       "| [[Other\\|label]] | Stays |",
     ].join("\n")
     expect(await readNote("Hub.md")).toBe(`${expected}\n`)
-    expect(result.links_updated).toBe(1)
+    expect(result).toEqual({
+      moved_to: "Bar.md",
+      links_updated: 1,
+      updated_notes: ["Hub.md"],
+      pruned_empty_folders: 0,
+    })
   })
 
   it("does not touch a backlink source whose only escaped pipe link points elsewhere", async () => {
@@ -568,8 +678,12 @@ describe("moveNote — selectivity (must-not-rewrite cases)", () => {
     })
 
     expect(await readNote("Hub.md")).toBe(original)
-    expect(result.links_updated).toBe(0)
-    expect(result.updated_notes).toEqual([])
+    expect(result).toEqual({
+      moved_to: "Bar.md",
+      links_updated: 0,
+      updated_notes: [],
+      pruned_empty_folders: 0,
+    })
   })
 
   it("does not rewrite a same-named link that resolves to a different note, even when passed as a candidate", async () => {
@@ -607,7 +721,12 @@ describe("moveNote — asset link rewriting", () => {
     })
 
     expect(await readNote("Notes/Sub/Note.md")).toBe("Image: ![[../../assets/photo.png]]\n")
-    expect(result.links_updated).toBe(1)
+    expect(result).toEqual({
+      moved_to: "Notes/Sub/Note.md",
+      links_updated: 1,
+      updated_notes: [],
+      pruned_empty_folders: 0,
+    })
   })
 
   it("rewrites a relative markdown link to an asset when the note moves deeper", async () => {
@@ -621,7 +740,36 @@ describe("moveNote — asset link rewriting", () => {
     })
 
     expect(await readNote("Notes/Sub/Note.md")).toBe("![img](../../assets/photo.png)\n")
-    expect(result.links_updated).toBe(1)
+    expect(result).toEqual({
+      moved_to: "Notes/Sub/Note.md",
+      links_updated: 1,
+      updated_notes: [],
+      pruned_empty_folders: 0,
+    })
+  })
+
+  it("keeps the extension of an asset link whose extension differs in letter case", async () => {
+    const { writeFixture, moveNote, readNote } = setupVault()
+    await writeFixture("assets/photo.png", "img")
+    await writeFixture(
+      "Notes/Note.md",
+      "![img](../assets/Photo.PNG) and ![[../assets/Photo.PNG]]\n",
+    )
+
+    const result = await moveNote({
+      oldPath: "Notes/Note.md",
+      newPath: "Notes/Sub/Note.md",
+    })
+
+    expect(await readNote("Notes/Sub/Note.md")).toBe(
+      "![img](../../assets/photo.png) and ![[../../assets/photo.png]]\n",
+    )
+    expect(result).toEqual({
+      moved_to: "Notes/Sub/Note.md",
+      links_updated: 2,
+      updated_notes: [],
+      pruned_empty_folders: 0,
+    })
   })
 
   it("leaves a basename-form asset embed untouched — it still resolves after the move", async () => {
@@ -638,7 +786,12 @@ describe("moveNote — asset link rewriting", () => {
     // leave-alone, not a silent no-op.
     expect(await noteExists("Notes/Note.md")).toBe(false)
     expect(await readNote("Archive/Deep/Note.md")).toBe("Image: ![[photo.png]]\n")
-    expect(result.links_updated).toBe(0)
+    expect(result).toEqual({
+      moved_to: "Archive/Deep/Note.md",
+      links_updated: 0,
+      updated_notes: [],
+      pruned_empty_folders: 0,
+    })
   })
 
   it("leaves a vault-absolute asset link untouched", async () => {
@@ -653,7 +806,12 @@ describe("moveNote — asset link rewriting", () => {
 
     expect(await noteExists("Notes/Note.md")).toBe(false)
     expect(await readNote("Archive/Deep/Note.md")).toBe("Image: ![[assets/photo.png]]\n")
-    expect(result.links_updated).toBe(0)
+    expect(result).toEqual({
+      moved_to: "Archive/Deep/Note.md",
+      links_updated: 0,
+      updated_notes: [],
+      pruned_empty_folders: 0,
+    })
   })
 
   it("rewrites a backlink source's note links but leaves its asset links byte-identical", async () => {
@@ -671,7 +829,12 @@ describe("moveNote — asset link rewriting", () => {
     // The source note itself didn't move, so its relative asset link still
     // resolves — only the link to the moved note is rewritten.
     expect(await readNote("Docs/Hub.md")).toBe("Links [[Bar]].\nImage: ![[../assets/photo.png]]\n")
-    expect(result.links_updated).toBe(1)
+    expect(result).toEqual({
+      moved_to: "Bar.md",
+      links_updated: 1,
+      updated_notes: ["Docs/Hub.md"],
+      pruned_empty_folders: 0,
+    })
   })
 
   it("rewrites a stem-form asset embed, preserving the extensionless form", async () => {
@@ -685,7 +848,12 @@ describe("moveNote — asset link rewriting", () => {
     })
 
     expect(await readNote("Notes/Sub/Note.md")).toBe("Route: ![[../../boards/Trip Route]]\n")
-    expect(result.links_updated).toBe(1)
+    expect(result).toEqual({
+      moved_to: "Notes/Sub/Note.md",
+      links_updated: 1,
+      updated_notes: [],
+      pruned_empty_folders: 0,
+    })
   })
 
   it("resolves a multi-dot asset target to its full-filename file via the stem family", async () => {
@@ -702,7 +870,12 @@ describe("moveNote — asset link rewriting", () => {
     })
 
     expect(await readNote("Notes/Sub/Note.md")).toBe("Image: ![[../../assets/photo.png]]\n")
-    expect(result.links_updated).toBe(1)
+    expect(result).toEqual({
+      moved_to: "Notes/Sub/Note.md",
+      links_updated: 1,
+      updated_notes: [],
+      pruned_empty_folders: 0,
+    })
   })
 
   it("rewrites an extensionless markdown link to a note, preserving the extensionless form", async () => {
@@ -720,7 +893,12 @@ describe("moveNote — asset link rewriting", () => {
     })
 
     expect(await readNote("deep/y/Note.md")).toBe("See [text](../x/Target).\n")
-    expect(result.links_updated).toBe(1)
+    expect(result).toEqual({
+      moved_to: "deep/y/Note.md",
+      links_updated: 1,
+      updated_notes: [],
+      pruned_empty_folders: 0,
+    })
   })
 
   it("resolves a bare target to the note over a same-named asset", async () => {
@@ -739,7 +917,12 @@ describe("moveNote — asset link rewriting", () => {
     })
 
     expect(await readNote("Notes/Sub/Note.md")).toBe("Link: [[../../assets/icon]]\n")
-    expect(result.links_updated).toBe(1)
+    expect(result).toEqual({
+      moved_to: "Notes/Sub/Note.md",
+      links_updated: 1,
+      updated_notes: [],
+      pruned_empty_folders: 0,
+    })
   })
 
   it("resolves an explicit-extension target to the asset over a same-named note", async () => {
@@ -754,7 +937,12 @@ describe("moveNote — asset link rewriting", () => {
     })
 
     expect(await readNote("Notes/Sub/Note.md")).toBe("Asset: ![[../../assets/icon.png]]\n")
-    expect(result.links_updated).toBe(1)
+    expect(result).toEqual({
+      moved_to: "Notes/Sub/Note.md",
+      links_updated: 1,
+      updated_notes: [],
+      pruned_empty_folders: 0,
+    })
   })
 
   it("keeps a basename asset embed pointing at the same file when a shorter same-named asset exists elsewhere", async () => {
@@ -772,7 +960,12 @@ describe("moveNote — asset link rewriting", () => {
     })
 
     expect(await readNote("z/Note.md")).toBe("Image: ![[../other/photo.png]]\n")
-    expect(result.links_updated).toBe(1)
+    expect(result).toEqual({
+      moved_to: "z/Note.md",
+      links_updated: 1,
+      updated_notes: [],
+      pruned_empty_folders: 0,
+    })
   })
 
   it("rewrites an asset embed stored in a frontmatter property", async () => {
@@ -788,7 +981,12 @@ describe("moveNote — asset link rewriting", () => {
     expect(await readNote("Notes/Sub/Note.md")).toBe(
       '---\nbanner: "![[../../assets/photo.png]]"\n---\nBody\n',
     )
-    expect(result.links_updated).toBe(1)
+    expect(result).toEqual({
+      moved_to: "Notes/Sub/Note.md",
+      links_updated: 1,
+      updated_notes: [],
+      pruned_empty_folders: 0,
+    })
   })
 })
 
@@ -1729,6 +1927,30 @@ describe("moveNote — guards", () => {
     expect(await readNote("Hub.md")).toBe("Links [[foo]].\n")
   })
 
+  it("leaves a link already in the new casing alone on a case-only rename", async () => {
+    const { vault, writeFixture, moveNote, readNote } = setupVault()
+    await writeFixture("Foo.md", "# Foo\n")
+    await writeFixture("Hub.md", "Old [[Foo]], new [[foo]].\n")
+    forceCaseOnlyRenameDetection(vault)
+
+    const result = await moveNote({
+      oldPath: "Foo.md",
+      newPath: "foo.md",
+      backlinkSources: ["Hub.md"],
+    })
+
+    // The old-casing link is the control: rewriting it proves the rename
+    // reached the link rewrite, so the count of one is the new-casing link
+    // being skipped
+    expect(result).toEqual({
+      moved_to: "foo.md",
+      links_updated: 1,
+      updated_notes: ["Hub.md"],
+      pruned_empty_folders: 0,
+    })
+    expect(await readNote("Hub.md")).toBe("Old [[foo]], new [[foo]].\n")
+  })
+
   it("points a Canvas file card and text card at the new casing on a case-only rename", async () => {
     const { vault, writeFixture, moveNote, readNote } = setupVault()
     await writeFixture("Foo.md", "# Foo\n")
@@ -1771,7 +1993,12 @@ describe("moveNote — guards", () => {
 
     const result = await moveNote({ oldPath: "Foo.md", newPath: "foo.md" })
 
-    expect(result.moved_to).toBe("foo.md")
+    expect(result).toEqual({
+      moved_to: "foo.md",
+      links_updated: 0,
+      updated_notes: [],
+      pruned_empty_folders: 0,
+    })
     expect(await noteExists("Foo.md")).toBe(false)
     expect(await readNote("foo.md")).toBe("content\n")
   })
@@ -2389,7 +2616,12 @@ describe("moveNote — empty-folder prune", () => {
     expect(await noteExists("Inbox/draft.md")).toBe(false)
     expect(await noteExists("Projects/draft.md")).toBe(true)
     expect(await folderExists("Inbox")).toBe(true)
-    expect(result.pruned_empty_folders).toBe(0)
+    expect(result).toEqual({
+      moved_to: "Projects/draft.md",
+      links_updated: 0,
+      updated_notes: [],
+      pruned_empty_folders: 0,
+    })
   })
 
   it("removes the source folder when its last note is moved out and prune is on", async () => {
@@ -2404,7 +2636,12 @@ describe("moveNote — empty-folder prune", () => {
 
     expect(await folderExists("Inbox")).toBe(false)
     expect(await noteExists("Projects/draft.md")).toBe(true)
-    expect(result.pruned_empty_folders).toBe(1)
+    expect(result).toEqual({
+      moved_to: "Projects/draft.md",
+      links_updated: 0,
+      updated_notes: [],
+      pruned_empty_folders: 1,
+    })
   })
 
   it("walks up removing nested empty source parents", async () => {
@@ -2421,7 +2658,12 @@ describe("moveNote — empty-folder prune", () => {
     expect(await noteExists("Dest/note.md")).toBe(true)
     expect(await folderExists("A/B")).toBe(false)
     expect(await folderExists("A")).toBe(false)
-    expect(result.pruned_empty_folders).toBe(2)
+    expect(result).toEqual({
+      moved_to: "Dest/note.md",
+      links_updated: 0,
+      updated_notes: [],
+      pruned_empty_folders: 2,
+    })
   })
 
   it("leaves the source folder when another note remains", async () => {
@@ -2441,7 +2683,12 @@ describe("moveNote — empty-folder prune", () => {
     expect(await noteExists("Projects/move.md")).toBe(true)
     expect(await folderExists("Inbox")).toBe(true)
     expect(await noteExists("Inbox/keep.md")).toBe(true)
-    expect(result.pruned_empty_folders).toBe(0)
+    expect(result).toEqual({
+      moved_to: "Projects/move.md",
+      links_updated: 0,
+      updated_notes: [],
+      pruned_empty_folders: 0,
+    })
   })
 
   it("does not prune on an in-place rename within the same folder", async () => {
@@ -2457,7 +2704,12 @@ describe("moveNote — empty-folder prune", () => {
     expect(await noteExists("Notes/old.md")).toBe(false)
     expect(await folderExists("Notes")).toBe(true)
     expect(await noteExists("Notes/new.md")).toBe(true)
-    expect(result.pruned_empty_folders).toBe(0)
+    expect(result).toEqual({
+      moved_to: "Notes/new.md",
+      links_updated: 0,
+      updated_notes: [],
+      pruned_empty_folders: 0,
+    })
   })
 
   it("does not prune when moving into a subfolder of the source", async () => {
@@ -2473,7 +2725,12 @@ describe("moveNote — empty-folder prune", () => {
     expect(await noteExists("Parent/note.md")).toBe(false)
     expect(await folderExists("Parent")).toBe(true)
     expect(await noteExists("Parent/Sub/note.md")).toBe(true)
-    expect(result.pruned_empty_folders).toBe(0)
+    expect(result).toEqual({
+      moved_to: "Parent/Sub/note.md",
+      links_updated: 0,
+      updated_notes: [],
+      pruned_empty_folders: 0,
+    })
   })
 })
 
@@ -2611,7 +2868,12 @@ describe("moveNote — concurrent write locking", () => {
 
     // The move itself completes untouched by the rejected patch.
     const result = await movePromise
-    expect(result.moved_to).toBe("Bar.md")
+    expect(result).toEqual({
+      moved_to: "Bar.md",
+      links_updated: 1,
+      updated_notes: ["Hub.md"],
+      pruned_empty_folders: 0,
+    })
     expect(await readNote("Hub.md")).toBe("Links [[Bar]].\n")
   })
 
@@ -2913,6 +3175,35 @@ describe("moveNote — filesystem backlink verification", () => {
       pruned_empty_folders: 0,
     })
     expect(await readNote("Linker.md")).toBe("See [[Bar]] for details.\n")
+  })
+
+  it("discovers and rewrites a backlink in another letter case the index missed", async () => {
+    const { writeFixture, moveNote, readNote, logger } = setupVault()
+    await writeFixture("Folder/Real.md", "# Real\n")
+    await writeFixture("Linker.md", "See [[FOLDER/REAL]] for details.\n")
+
+    const result = await moveNote({
+      oldPath: "Folder/Real.md",
+      newPath: "Other/Real.md",
+      backlinkSources: [],
+    })
+
+    expect(result).toEqual({
+      moved_to: "Other/Real.md",
+      links_updated: 1,
+      updated_notes: ["Linker.md"],
+      pruned_empty_folders: 0,
+    })
+    expect(await readNote("Linker.md")).toBe("See [[Other/Real]] for details.\n")
+    expect(vi.mocked(logger.info)).toHaveBeenCalledWith(
+      "backlink verification discovered sources the index missed",
+      {
+        from: "Folder/Real.md",
+        to: "Other/Real.md",
+        additionalSources: ["Linker.md"],
+        attempt: 0,
+      },
+    )
   })
 
   it("discovers backlinks in frontmatter the index missed", async () => {

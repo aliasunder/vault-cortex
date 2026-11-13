@@ -737,6 +737,103 @@ describe("resolve", () => {
       }),
     ).toBeNull()
   })
+
+  it.each([
+    { label: "bare name in another case", target: "real" },
+    { label: "folder path in another case", target: "folder/real" },
+    { label: "folder path in the stored case", target: "Folder/Real" },
+    { label: "name in upper case", target: "REAL" },
+  ])("resolves a $label to the stored note path", ({ target }) => {
+    expect(links.resolve({ target, allPaths: ["Folder/Real.md", "Other/Note.md"] })).toBe(
+      "Folder/Real.md",
+    )
+  })
+
+  it("resolves a link after its note's case-only rename to the new spelling", () => {
+    expect(links.resolve({ target: "note", allPaths: ["Note.md", "Other/Real.md"] })).toBe(
+      "Note.md",
+    )
+  })
+
+  it("resolves a relative path in another letter case against the source note's folder", () => {
+    expect(
+      links.resolve({
+        target: "../c/TARGET",
+        allPaths: ["A/C/target.md", "A/B/note.md"],
+        sourcePath: "A/B/note.md",
+      }),
+    ).toBe("A/C/target.md")
+  })
+
+  it("keeps a relative match in the link's own case over an exact path that matches only with case folded", () => {
+    expect(
+      links.resolve({
+        target: "a",
+        allPaths: ["A.md", "sub/a.md", "sub/src.md"],
+        sourcePath: "sub/src.md",
+      }),
+    ).toBe("sub/a.md")
+  })
+
+  it("keeps a basename match in the link's own case over a shorter path that matches only with case folded", () => {
+    expect(links.resolve({ target: "note", allPaths: ["Note.md", "deep/note.md"] })).toBe(
+      "deep/note.md",
+    )
+  })
+
+  it("resolves each spelling of two notes that differ only in case to its own note", () => {
+    const allPaths = ["Real.md", "real.md"]
+
+    expect(links.resolve({ target: "Real", allPaths })).toBe("Real.md")
+    expect(links.resolve({ target: "real", allPaths })).toBe("real.md")
+  })
+
+  it("breaks a tie between two notes that differ only in case in byte order for a third spelling", () => {
+    expect(links.resolve({ target: "REAL", allPaths: ["real.md", "Real.md"] })).toBe("Real.md")
+  })
+
+  it("folds non-ASCII letters in note links", () => {
+    expect(links.resolve({ target: "éclair", allPaths: ["Recipes/Éclair.md"] })).toBe(
+      "Recipes/Éclair.md",
+    )
+  })
+
+  it("leaves a link unresolved when no note matches even with case folded", () => {
+    expect(links.resolve({ target: "missing", allPaths: ["Folder/Real.md"] })).toBeNull()
+  })
+
+  it("folds a second path list of the same length afresh after resolving against a first", () => {
+    expect(links.resolve({ target: "real", allPaths: ["Folder/Real.md"] })).toBe("Folder/Real.md")
+    expect(links.resolve({ target: "real", allPaths: ["Others/Real.md"] })).toBe("Others/Real.md")
+  })
+})
+
+// ── resolveInExactCase ───────────────────────────────────────────
+
+describe("resolveInExactCase", () => {
+  it("leaves a link unresolved when it reaches a note only with case folded", () => {
+    const allPaths = ["Folder/Real.md", "Other/Note.md"]
+
+    // The folded resolver reaches the note, so the miss comes from letter case.
+    expect(links.resolve({ target: "real", allPaths })).toBe("Folder/Real.md")
+    expect(links.resolveInExactCase({ target: "real", allPaths })).toBeNull()
+  })
+
+  it("resolves a link in its own letter case through the source-relative tier", () => {
+    expect(
+      links.resolveInExactCase({
+        target: "../C/target",
+        allPaths: ["A/C/target.md", "A/B/note.md", "C/target.md"],
+        sourcePath: "A/B/note.md",
+      }),
+    ).toBe("A/C/target.md")
+  })
+
+  it("picks the exact-case note over a shorter note that differs only in letter case", () => {
+    expect(
+      links.resolveInExactCase({ target: "real", allPaths: ["Real.md", "deep/real.md"] }),
+    ).toBe("deep/real.md")
+  })
 })
 
 // ── stripExtension ───────────────────────────────────────────────
@@ -794,14 +891,89 @@ describe("resolveAsset", () => {
     ).toBe("app/Views/Inventory.base")
   })
 
-  it("keeps the exact-path tier case-sensitive, matching the SQL twin's =", () => {
-    // A full-path target with different casing misses the case-sensitive
-    // exact tier, and the suffix tier's leading "/" can never match a path
-    // from the vault root — null on both resolvers.
+  it("resolves a full path in another letter case through the folded exact tier", () => {
+    // The suffix tier's leading "/" can never match a path from the vault
+    // root, so only the folded exact tier can resolve this link.
     expect(
       links.resolveAsset({
         target: "photos/sunset.png",
-        allAssetPaths: ["photos/Sunset.png"],
+        allAssetPaths: ["photos/Sunset.png", "other/sunset.png"],
+      }),
+    ).toBe("photos/Sunset.png")
+  })
+
+  it("resolves a relative path in another letter case through the folded relative tier", () => {
+    expect(
+      links.resolveAsset({
+        target: "../Assets/Photo.png",
+        allAssetPaths: ["assets/photo.png", "Notes/assets/photo.png"],
+        sourcePath: "Notes/N.md",
+      }),
+    ).toBe("assets/photo.png")
+  })
+
+  it("resolves an extensionless path in another letter case through the folded stem tier", () => {
+    expect(
+      links.resolveAsset({
+        target: "Boards/trip route",
+        allAssetPaths: ["boards/Trip Route.canvas", "boards/Trip Route Notes.canvas"],
+      }),
+    ).toBe("boards/Trip Route.canvas")
+  })
+
+  it("resolves an extensionless relative path in another letter case through the folded relative stem tier", () => {
+    expect(
+      links.resolveAsset({
+        target: "../Boards/trip route",
+        allAssetPaths: ["boards/Trip Route.canvas", "Notes/boards/Trip Route.canvas"],
+        sourcePath: "Notes/N.md",
+      }),
+    ).toBe("boards/Trip Route.canvas")
+  })
+
+  it("resolves a bare name in another letter case through the folded basename stem tier", () => {
+    expect(
+      links.resolveAsset({
+        target: "trip route",
+        allAssetPaths: ["boards/Trip Route.canvas", "boards/Trip.canvas"],
+      }),
+    ).toBe("boards/Trip Route.canvas")
+  })
+
+  it("keeps an exact-case asset match over a shorter path that matches only with case folded", () => {
+    expect(
+      links.resolveAsset({
+        target: "photos/sunset.png",
+        allAssetPaths: ["Photos/Sunset.png", "more/photos/sunset.png"],
+      }),
+    ).toBe("more/photos/sunset.png")
+  })
+
+  it("folds a second path list of the same length afresh after resolving against a first", () => {
+    const target = "photos/sunset.png"
+
+    expect(links.resolveAsset({ target, allAssetPaths: ["Photos/Sunset.png"] })).toBe(
+      "Photos/Sunset.png",
+    )
+    expect(links.resolveAsset({ target, allAssetPaths: ["PHOTOS/sunset.png"] })).toBe(
+      "PHOTOS/sunset.png",
+    )
+  })
+
+  it("breaks a tie between two assets that differ only in case in byte order for a third spelling", () => {
+    expect(
+      links.resolveAsset({
+        target: "PHOTO.png",
+        allAssetPaths: ["photo.png", "Photo.png"],
+      }),
+    ).toBe("Photo.png")
+  })
+
+  it("folds only ASCII letters in asset links, matching the SQL twin's NOCASE", () => {
+    expect(
+      links.resolveAsset({
+        target: "éclair.png",
+        allAssetPaths: ["Éclair.png"],
       }),
     ).toBeNull()
   })

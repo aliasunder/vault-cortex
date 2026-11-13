@@ -16,6 +16,7 @@ import {
 } from "../search-index.js"
 import type { NoteMetadata, OutgoingLinkEntry, SearchIndex, TaskEntry } from "../search-index.js"
 import type { StatusClassification } from "../../obsidian-markdown/tasks.js"
+import { links } from "../../obsidian-markdown/links.js"
 import { logger } from "../../../logger.js"
 import { readFileTextPrefix, statOrNull } from "../../../utils/fs.js"
 import { decodeTextBuffer } from "../../../utils/decode-text-buffer.js"
@@ -1709,8 +1710,9 @@ describe("fullTextSearch", () => {
 
   it("includes created when present", () => {
     const results = index.fullTextSearch({ query: "burnout" }, logger)
-    expect(results[0]).toHaveProperty("created")
-    expect(results[0]?.created).toContain("2025")
+    expect(results.map((result) => result.created)).toEqual([
+      DateTime.fromISO("2025-08-12T09:00:00-07:00").toISO(),
+    ])
   })
 
   it("returns modified as ISO 8601 string", () => {
@@ -1808,7 +1810,7 @@ describe("fullTextSearch", () => {
 
   it("respects type filter", () => {
     const results = index.fullTextSearch({ query: "notes", filters: { type: "project" } }, logger)
-    expect(results).toHaveLength(1)
+    expect(results.map((result) => result.path)).toEqual(["Projects/notes.md"])
   })
 
   it("respects limit", () => {
@@ -1831,8 +1833,7 @@ describe("fullTextSearch", () => {
       logger,
     )
     const results = index.fullTextSearch({ query: "run" }, logger)
-    expect(results.length).toBeGreaterThan(0)
-    expect(results.some((result) => result.path === "stem.md")).toBe(true)
+    expect(results.map((result) => result.path)).toEqual(["stem.md"])
   })
 
   it("multi-word query matches notes containing both terms (implicit AND)", () => {
@@ -3016,16 +3017,27 @@ describe("searchByProperty", () => {
 
   it("returns NoteMetadata with all fields", () => {
     const results = index.searchByProperty({ key: "status", value: "done" }, logger)
-    expect(results).toHaveLength(1)
-    const result = results[0]
-    expect(result).toBeDefined()
-    expect(result?.path).toBe("Projects/done.md")
-    expect(result?.title).toBe("Done Project")
-    expect(result?.tags).toEqual(["project", "done"])
-    expect(result?.folder).toBe("Projects")
-    expect(result?.type).toBe("project")
-    expect(result?.bytes).toBe(100)
-    expect(result?.properties).toEqual(expect.objectContaining({ status: "done", priority: "low" }))
+    expect(results).toEqual([
+      {
+        path: "Projects/done.md",
+        title: "Done Project",
+        tags: ["project", "done"],
+        related: [],
+        folder: "Projects",
+        type: "project",
+        created: null,
+        modified: isoFromMillis(2000),
+        bytes: 100,
+        properties: {
+          title: "Done Project",
+          type: "project",
+          tags: ["project", "done"],
+          status: "done",
+          priority: "low",
+        },
+        leading_callout: null,
+      },
+    ])
   })
 
   it("returns empty for non-matching value", () => {
@@ -6513,6 +6525,255 @@ describe("relative links (path from current file)", () => {
       },
     ])
   })
+})
+
+describe("links that differ from their file only in letter case", () => {
+  const indexNote = (filePath: string, rawContent: string): void => {
+    index.upsertNote(withBodyTags({ filePath, rawContent, fileStat: testStat(1000) }), logger)
+  }
+
+  const resolvedNoteLink = (path: string, title: string): OutgoingLinkEntry => {
+    return { path, title, exists: true, kind: "note", bytes: 100, daily_note_forward_ref: false }
+  }
+
+  const resolvedFileLink = (path: string): OutgoingLinkEntry => {
+    return {
+      path,
+      title: null,
+      exists: true,
+      kind: "file",
+      bytes: 100,
+      daily_note_forward_ref: false,
+    }
+  }
+
+  const CASE_DIFFERENT_LINKS = "[[real]], [[folder/real]] and [[Folder/Real]].\n"
+
+  it("resolves every spelling of a note link to the stored note path", () => {
+    indexNote("Folder/Real.md", "# Real\n")
+    indexNote("source.md", CASE_DIFFERENT_LINKS)
+
+    expect(index.getOutgoingLinks({ path: "source.md" }, logger)).toEqual([
+      resolvedNoteLink("Folder/Real.md", "Real"),
+    ])
+  })
+
+  it("lists a note linked in another letter case among the target's backlinks", () => {
+    indexNote("Folder/Real.md", "# Real\n")
+    indexNote("source.md", "[[folder/real]].\n")
+
+    expect(index.getBacklinks({ path: "Folder/Real.md" }, logger)).toEqual([
+      { path: "source.md", title: "source", bytes: 100 },
+    ])
+  })
+
+  it("does not report a note linked only in another letter case as an orphan", () => {
+    indexNote("Folder/Real.md", "# Real\n")
+    indexNote("source.md", "[[real]].\n")
+
+    expect(index.findOrphans({}, logger).map((orphan) => orphan.path)).toEqual(["source.md"])
+  })
+
+  it("resolves every spelling of a note link after a rebuild", async () => {
+    const vaultDir = await mkdtemp(join(tmpdir(), "vault-letter-case-"))
+    onTestFinished(() => rm(vaultDir, { recursive: true }))
+    await mkdir(join(vaultDir, "Folder"))
+    await writeFile(join(vaultDir, "Folder/Real.md"), "# Real\n", "utf8")
+    await writeFile(join(vaultDir, "source.md"), CASE_DIFFERENT_LINKS, "utf8")
+
+    await index.rebuildFromVault(
+      {
+        vaultPath: vaultDir,
+        bodyTagParser: inProcessBodyTagParser,
+        pdfExtractor: createInProcessPdfExtractor(vaultDir),
+        maxFileBytes: 10_000_000,
+      },
+      logger,
+    )
+
+    expect(index.getOutgoingLinks({ path: "source.md" }, logger)).toEqual([
+      { ...resolvedNoteLink("Folder/Real.md", "Real"), bytes: Buffer.byteLength("# Real\n") },
+    ])
+  })
+
+  it("re-resolves a forward reference in another letter case when the note is created later", () => {
+    indexNote("source.md", "[[folder/real]].\n")
+    indexNote("Folder/Real.md", "# Real\n")
+
+    expect(index.getOutgoingLinks({ path: "source.md" }, logger)).toEqual([
+      resolvedNoteLink("Folder/Real.md", "Real"),
+    ])
+  })
+
+  it("prefers a note that matches only with case folded over a file that matches in exact case", () => {
+    index.upsertNonMdFile("photo.png", 100)
+    indexNote("Photo.md", "# Photo\n")
+    indexNote("source.md", "[[photo]]\n")
+
+    expect(index.getOutgoingLinks({ path: "source.md" }, logger)).toEqual([
+      resolvedNoteLink("Photo.md", "Photo"),
+    ])
+  })
+
+  it("moves incoming links to the new spelling when a case-only rename removes the old note first", () => {
+    indexNote("note.md", "# Note\n")
+    indexNote("source.md", "[[note]].\n")
+
+    index.removeNote("note.md")
+    indexNote("Note.md", "# Note\n")
+
+    expect(index.getOutgoingLinks({ path: "source.md" }, logger)).toEqual([
+      resolvedNoteLink("Note.md", "Note"),
+    ])
+  })
+
+  it("moves incoming links to the new spelling when the linking note is re-indexed after an add-first case-only rename", () => {
+    indexNote("note.md", "# Note\n")
+    indexNote("source.md", "[[note]].\n")
+    indexNote("Note.md", "# Note\n")
+    index.removeNote("note.md")
+
+    // Adding Note.md while note.md still existed left the link on note.md,
+    // so it reads as broken until the linking note is indexed again.
+    expect(index.getOutgoingLinks({ path: "source.md" }, logger)).toEqual([
+      {
+        path: "note.md",
+        title: null,
+        exists: false,
+        kind: "note",
+        bytes: null,
+        daily_note_forward_ref: false,
+      },
+    ])
+
+    indexNote("source.md", "[[note]].\n")
+
+    expect(index.getOutgoingLinks({ path: "source.md" }, logger)).toEqual([
+      resolvedNoteLink("Note.md", "Note"),
+    ])
+  })
+
+  it.each([
+    {
+      label: "an embed in another case to a file in a subfolder",
+      assetPaths: ["attachments/photo.png"],
+      target: "Photo.PNG",
+      expected: "attachments/photo.png",
+    },
+    {
+      label: "an embed in another case to a file at the vault root",
+      assetPaths: ["photo.png", "other/photo.jpg"],
+      target: "Photo.PNG",
+      expected: "photo.png",
+    },
+    {
+      label: "a full path in another case",
+      assetPaths: ["photos/Sunset.png", "other/sunset.png"],
+      target: "photos/sunset.png",
+      expected: "photos/Sunset.png",
+    },
+    {
+      label: "a relative path in another case",
+      assetPaths: ["assets/photo.png", "Notes/assets/photo.png"],
+      target: "../Assets/Photo.png",
+      expected: "assets/photo.png",
+    },
+    {
+      label: "an extensionless path in another case",
+      assetPaths: ["boards/Trip Route.canvas", "boards/Trip Route Notes.canvas"],
+      target: "Boards/trip route",
+      expected: "boards/Trip Route.canvas",
+    },
+    {
+      label: "an extensionless relative path in another case",
+      assetPaths: ["boards/Trip Route.canvas", "Notes/boards/Trip Route.canvas"],
+      target: "../Boards/trip route",
+      expected: "boards/Trip Route.canvas",
+    },
+    {
+      label: "a bare name in another case",
+      assetPaths: ["boards/Trip Route.canvas", "boards/Trip.canvas"],
+      target: "trip route",
+      expected: "boards/Trip Route.canvas",
+    },
+    {
+      label: "a third spelling of two files that differ only in case",
+      assetPaths: ["photo.png", "Photo.png"],
+      target: "PHOTO.png",
+      expected: "Photo.png",
+    },
+    {
+      label: "a path matching in its own case beside a shorter folded match",
+      assetPaths: ["Photos/Sunset.png", "more/photos/sunset.png"],
+      target: "photos/sunset.png",
+      expected: "more/photos/sunset.png",
+    },
+  ])(
+    "resolves $label to the same file as the in-memory resolver",
+    ({ assetPaths, target, expected }) => {
+      const sourcePath = "Notes/N.md"
+      for (const assetPath of assetPaths) index.upsertNonMdFile(assetPath, 100)
+      indexNote(sourcePath, `[[${target}]]\n`)
+
+      expect(index.getOutgoingLinks({ path: sourcePath }, logger)).toEqual([
+        resolvedFileLink(expected),
+      ])
+      expect(links.resolveAsset({ target, allAssetPaths: assetPaths, sourcePath })).toBe(expected)
+    },
+  )
+
+  it("leaves a link to a non-ASCII file name in another case unresolved in both resolvers", () => {
+    index.upsertNonMdFile("Éclair.png", 100)
+    indexNote("source.md", "![[éclair.png]]\n")
+
+    expect(index.getOutgoingLinks({ path: "source.md" }, logger)).toEqual([
+      {
+        path: "éclair.png",
+        title: null,
+        exists: false,
+        kind: "note",
+        bytes: null,
+        daily_note_forward_ref: false,
+      },
+    ])
+    expect(
+      links.resolveAsset({
+        target: "éclair.png",
+        allAssetPaths: ["Éclair.png"],
+        sourcePath: "source.md",
+      }),
+    ).toBeNull()
+  })
+
+  // The source sits in a subfolder, so each link reaches the new file through
+  // one comparison only. The link and the file name each carry a capital the
+  // other lacks, so that comparison matches only with both sides folded.
+  it.each([
+    { label: "a full path", target: "photo.PNG", assetPath: "Photo.png" },
+    { label: "a relative path", target: "../photo.PNG", assetPath: "Photo.png" },
+    {
+      label: "an extensionless path",
+      target: "Boards/trip route",
+      assetPath: "boards/Trip Route.canvas",
+    },
+    {
+      label: "an extensionless relative path",
+      target: "../Boards/trip route",
+      assetPath: "boards/Trip Route.canvas",
+    },
+  ])(
+    "lets a file added later claim $label stored in another letter case",
+    ({ target, assetPath }) => {
+      const sourcePath = "Notes/source.md"
+      indexNote(sourcePath, `[[${target}]]\n`)
+
+      index.upsertNonMdFile(assetPath, 100)
+
+      expect(index.getOutgoingLinks({ path: sourcePath }, logger)).toEqual([
+        resolvedFileLink(assetPath),
+      ])
+    },
+  )
 })
 
 // ── brokenLinkCount ─────────────────────────────────────────────
