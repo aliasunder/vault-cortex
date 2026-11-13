@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.57.5] — 2026-11-13
+
+### Maintenance
+
+- **deps:** Bump hono from 4.13.13 to 4.13.18 (#790)
+
+### Other Changes
+
+- Print server log lines only for failing tests (#788)
+- **parsers:** Check linear growth instead of fixed wall-clock ceilings in the timing tests (#787)
+
 ## [0.57.4] — 2026-11-13
 
 ### Bug Fixes
