@@ -1523,3 +1523,25 @@ describe("logger child lazy props", () => {
     ])
   })
 })
+
+// The test setup file helpers/route-log-lines-to-console.ts sends a write to
+// the console only when it has this shape. A write of any other shape goes to
+// the stream, so passing tests would print every log line again.
+describe("console write shape", () => {
+  it("writes each line as one string that opens with its timestamp field, with no encoding or callback", () => {
+    const stdoutSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true)
+    const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true)
+    onTestFinished(() => {
+      stdoutSpy.mockRestore()
+      stderrSpy.mockRestore()
+    })
+
+    logger.info("shape probe info")
+    logger.error("shape probe error")
+
+    expect(stdoutSpy).toHaveBeenCalledTimes(1)
+    expect(stdoutSpy).toHaveBeenCalledWith(expect.stringMatching(/^\{"timestamp":/))
+    expect(stderrSpy).toHaveBeenCalledTimes(1)
+    expect(stderrSpy).toHaveBeenCalledWith(expect.stringMatching(/^\{"timestamp":/))
+  })
+})
