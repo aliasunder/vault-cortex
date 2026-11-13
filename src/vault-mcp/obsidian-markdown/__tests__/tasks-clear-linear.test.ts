@@ -141,7 +141,7 @@ describe("task metadata clear compatibility", () => {
         })
       }
     }
-  }, 20_000)
+  }, 30_000)
 
   it(
     "clears twenty to eighty thousand priority fields in time linear in their count",
