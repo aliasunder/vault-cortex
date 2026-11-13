@@ -3,8 +3,8 @@
  * - The logger writes each JSON line straight to process.stdout or
  *   process.stderr, which vitest prints for every test.
  * - This wrapper sends those lines through console instead, so vitest files
- *   each under its test and `silent: "passed-only"` prints it only when that
- *   test fails.
+ *   each line under the test that wrote it, and `silent: "passed-only"` prints
+ *   the line only when that test fails.
  * - A test that spies on process.stdout.write replaces the wrapper while its
  *   spy is active, so it still captures every line it asserts on.
  */

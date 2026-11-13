@@ -1523,3 +1523,25 @@ describe("logger child lazy props", () => {
     ])
   })
 })
+
+// The test setup file that routes log lines to vitest's console capture
+// (helpers/route-log-lines-to-console.ts) recognizes a line by these two
+// facts, so a change to either would print every log line again unnoticed.
+describe("console write shape", () => {
+  it("writes each line as one string that opens with its timestamp field, with no encoding or callback", () => {
+    const stdoutSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true)
+    const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true)
+    onTestFinished(() => {
+      stdoutSpy.mockRestore()
+      stderrSpy.mockRestore()
+    })
+
+    logger.info("shape probe info")
+    logger.error("shape probe error")
+
+    expect(stdoutSpy).toHaveBeenCalledTimes(1)
+    expect(stdoutSpy).toHaveBeenCalledWith(expect.stringMatching(/^\{"timestamp":/))
+    expect(stderrSpy).toHaveBeenCalledTimes(1)
+    expect(stderrSpy).toHaveBeenCalledWith(expect.stringMatching(/^\{"timestamp":/))
+  })
+})
