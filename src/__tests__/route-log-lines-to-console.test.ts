@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest"
+import { describe, expect, it, onTestFinished, vi } from "vitest"
 
 import { createLogLineRoutingWrite } from "./helpers/route-log-lines-to-console.js"
 
@@ -6,6 +6,10 @@ type WriteCallback = (error?: Error | null) => void
 
 /** A line in the shape src/logger.ts writes, trailing newline included. */
 const LOG_LINE = '{"timestamp":"2026-11-12T21:00:00.000-05:00","level":"info","message":"probe"}\n'
+
+/** LOG_LINE as the console receives it. */
+const ROUTED_LOG_LINE =
+  '{"timestamp":"2026-11-12T21:00:00.000-05:00","level":"info","message":"probe"}'
 
 const writeCallback: WriteCallback = () => undefined
 
@@ -25,9 +29,7 @@ describe("createLogLineRoutingWrite", () => {
 
     expect(routingWrite(LOG_LINE)).toBe(true)
     expect(logToConsole).toHaveBeenCalledTimes(1)
-    expect(logToConsole).toHaveBeenCalledWith(
-      '{"timestamp":"2026-11-12T21:00:00.000-05:00","level":"info","message":"probe"}',
-    )
+    expect(logToConsole).toHaveBeenCalledWith(ROUTED_LOG_LINE)
     expect(streamWrite).not.toHaveBeenCalled()
   })
 
@@ -80,6 +82,26 @@ describe("createLogLineRoutingWrite", () => {
       expect(streamWrite).toHaveBeenCalledTimes(1)
       expect(streamWrite).toHaveBeenCalledWith(...expectedStreamArgs)
       expect(logToConsole).not.toHaveBeenCalled()
+    },
+  )
+})
+
+describe("the routing the setup file installs", () => {
+  const installedRoutingCases = [
+    { label: "process.stdout to console.log", stream: process.stdout, consoleMethod: "log" },
+    { label: "process.stderr to console.error", stream: process.stderr, consoleMethod: "error" },
+  ] as const
+
+  it.each(installedRoutingCases)(
+    "sends a log line written to $label",
+    ({ stream, consoleMethod }) => {
+      const consoleSpy = vi.spyOn(console, consoleMethod).mockImplementation(() => undefined)
+      onTestFinished(() => consoleSpy.mockRestore())
+
+      stream.write(LOG_LINE)
+
+      expect(consoleSpy).toHaveBeenCalledTimes(1)
+      expect(consoleSpy).toHaveBeenCalledWith(ROUTED_LOG_LINE)
     },
   )
 })
