@@ -16,17 +16,19 @@ const LOG_LINE_START = '{"timestamp":'
 
 type WriteCallback = (error?: Error | null) => void
 
+type StreamWrite = (
+  chunk: Uint8Array | string,
+  encodingOrCallback?: BufferEncoding | WriteCallback,
+  callback?: WriteCallback,
+) => boolean
+
 export const createLogLineRoutingWrite = (
   stream: Pick<NodeJS.WriteStream, "write">,
   logToConsole: (line: string) => void,
-) => {
+): StreamWrite => {
   const originalWrite = stream.write.bind(stream)
 
-  return (
-    chunk: Uint8Array | string,
-    encodingOrCallback?: BufferEncoding | WriteCallback,
-    callback?: WriteCallback,
-  ): boolean => {
+  return (chunk, encodingOrCallback, callback) => {
     // src/logger.ts passes neither an encoding nor a callback, so a write that
     // carries one is never a log line. logger.test.ts pins this write shape.
     const isLogLine =
