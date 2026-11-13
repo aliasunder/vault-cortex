@@ -1,4 +1,5 @@
 import { posix } from "node:path"
+import { links } from "./links.js"
 
 /**
  * Linearizes an Obsidian .canvas file (JSON Canvas 1.0 —
@@ -54,11 +55,13 @@ type CanvasEdge = Readonly<{
   label?: string | undefined
 }>
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null && !Array.isArray(value)
+const isRecord = (value: unknown): value is Record<string, unknown> => {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+}
 
-const optionalString = (value: unknown): string | undefined =>
-  typeof value === "string" ? value : undefined
+const optionalString = (value: unknown): string | undefined => {
+  return typeof value === "string" ? value : undefined
+}
 
 /** Narrows one raw array entry to a node, or null when its required JSON
  *  Canvas fields are missing/mistyped (the entry is then skipped, not thrown). */
@@ -100,11 +103,14 @@ const parseEdge = (raw: unknown): CanvasEdge | null => {
 
 /** True when `inner`'s rectangle lies fully inside `outer`'s — JSON Canvas
  *  group membership is spatial containment, not a structural parent field. */
-const isContainedIn = (inner: CanvasNode, outer: CanvasNode): boolean =>
-  inner.x >= outer.x &&
-  inner.y >= outer.y &&
-  inner.x + inner.width <= outer.x + outer.width &&
-  inner.y + inner.height <= outer.y + outer.height
+const isContainedIn = (inner: CanvasNode, outer: CanvasNode): boolean => {
+  return (
+    inner.x >= outer.x &&
+    inner.y >= outer.y &&
+    inner.x + inner.width <= outer.x + outer.width &&
+    inner.y + inner.height <= outer.y + outer.height
+  )
+}
 
 /** The group that owns a node: the smallest-area group, other than the node
  *  itself, whose rectangle contains it, edges included (groups nest, so the
@@ -124,8 +130,9 @@ const smallestContainingGroup = (
     // so one nests under the other. Content nodes are exempt — they never
     // become parents, so mutual containment is harmless there.
     const mutuallyContained = node.type === "group" && isContainedIn(group, node)
-    const groupWinsTie = group.id > node.id
-    return !mutuallyContained || groupWinsTie
+
+    if (!mutuallyContained) return true
+    return group.id > node.id
   })
 
   if (containing.length === 0) return undefined
@@ -209,10 +216,10 @@ const renderNestedNodes = ({
 }): string[] => {
   const membersByGroup = groupBy(contentNodes, (node) => smallestContainingGroup(node, groups))
   const childGroupsByParent = groupBy(groups, (group) => smallestContainingGroup(group, groups))
-  const sections = (membersByGroup.get(undefined) ?? []).map(renderNode)
-  const frames = (childGroupsByParent.get(undefined) ?? [])
-    .toReversed()
-    .map((group) => ({ group, depth: 0 }))
+  const ungroupedNodes = membersByGroup.get(undefined) ?? []
+  const topLevelGroups = childGroupsByParent.get(undefined) ?? []
+  const sections = ungroupedNodes.map(renderNode)
+  const frames = topLevelGroups.toReversed().map((group) => ({ group, depth: 0 }))
 
   // A stack of groups still to render; the last one pushed renders next, so
   // groups are pushed in reverse to come out in reading order.
@@ -280,7 +287,7 @@ export const linearizeCanvas = (canvasJson: string): string => {
   const nodes = rawNodes
     .map(parseNode)
     .filter((node) => node !== null)
-    .sort(byReadingOrder)
+    .toSorted(byReadingOrder)
   const edges = rawEdges.map(parseEdge).filter((edge) => edge !== null)
 
   const groups = nodes.filter((node) => node.type === "group")
@@ -312,39 +319,35 @@ export const linearizeCanvas = (canvasJson: string): string => {
   return sections.join("\n\n")
 }
 
-/** Extracts deduplicated vault-relative file paths from canvas `file`-type
- *  nodes. Text-node wikilinks are deliberately excluded — only explicit file
- *  references create graph edges (matching Obsidian's behavior), though
- *  Obsidian does update text-node links on a rename (see
- *  extractCanvasCardTexts). Throws on unparseable JSON. */
-export const extractCanvasFileLinks = (canvasJson: string): string[] => {
-  const parsed = parseCanvasJson(canvasJson)
-
-  const rawNodes = isRecord(parsed) && Array.isArray(parsed.nodes) ? parsed.nodes : []
-  const filePaths: string[] = []
-  for (const rawNode of rawNodes) {
-    const node = parseNode(rawNode)
-
-    if (node !== null && node.type === "file" && node.file) {
-      filePaths.push(node.file)
-    }
-  }
-
-  return [...new Set(filePaths)]
+/** The two kinds of link a canvas holds, each deduplicated in JSON order. */
+type CanvasLinks = {
+  /** The `file` path of every file card, an exact vault path. */
+  fileCardPaths: string[]
+  /** The targets of the links typed in text cards, without any heading or
+   *  alias, before resolution. */
+  textCardLinks: string[]
 }
 
-/** The text of every text-type node, in JSON order. Obsidian updates the
- *  links in these cards when their target is renamed, so the note mover
- *  reads them to find a Canvas that links to a moving note. Throws on
- *  unparseable JSON. */
-export const extractCanvasCardTexts = (canvasJson: string): string[] => {
+/** Extracts the links a canvas holds. A text card is read with the grammar a
+ *  note body uses, so links in inline code or a fenced block are left out.
+ *  Throws on unparseable JSON. */
+export const extractCanvasLinks = (canvasJson: string): CanvasLinks => {
   const parsed = parseCanvasJson(canvasJson)
 
   const rawNodes = isRecord(parsed) && Array.isArray(parsed.nodes) ? parsed.nodes : []
-  // An empty card holds no link, so it is left out.
-  return rawNodes
-    .map(parseNode)
-    .flatMap((node) => (node?.type === "text" && node.text ? [node.text] : []))
+  const nodes = rawNodes.map(parseNode).filter((node) => node !== null)
+  const fileCardPaths = nodes.flatMap((node) => {
+    return node.type === "file" && node.file ? [node.file] : []
+  })
+  const cardTexts = nodes.flatMap((node) => (node.type === "text" && node.text ? [node.text] : []))
+  // A text card is plain Markdown with no properties block.
+  const noFrontmatter = {}
+  const textCardLinks = cardTexts.flatMap((cardText) => links.extractAll(cardText, noFrontmatter))
+
+  return {
+    fileCardPaths: [...new Set(fileCardPaths)],
+    textCardLinks: [...new Set(textCardLinks)],
+  }
 }
 
 /**
@@ -397,9 +400,8 @@ export const rewriteCanvasLinks = (params: {
 
   if (!isRecord(parsed) || !Array.isArray(parsed.nodes)) return null
 
-  // Nodes pass through parseNode, the same check extractCanvasFileLinks and
-  // extractCanvasCardTexts apply, so the rewrite touches exactly the links
-  // those two report.
+  // Nodes pass through parseNode, the same check extractCanvasLinks applies,
+  // so the rewrite touches exactly the cards that function reads.
   const rewriteNode = (rawNode: unknown): NodeRewrite => {
     const node = parseNode(rawNode)
     const unchanged = { node: rawNode, linksRewritten: 0 }

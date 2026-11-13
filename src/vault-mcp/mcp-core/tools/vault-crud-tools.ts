@@ -1302,7 +1302,7 @@ Returns: ${deleteNoteText.returns} Notes how many empty folders were pruned when
     TOOL_NAMES.VAULT_MOVE_NOTE,
     {
       title: "Move Note",
-      description: `Move or rename a note and rewrite every link across the vault that points to it, like Obsidian's built-in rename. Incoming links in other notes — [[wikilinks]], [[wikilink|aliases]], [[wikilink#headings]], ![[embeds]], [markdown](links.md), and links in properties (e.g. related:) — and Canvas cards that embed the note are updated to the new path; the moved note's own relative links are fixed so they still resolve from the new folder, including relative links to attachments (e.g. ![[../assets/photo.png]]).
+      description: `Move or rename a note and rewrite every link across the vault that points to it, like Obsidian's built-in rename. Incoming links in other notes — [[wikilinks]], [[wikilink|aliases]], [[wikilink#headings]], ![[embeds]], [markdown](links.md), and links in properties (e.g. related:) — and Canvas text-card links and file cards showing the note are updated to the new path; the moved note's own relative links are fixed so they still resolve from the new folder, including relative links to attachments (e.g. ![[../assets/photo.png]]).
 
 Example: vault_move_note({ old_path: "Inbox/Draft.md", new_path: "Inbox/Spec.md" }) — pure rename.
 Example: vault_move_note({ old_path: "Inbox/spec.md", new_path: "Inbox/Spec.md" }) — case-only rename; works even where the filesystem treats both spellings as one file.

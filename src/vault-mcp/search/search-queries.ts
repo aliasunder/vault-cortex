@@ -1473,8 +1473,8 @@ export const searchByProperty = (
 // ── Link queries ───────────────────────────────────────────────
 
 /** A link query takes a note, whose ".md" must be lowercase, or a canvas in
- *  any letter case. A canvas returns before the check, so ".canvas" in its
- *  list only names the accepted extensions in the refusal. */
+ *  any letter case. A canvas returns before the check, so ".canvas" is in
+ *  the list only so that the refusal names both accepted extensions. */
 const assertLinkQueryPath = (path: string): void => {
   if (isCanvasPath(path)) return
   assertPathHasExtension(path, [".md", ".canvas"])
@@ -1513,8 +1513,8 @@ const createDailyNoteForwardRefCheck = (params: {
 }
 
 /** Returns notes and files that link TO the given path (incoming links /
- *  backlinks). Canvas file-node references are included — a canvas that
- *  embeds a note via a `file`-type node appears as a backlink source. */
+ *  backlinks). A canvas appears as a backlink source when a link typed in
+ *  one of its text cards resolves to the path, or a file card names it. */
 export const getBacklinks = (
   context: SearchQueryContext,
   params: { path: string },
@@ -1551,7 +1551,8 @@ export const getBacklinks = (
  *  Each entry carries a `kind` discriminator: "note" for .md targets,
  *  "file" for resolved non-markdown files (.canvas, .base, images, etc.),
  *  defaulting to "note" for unresolved (broken) links. Accepts both
- *  .md and .canvas paths — canvas file-node references appear as outgoing.
+ *  .md and .canvas paths. A canvas's outgoing links are the links typed in its
+ *  text cards and the exact paths its file cards name.
  *  A broken link to a daily note not yet created, as
  *  createDailyNoteForwardRefCheck defines it, is flagged
  *  daily_note_forward_ref. dailyNotesFolder is readDailyNotesConfig's
