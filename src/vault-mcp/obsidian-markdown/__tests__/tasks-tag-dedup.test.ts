@@ -11,7 +11,12 @@ import {
   LINEAR_GROWTH_ALLOWANCE,
 } from "./helpers/linear-timing.js"
 
-/** Below this many milliseconds a median is mostly scheduling noise, so it sets no tighter growth bound. */
+/**
+ * Below this many milliseconds a median is mostly scheduling noise, so it sets
+ * no tighter growth bound. It is lower than the other timing files' 25 ms
+ * because this fixture's smallest median sits near 14 ms: at a 25 ms floor its
+ * bound would pass a quadratic slowdown.
+ */
 const TIMING_FLOOR_MS = 10
 
 type Deduplication = ReturnType<typeof tasks.deduplicateDescriptionTags>
