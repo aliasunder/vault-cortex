@@ -1067,8 +1067,7 @@ describe("upsertNote", () => {
       logger,
     )
     const results = index.fullTextSearch({ query: "burnout" }, logger)
-    expect(results).toHaveLength(1)
-    expect(results[0]?.path).toBe("About Me/Principles.md")
+    expect(results.map((result) => result.path)).toEqual(["About Me/Principles.md"])
     expect(results[0]?.title).toBe("Principles")
     expect(results[0]?.tags).toEqual(["principles", "self"])
   })
@@ -1667,13 +1666,21 @@ describe("fullTextSearch", () => {
 
   it("finds notes by content keyword", () => {
     const results = index.fullTextSearch({ query: "burnout" }, logger)
-    expect(results).toHaveLength(1)
-    expect(results[0]?.path).toBe("About Me/Principles.md")
+    expect(results.map((result) => result.path)).toEqual(["About Me/Principles.md"])
   })
 
   it("finds notes by title", () => {
-    const results = index.fullTextSearch({ query: "Principles" }, logger)
-    expect(results).toHaveLength(1)
+    // The title comes from the file name, so the word appears in no other column
+    index.upsertNote(
+      withBodyTags({
+        filePath: "Recipes/Albacore.md",
+        rawContent: "Grill the fish for four minutes a side.\n",
+        fileStat: testStat(4000),
+      }),
+      logger,
+    )
+    const results = index.fullTextSearch({ query: "Albacore" }, logger)
+    expect(results.map((result) => result.path)).toEqual(["Recipes/Albacore.md"])
   })
 
   it("returns snippets without HTML markup", () => {
@@ -1723,8 +1730,7 @@ describe("fullTextSearch", () => {
       { query: "notes", filters: { folder: "Projects" } },
       logger,
     )
-    expect(results).toHaveLength(1)
-    expect(results[0]?.path).toBe("Projects/notes.md")
+    expect(results.map((result) => result.path)).toEqual(["Projects/notes.md"])
   })
 
   it("strips trailing slashes from folder filter before matching", () => {
@@ -1732,8 +1738,7 @@ describe("fullTextSearch", () => {
       { query: "notes", filters: { folder: "Projects/" } },
       logger,
     )
-    expect(results).toHaveLength(1)
-    expect(results[0]?.path).toBe("Projects/notes.md")
+    expect(results.map((result) => result.path)).toEqual(["Projects/notes.md"])
   })
 
   it("does not match a sibling folder whose name starts with the folder filter", () => {
@@ -1762,8 +1767,7 @@ describe("fullTextSearch", () => {
 
   it("respects tags filter", () => {
     const results = index.fullTextSearch({ query: "notes", filters: { tags: ["project"] } }, logger)
-    expect(results).toHaveLength(1)
-    expect(results[0]?.path).toBe("Projects/notes.md")
+    expect(results.map((result) => result.path)).toEqual(["Projects/notes.md"])
   })
 
   it("matches a tags filter by a parent tag in any letter case, not a longer tag", () => {
@@ -1833,8 +1837,7 @@ describe("fullTextSearch", () => {
 
   it("multi-word query matches notes containing both terms (implicit AND)", () => {
     const results = index.fullTextSearch({ query: "burnout boundaries" }, logger)
-    expect(results).toHaveLength(1)
-    expect(results[0]?.path).toBe("About Me/Principles.md")
+    expect(results.map((result) => result.path)).toEqual(["About Me/Principles.md"])
   })
 
   it("multi-word query does not require exact phrase adjacency", () => {
@@ -1847,8 +1850,7 @@ describe("fullTextSearch", () => {
       logger,
     )
     const results = index.fullTextSearch({ query: "alpha beta" }, logger)
-    expect(results).toHaveLength(1)
-    expect(results[0]?.path).toBe("spread.md")
+    expect(results.map((result) => result.path)).toEqual(["spread.md"])
   })
 
   it("exact phrase match with quotes", () => {
@@ -1869,8 +1871,7 @@ describe("fullTextSearch", () => {
       logger,
     )
     const phraseResults = index.fullTextSearch({ query: '"machine learning"' }, logger)
-    expect(phraseResults.some((result) => result.path === "phrase.md")).toBe(true)
-    expect(phraseResults.some((result) => result.path === "separate.md")).toBe(false)
+    expect(phraseResults.map((result) => result.path)).toEqual(["phrase.md"])
   })
 
   it("query with FTS5 operators does not throw", () => {
@@ -1889,8 +1890,7 @@ describe("fullTextSearch", () => {
       logger,
     )
     const results = index.fullTextSearch({ query: "flux-capacitor" }, logger)
-    expect(results).toHaveLength(1)
-    expect(results[0]?.path).toBe("project.md")
+    expect(results.map((result) => result.path)).toEqual(["project.md"])
   })
 
   it("dotted query matches content containing the dotted term", () => {
@@ -1911,8 +1911,49 @@ describe("fullTextSearch", () => {
       logger,
     )
     const results = index.fullTextSearch({ query: "mcpservers.org" }, logger)
-    expect(results).toHaveLength(1)
-    expect(results[0]?.path).toBe("directories.md")
+    expect(results.map((result) => result.path)).toEqual(["directories.md"])
+  })
+
+  it("lowercase near in a query is matched as a search term, not dropped", () => {
+    index.upsertNote(
+      withBodyTags({
+        filePath: "incident.md",
+        rawContent: "A near miss on the loading dock\n",
+        fileStat: testStat(6003),
+      }),
+      logger,
+    )
+    index.upsertNote(
+      withBodyTags({
+        filePath: "commute.md",
+        rawContent: "Tried to miss the rush hour bus\n",
+        fileStat: testStat(6004),
+      }),
+      logger,
+    )
+    const results = index.fullTextSearch({ query: "near miss" }, logger)
+    expect(results.map((result) => result.path)).toEqual(["incident.md"])
+  })
+
+  it("uppercase NEAR in a query is matched as a search term, not dropped", () => {
+    index.upsertNote(
+      withBodyTags({
+        filePath: "chain.md",
+        rawContent: "Bridged tokens to the NEAR protocol\n",
+        fileStat: testStat(6005),
+      }),
+      logger,
+    )
+    index.upsertNote(
+      withBodyTags({
+        filePath: "other-chain.md",
+        rawContent: "The protocol upgrade shipped today\n",
+        fileStat: testStat(6006),
+      }),
+      logger,
+    )
+    const results = index.fullTextSearch({ query: "NEAR protocol" }, logger)
+    expect(results.map((result) => result.path)).toEqual(["chain.md"])
   })
 
   it("query with stray punctuation does not throw", () => {
@@ -1985,32 +2026,27 @@ describe("metadata search", () => {
 
   it("finds a note by a type value that appears only in frontmatter", () => {
     const results = index.fullTextSearch({ query: "blueprint" }, logger)
-    expect(results).toHaveLength(1)
-    expect(results[0]?.path).toBe("garden/layout.md")
+    expect(results.map((result) => result.path)).toEqual(["garden/layout.md"])
   })
 
   it("finds a note by a status value that appears only in frontmatter", () => {
     const results = index.fullTextSearch({ query: "overdue" }, logger)
-    expect(results).toHaveLength(1)
-    expect(results[0]?.path).toBe("garden/fence.md")
+    expect(results.map((result) => result.path)).toEqual(["garden/fence.md"])
   })
 
   it("finds a note by a tag that appears only in frontmatter", () => {
     const results = index.fullTextSearch({ query: "xeriscaping" }, logger)
-    expect(results).toHaveLength(1)
-    expect(results[0]?.path).toBe("garden/layout.md")
+    expect(results.map((result) => result.path)).toEqual(["garden/layout.md"])
   })
 
   it("finds a note by a frontmatter key name", () => {
     const results = index.fullTextSearch({ query: "lifecycle" }, logger)
-    expect(results).toHaveLength(1)
-    expect(results[0]?.path).toBe("garden/layout.md")
+    expect(results.map((result) => result.path)).toEqual(["garden/layout.md"])
   })
 
   it("cross-field query matches a frontmatter term + body term together", () => {
     const results = index.fullTextSearch({ query: "compost gypsum" }, logger)
-    expect(results).toHaveLength(1)
-    expect(results[0]?.path).toBe("garden/notes.md")
+    expect(results.map((result) => result.path)).toEqual(["garden/notes.md"])
   })
 
   it("snippet contains body text, not metadata, for a frontmatter-only match", () => {
@@ -2058,8 +2094,7 @@ describe("metadata search", () => {
     )
 
     const results = warmIndex.fullTextSearch({ query: "xeriscaping" }, logger)
-    expect(results).toHaveLength(1)
-    expect(results[0]?.path).toBe("garden/layout.md")
+    expect(results.map((result) => result.path)).toEqual(["garden/layout.md"])
   })
 })
 
@@ -2353,8 +2388,7 @@ describe("searchByFolder", () => {
 
   it("non-recursive mode excludes nested files", () => {
     const results = index.searchByFolder({ folder: "About Me", recursive: false }, logger)
-    expect(results).toHaveLength(1)
-    expect(results[0]?.path).toBe("About Me/Principles.md")
+    expect(results.map((result) => result.path)).toEqual(["About Me/Principles.md"])
   })
 
   it("sorts results by most recently modified", () => {
@@ -2523,8 +2557,7 @@ describe("listAllTags", () => {
     const tags = index.listAllTags({}, logger)
     expect(tags).toHaveLength(3)
     const results = index.fullTextSearch({ query: "no tags" }, logger)
-    expect(results).toHaveLength(1)
-    expect(results[0]?.path).toBe("bare.md")
+    expect(results.map((result) => result.path)).toEqual(["bare.md"])
   })
 })
 
@@ -2973,14 +3006,12 @@ describe("searchByProperty", () => {
 
   it("finds notes by scalar property value", () => {
     const results = index.searchByProperty({ key: "status", value: "in-progress" }, logger)
-    expect(results).toHaveLength(1)
-    expect(results[0]?.path).toBe("Projects/active.md")
+    expect(results.map((result) => result.path)).toEqual(["Projects/active.md"])
   })
 
   it("finds notes by array property value", () => {
     const results = index.searchByProperty({ key: "tags", value: "active" }, logger)
-    expect(results).toHaveLength(1)
-    expect(results[0]?.path).toBe("Projects/active.md")
+    expect(results.map((result) => result.path)).toEqual(["Projects/active.md"])
   })
 
   it("returns NoteMetadata with all fields", () => {
@@ -3020,8 +3051,7 @@ describe("searchByProperty", () => {
       { key: "status", value: "in-progress", folder: "Projects" },
       logger,
     )
-    expect(results).toHaveLength(1)
-    expect(results[0]?.path).toBe("Projects/active.md")
+    expect(results.map((result) => result.path)).toEqual(["Projects/active.md"])
   })
 
   it("does not match a sibling folder whose name starts with the folder filter", () => {
@@ -3082,8 +3112,7 @@ describe("searchByProperty", () => {
       logger,
     )
     const results = index.searchByProperty({ key: "due", value: "2026-05-13" }, logger)
-    expect(results).toHaveLength(1)
-    expect(results[0]?.path).toBe("dated.md")
+    expect(results.map((result) => result.path)).toEqual(["dated.md"])
   })
 
   it("compares values as text, so '1' matches the number 1, the text '1', and a checked checkbox", () => {
@@ -5112,8 +5141,7 @@ describe("rebuildFromVault", () => {
       logger,
     )
     const results = index.fullTextSearch({ query: "burnout" }, logger)
-    expect(results).toHaveLength(1)
-    expect(results[0]?.path).toBe("About Me/Principles.md")
+    expect(results.map((result) => result.path)).toEqual(["About Me/Principles.md"])
   })
 
   it("indexes a note whose block is not valid YAML from its body, counts it, and warns once", async () => {
@@ -5447,8 +5475,7 @@ describe("rebuildFromVault", () => {
       logger,
     )
     const backlinks = index.getBacklinks({ path: "z-target.md" }, logger)
-    expect(backlinks).toHaveLength(1)
-    expect(backlinks[0]?.path).toBe("a-source.md")
+    expect(backlinks.map((backlink) => backlink.path)).toEqual(["a-source.md"])
   })
 
   it("does not count extensionless wikilinks to non-md files as broken", async () => {
@@ -5591,8 +5618,7 @@ describe("rebuildFromVault", () => {
     )
 
     const outgoing = index.getOutgoingLinks({ path: "source.md" }, logger)
-    expect(outgoing).toHaveLength(1)
-    expect(outgoing[0]?.path).toBe("views/Inventory")
+    expect(outgoing.map((link) => link.path)).toEqual(["views/Inventory"])
     expect(index.brokenLinkCount({}, logger).count).toBe(1)
   })
 
@@ -5700,8 +5726,7 @@ describe("rebuildFromVault", () => {
     )
 
     const outgoing = index.getOutgoingLinks({ path: "source.md" }, logger)
-    expect(outgoing).toHaveLength(1)
-    expect(outgoing[0]?.path).toBe("Report.md")
+    expect(outgoing.map((link) => link.path)).toEqual(["Report.md"])
     expect(outgoing[0]?.kind).toBe("note")
     expect(outgoing[0]?.exists).toBe(true)
     expect(index.brokenLinkCount({}, logger).count).toBe(0)
@@ -5725,8 +5750,7 @@ describe("rebuildFromVault", () => {
     )
 
     const outgoing = index.getOutgoingLinks({ path: "source.md" }, logger)
-    expect(outgoing).toHaveLength(1)
-    expect(outgoing[0]?.path).toBe("photos/Sunset.png")
+    expect(outgoing.map((link) => link.path)).toEqual(["photos/Sunset.png"])
     expect(outgoing[0]?.kind).toBe("file")
     expect(outgoing[0]?.exists).toBe(true)
     expect(index.brokenLinkCount({}, logger).count).toBe(0)
@@ -5894,14 +5918,12 @@ describe("getBacklinks", () => {
 
   it("finds notes linking to the target", () => {
     const backlinks = index.getBacklinks({ path: "spoke-a.md" }, logger)
-    expect(backlinks).toHaveLength(1)
-    expect(backlinks[0]?.path).toBe("hub.md")
+    expect(backlinks.map((backlink) => backlink.path)).toEqual(["hub.md"])
   })
 
   it("finds backlinks from notes that link to the target", () => {
     const backlinks = index.getBacklinks({ path: "hub.md" }, logger)
-    expect(backlinks).toHaveLength(1)
-    expect(backlinks[0]?.path).toBe("spoke-a.md")
+    expect(backlinks.map((backlink) => backlink.path)).toEqual(["spoke-a.md"])
   })
 
   it("returns empty for notes with no backlinks", () => {
@@ -6246,8 +6268,7 @@ describe("forward reference resolution", () => {
     )
 
     const backlinks = index.getBacklinks({ path: "target.md" }, logger)
-    expect(backlinks).toHaveLength(1)
-    expect(backlinks[0]?.path).toBe("source.md")
+    expect(backlinks.map((backlink) => backlink.path)).toEqual(["source.md"])
   })
 
   it("re-resolves a full-path forward reference when the target is created later", () => {
@@ -6276,8 +6297,7 @@ describe("forward reference resolution", () => {
       logger,
     )
     const backlinks = index.getBacklinks({ path: "folder/target.md" }, logger)
-    expect(backlinks).toHaveLength(1)
-    expect(backlinks[0]?.path).toBe("source.md")
+    expect(backlinks.map((backlink) => backlink.path)).toEqual(["source.md"])
   })
 
   it("re-resolves a relative ../ forward reference when the target is created later", () => {
@@ -6369,8 +6389,7 @@ describe("frontmatter links in the graph", () => {
       logger,
     )
     const links = index.getOutgoingLinks({ path: "session.md" }, logger)
-    expect(links).toHaveLength(1)
-    expect(links[0]?.path).toBe("task-board.md")
+    expect(links.map((link) => link.path)).toEqual(["task-board.md"])
     expect(links[0]?.exists).toBe(true)
     expect(links[0]?.kind).toBe("note")
   })
@@ -6394,8 +6413,7 @@ describe("frontmatter links in the graph", () => {
       logger,
     )
     const backlinks = index.getBacklinks({ path: "task-board.md" }, logger)
-    expect(backlinks).toHaveLength(1)
-    expect(backlinks[0]?.path).toBe("session.md")
+    expect(backlinks.map((backlink) => backlink.path)).toEqual(["session.md"])
   })
 
   it("does not flag a frontmatter-referenced note as an orphan, but still flags a truly unreferenced one", () => {
@@ -6450,8 +6468,7 @@ describe("frontmatter links in the graph", () => {
       logger,
     )
     const backlinks = index.getBacklinks({ path: "shared.md" }, logger)
-    expect(backlinks).toHaveLength(1)
-    expect(backlinks[0]?.path).toBe("double.md")
+    expect(backlinks.map((backlink) => backlink.path)).toEqual(["double.md"])
   })
 })
 
@@ -6571,8 +6588,7 @@ describe("brokenLinkCount", () => {
       logger,
     )
     const outgoing = index.getOutgoingLinks({ path: "dashboard.md" }, logger)
-    expect(outgoing).toHaveLength(1)
-    expect(outgoing[0]?.path).toBe("sessions/log-a.md")
+    expect(outgoing.map((link) => link.path)).toEqual(["sessions/log-a.md"])
     expect(outgoing[0]?.exists).toBe(true)
     expect(outgoing[0]?.kind).toBe("note")
     expect(index.brokenLinkCount({}, logger).count).toBe(0)
@@ -6638,8 +6654,7 @@ describe("brokenLinkCount", () => {
     index.upsertNonMdFile("Route.canvas", 100)
     expect(index.brokenLinkCount({}, logger).count).toBe(0)
     const outgoing = index.getOutgoingLinks({ path: "source.md" }, logger)
-    expect(outgoing).toHaveLength(1)
-    expect(outgoing[0]?.path).toBe("Route.canvas")
+    expect(outgoing.map((link) => link.path)).toEqual(["Route.canvas"])
     expect(outgoing[0]?.exists).toBe(true)
     expect(outgoing[0]?.kind).toBe("file")
   })
@@ -9181,8 +9196,7 @@ describe("canvas file content and links", () => {
         { query: "alphanumeric beginning marker" },
         logger,
       )
-      expect(foundResults).toHaveLength(1)
-      expect(foundResults[0]?.path).toBe("data/big.csv")
+      expect(foundResults.map((foundResult) => foundResult.path)).toEqual(["data/big.csv"])
       // Content beyond the cap is NOT searchable — proves truncation
       const { results: truncatedResults } = await fileIndex.hybridSearch(
         { query: "zyxwvut ending marker" },

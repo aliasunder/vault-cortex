@@ -1,5 +1,13 @@
+import { execFileSync } from "node:child_process"
 import { describe, it, expect } from "vitest"
 import { sanitizeFtsQuery, sanitizeFtsQueryAnyTerm } from "../fts-query.js"
+
+/** A quadratic scan of a word this long runs for minutes; a linear one takes
+ *  milliseconds. */
+const LONG_WORD_LENGTH = 1_000_000
+
+/** Leaves room for the child's tsx start-up on a loaded machine. */
+const CHILD_DEADLINE_MS = 20_000
 
 describe("sanitizeFtsQuery", () => {
   const scenarios = [
@@ -39,19 +47,29 @@ describe("sanitizeFtsQuery", () => {
       expected: '""',
     },
     {
-      name: "NEAR reserved word dropped from mixed input",
+      name: "uppercase NEAR kept as a term",
       input: "meeting NEAR fence",
-      expected: "meeting fence",
+      expected: "meeting NEAR fence",
     },
     {
-      name: "NEAR alone: empty result",
-      input: "NEAR",
-      expected: '""',
+      name: "NEAR group syntax loses its parentheses and comma, leaving terms",
+      input: "NEAR(alpha beta, 2)",
+      expected: "NEAR alpha beta 2",
     },
     {
-      name: "reserved words dropped in any letter case",
+      name: "lowercase and mixed-case reserved words kept as terms",
       input: "meeting and notes Or fence near Not",
-      expected: "meeting notes fence",
+      expected: "meeting and notes Or fence near Not",
+    },
+    {
+      name: "lowercase near stays a search term",
+      input: "near miss",
+      expected: "near miss",
+    },
+    {
+      name: "uppercase reserved word inside a quoted phrase kept as a term",
+      input: '"rock AND roll"',
+      expected: '"rock AND roll"',
     },
     {
       name: "empty string: empty result",
@@ -87,6 +105,11 @@ describe("sanitizeFtsQuery", () => {
       name: "leading hyphen stripped",
       input: "-excluded term",
       expected: "excluded term",
+    },
+    {
+      name: "colon inside a quoted phrase separates words instead of joining them",
+      input: '"standup at 10:30"',
+      expected: '"standup at 10 30"',
     },
     {
       name: "hyphen inside quoted phrase preserved",
@@ -184,6 +207,48 @@ describe("sanitizeFtsQuery", () => {
     const result = sanitizeFtsQuery(input)
     expect(result).toBe(expected)
   })
+
+  // The joiners are all ASCII punctuation except underscore, which FTS5 reads
+  // as part of a word, and the six FTS5 metacharacters below
+  const compoundJoiners = [..."!#$%&'+,-./;<=>?@[\\]`{|}~"]
+
+  it.each(compoundJoiners)("%s between two words joins them into one phrase", (joiner) => {
+    expect(sanitizeFtsQuery(`alpha${joiner}beta`)).toBe('"alpha beta"')
+  })
+
+  const fts5Metacharacters = [...'"*^():']
+
+  it.each(fts5Metacharacters)(
+    "%s between two words splits them into bare terms",
+    (metacharacter) => {
+      expect(sanitizeFtsQuery(`alpha${metacharacter}beta`)).toBe("alpha beta")
+    },
+  )
+
+  it(
+    "sanitizes a million-character word within a child deadline",
+    () => {
+      const ftsQueryUrl = new URL("../fts-query.ts", import.meta.url).href
+      const output = execFileSync(
+        process.execPath,
+        [
+          "--import",
+          "tsx",
+          "--input-type=module",
+          "--eval",
+          `
+      import { sanitizeFtsQuery } from ${JSON.stringify(ftsQueryUrl)};
+      const query = 'a'.repeat(${LONG_WORD_LENGTH});
+      process.stdout.write(String(sanitizeFtsQuery(query) === query));
+    `,
+        ],
+        { encoding: "utf8", timeout: CHILD_DEADLINE_MS, killSignal: "SIGKILL" },
+      )
+
+      expect(output).toBe("true")
+    },
+    CHILD_DEADLINE_MS + 5_000,
+  )
 })
 
 describe("sanitizeFtsQueryAnyTerm", () => {
@@ -222,6 +287,11 @@ describe("sanitizeFtsQueryAnyTerm", () => {
       name: "reserved word dropped from mixed input, remainder OR-joined",
       input: '"testing" AND notes',
       expected: '"testing" OR notes',
+    },
+    {
+      name: "lowercase near kept as a term, OR-joined",
+      input: "near miss",
+      expected: "near OR miss",
     },
     {
       name: "all stopwords: empty result — nothing can anchor a rescue",
