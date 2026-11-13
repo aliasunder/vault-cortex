@@ -26,7 +26,7 @@ const cliManifest = ({ version, zod }: { version: string; zod: string }): string
   return `${JSON.stringify(manifest, null, 2)}\n`
 }
 
-/** Shaped like cli/src/env.ts: .env template text inside a template literal,
+/** Shaped like cli/src/rules/env-templates.ts: .env template text inside a template literal,
  *  where a line starting with # is a comment. */
 const envTemplateModule = ({ comment, setting }: { comment: string; setting: string }): string => {
   return `export const TEMPLATE = \`\n${comment}\n${setting}\n\`\n`
@@ -276,6 +276,16 @@ describe("generate-cli-notes.sh", () => {
       commitListedCodeChange(repo)
       repo.commit("test(cli): cover the flag", {
         "cli/src/__tests__/program.test.ts": "export const checks = 2\n",
+      })
+
+      expect(repo.generateNotes()).toEqual(LISTED_CODE_CHANGE_ONLY)
+    })
+
+    it("leaves out a commit that changes only tests inside a CLI layer folder", () => {
+      const repo = createCliReleaseRepo()
+      commitListedCodeChange(repo)
+      repo.commit("test(cli): cover a command", {
+        "cli/src/commands/__tests__/init.test.ts": "export const checks = 1\n",
       })
 
       expect(repo.generateNotes()).toEqual(LISTED_CODE_CHANGE_ONLY)

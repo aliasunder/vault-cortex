@@ -135,7 +135,7 @@ development. A test fails if the versions drift.
 - Test: `npm test` includes `cli/src/**/*.test.ts`
 - Try it: `node cli/dist/bin.js init --help`
 
-**Env block sync:** The optional env blocks in `cli/src/env.ts` are derived
+**Env block sync:** The optional env blocks in `cli/src/rules/env-templates.ts` are derived
 from `deploy/*/.env.example`. If you change any `.env.example`, run
 `npm run sync:cli-env-blocks` in the same PR — drift tests fail CI otherwise.
 
@@ -294,11 +294,11 @@ What each release's notes list:
   `cli/package.json`, except commits whose added and removed lines under
   `cli/` are all:
   - blank
-  - in files under `cli/src/__tests__/`
+  - in files under any `__tests__/` folder in `cli/src/`
   - the `"version"` line of `cli/package.json` (the release bump)
   - lines in `.ts` files that start, after any indent, with `#`, `//`, `/*`
     or `*`: comments, and the comment text of the `.env` templates in
-    `cli/src/env.ts`. A `#` line shaped like a setting (`# KEY=value`) still
+    `cli/src/rules/env-templates.ts`. A `#` line shaped like a setting (`# KEY=value`) still
     counts: the templates ship optional settings commented out, for the user
     to uncomment.
 

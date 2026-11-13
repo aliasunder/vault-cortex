@@ -1289,7 +1289,7 @@ do; the probe is a deploy with no variables set, which must reach the
 container's init scripts rather than fail in s6. With no Sync token,
 `init-check-auth` selects setup mode.
 
-`cli/src/__tests__/templates.test.ts` pins `render.yaml` to the published
+`cli/src/rules/__tests__/templates.test.ts` pins `render.yaml` to the published
 image, to the fixed values above (`PORT`, `STORAGE_ROOT`, `DEVICE_NAME`), to
 the image's own defaults for the optional settings it pre-fills
 (`MEMORY_ENABLED`, `EMBEDDING_ENABLED`, `READONLY_MODE`, `FILE_TOOLS_ENABLED`,

@@ -3,8 +3,8 @@ import {
   type DockerLogsParams,
   type DockerRunner,
   type DockerRunParams,
-} from "../docker.js"
-import type { Prompts, SelectOption } from "../prompts.js"
+} from "../adapters/docker.js"
+import type { Prompts, SelectOption } from "../adapters/prompts.js"
 
 /**
  * One canned reply for one interactive prompt, in ask order: string for
@@ -244,6 +244,17 @@ export const dockerNotInstalled: DockerRunner = {
 }
 
 /**
+ * The guidance a command gives under dockerNotInstalled. Its install line
+ * depends on the platform the tests run on, as the message's does.
+ */
+export const NO_RUNTIME_GUIDANCE =
+  "No container runtime found — the server runs in Docker, so you need\n" +
+  "Docker or a Docker-compatible runtime (OrbStack, Colima, Podman).\n" +
+  (process.platform === "darwin" || process.platform === "win32"
+    ? "Install Docker Desktop: https://docs.docker.com/get-docker/"
+    : "Install Docker Engine: https://docs.docker.com/engine/install/")
+
+/**
  * Daemon up but every operation fails — the spread base for per-test
  * variants that succeed at exactly one operation.
  */
@@ -259,3 +270,19 @@ export const fetchOk: typeof fetch = async () => new Response(null, { status: 20
 export const fetchNever: typeof fetch = async () => {
   throw new Error("fetch must not be called")
 }
+
+/** Builds a mock fetch that returns a successful signin response. */
+export const fetchSigninSuccess = (token = "test-sync-token"): typeof fetch =>
+  (async () =>
+    new Response(JSON.stringify({ token }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    })) as typeof fetch
+
+/** Builds a mock fetch that returns an API error (200 with error field). */
+export const fetchApiError = (errorMessage: string): typeof fetch =>
+  (async () =>
+    new Response(JSON.stringify({ error: errorMessage }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    })) as typeof fetch

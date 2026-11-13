@@ -1,0 +1,405 @@
+import { mkdtempSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+import { describe, expect, it, vi } from "vitest"
+
+import { pollHealth, type DockerRunner } from "../../adapters/docker.js"
+import { runUpgrade } from "../upgrade.js"
+
+// Spy mode keeps the real adapter, so a test can make one health wait time out.
+vi.mock("../../adapters/docker.js", { spy: true })
+import {
+  createRecordingDocker,
+  createScriptedPrompts,
+  dockerDown,
+  dockerReady,
+  fetchNever,
+  fetchOk,
+} from "../../__tests__/command-stubs.js"
+
+const writeLocalEnv = (targetDir: string): void => {
+  writeFileSync(
+    join(targetDir, ".env"),
+    "MCP_AUTH_TOKEN=abc123\nVAULT_PATH=/home/user/MyVault\nPUBLIC_URL=http://localhost:8000\n",
+  )
+}
+
+const writeRemoteEnv = (targetDir: string): void => {
+  writeFileSync(
+    join(targetDir, ".env"),
+    "MCP_AUTH_TOKEN=abc123\nOBSIDIAN_AUTH_TOKEN=sync-token\nVAULT_NAME=MyVault\nPUBLIC_URL=https://vault.example.com\n",
+  )
+}
+
+describe("runUpgrade", () => {
+  it("exits 1 when no .env exists in the target directory", async () => {
+    const targetDir = join(tmpdir(), "vault-cli-upgrade-missing")
+    const scripted = createScriptedPrompts()
+
+    const exitCode = await runUpgrade(
+      { dir: targetDir },
+      { prompts: scripted.prompts, docker: dockerReady, fetchFn: fetchNever },
+    )
+
+    expect(exitCode).toBe(1)
+    expect(scripted.errors).toEqual([
+      `No .env found in ${targetDir} — run \`npx vault-cortex@latest init\` first.`,
+    ])
+  })
+
+  it("exits 1 when Docker daemon is not running", async () => {
+    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-upgrade-"))
+    writeLocalEnv(targetDir)
+    const scripted = createScriptedPrompts()
+
+    const exitCode = await runUpgrade(
+      { dir: targetDir },
+      { prompts: scripted.prompts, docker: dockerDown, fetchFn: fetchNever },
+    )
+
+    expect(exitCode).toBe(1)
+    expect(scripted.errors).toEqual([
+      "Container runtime not running — start Docker Desktop, Colima,\n" +
+        "OrbStack, or another Docker-compatible runtime.",
+    ])
+  })
+
+  it("exits 1 when local .env has no VAULT_PATH", async () => {
+    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-upgrade-"))
+    writeFileSync(join(targetDir, ".env"), "MCP_AUTH_TOKEN=abc123\n")
+    const scripted = createScriptedPrompts()
+
+    const exitCode = await runUpgrade(
+      { dir: targetDir },
+      { prompts: scripted.prompts, docker: dockerReady, fetchFn: fetchNever },
+    )
+
+    expect(exitCode).toBe(1)
+    expect(scripted.errors).toEqual([
+      `VAULT_PATH is empty or missing — the container cannot start without it. Fix it in ${targetDir}/.env.`,
+    ])
+  })
+
+  it("detects local mode and runs with the vault path from .env", async () => {
+    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-upgrade-"))
+    writeLocalEnv(targetDir)
+    const dockerRunParams: Parameters<DockerRunner["dockerRun"]>[] = []
+    const dockerSpy: DockerRunner = {
+      ...dockerReady,
+      dockerRun: (params) => {
+        dockerRunParams.push([params])
+        return true
+      },
+    }
+    const scripted = createScriptedPrompts()
+
+    const exitCode = await runUpgrade(
+      { dir: targetDir },
+      { prompts: scripted.prompts, docker: dockerSpy, fetchFn: fetchOk },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(dockerRunParams).toEqual([
+      [
+        {
+          mode: "local",
+          instanceName: "vault-cortex",
+          envFilePath: join(targetDir, ".env"),
+          port: 8000,
+          vaultPath: "/home/user/MyVault",
+        },
+      ],
+    ])
+  })
+
+  it("re-creates the container a custom INSTANCE_NAME names", async () => {
+    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-upgrade-"))
+    writeFileSync(
+      join(targetDir, ".env"),
+      "MCP_AUTH_TOKEN=abc123\nOBSIDIAN_AUTH_TOKEN=sync-token\nVAULT_NAME=Work\nPUBLIC_URL=https://work.example.com\nINSTANCE_NAME=work\n",
+    )
+    const recording = createRecordingDocker()
+    const scripted = createScriptedPrompts()
+
+    const exitCode = await runUpgrade(
+      { dir: targetDir },
+      { prompts: scripted.prompts, docker: recording.docker, fetchFn: fetchOk },
+    )
+
+    expect(exitCode).toBe(0)
+    // Inspected before the pull, then again by the re-create step.
+    expect(recording.calls).toEqual(["inspect:work", "inspect:work", "rm:work", "run:work"])
+    expect(recording.runParams.map((params) => params.instanceName)).toEqual(["work"])
+  })
+
+  it("detects remote mode and runs without a vault path", async () => {
+    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-upgrade-"))
+    writeRemoteEnv(targetDir)
+    const dockerRunParams: Parameters<DockerRunner["dockerRun"]>[] = []
+    const dockerSpy: DockerRunner = {
+      ...dockerReady,
+      dockerRun: (params) => {
+        dockerRunParams.push([params])
+        return true
+      },
+    }
+    const scripted = createScriptedPrompts()
+
+    const exitCode = await runUpgrade(
+      { dir: targetDir },
+      { prompts: scripted.prompts, docker: dockerSpy, fetchFn: fetchOk },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(dockerRunParams).toEqual([
+      [
+        {
+          mode: "remote",
+          instanceName: "vault-cortex",
+          envFilePath: join(targetDir, ".env"),
+          port: 8000,
+          vaultPath: undefined,
+        },
+      ],
+    ])
+  })
+
+  it.each([
+    { label: "local", writeEnv: writeLocalEnv, image: "ghcr.io/aliasunder/vault-cortex:latest" },
+    { label: "remote", writeEnv: writeRemoteEnv, image: "ghcr.io/aliasunder/vault-cortex:remote" },
+  ])("pulls the image a $label install runs", async ({ writeEnv, image }) => {
+    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-upgrade-"))
+    writeEnv(targetDir)
+    const pulledImages: string[] = []
+    const docker: DockerRunner = {
+      ...dockerReady,
+      pullImage: (pulledImage) => {
+        pulledImages.push(pulledImage)
+        return true
+      },
+    }
+    const scripted = createScriptedPrompts()
+
+    const exitCode = await runUpgrade(
+      { dir: targetDir },
+      { prompts: scripted.prompts, docker, fetchFn: fetchOk },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(pulledImages).toEqual([image])
+  })
+
+  it("probes the public URL after a remote upgrade", async () => {
+    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-upgrade-"))
+    writeRemoteEnv(targetDir)
+    const fetchedUrls: string[] = []
+    const fetchRecorder: typeof fetch = async (input) => {
+      fetchedUrls.push(String(input))
+      return new Response(null, { status: 200 })
+    }
+    const scripted = createScriptedPrompts()
+
+    const exitCode = await runUpgrade(
+      { dir: targetDir },
+      {
+        prompts: scripted.prompts,
+        docker: dockerReady,
+        fetchFn: fetchRecorder,
+      },
+    )
+
+    expect(exitCode).toBe(0)
+    // Order proves the probe ran after the container health poll.
+    expect(fetchedUrls).toEqual([
+      "http://127.0.0.1:8000/healthz",
+      "https://vault.example.com/healthz",
+    ])
+    expect(scripted.spinnerMessages).toEqual([
+      "start: Pulling ghcr.io/aliasunder/vault-cortex:remote",
+      "stop: Image pulled.",
+      "start: Waiting for the server to come up",
+      "stop: Server is up — health check passed.",
+      "start: Checking the public URL (https://vault.example.com/healthz)",
+      "stop: Public URL responds — https://vault.example.com/healthz answered from this machine.",
+    ])
+    expect(scripted.warnings).toEqual([])
+  })
+
+  it("keeps a successful remote upgrade at exit 0 when the public URL does not answer", async () => {
+    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-upgrade-"))
+    writeRemoteEnv(targetDir)
+    const fetchedUrls: string[] = []
+    // Localhost (the container check) answers; the public URL is unreachable
+    // — the state every remote deployment is in before HTTPS is set up.
+    const fetchPublicUrlDown: typeof fetch = async (input) => {
+      const url = String(input)
+      fetchedUrls.push(url)
+      if (url.includes("127.0.0.1")) return new Response(null, { status: 200 })
+      throw new Error("ECONNREFUSED")
+    }
+    const scripted = createScriptedPrompts()
+
+    const exitCode = await runUpgrade(
+      { dir: targetDir },
+      {
+        prompts: scripted.prompts,
+        docker: dockerReady,
+        fetchFn: fetchPublicUrlDown,
+      },
+    )
+
+    // Exit 0 with the probe provably fired — informational, never a gate.
+    expect(exitCode).toBe(0)
+    expect(fetchedUrls).toEqual([
+      "http://127.0.0.1:8000/healthz",
+      "https://vault.example.com/healthz",
+    ])
+    expect(scripted.warnings).toEqual([
+      "The server is up, but its public URL didn't answer from this machine.\n" +
+        "That's expected until HTTPS (or direct port) access is set up — and\n" +
+        "some networks keep a server from reaching its own public address even\n" +
+        "when other devices can. Once access is set up, check from any device:\n" +
+        "  curl https://vault.example.com/healthz",
+    ])
+  })
+
+  it("refuses a container of another app before downloading the image", async () => {
+    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-upgrade-"))
+    writeLocalEnv(targetDir)
+    const pulledImages: string[] = []
+    const docker: DockerRunner = {
+      ...dockerReady,
+      containerImage: () => "postgres:16",
+      pullImage: (image) => {
+        pulledImages.push(image)
+        return true
+      },
+    }
+    const scripted = createScriptedPrompts()
+
+    const exitCode = await runUpgrade(
+      { dir: targetDir },
+      { prompts: scripted.prompts, docker, fetchFn: fetchNever },
+    )
+
+    expect(exitCode).toBe(1)
+    expect(pulledImages).toEqual([])
+    expect(scripted.errors).toEqual([
+      `A container named "vault-cortex" runs postgres:16, not Vault Cortex, so this command leaves it alone.\n` +
+        "To keep this install's data, rename that container: docker rename vault-cortex <new-name>\n" +
+        `Or change INSTANCE_NAME in ${targetDir}/.env: the install then starts on new, empty volumes.`,
+    ])
+  })
+
+  it("exits 1 when image pull fails", async () => {
+    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-upgrade-"))
+    writeLocalEnv(targetDir)
+    const dockerPullFails: DockerRunner = {
+      ...dockerReady,
+      pullImage: () => false,
+    }
+    const scripted = createScriptedPrompts()
+
+    const exitCode = await runUpgrade(
+      { dir: targetDir },
+      {
+        prompts: scripted.prompts,
+        docker: dockerPullFails,
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(exitCode).toBe(1)
+    expect(scripted.spinnerMessages).toEqual([
+      "start: Pulling ghcr.io/aliasunder/vault-cortex:latest",
+      "stop: Image pull failed — see output above.",
+    ])
+  })
+
+  it("exits 1 when docker run fails", async () => {
+    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-upgrade-"))
+    writeLocalEnv(targetDir)
+    const dockerRunFails: DockerRunner = {
+      ...dockerReady,
+      dockerRun: () => false,
+    }
+    const scripted = createScriptedPrompts()
+
+    const exitCode = await runUpgrade(
+      { dir: targetDir },
+      {
+        prompts: scripted.prompts,
+        docker: dockerRunFails,
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(exitCode).toBe(1)
+    expect(scripted.errors).toEqual(["docker run failed — see output above."])
+  })
+
+  it("reports success when the health check passes", async () => {
+    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-upgrade-"))
+    writeLocalEnv(targetDir)
+    const scripted = createScriptedPrompts()
+
+    const exitCode = await runUpgrade(
+      { dir: targetDir },
+      { prompts: scripted.prompts, docker: dockerReady, fetchFn: fetchOk },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(scripted.spinnerMessages).toEqual([
+      "start: Pulling ghcr.io/aliasunder/vault-cortex:latest",
+      "stop: Image pulled.",
+      "start: Waiting for the server to come up",
+      "stop: Server is up — health check passed.",
+    ])
+  })
+
+  it("reports failure when the health check times out", async () => {
+    vi.mocked(pollHealth).mockResolvedValueOnce(false)
+    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-upgrade-"))
+    writeLocalEnv(targetDir)
+    const scripted = createScriptedPrompts()
+
+    const exitCode = await runUpgrade(
+      { dir: targetDir },
+      { prompts: scripted.prompts, docker: dockerReady, fetchFn: fetchNever },
+    )
+
+    expect(exitCode).toBe(1)
+    expect(scripted.spinnerMessages).toEqual([
+      "start: Pulling ghcr.io/aliasunder/vault-cortex:latest",
+      "stop: Image pulled.",
+      "start: Waiting for the server to come up",
+      "stop: Server did not respond within 2 minutes — check: docker logs vault-cortex",
+    ])
+  })
+
+  it("uses the PORT from .env for health polling", async () => {
+    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-upgrade-"))
+    writeFileSync(
+      join(targetDir, ".env"),
+      "MCP_AUTH_TOKEN=abc123\nVAULT_PATH=/vault\nPORT=9000\nPUBLIC_URL=http://localhost:9000\n",
+    )
+    const fetchedUrls: string[] = []
+    const fetchRecorder: typeof fetch = async (url) => {
+      fetchedUrls.push(String(url))
+      return new Response(null, { status: 200 })
+    }
+    const scripted = createScriptedPrompts()
+
+    const exitCode = await runUpgrade(
+      { dir: targetDir },
+      {
+        prompts: scripted.prompts,
+        docker: dockerReady,
+        fetchFn: fetchRecorder,
+      },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(fetchedUrls).toEqual(["http://127.0.0.1:9000/healthz"])
+  })
+})

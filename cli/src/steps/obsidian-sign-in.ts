@@ -1,0 +1,136 @@
+import type { Prompts } from "../adapters/prompts.js"
+
+// The env override lets the PTY tests point sign-in at a local stub server.
+const OBSIDIAN_SIGNIN_URL = process.env.OBSIDIAN_SIGNIN_URL ?? "https://api.obsidian.md/user/signin"
+const SIGNIN_TIMEOUT_MS = 30_000
+
+const describeError = (error: unknown): string => {
+  return error instanceof Error ? error.message : String(error)
+}
+
+class ObsidianApiError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = "ObsidianApiError"
+  }
+}
+
+const isJsonObject = (value: unknown): value is Record<string, unknown> => {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+}
+
+/**
+ * Calls the Obsidian Sync signin API. Returns the session token on success,
+ * or throws on HTTP/network errors. The API returns { error: string } for
+ * auth failures (200 with an error field), and non-200 for server errors.
+ */
+const callSigninApi = async (
+  params: { email: string; password: string; mfa: string },
+  fetchFn: typeof fetch,
+): Promise<string> => {
+  const response = await fetchFn(OBSIDIAN_SIGNIN_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Origin: "https://obsidian.md",
+    },
+    body: JSON.stringify({
+      email: params.email,
+      password: params.password,
+      mfa: params.mfa,
+    }),
+    signal: AbortSignal.timeout(SIGNIN_TIMEOUT_MS),
+  })
+
+  if (!response.ok) throw new Error(`HTTP Error ${response.status}`)
+
+  try {
+    const body = await response.json()
+
+    if (!isJsonObject(body)) throw new Error("not a JSON object")
+    if (typeof body.error === "string") throw new ObsidianApiError(body.error)
+    if (typeof body.token !== "string" || !body.token) throw new Error("no token field")
+
+    return body.token
+  } catch (error) {
+    if (error instanceof ObsidianApiError) throw error
+    throw new Error(`Unexpected response from Obsidian API (${describeError(error)})`, {
+      cause: error,
+    })
+  }
+}
+
+/**
+ * Warns the user about a signin failure with a message tailored to the
+ * error type. Called by both the initial signin and MFA retry paths.
+ */
+const warnSigninError = (
+  params: { error: unknown; isMfaRetry: boolean },
+  prompts: Prompts,
+): void => {
+  const { error, isMfaRetry } = params
+
+  if (error instanceof Error && error.name === "TimeoutError") {
+    prompts.warn("Request timed out — check your internet connection and try again.")
+    return
+  }
+
+  const isMfaError = error instanceof ObsidianApiError && error.message.includes("2FA code")
+  const mfaHint = isMfaRetry && isMfaError ? "\n  Check your 2FA code and try again." : ""
+
+  prompts.warn(`Could not sign in: ${describeError(error)}${mfaHint}`)
+}
+
+/**
+ * Signs in to the user's Obsidian account via the Sync API and returns
+ * the auth token. Prompts for email, password, and MFA code (when 2FA
+ * is enabled). Returns the token on success, undefined on any failure.
+ */
+export const captureObsidianToken = async (deps: {
+  prompts: Prompts
+  fetchFn: typeof fetch
+}): Promise<string | undefined> => {
+  const { prompts, fetchFn } = deps
+
+  const email = await prompts.text("Obsidian account email:", {
+    placeholder: "you@example.com",
+  })
+  const password = await prompts.password("Password:")
+
+  const spinner = prompts.spinner()
+  spinner.start("Signing in to Obsidian...")
+
+  try {
+    const token = await callSigninApi({ email, password, mfa: "" }, fetchFn)
+    spinner.stop(`Signed in as ${email}.`)
+    return token
+  } catch (error) {
+    // MFA required: the API returns an error containing "2FA code" — prompt
+    // and retry. "2FA code is incorrect" is a wrong-code rejection, not a
+    // prompt-for-code signal. Mirrors the obsidian-headless v0.0.14 logic.
+    const needsMfa =
+      error instanceof ObsidianApiError &&
+      error.message.includes("2FA code") &&
+      !error.message.includes("2FA code is incorrect")
+
+    if (!needsMfa) {
+      spinner.stop("Sign-in failed.")
+      warnSigninError({ error, isMfaRetry: false }, prompts)
+      return undefined
+    }
+
+    spinner.stop("Two-factor authentication required.")
+    const mfaCode = await prompts.text("2FA code:")
+
+    spinner.start("Verifying...")
+    try {
+      const token = await callSigninApi({ email, password, mfa: mfaCode }, fetchFn)
+      spinner.stop(`Signed in as ${email}.`)
+      return token
+    } catch (retryError) {
+      spinner.stop("Sign-in failed.")
+      warnSigninError({ error: retryError, isMfaRetry: true }, prompts)
+      return undefined
+    }
+  }
+}

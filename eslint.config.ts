@@ -38,6 +38,26 @@ const ENABLED_SET_OVER_READONLY_FLAG_RESTRICTIONS = [
   },
 ]
 
+/**
+ * The CLI's outside world (files, child processes, the terminal prompts) is
+ * reached only through cli/src/adapters/, so rules, steps and commands ban
+ * these imports at runtime.
+ */
+const CLI_IO_OUTSIDE_ADAPTERS_RESTRICTION = {
+  group: [
+    "node:fs",
+    "node:fs/**",
+    "fs",
+    "fs/**",
+    "node:child_process",
+    "child_process",
+    "@clack/prompts",
+  ],
+  allowTypeImports: true,
+  message:
+    "Only CLI adapters do file, process or prompt I/O — call an adapter instead (AGENTS.md → CLI layering)",
+}
+
 export default defineConfig(
   js.configs.recommended,
   tseslint.configs.strict,
@@ -159,6 +179,8 @@ export default defineConfig(
               group: [
                 "node:fs",
                 "node:fs/**",
+                "fs",
+                "fs/**",
                 "better-sqlite3",
                 "sqlite-vec",
                 "@modelcontextprotocol/**",
@@ -229,6 +251,123 @@ export default defineConfig(
               message:
                 "search/ builds on parsers and utils only — no runtime imports of vault-operations/, mcp-core/, oauth/, or setup/ (AGENTS.md → Module layering)",
             },
+          ],
+        },
+      ],
+    },
+  },
+  // CLI layering (see AGENTS.md → CLI layering): adapters → rules → steps →
+  // commands, with bin, main and program at cli/src/ as wiring. Patterns match
+  // the specifier as written, so a sibling import is "./x.js" and an import
+  // from another layer carries that layer's folder ("../steps/x.js").
+  {
+    // Adapters wrap the outside world (Docker, the terminal, files) and import
+    // nothing internal, not even another adapter.
+    files: ["cli/src/adapters/**/*.ts"],
+    ignores: ["**/__tests__/**", "**/*.test.ts"],
+    rules: {
+      "@typescript-eslint/no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              regex: "^\\.\\.?/",
+              allowTypeImports: true,
+              message: "CLI adapters import nothing internal at runtime (AGENTS.md → CLI layering)",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    // Rules are pure decisions and text: other rules at runtime, and adapters
+    // for their types only.
+    files: ["cli/src/rules/**/*.ts"],
+    ignores: ["**/__tests__/**", "**/*.test.ts"],
+    rules: {
+      "@typescript-eslint/no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              // Any "../" path leaves rules/, so this pattern also catches the wiring, such as "../program.js".
+              regex: "^\\.\\./",
+              allowTypeImports: true,
+              message:
+                "CLI rules are pure — import other rules, and adapters for types only (AGENTS.md → CLI layering)",
+            },
+            CLI_IO_OUTSIDE_ADAPTERS_RESTRICTION,
+          ],
+        },
+      ],
+    },
+  },
+  {
+    // Steps are the shared workflow pieces commands compose; they never
+    // reach up into a command, and they reach the outside world through adapters.
+    files: ["cli/src/steps/**/*.ts"],
+    ignores: ["**/__tests__/**", "**/*.test.ts"],
+    rules: {
+      "@typescript-eslint/no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              // Any path into the commands folder, such as "../commands/x".
+              group: ["**/commands/**"],
+              allowTypeImports: true,
+              message:
+                "CLI steps never import a command — move what both need into a step (AGENTS.md → CLI layering)",
+            },
+            {
+              // A loose file under cli/src is the wiring (program, main, bin), which imports every
+              // layer; the only other modules live in a layer folder.
+              regex: "^\\.\\./[^/]+$",
+              allowTypeImports: true,
+              message:
+                "CLI steps never import the wiring (program, main, bin) or any loose file under cli/src — the wiring imports the layers, never the reverse (AGENTS.md → CLI layering)",
+            },
+            CLI_IO_OUTSIDE_ADAPTERS_RESTRICTION,
+          ],
+        },
+      ],
+    },
+  },
+  {
+    // A command never imports another command: shared logic moves down into
+    // a step, so a fix lands in one place. Commands reach the outside world
+    // through adapters.
+    files: ["cli/src/commands/**/*.ts"],
+    ignores: ["**/__tests__/**", "**/*.test.ts"],
+    rules: {
+      "@typescript-eslint/no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              // "./x" names another command in this folder.
+              regex: "^\\./",
+              allowTypeImports: true,
+              message:
+                "CLI commands never import another command — move what both need into a step (AGENTS.md → CLI layering)",
+            },
+            {
+              // This pattern catches any other path into the folder, such as "../commands/x".
+              group: ["**/commands/**"],
+              allowTypeImports: true,
+              message:
+                "CLI commands never import another command — move what both need into a step (AGENTS.md → CLI layering)",
+            },
+            {
+              // A loose file under cli/src is the wiring (program, main, bin), which imports every
+              // layer; the only other modules live in a layer folder.
+              regex: "^\\.\\./[^/]+$",
+              allowTypeImports: true,
+              message:
+                "CLI commands never import the wiring (program, main, bin) or any loose file under cli/src — the wiring imports the layers, never the reverse (AGENTS.md → CLI layering)",
+            },
+            CLI_IO_OUTSIDE_ADAPTERS_RESTRICTION,
           ],
         },
       ],
