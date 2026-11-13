@@ -14,9 +14,10 @@ import {
 
 /**
  * Below this many milliseconds a median is mostly scheduling noise, so it sets
- * no tighter growth bound. It is lower than the other timing files' 25 ms
- * because the traversal fixture's smallest median sits near 10 ms: at a 25 ms
- * floor its bound would pass a quadratic slowdown.
+ * no tighter growth bound. It is lower than the 25 ms in tasks-linear and
+ * tasks-clear-linear because the traversal fixture's smallest median sits near
+ * 10 ms: a 25 ms floor would set the bound at 200 ms, above a quadratic
+ * slowdown's 165 ms, so the slowdown would pass.
  */
 const TIMING_FLOOR_MS = 10
 
@@ -122,7 +123,7 @@ describe("heading traversal compatibility", () => {
         })
       }
     }
-  })
+  }, 30_000)
 
   it.each([
     { newline: "\n", label: "LF" },

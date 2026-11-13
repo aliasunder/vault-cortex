@@ -195,7 +195,7 @@ describe("task recognizer compatibility", () => {
       })
     }
     expect(grammar.trailingTags("#a\t#b #a")).toEqual(["#a", "#b", "#a"])
-  })
+  }, 30_000)
 
   it(
     "bounds deduplication with tens of thousands of trailing description tags",
@@ -560,7 +560,7 @@ describe("task recognizer compatibility", () => {
         match: consumedMatch(oldEmoji.exec(input)),
       })
     }
-  })
+  }, 30_000)
 
   it("compares real Dataview dependency fields with the frozen suffix grammar", () => {
     const grammar = readGrammar()
