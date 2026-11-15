@@ -213,7 +213,7 @@ To remove a single entry from a memory file, use `vault_delete_memory`.
 
 - **Every link form:** wikilinks (including aliases, heading anchors, and embeds), markdown links, and frontmatter links, resolved with the same logic as the link-graph tools
 - **Canvas files:** links in text cards are rewritten like note links; the link index does not record them, so the move finds them with its own scan ([File I/O safety](#file-io-safety)). A file card that opens the moved note gets the note's new path, because Obsidian opens a file card by its exact path; an edited Canvas is saved in Obsidian's own `.canvas` layout
-- **Minimal rewrites:** apart from Canvas file cards, a link is rewritten only when leaving it unchanged would break it
+- **Minimal rewrites:** apart from Canvas file cards, a link is rewritten only when leaving it unchanged would break it, or would keep the old letter case after the note's file name changes
 - **Guardrails:** refuses to overwrite an existing destination, and blocks moves out of or into protected folders
 
 Both `vault_delete_note` and `vault_move_note` support `prune_empty_folders` to clean up parent directories left empty by the operation.
@@ -342,6 +342,10 @@ Link queries use a `links` table populated during indexing:
   1. Exact vault-relative path (path from vault folder)
   2. Path relative to the linking note (path from current file, including upward `../`)
   3. Basename (shortest-path-first for ambiguous basenames)
+- **Letter case:** Obsidian resolves a link whatever its letter case, so `[[real]]` and `[[folder/real]]` reach `Folder/Real.md`. Resolution walks the three tiers in the link's own letter case first, and walks them again with letter case folded only when every tier misses. A folded match returns the stored path, and backlinks, orphans and `vault_move_note` all follow it.
+  - Note links fold every letter (`toLowerCase`), so `[[éclair]]` reaches `Éclair.md`. Notes are tried before files, so `[[photo]]` reaches `Photo.md` rather than `photo.png`.
+  - File links fold ASCII letters only, because the index resolves them in SQL (`COLLATE NOCASE`) and the in-memory twin must pick the same file; `![[éclair.png]]` stays broken beside `Éclair.png`. Their path-suffix tiers query with `LIKE`, which ignores ASCII letter case, so those tiers fold in the first walk too: `![[photo.png]]` reaches the shorter `A/Photo.PNG` rather than `B/sub/photo.png`.
+  - Two notes whose paths differ only in letter case, possible on a case-sensitive filesystem, each keep the links written in their own spelling; a third spelling goes to the shortest path, then byte order. This is the server's own rule, not a statement of Obsidian's behaviour.
 - **Non-markdown files:** Targets that don't resolve to a note are checked against a `non_md_files` table (populated during rebuild, maintained by the file watcher). Both wikilinks and markdown-style links to `.canvas`, `.base`, images, PDFs, and other non-markdown files resolve as `kind: "file"` instead of being counted as broken.
 - **Outgoing links:** `vault_get_outgoing_links` returns a `kind` discriminator (`"note"` or `"file"`) plus each target's byte size (`bytes` — from the notes table for notes, from `non_md_files` for files), so clients can route notes to `vault_read_note` and files to `vault_read_file` with size awareness. A broken link keeps the target text the index stored: its original letter case, and for a markdown link, its `%`-escapes decoded.
 - **Orphans:** `vault_find_orphans` and `vault-orientation` resolve default exclusions on each invocation: the daily notes folder (resolved as [Daily notes](#property-discovery--daily-notes) describes), `Templates`, and the memory dir.

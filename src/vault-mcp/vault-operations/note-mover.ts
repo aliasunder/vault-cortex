@@ -118,16 +118,30 @@ const classifyLinkForm = (params: {
   resolvedTarget: string
 }): LinkForm => {
   const { rawTarget, sourcePath, resolvedTarget } = params
+
+  // Links resolve whatever their letter case, so the form is read with case
+  // folded: [[folder/real]] for Folder/Real.md is a path-form link, and its
+  // rewrite keeps the folder. For an asset link, toLowerCase folds more
+  // letters than the asset resolver does. That can only read a bare-name link
+  // as a path form, which costs a longer rewrite, never a broken one.
+  const foldedTarget = rawTarget.toLowerCase()
+  const foldedResolvedTarget = resolvedTarget.toLowerCase()
+
   // The resolved path carries the file's real extension — ".md" for notes,
   // the asset's own otherwise — so one rule covers both kinds (a stem-form
   // asset link gets its extension appended, exactly like an extensionless
   // wikilink to a note). An extensionless file gives "", which every target
   // ends with, so nothing is appended.
-  const extension = posix.extname(resolvedTarget)
-  const targetWithExtension = rawTarget.endsWith(extension) ? rawTarget : `${rawTarget}${extension}`
+  const extension = posix.extname(foldedResolvedTarget)
+  const targetWithExtension = foldedTarget.endsWith(extension)
+    ? foldedTarget
+    : `${foldedTarget}${extension}`
 
-  if (targetWithExtension === resolvedTarget) return "absolute"
-  if (posix.join(posix.dirname(sourcePath), targetWithExtension) === resolvedTarget) {
+  if (targetWithExtension === foldedResolvedTarget) return "absolute"
+
+  const foldedSourceFolder = posix.dirname(sourcePath).toLowerCase()
+
+  if (posix.join(foldedSourceFolder, targetWithExtension) === foldedResolvedTarget) {
     return "relative"
   }
   return "basename"
@@ -137,7 +151,8 @@ const classifyLinkForm = (params: {
  *  location, keeping the original link form. Falls back to vault-absolute if the
  *  shorter form would resolve elsewhere after the move. keepExtension controls
  *  the extension state: true keeps desiredTarget's extension (the original
- *  link carried it), false strips it back to the stem/extensionless form. */
+ *  link carried it), false strips it back to the stem/extensionless form.
+ *  The replacement takes desiredTarget's letter case, not the link's. */
 const buildReplacementTarget = (params: {
   form: LinkForm
   desiredTarget: string
@@ -200,10 +215,8 @@ const rewriteTarget = (
   // Follow the moved note to its new location; every other target (an
   // unmoved note, or an asset — assets never move) keeps its resolved path,
   // and the rewrite below only re-expresses how the link reaches it.
-  const desiredTarget =
-    targetKind === "note" && resolvedBefore === context.oldTargetPath
-      ? context.newTargetPath
-      : resolvedBefore
+  const linksToMovedNote = targetKind === "note" && resolvedBefore === context.oldTargetPath
+  const desiredTarget = linksToMovedNote ? context.newTargetPath : resolvedBefore
 
   // Resolves against the post-move vault from the source's new location —
   // shared by the "already resolves" check and the candidate verifier.
@@ -222,17 +235,36 @@ const rewriteTarget = (
     })
   }
 
-  // Already resolves correctly from the new location — leave it alone.
-  const resolvedAfter = resolveFromNewSource(rawTarget)
+  // A link that already resolves correctly from the new location is left
+  // alone. When the move changes the note's file name, even only in letter
+  // case, a link to it qualifies only when it matches in its own letter case.
+  // After a rename from Foo.md to foo.md, [[Foo]] still reaches foo.md with
+  // case folded, yet it is rewritten to [[foo]]. A move that keeps the file
+  // name leaves [[real]] alone while it still reaches the note, as Obsidian
+  // does on a folder move.
+  const fileNameChanges =
+    posix.basename(context.oldTargetPath) !== posix.basename(context.newTargetPath)
+  const resolvedAfter =
+    linksToMovedNote && fileNameChanges
+      ? links.resolveInExactCase({
+          target: rawTarget,
+          allPaths: context.allNotePathsAfter,
+          sourcePath: context.newSourcePath,
+        })
+      : resolveFromNewSource(rawTarget)
 
   if (resolvedAfter === desiredTarget) return null
 
-  // The replacement keeps the original link's extension state — the
-  // extension is kept only when the original carried the resolved file's
-  // real extension (markdown links always keep theirs; a wikilink to a note
-  // never carries ".md"; a stem-form asset link stays extensionless).
+  // The replacement keeps the original link's extension state. The extension
+  // is kept only when the original carried the resolved file's real
+  // extension, in any letter case, since ![[Photo.PNG]] resolves to
+  // photo.png. As a result:
+  // - a markdown link always keeps its extension;
+  // - a wikilink to a note never carries ".md";
+  // - a stem-form asset link stays extensionless.
   const grammarWritesExtension = targetKind === "asset" || grammar === "markdown"
-  const carriesResolvedExtension = originalExtension === posix.extname(desiredTarget)
+  const carriesResolvedExtension =
+    originalExtension.toLowerCase() === posix.extname(desiredTarget).toLowerCase()
   const keepExtension = grammarWritesExtension && carriesResolvedExtension
 
   return buildReplacementTarget({
@@ -772,8 +804,9 @@ const moveNote = async (
     vaultPath,
     notePath: params.oldPath,
   })
-  // The destination doesn't exist yet, so newPath has no listed alias spelling
-  // — this canonical form is final, unlike oldPath, which is rebound below.
+  // The destination doesn't exist yet, so the file listing holds no other
+  // spelling of it. This canonical form is final, unlike oldPath, which is
+  // rebound below to the listing's spelling.
   const newPath = resolveVaultRelativePath({
     vaultPath,
     notePath: params.newPath,
