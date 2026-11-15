@@ -19,8 +19,8 @@
         {
           "type": "named",
           "name": "-p",
-          "description": "Publish the container's port 8000 on the host.",
-          "value": "8000:8000"
+          "description": "Publish the container's port 8000 on the host's loopback address, so only this machine can reach it. Use 8000:8000 to reach it from other machines.",
+          "value": "127.0.0.1:8000:8000"
         },
         {
           "type": "named",

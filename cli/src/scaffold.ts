@@ -1,4 +1,5 @@
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
+import { isIPv4, isIPv6 } from "node:net"
 import { join } from "node:path"
 
 export type Mode = "local" | "remote"
@@ -30,6 +31,21 @@ export const DEFAULT_INSTANCE_NAME = "vault-cortex"
  * Global, because `docker run --env-file` lets the last duplicate win.
  */
 const ENV_PORT_LINES = /^PORT=(.*)$/gm
+
+/** Matches every active (uncommented) BIND_ADDRESS line, capturing its raw value. */
+const ENV_BIND_ADDRESS_LINES = /^BIND_ADDRESS=(.*)$/gm
+
+/**
+ * The host address Docker publishes the port on when .env sets no
+ * BIND_ADDRESS:
+ * - a local install answers this machine only;
+ * - a remote install gets no address, so Docker publishes on every address,
+ *   IPv4 and IPv6, and other devices can reach the server over either.
+ */
+const DEFAULT_BIND_ADDRESSES: Readonly<Record<Mode, string>> = {
+  local: "127.0.0.1",
+  remote: "",
+}
 
 /** Matches every active (uncommented) INSTANCE_NAME line, capturing its raw value. */
 const ENV_INSTANCE_NAME_LINES = /^INSTANCE_NAME=(.*)$/gm
@@ -107,6 +123,50 @@ export const readEnvPort = (envFilePath: string): PortRead => {
   return { kind: "ok", port: Number(portValue) }
 }
 
+/**
+ * An IPv4 address, or an IPv6 address in brackets (`[::1]`): the host-address
+ * forms both `docker run -p` and Compose's ports list read. A bare IPv6
+ * address is refused, because its colons run into the port separators, and
+ * so is a zone-scoped one (`[fe80::1%eth0]`), which Node accepts but Docker
+ * does not.
+ */
+export const isValidBindAddress = (value: string): boolean => {
+  if (isIPv4(value)) return true
+  if (value.includes("%")) return false
+  return value.startsWith("[") && value.endsWith("]") && isIPv6(value.slice(1, -1))
+}
+
+/** The error for a .env BIND_ADDRESS value that isn't an address; callers add where to fix it. */
+export const describeInvalidEnvBindAddress = (bindAddress: string): string => {
+  return `BIND_ADDRESS "${bindAddress}" is not an address Docker can publish on — use an IPv4 address such as 127.0.0.1 or 0.0.0.0, or an IPv6 address in brackets such as [::1].`
+}
+
+export type BindAddressRead =
+  { kind: "ok"; bindAddress: string } | { kind: "invalid"; message: string }
+
+/**
+ * Reads the host address to publish the port on from a .env file:
+ * - the last active line wins, as it does for `docker run --env-file`;
+ * - a missing file, line or empty value means the mode's default, which is
+ *   empty (no address) for a remote install;
+ * - any other value that is not an address is reported, never corrected,
+ *   because a guess could publish the server wider than the user meant.
+ */
+export const readEnvBindAddress = (envFilePath: string, mode: Mode): BindAddressRead => {
+  const defaultRead: BindAddressRead = { kind: "ok", bindAddress: DEFAULT_BIND_ADDRESSES[mode] }
+
+  if (!existsSync(envFilePath)) return defaultRead
+  const bindAddressLines = [...readFileSync(envFilePath, "utf8").matchAll(ENV_BIND_ADDRESS_LINES)]
+  const rawValue = bindAddressLines.at(-1)?.[1].trim()
+  const bindAddress = rawValue ? stripSurroundingQuotes(rawValue) : ""
+
+  if (!bindAddress) return defaultRead
+  if (!isValidBindAddress(bindAddress)) {
+    return { kind: "invalid", message: describeInvalidEnvBindAddress(bindAddress) }
+  }
+  return { kind: "ok", bindAddress }
+}
+
 /** Returns why a candidate instance name is invalid, or undefined when it is valid. */
 export const describeInvalidInstanceName = (candidateName: string): string | undefined => {
   if (INSTANCE_NAME_PATTERN.test(candidateName)) return undefined
@@ -167,6 +227,78 @@ export const readEnvPublicUrl = (envFilePath: string): string | undefined => {
   // `https://host/` would otherwise print broken `//mcp` connect URLs.
   const normalizedPublicUrl = unquotedValue?.replace(/\/+$/, "")
   return normalizedPublicUrl || undefined
+}
+
+/**
+ * A trailing `/mcp` path segment, optionally followed by slashes, anchored to
+ * the end of a URL's pathname (`/MCP`, `/mcp/` match too via the `i` flag —
+ * WHATWG URL preserves path case). The server owns the `/mcp` endpoint and
+ * appends it when building the connect URL, so PUBLIC_URL must be the base
+ * origin; a re-included `/mcp` is rejected, not silently rewritten.
+ */
+const TRAILING_MCP_PATH = /\/mcp\/*$/i
+
+/**
+ * Parses an http(s) URL with the WHATWG `URL` constructor, returning null for
+ * anything it can't be: bad syntax, a missing scheme, or a non-http(s)
+ * protocol (`ws:`, `file:`, ...). More robust than a `startsWith` check, which
+ * would pass malformed inputs like `https://` or `https://a b.com`.
+ */
+const parseHttpUrl = (value: string): URL | null => {
+  try {
+    const url = new URL(value)
+    return url.protocol === "http:" || url.protocol === "https:" ? url : null
+  } catch {
+    return null
+  }
+}
+
+export type PublicUrlValidation = { kind: "ok"; url: string } | { kind: "error"; message: string }
+
+/** Validates a PUBLIC_URL value: must be a bare http(s) origin — no path, credentials, query, or fragment. */
+export const validatePublicUrl = (input: string): PublicUrlValidation => {
+  const trimmed = input.trim()
+  const url = parseHttpUrl(trimmed)
+
+  if (!url) {
+    return {
+      kind: "error",
+      message:
+        "PUBLIC_URL must be a full http:// or https:// URL (e.g. https://vault.example.com).",
+    }
+  }
+  if (url.username || url.password) {
+    return {
+      kind: "error",
+      message: "PUBLIC_URL must not contain credentials (user:password@).",
+    }
+  }
+  // Raw-string check: url.search/url.hash return "" for bare delimiters
+  // (WHATWG spec treats empty-string and null query/fragment identically),
+  // so a parsed-property check misses "https://host/?" and "https://host/#".
+  if (trimmed.includes("?") || trimmed.includes("#")) {
+    return {
+      kind: "error",
+      message: "PUBLIC_URL must be a bare origin — no query string (?...) or fragment (#...).",
+    }
+  }
+  if (TRAILING_MCP_PATH.test(url.pathname)) {
+    return {
+      kind: "error",
+      message:
+        "Leave /mcp off PUBLIC_URL — it's the base URL and the server adds /mcp itself (e.g. https://vault.example.com).",
+    }
+  }
+  if (url.pathname.replace(/\/+$/, "") !== "") {
+    return {
+      kind: "error",
+      message:
+        "PUBLIC_URL must be a bare origin — no path (e.g. https://vault.example.com, not https://vault.example.com/vault/).",
+    }
+  }
+  // Trim trailing slashes so the connect URL is `${base}/mcp`, never
+  // `${base}//mcp`.
+  return { kind: "ok", url: trimmed.replace(/\/+$/, "") }
 }
 
 /**

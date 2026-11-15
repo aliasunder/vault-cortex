@@ -3,7 +3,9 @@ import { join, resolve } from "node:path"
 import {
   healthPollTimeoutMs,
   healthTimeoutMessage,
+  hostHealthUrl,
   isVaultCortexImage,
+  LOOPBACK_FOR_WILDCARD,
   pollHealth,
   probeHealth,
   type DockerRunner,
@@ -11,11 +13,13 @@ import {
 import { buildDaemonNotRunningMessage, buildDockerNotInstalledMessage } from "./messages.js"
 import {
   detectMode,
+  readEnvBindAddress,
   readEnvInstanceName,
   readEnvPort,
   readEnvPublicUrl,
   readEnvVaultPath,
   stripEnvQuotedValues,
+  validatePublicUrl,
   type Mode,
 } from "./scaffold.js"
 import { expandTilde } from "./vault.js"
@@ -61,6 +65,8 @@ export type Deployment = {
   targetDir: string
   envFilePath: string
   port: number
+  /** The host address Docker publishes the port on; empty publishes on every address. */
+  bindAddress: string
   /** Present only in local mode. */
   vaultPath?: string
   publicUrl: string
@@ -103,9 +109,51 @@ const missingPublicUrlFix = (mode: Mode, port: number): string => {
 }
 
 /**
+ * Bind addresses whose port still answers on this machine's loopback address:
+ * no address and the wildcard addresses, which publish on loopback as well,
+ * plus the loopback addresses the health poll reaches them on.
+ */
+const BIND_ADDRESSES_ANSWERING_ON_LOOPBACK: ReadonlySet<string> = new Set([
+  ...LOOPBACK_FOR_WILDCARD.keys(),
+  ...LOOPBACK_FOR_WILDCARD.values(),
+])
+
+/** PUBLIC_URL hosts that name this machine's loopback address. */
+const LOOPBACK_PUBLIC_URL_HOSTS: ReadonlySet<string> = new Set(["localhost", "127.0.0.1", "[::1]"])
+
+/**
+ * Warns when BIND_ADDRESS publishes the port on one network address while
+ * PUBLIC_URL still names loopback, where the port no longer answers. Returns
+ * undefined when there is nothing to warn about.
+ */
+const describeStrandedLoopbackPublicUrl = (params: {
+  targetDir: string
+  port: number
+  bindAddress: string
+  publicUrl: string
+}): string | undefined => {
+  const { targetDir, port, bindAddress, publicUrl } = params
+  // resolveDeployment validates PUBLIC_URL first, so it parses here.
+  const publicUrlHost = URL.parse(publicUrl)?.hostname
+  const publicUrlNamesLoopback = Boolean(
+    publicUrlHost && LOOPBACK_PUBLIC_URL_HOSTS.has(publicUrlHost),
+  )
+
+  if (BIND_ADDRESSES_ANSWERING_ON_LOOPBACK.has(bindAddress) || !publicUrlNamesLoopback) {
+    return undefined
+  }
+  return (
+    `BIND_ADDRESS publishes the port on ${bindAddress} only, so PUBLIC_URL (${publicUrl}) no longer reaches the server — ` +
+    `set PUBLIC_URL to the address clients use, such as http://${bindAddress}:${port}, in ${targetDir}/.env.`
+  )
+}
+
+/**
  * Resolves --dir to the on-disk deployment and validates its .env for a
- * container start: mode detection, PORT, VAULT_PATH (local), and PUBLIC_URL.
- * Reports each failure via prompts.error and returns undefined.
+ * container start: mode detection, PORT, BIND_ADDRESS, VAULT_PATH (local), and
+ * PUBLIC_URL (present, and a bare http(s) origin as the server requires).
+ * Reports each failure via prompts.error and returns undefined, and warns
+ * when BIND_ADDRESS leaves a loopback PUBLIC_URL unreachable.
  * Shared by init, start, restart, upgrade and configure so their precondition checks can't drift.
  */
 export const resolveDeployment = (
@@ -124,6 +172,13 @@ export const resolveDeployment = (
     return undefined
   }
   const { port } = portRead
+  const bindAddressRead = readEnvBindAddress(envFilePath, mode)
+
+  if (bindAddressRead.kind === "invalid") {
+    prompts.error(`${bindAddressRead.message} Fix it in ${targetDir}/.env.`)
+    return undefined
+  }
+  const { bindAddress } = bindAddressRead
   const vaultPath = mode === "local" ? readEnvVaultPath(envFilePath) : undefined
 
   if (mode === "local" && !vaultPath) {
@@ -141,7 +196,24 @@ export const resolveDeployment = (
     )
     return undefined
   }
-  return { mode, instanceName, targetDir, envFilePath, port, vaultPath, publicUrl }
+  // The server refuses to boot on a PUBLIC_URL that is not a bare http(s)
+  // origin, so a container started with one restarts until the health poll
+  // gives up.
+  const publicUrlValidation = validatePublicUrl(publicUrl)
+
+  if (publicUrlValidation.kind === "error") {
+    prompts.error(`${publicUrlValidation.message} Fix it in ${targetDir}/.env.`)
+    return undefined
+  }
+  const strandedPublicUrlWarning = describeStrandedLoopbackPublicUrl({
+    targetDir,
+    port,
+    bindAddress,
+    publicUrl,
+  })
+
+  if (strandedPublicUrlWarning) prompts.warn(strandedPublicUrlWarning)
+  return { mode, instanceName, targetDir, envFilePath, port, bindAddress, vaultPath, publicUrl }
 }
 
 /**
@@ -251,6 +323,7 @@ export const recreateContainer = async (
     instanceName,
     envFilePath: deployment.envFilePath,
     port: deployment.port,
+    bindAddress: deployment.bindAddress,
     vaultPath: deployment.vaultPath,
   })
 
@@ -264,7 +337,7 @@ export const recreateContainer = async (
   const timeoutMs = healthTimeoutMs ?? healthPollTimeoutMs(deployment.mode)
   const healthy = await pollHealth(
     {
-      url: `http://127.0.0.1:${deployment.port}/healthz`,
+      url: hostHealthUrl({ bindAddress: deployment.bindAddress, port: deployment.port }),
       timeoutMs,
     },
     fetchFn,
@@ -277,8 +350,9 @@ export const recreateContainer = async (
   spinner.stop("Server is up — health check passed.")
 
   // Informational only — the container is confirmed healthy above, so the
-  // public-URL result never changes the exit code. A local PUBLIC_URL is the
-  // localhost address the health check just reached, so only remote probes it.
+  // public-URL result never changes the exit code. A local PUBLIC_URL names
+  // this machine, where the health check just reached the server, so only
+  // remote probes it.
   if (deployment.mode === "remote") {
     await reportPublicUrlProbe(deployment.publicUrl, { prompts, fetchFn })
   }

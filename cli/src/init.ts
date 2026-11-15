@@ -14,6 +14,7 @@ import {
 import {
   healthPollTimeoutMs,
   healthTimeoutMessage,
+  hostHealthUrl,
   pollHealth,
   type DockerRunner,
 } from "./docker.js"
@@ -35,6 +36,7 @@ import {
   detectMode,
   readEnvObsidianToken,
   stripEnvQuotedValues,
+  validatePublicUrl,
   writeFiles,
   type FileWriteResult,
   type Mode,
@@ -127,78 +129,6 @@ const askVaultPath = async (prompts: Prompts): Promise<string> => {
     if (!useAnyway) return askVaultPath(prompts)
   }
   return validation.path
-}
-
-/**
- * A trailing `/mcp` path segment, optionally followed by slashes, anchored to
- * the end of a URL's pathname (`/MCP`, `/mcp/` match too via the `i` flag —
- * WHATWG URL preserves path case). The server owns the `/mcp` endpoint and
- * appends it when building the connect URL, so PUBLIC_URL must be the base
- * origin; a re-included `/mcp` is rejected, not silently rewritten.
- */
-const TRAILING_MCP_PATH = /\/mcp\/*$/i
-
-/**
- * Parses an http(s) URL with the WHATWG `URL` constructor, returning null for
- * anything it can't be: bad syntax, a missing scheme, or a non-http(s)
- * protocol (`ws:`, `file:`, ...). More robust than a `startsWith` check, which
- * would pass malformed inputs like `https://` or `https://a b.com`.
- */
-const parseHttpUrl = (value: string): URL | null => {
-  try {
-    const url = new URL(value)
-    return url.protocol === "http:" || url.protocol === "https:" ? url : null
-  } catch {
-    return null
-  }
-}
-
-export type PublicUrlValidation = { kind: "ok"; url: string } | { kind: "error"; message: string }
-
-/** Validates a PUBLIC_URL value: must be a bare http(s) origin — no path, credentials, query, or fragment. */
-export const validatePublicUrl = (input: string): PublicUrlValidation => {
-  const trimmed = input.trim()
-  const url = parseHttpUrl(trimmed)
-
-  if (!url) {
-    return {
-      kind: "error",
-      message:
-        "PUBLIC_URL must be a full http:// or https:// URL (e.g. https://vault.example.com).",
-    }
-  }
-  if (url.username || url.password) {
-    return {
-      kind: "error",
-      message: "PUBLIC_URL must not contain credentials (user:password@).",
-    }
-  }
-  // Raw-string check: url.search/url.hash return "" for bare delimiters
-  // (WHATWG spec treats empty-string and null query/fragment identically),
-  // so a parsed-property check misses "https://host/?" and "https://host/#".
-  if (trimmed.includes("?") || trimmed.includes("#")) {
-    return {
-      kind: "error",
-      message: "PUBLIC_URL must be a bare origin — no query string (?...) or fragment (#...).",
-    }
-  }
-  if (TRAILING_MCP_PATH.test(url.pathname)) {
-    return {
-      kind: "error",
-      message:
-        "Leave /mcp off PUBLIC_URL — it's the base URL and the server adds /mcp itself (e.g. https://vault.example.com).",
-    }
-  }
-  if (url.pathname.replace(/\/+$/, "") !== "") {
-    return {
-      kind: "error",
-      message:
-        "PUBLIC_URL must be a bare origin — no path (e.g. https://vault.example.com, not https://vault.example.com/vault/).",
-    }
-  }
-  // Trim trailing slashes so the connect URL is `${base}/mcp`, never
-  // `${base}//mcp`.
-  return { kind: "ok", url: trimmed.replace(/\/+$/, "") }
 }
 
 const askTargetDir = async (prompts: Prompts): Promise<string> => {
@@ -319,10 +249,17 @@ const reportWrites = (
  * launched but the health check timed out, or "not-started" when a gate failed.
  */
 const offerDockerRun = async (
-  params: { targetDir: string; instanceName: string; port: number; mode: Mode; vaultPath?: string },
+  params: {
+    targetDir: string
+    instanceName: string
+    port: number
+    bindAddress: string
+    mode: Mode
+    vaultPath?: string
+  },
   deps: InitDeps,
 ): Promise<StartStatus> => {
-  const { targetDir, instanceName, port, mode, vaultPath } = params
+  const { targetDir, instanceName, port, bindAddress, mode, vaultPath } = params
   const { prompts, docker, fetchFn } = deps
   const daemonStatus = docker.daemonStatus()
 
@@ -363,6 +300,7 @@ const offerDockerRun = async (
     instanceName,
     envFilePath,
     port,
+    bindAddress,
     vaultPath,
   })
 
@@ -374,7 +312,10 @@ const offerDockerRun = async (
   const spinner = prompts.spinner()
   spinner.start("Waiting for the server to come up (first run may take a moment)")
   const timeoutMs = healthPollTimeoutMs(mode)
-  const healthy = await pollHealth({ url: `http://127.0.0.1:${port}/healthz`, timeoutMs }, fetchFn)
+  const healthy = await pollHealth(
+    { url: hostHealthUrl({ bindAddress, port }), timeoutMs },
+    fetchFn,
+  )
 
   if (!healthy) {
     spinner.stop(healthTimeoutMessage({ mode, timeoutMs, instanceName }))
@@ -492,8 +433,8 @@ const runLocalInit = async (flags: InitFlags, deps: InitDeps): Promise<number> =
   }
 
   // When an existing .env was kept, this run's generated token was never
-  // saved — the connect message must point at the token (and PORT) actually
-  // on disk, or a pasted token fails auth with no hint why.
+  // saved — the connect message must point at the token (and PUBLIC_URL)
+  // actually on disk, or a pasted token fails auth with no hint why.
   const envResult = results.find((result) => result.name === ".env")
   const tokenWritten = envResult?.status === "created" || envResult?.status === "overwritten"
 
@@ -505,13 +446,20 @@ const runLocalInit = async (flags: InitFlags, deps: InitDeps): Promise<number> =
   const deployment = resolveDeployment(targetDir, prompts)
 
   if (!deployment) return 1
-  const { instanceName, port } = deployment
+  const { instanceName, port, bindAddress, publicUrl } = deployment
 
   // --yes is for scripts/CI, so it never starts Docker.
   const startStatus: StartStatus = flags.yes
     ? "not-started"
     : await offerDockerRun(
-        { targetDir, instanceName, port, mode: "local", vaultPath: deployment.vaultPath },
+        {
+          targetDir,
+          instanceName,
+          port,
+          bindAddress,
+          mode: "local",
+          vaultPath: deployment.vaultPath,
+        },
         deps,
       )
   prompts.print(
@@ -520,7 +468,7 @@ const runLocalInit = async (flags: InitFlags, deps: InitDeps): Promise<number> =
       instanceName,
       token,
       startStatus,
-      port,
+      publicUrl,
       tokenWritten,
     }),
   )
@@ -634,11 +582,14 @@ const runRemoteInit = async (flags: InitFlags, deps: InitDeps): Promise<number> 
   const deployment = resolveDeployment(targetDir, prompts)
 
   if (!deployment) return 1
-  const { instanceName, port, publicUrl: effectivePublicUrl } = deployment
+  const { instanceName, port, bindAddress, publicUrl: effectivePublicUrl } = deployment
 
   // Started without a Sync token in .env, the container keeps a login saved
   // on its volume, or serves its sign-in page; the closing message covers both.
-  const startStatus = await offerDockerRun({ targetDir, instanceName, port, mode: "remote" }, deps)
+  const startStatus = await offerDockerRun(
+    { targetDir, instanceName, port, bindAddress, mode: "remote" },
+    deps,
+  )
 
   // The container check above hit localhost on this machine; the public URL
   // is the ingress path clients actually use — probe it too, informationally.

@@ -6,6 +6,7 @@ import {
   classifyDaemonStatus,
   healthPollTimeoutMs,
   healthTimeoutMessage,
+  hostHealthUrl,
   isContainerNamed,
   isVaultCortexImage,
   LOCAL_IMAGE,
@@ -30,6 +31,7 @@ describe("buildDockerRunArgs", () => {
       instanceName: "vault-cortex",
       envFilePath: "/home/user/vault-cortex/.env",
       port: 8000,
+      bindAddress: "127.0.0.1",
       vaultPath: "/home/user/MyVault",
     })
 
@@ -51,7 +53,7 @@ describe("buildDockerRunArgs", () => {
       "-e",
       "INDEX_DB_PATH=/data/index.db",
       "-p",
-      "8000:8000",
+      "127.0.0.1:8000:8000",
       "-v",
       "/home/user/MyVault:/vault:rw",
       "-v",
@@ -76,6 +78,7 @@ describe("buildDockerRunArgs", () => {
       instanceName: "vault-cortex",
       envFilePath: "/opt/vault-cortex/.env",
       port: 8000,
+      bindAddress: "",
     })
 
     expect(args).toEqual([
@@ -125,18 +128,67 @@ describe("buildDockerRunArgs", () => {
     ])
   })
 
-  it("uses a custom port for the host-side mapping", () => {
+  it.each([
+    {
+      label: "a custom port on loopback in local mode",
+      mode: "local" as const,
+      vaultPath: "/home/user/MyVault",
+      bindAddress: "127.0.0.1",
+      port: 9000,
+      published: "127.0.0.1:9000:8000",
+    },
+    {
+      label: "a custom port on every IPv4 and IPv6 address when no address is given",
+      mode: "remote" as const,
+      vaultPath: undefined,
+      bindAddress: "",
+      port: 9000,
+      published: "9000:8000",
+    },
+    {
+      label: "every IPv4 address in remote mode",
+      mode: "remote" as const,
+      vaultPath: undefined,
+      bindAddress: "0.0.0.0",
+      port: 8000,
+      published: "0.0.0.0:8000:8000",
+    },
+    {
+      label: "every address in local mode",
+      mode: "local" as const,
+      vaultPath: "/home/user/MyVault",
+      bindAddress: "0.0.0.0",
+      port: 8000,
+      published: "0.0.0.0:8000:8000",
+    },
+    {
+      label: "loopback in remote mode",
+      mode: "remote" as const,
+      vaultPath: undefined,
+      bindAddress: "127.0.0.1",
+      port: 8000,
+      published: "127.0.0.1:8000:8000",
+    },
+    {
+      label: "a bracketed IPv6 address",
+      mode: "local" as const,
+      vaultPath: "/home/user/MyVault",
+      bindAddress: "[::1]",
+      port: 8000,
+      published: "[::1]:8000:8000",
+    },
+  ])("publishes $label", ({ mode, vaultPath, bindAddress, port, published }) => {
     const args = buildDockerRunArgs({
-      mode: "local",
+      mode,
       instanceName: "vault-cortex",
       envFilePath: "/tmp/.env",
-      port: 9000,
-      vaultPath: "/vault",
+      port,
+      bindAddress,
+      ...(vaultPath ? { vaultPath } : {}),
     })
 
-    expect(args).toContain("-p")
     const portIndex = args.indexOf("-p")
-    expect(args[portIndex + 1]).toBe("9000:8000")
+    expect(args[portIndex + 1]).toBe(published)
   })
 
   it("overrides VAULT_PATH so the host path does not leak into the container", () => {
@@ -145,6 +197,7 @@ describe("buildDockerRunArgs", () => {
       instanceName: "vault-cortex",
       envFilePath: "/tmp/.env",
       port: 8000,
+      bindAddress: "127.0.0.1",
       vaultPath: "/Users/me/My Vault",
     })
 
@@ -160,6 +213,7 @@ describe("buildDockerRunArgs", () => {
         instanceName: "vault-cortex",
         envFilePath: "/tmp/.env",
         port: 8000,
+        bindAddress: "127.0.0.1",
       }),
     ).toThrow("vaultPath is required for local mode")
   })
@@ -170,6 +224,7 @@ describe("buildDockerRunArgs", () => {
       instanceName: "vault-cortex",
       envFilePath: "/tmp/.env",
       port: 8000,
+      bindAddress: "127.0.0.1",
       vaultPath: "/vault",
     })
     expect(localArgs).toContain("vault-cortex_mcp_data:/data")
@@ -179,6 +234,7 @@ describe("buildDockerRunArgs", () => {
       instanceName: "vault-cortex",
       envFilePath: "/tmp/.env",
       port: 8000,
+      bindAddress: "",
     })
     expect(remoteArgs).toContain("vault-cortex_vault_data:/vault")
     expect(remoteArgs).toContain("vault-cortex_mcp_data:/data")
@@ -191,6 +247,7 @@ describe("buildDockerRunArgs", () => {
       instanceName: "work",
       envFilePath: "/home/user/work/.env",
       port: 8001,
+      bindAddress: "127.0.0.1",
       vaultPath: "/home/user/WorkVault",
     })
 
@@ -212,7 +269,7 @@ describe("buildDockerRunArgs", () => {
       "-e",
       "INDEX_DB_PATH=/data/index.db",
       "-p",
-      "8001:8000",
+      "127.0.0.1:8001:8000",
       "-v",
       "/home/user/WorkVault:/vault:rw",
       "-v",
@@ -237,6 +294,7 @@ describe("buildDockerRunArgs", () => {
       instanceName: "work",
       envFilePath: "/opt/work/.env",
       port: 8001,
+      bindAddress: "",
     })
 
     expect(args).toEqual([
@@ -292,6 +350,7 @@ describe("buildDockerRunArgs", () => {
       instanceName: "vault-cortex",
       envFilePath: "/tmp/.env",
       port: 8000,
+      bindAddress: "",
     })
 
     expect(args).toContain("--log-driver")
@@ -303,6 +362,39 @@ describe("buildDockerRunArgs", () => {
     expect(args[retriesIndex + 1]).toBe("5")
     const startPeriodIndex = args.indexOf("--health-start-period")
     expect(args[startPeriodIndex + 1]).toBe("180s")
+  })
+})
+
+describe("hostHealthUrl", () => {
+  it.each([
+    {
+      label: "IPv4 loopback when no address is given",
+      bindAddress: "",
+      url: "http://127.0.0.1:9000/healthz",
+    },
+    {
+      label: "loopback for an IPv4 wildcard",
+      bindAddress: "0.0.0.0",
+      url: "http://127.0.0.1:9000/healthz",
+    },
+    {
+      label: "loopback for an IPv6 wildcard",
+      bindAddress: "[::]",
+      url: "http://[::1]:9000/healthz",
+    },
+    {
+      label: "a loopback address as given",
+      bindAddress: "127.0.0.1",
+      url: "http://127.0.0.1:9000/healthz",
+    },
+    {
+      label: "a specific address as given",
+      bindAddress: "192.168.1.20",
+      url: "http://192.168.1.20:9000/healthz",
+    },
+    { label: "an IPv6 address as given", bindAddress: "[::1]", url: "http://[::1]:9000/healthz" },
+  ])("polls $label", ({ bindAddress, url }) => {
+    expect(hostHealthUrl({ bindAddress, port: 9000 })).toBe(url)
   })
 })
 

@@ -202,6 +202,7 @@ describe("runConfigure with picked settings", () => {
         instanceName: "work",
         envFilePath,
         port: 8000,
+        bindAddress: "127.0.0.1",
         vaultPath: "/home/user/MyVault",
       },
     ])
@@ -236,6 +237,7 @@ describe("runConfigure with picked settings", () => {
         instanceName: "vault-cortex",
         envFilePath,
         port: 9100,
+        bindAddress: "127.0.0.1",
         vaultPath: "/home/user/MyVault",
       },
     ])
