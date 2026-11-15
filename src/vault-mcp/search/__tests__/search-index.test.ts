@@ -9085,13 +9085,13 @@ describe("canvas note catalog reuse", () => {
     onTestFinished(() => prepareSpy.mockRestore())
     return scans
   }
-  const canvasWithTarget = (target?: string): string =>
-    JSON.stringify({
-      nodes: target
-        ? [{ id: "file", type: "file", x: 0, y: 0, width: 100, height: 100, file: target }]
-        : [],
-      edges: [],
-    })
+  // A text-card link resolves through the note catalog; a file card is stored
+  // as written and never reads it.
+  const canvasWithTarget = (target?: string): string => {
+    const textCard = { id: "text", type: "text", x: 0, y: 0, width: 100, height: 100 }
+    const nodes = target ? [{ ...textCard, text: `[[${target}]]` }] : []
+    return JSON.stringify({ nodes, edges: [] })
+  }
   const saveCanvas = (search: SearchIndex, target?: string): void => {
     search.upsertFileContent(
       { filePath: "board.canvas", rawContent: canvasWithTarget(target), fileStat: testStat(1000) },
@@ -9127,6 +9127,28 @@ describe("canvas note catalog reuse", () => {
     saveCanvas(search)
     expect(outgoingPaths(search)).toEqual([])
     expect(scans).toHaveBeenCalledTimes(1)
+  })
+
+  it("stores a canvas holding only file cards without reading the note catalog", () => {
+    const scans = observeCatalogScans()
+    const search = createSearchIndex(":memory:", undefined, undefined, { fileToolsEnabled: true })
+    search.upsertNote(
+      withBodyTags({ filePath: "Target.md", rawContent: "targetamber", fileStat: testStat(1000) }),
+      logger,
+    )
+    scans.mockClear()
+    const fileCard = { id: "file", type: "file", x: 0, y: 0, width: 100, height: 100 }
+    search.upsertFileContent(
+      {
+        filePath: "board.canvas",
+        rawContent: JSON.stringify({ nodes: [{ ...fileCard, file: "Target.md" }], edges: [] }),
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+
+    expect(scans).not.toHaveBeenCalled()
+    expect(outgoingPaths(search)).toEqual(["Target.md"])
   })
 
   it("refreshes the catalog after note additions, deletions and recreation with asset fallback", () => {
@@ -9588,64 +9610,78 @@ describe("background embedding waits for foreground work", () => {
 })
 
 describe("canvas file content and links", () => {
-  it.each([{ fileToolsEnabled: true }, { fileToolsEnabled: false }])(
-    "resolves canvas links to existing notes and assets with file tools $fileToolsEnabled",
-    ({ fileToolsEnabled }) => {
-      const canvasIndex = createSearchIndex(":memory:", undefined, undefined, { fileToolsEnabled })
-      for (const notePath of ["Notes/Plan.md", "Notes/Route.md", "deep/Plan.md"]) {
-        canvasIndex.upsertNote(
-          withBodyTags({ filePath: notePath, rawContent: "targetamber", fileStat: testStat(1000) }),
-          logger,
-        )
-      }
-      for (const assetPath of [
-        "photos/Sunset.png",
-        "photo.png.canvas",
-        "a/photo.png",
-        "Route.canvas",
-        "assets/map.canvas",
-      ]) {
-        canvasIndex.upsertNonMdFile(assetPath, 42)
-      }
-      canvasIndex.upsertNonMdFile("Boards/source.canvas", 100)
-      const targets = [
-        "../Notes/Plan.md",
-        "Sunset.png",
-        "sunset.png",
-        "photo.png",
-        "Route",
-        "../assets/map.canvas",
-        "missing.png",
-      ]
-      const canvasContent = JSON.stringify({
-        nodes: targets.map((file, position) => ({
-          id: `file-${position}`,
-          type: "file",
-          x: 0,
-          y: position * 100,
-          width: 100,
-          height: 100,
-          file,
-        })),
-        edges: [],
-      })
-      canvasIndex.upsertFileContent(
-        {
-          filePath: "Boards/source.canvas",
-          rawContent: canvasContent,
-          fileStat: testStat(1000, 100),
-        },
+  /** Saves Boards/source.canvas with one card per entry, stacked top to bottom. */
+  const saveSourceCanvas = (
+    canvasIndex: SearchIndex,
+    cards: ReadonlyArray<Record<string, unknown>>,
+  ): void => {
+    const nodes = cards.map((card, position) => ({
+      id: `card-${position}`,
+      x: 0,
+      y: position * 100,
+      width: 100,
+      height: 100,
+      ...card,
+    }))
+    canvasIndex.upsertFileContent(
+      {
+        filePath: "Boards/source.canvas",
+        rawContent: JSON.stringify({ nodes, edges: [] }),
+        fileStat: testStat(1000, 100),
+      },
+      logger,
+    )
+  }
+
+  /** Notes and files that the shorter link forms below must tell apart. */
+  const seedLinkTargets = (canvasIndex: SearchIndex): void => {
+    for (const notePath of ["Notes/Plan.md", "Notes/Route.md", "deep/Plan.md"]) {
+      canvasIndex.upsertNote(
+        withBodyTags({ filePath: notePath, rawContent: "targetamber", fileStat: testStat(1000) }),
         logger,
       )
+    }
+    for (const assetPath of [
+      "photos/Sunset.png",
+      "photo.png.canvas",
+      "a/photo.png",
+      "Route.canvas",
+      "assets/map.canvas",
+    ]) {
+      canvasIndex.upsertNonMdFile(assetPath, 42)
+    }
+    canvasIndex.upsertNonMdFile("Boards/source.canvas", 100)
+  }
 
-      expect(
-        canvasIndex
-          .getOutgoingLinks(
-            { path: "Boards/source.canvas", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
-            logger,
-          )
-          .map((link) => ({ path: link.path, exists: link.exists })),
-      ).toEqual([
+  const outgoingExistence = (canvasIndex: SearchIndex): { path: string; exists: boolean }[] => {
+    return canvasIndex
+      .getOutgoingLinks(
+        { path: "Boards/source.canvas", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
+        logger,
+      )
+      .map((link) => ({ path: link.path, exists: link.exists }))
+  }
+
+  it.each([{ fileToolsEnabled: true }, { fileToolsEnabled: false }])(
+    "resolves text-card links to existing notes and assets with file tools $fileToolsEnabled",
+    ({ fileToolsEnabled }) => {
+      const canvasIndex = createSearchIndex(":memory:", undefined, undefined, { fileToolsEnabled })
+      seedLinkTargets(canvasIndex)
+      const linkTexts = [
+        "[[../Notes/Plan.md]]",
+        "[[Sunset.png]]",
+        "[[sunset.png]]",
+        "[[photo.png]]",
+        "[[Route]]",
+        "[[../assets/map.canvas]]",
+        "[[missing.png]]",
+      ]
+      saveSourceCanvas(
+        canvasIndex,
+        linkTexts.map((text) => ({ type: "text", text })),
+      )
+
+      expect(outgoingExistence(canvasIndex)).toEqual([
         { path: "Notes/Plan.md", exists: true },
         { path: "Notes/Route.md", exists: true },
         { path: "a/photo.png", exists: true },
@@ -9672,6 +9708,41 @@ describe("canvas file content and links", () => {
         count: 1,
         excludedCount: 0,
       })
+    },
+  )
+
+  it.each([{ fileToolsEnabled: true }, { fileToolsEnabled: false }])(
+    "stores each file card as the exact path it names with file tools $fileToolsEnabled",
+    ({ fileToolsEnabled }) => {
+      const canvasIndex = createSearchIndex(":memory:", undefined, undefined, { fileToolsEnabled })
+      seedLinkTargets(canvasIndex)
+      const cardFiles = [
+        "Notes/Plan.md",
+        "photos/Sunset.png",
+        "assets/map.canvas",
+        "../Notes/Route.md",
+        "Sunset.png",
+        "Route",
+        "missing.png",
+      ]
+      saveSourceCanvas(
+        canvasIndex,
+        cardFiles.map((file) => ({ type: "file", file })),
+      )
+
+      expect(outgoingExistence(canvasIndex)).toEqual([
+        { path: "../Notes/Route.md", exists: false },
+        { path: "Notes/Plan.md", exists: true },
+        { path: "Route", exists: false },
+        { path: "Sunset.png", exists: false },
+        { path: "assets/map.canvas", exists: true },
+        { path: "missing.png", exists: false },
+        { path: "photos/Sunset.png", exists: true },
+      ])
+      expect(
+        canvasIndex.getBacklinks({ path: "Notes/Plan.md" }, logger).map((link) => link.path),
+      ).toEqual(["Boards/source.canvas"])
+      expect(canvasIndex.getBacklinks({ path: "Notes/Route.md" }, logger)).toEqual([])
     },
   )
 
@@ -9703,21 +9774,6 @@ describe("canvas file content and links", () => {
         width: 400,
         height: 200,
         file: "Notes/design-doc.md",
-      },
-    ],
-    edges: [],
-  })
-
-  const CANVAS_TEXT_WITH_WIKILINKS = JSON.stringify({
-    nodes: [
-      {
-        id: "t1",
-        type: "text",
-        x: 0,
-        y: 0,
-        width: 200,
-        height: 100,
-        text: "See [[Projects/vault-cortex]] for details",
       },
     ],
     edges: [],
@@ -9932,30 +9988,221 @@ describe("canvas file content and links", () => {
     })
   })
 
-  describe("mandatory negative: text-node wikilinks", () => {
-    it("text-node wikilinks do NOT create backlinks", () => {
-      const fileIndex = createSearchIndex(":memory:", undefined, undefined, {
-        fileToolsEnabled: true,
-      })
-      fileIndex.upsertNote(
-        withBodyTags({
-          filePath: "Projects/vault-cortex.md",
-          rawContent: "# vault-cortex\n\nProject note.\n",
-          fileStat: testStat(1000),
-        }),
+  describe("links typed in text cards", () => {
+    const textCardCanvas = (...cardTexts: string[]): string => {
+      const nodes = cardTexts.map((text, position) => ({
+        id: `text-${position}`,
+        type: "text",
+        x: 0,
+        y: position * 100,
+        width: 200,
+        height: 100,
+        text,
+      }))
+      return JSON.stringify({ nodes, edges: [] })
+    }
+
+    const saveNote = (search: SearchIndex, filePath: string): void => {
+      search.upsertNote(
+        withBodyTags({ filePath, rawContent: "# Note\n\nBody.\n", fileStat: testStat(1000) }),
         logger,
       )
-      fileIndex.upsertNonMdFile("Diagrams/text-only.canvas", 200)
-      fileIndex.upsertFileContent(
+    }
+
+    const saveCanvas = (search: SearchIndex, filePath: string, rawContent: string): void => {
+      search.upsertNonMdFile(filePath, 200)
+      search.upsertFileContent({ filePath, rawContent, fileStat: testStat(5000, 200) }, logger)
+    }
+
+    it("lists a text-card link among the canvas's outgoing links", () => {
+      const search = createSearchIndex(":memory:")
+      saveNote(search, "Note.md")
+      saveCanvas(search, "board.canvas", textCardCanvas("See [[Note]]"))
+
+      expect(
+        search.getOutgoingLinks(
+          { path: "board.canvas", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
+          logger,
+        ),
+      ).toEqual([
         {
-          filePath: "Diagrams/text-only.canvas",
-          rawContent: CANVAS_TEXT_WITH_WIKILINKS,
-          fileStat: testStat(5000, 200),
+          path: "Note.md",
+          title: "Note",
+          exists: true,
+          kind: "note",
+          bytes: 100,
+          daily_note_forward_ref: false,
+        },
+      ])
+    })
+
+    it("lists a canvas with a text-card link among the note's backlinks", () => {
+      const search = createSearchIndex(":memory:")
+      saveNote(search, "Note.md")
+      saveCanvas(search, "board.canvas", textCardCanvas("See [[Note]]"))
+
+      expect(search.getBacklinks({ path: "Note.md" }, logger)).toEqual([
+        { path: "board.canvas", title: "board", bytes: 200 },
+      ])
+    })
+
+    it("leaves a note linked only from a text card out of the orphans", () => {
+      const search = createSearchIndex(":memory:")
+      saveNote(search, "Note.md")
+      saveNote(search, "Lonely.md")
+      saveCanvas(search, "board.canvas", textCardCanvas("See [[Note]]"))
+
+      expect(search.findOrphans({}, logger).map((orphan) => orphan.path)).toEqual(["Lonely.md"])
+    })
+
+    it("lists a note once when a file card and a text-card link in one canvas both name it", () => {
+      const search = createSearchIndex(":memory:")
+      saveNote(search, "Note.md")
+      const cardGeometry = { x: 0, width: 200, height: 100 }
+      const nodes = [
+        { id: "text", type: "text", y: 0, ...cardGeometry, text: "See [[Note]]" },
+        { id: "file", type: "file", y: 200, ...cardGeometry, file: "Note.md" },
+      ]
+      saveCanvas(search, "board.canvas", JSON.stringify({ nodes, edges: [] }))
+
+      expect(
+        search
+          .getOutgoingLinks(
+            { path: "board.canvas", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
+            logger,
+          )
+          .map((link) => link.path),
+      ).toEqual(["Note.md"])
+      expect(search.getBacklinks({ path: "Note.md" }, logger)).toEqual([
+        { path: "board.canvas", title: "board", bytes: 200 },
+      ])
+    })
+
+    it("resolves a relative text-card link from the canvas's own folder", () => {
+      const search = createSearchIndex(":memory:")
+      saveNote(search, "Note.md")
+      saveNote(search, "Boards/Note.md")
+      saveCanvas(search, "Boards/board.canvas", textCardCanvas("Up one folder: [[../Note]]"))
+
+      expect(
+        search
+          .getOutgoingLinks(
+            { path: "Boards/board.canvas", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
+            logger,
+          )
+          .map((link) => link.path),
+      ).toEqual(["Note.md"])
+    })
+
+    it("resolves a text-card link once its note is saved after the canvas", () => {
+      const search = createSearchIndex(":memory:")
+      saveCanvas(search, "board.canvas", textCardCanvas("Next: [[Later]]"))
+      const outgoingBefore = search
+        .getOutgoingLinks(
+          { path: "board.canvas", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
+          logger,
+        )
+        .map((link) => ({ path: link.path, exists: link.exists }))
+      saveNote(search, "Later.md")
+
+      expect(outgoingBefore).toEqual([{ path: "Later", exists: false }])
+      expect(
+        search
+          .getOutgoingLinks(
+            { path: "board.canvas", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
+            logger,
+          )
+          .map((link) => ({ path: link.path, exists: link.exists })),
+      ).toEqual([{ path: "Later.md", exists: true }])
+    })
+  })
+
+  describe("file cards beside a note named after the file", () => {
+    const PLAN_CANVAS = JSON.stringify({
+      nodes: [
+        { id: "f1", type: "file", x: 0, y: 0, width: 400, height: 300, file: "Plan.pdf" },
+        { id: "t1", type: "text", x: 0, y: 400, width: 200, height: 100, text: "[[../Note]]" },
+      ],
+      edges: [],
+    })
+
+    const NOTE_CONTENT = "# Note\n"
+    const NOTE_BYTES = Buffer.byteLength(NOTE_CONTENT)
+
+    const EXPECTED_PLAN_OUTGOING = [
+      {
+        path: "Note.md",
+        title: "Note",
+        exists: true,
+        kind: "note",
+        bytes: NOTE_BYTES,
+        daily_note_forward_ref: false,
+      },
+      {
+        path: "Plan.pdf",
+        title: null,
+        exists: true,
+        kind: "file",
+        bytes: 300,
+        daily_note_forward_ref: false,
+      },
+    ]
+
+    it("lists a Plan.pdf file card as the PDF, not the Plan.pdf.md note", () => {
+      const search = createSearchIndex(":memory:")
+      for (const notePath of ["Note.md", "Plan.pdf.md"]) {
+        search.upsertNote(
+          withBodyTags({
+            filePath: notePath,
+            rawContent: NOTE_CONTENT,
+            fileStat: testStat(1000, NOTE_BYTES),
+          }),
+          logger,
+        )
+      }
+      search.upsertNonMdFile("Plan.pdf", 300)
+      search.upsertNonMdFile("Boards/board.canvas", 200)
+      search.upsertFileContent(
+        { filePath: "Boards/board.canvas", rawContent: PLAN_CANVAS, fileStat: testStat(5000, 200) },
+        logger,
+      )
+
+      expect(
+        search.getOutgoingLinks(
+          { path: "Boards/board.canvas", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
+          logger,
+        ),
+      ).toEqual(EXPECTED_PLAN_OUTGOING)
+      expect(search.getBacklinks({ path: "Plan.pdf.md" }, logger)).toEqual([])
+    })
+
+    it("indexes the same canvas links on a rebuild", async () => {
+      const directory = await mkdtemp(join(tmpdir(), "canvas-card-links-"))
+      onTestFinished(() => rm(directory, { recursive: true, force: true }))
+      await mkdir(join(directory, "Boards"))
+      await writeFile(join(directory, "Note.md"), NOTE_CONTENT)
+      await writeFile(join(directory, "Plan.pdf.md"), NOTE_CONTENT)
+      await writeFile(join(directory, "Plan.pdf"), "x".repeat(300))
+      await writeFile(join(directory, "Boards/board.canvas"), PLAN_CANVAS)
+      const search = createSearchIndex(":memory:")
+      const rebuilt = await search.rebuildFromVault(
+        {
+          vaultPath: directory,
+          bodyTagParser: inProcessBodyTagParser,
+          pdfExtractor: createInProcessPdfExtractor(directory),
+          maxFileBytes: 10_000_000,
         },
         logger,
       )
-      const backlinks = fileIndex.getBacklinks({ path: "Projects/vault-cortex.md" }, logger)
-      expect(backlinks).toEqual([])
+      await rebuilt.embedding
+
+      expect(
+        search.getOutgoingLinks(
+          { path: "Boards/board.canvas", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
+          logger,
+        ),
+      ).toEqual(EXPECTED_PLAN_OUTGOING)
+      expect(search.getBacklinks({ path: "Plan.pdf.md" }, logger)).toEqual([])
     })
   })
 

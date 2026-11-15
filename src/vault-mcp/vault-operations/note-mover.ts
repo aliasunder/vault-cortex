@@ -42,11 +42,7 @@ import {
 } from "./vault-filesystem.js"
 import { links } from "../obsidian-markdown/links.js"
 import { classifyLines } from "../obsidian-markdown/lines.js"
-import {
-  extractCanvasCardTexts,
-  extractCanvasFileLinks,
-  rewriteCanvasLinks,
-} from "../obsidian-markdown/canvas.js"
+import { extractCanvasLinks, rewriteCanvasLinks } from "../obsidian-markdown/canvas.js"
 import { isCanvasPath } from "../obsidian-markdown/file-kinds.js"
 import { withExclusiveMultiFileLock } from "../../utils/file-write-lock.js"
 import { caseFoldPath } from "../../utils/case-fold-path.js"
@@ -507,11 +503,6 @@ const rewriteNoteContent = (
   return { content, linksRewritten }
 }
 
-/** True when a file card's path names a note. Obsidian opens a file card by
- *  its exact path, so a card for Plan.pdf opens the PDF even though the
- *  resolver's ".md" fallback would match a note named Plan.pdf.md. */
-const isNoteCardPath = (cardFilePath: string): boolean => cardFilePath.endsWith(".md")
-
 /** Rewrites the links in a Canvas source: text cards through the body
  *  rewriter, file cards through rewriteFilePath. Returns null when nothing
  *  changed. */
@@ -530,7 +521,7 @@ const rewriteCanvasContent = (params: {
   })
 }
 
-/** The error a move aborts with when a note it must rewrite cannot be
+/** The error a move aborts with when a note or Canvas it must rewrite cannot be
  *  planned. The message says which step failed:
  *  - "could not read": any failure that is not a properties-block refusal.
  *  - "could not rewrite": a link inside a block the rewrite would lose, or a
@@ -625,25 +616,24 @@ const REWRITE_CONCURRENCY = 10
  *  missed — each retry expands the lock set and re-verifies. */
 const MAX_BACKLINK_VERIFY_RETRIES = 3
 
-/** Every link target a file holds: a note's body and frontmatter links, or a
- *  Canvas's note file cards and the links in its text cards. */
-const extractLinkTargets = (params: { path: string; content: string }): string[] => {
+/** The links a file holds:
+ *  - linkTargets: a note's body and frontmatter links, or the links typed in
+ *    a Canvas's text cards, each resolved like a link;
+ *  - fileCardPaths: a Canvas's file cards, each an exact vault path. */
+const extractLinks = (params: {
+  path: string
+  content: string
+}): { linkTargets: string[]; fileCardPaths: string[] } => {
   if (isCanvasPath(params.path)) {
-    const cardTexts = extractCanvasCardTexts(params.content)
-    // A text card is plain Markdown with no properties block.
-    const noFrontmatter = {}
-    const cardLinkTargets = cardTexts.flatMap((cardText) => {
-      return links.extractAll(cardText, noFrontmatter)
-    })
-    const noteCardPaths = extractCanvasFileLinks(params.content).filter(isNoteCardPath)
-    return [...noteCardPaths, ...cardLinkTargets]
+    const { fileCardPaths, textCardLinks } = extractCanvasLinks(params.content)
+    return { linkTargets: textCardLinks, fileCardPaths }
   }
 
   // A note whose block is not valid YAML still links from its body, as the
   // index and Obsidian's metadata cache read it
   const parsed = parseNoteSkippingUnreadableBlock(params.content)
   const frontmatter: Record<string, unknown> = parsed.data
-  return links.extractAll(parsed.content, frontmatter)
+  return { linkTargets: links.extractAll(parsed.content, frontmatter), fileCardPaths: [] }
 }
 
 /** Every lowercased spelling a link to a note named `targetStem` can take in a
@@ -685,11 +675,12 @@ const listLowercaseStemSpellings = (targetStem: string): string[] => {
   ]
 }
 
-/** Scans vault notes and Canvas files for links that resolve to targetPath,
- *  returning paths the caller didn't already know about. The index records
- *  only a Canvas's file cards, so a Canvas linking the note from a text card
- *  is found here. Pre-filters by basename substring before parsing. Read
- *  failures on individual files are logged and skipped. */
+/** Scans vault notes and Canvas files for links to targetPath, returning the
+ *  paths the caller didn't already know about, such as a note or Canvas saved
+ *  since the index last read it. A link counts when it resolves to
+ *  targetPath, and a Canvas file card only when it holds targetPath exactly.
+ *  Pre-filters by basename substring before parsing. Read failures on
+ *  individual files are logged and skipped. */
 const discoverBacklinksFromFilesystem = async (
   params: {
     vaultPath: string
@@ -732,7 +723,7 @@ const discoverBacklinksFromFilesystem = async (
 
         // Parse and resolve in full to confirm the candidate actually links
         // to the target.
-        const linkTargets = extractLinkTargets({ path: candidatePath, content })
+        const { linkTargets, fileCardPaths } = extractLinks({ path: candidatePath, content })
         const resolvesToMovedNote = (linkTarget: string): boolean => {
           return (
             links.resolve({
@@ -742,7 +733,11 @@ const discoverBacklinksFromFilesystem = async (
             }) === params.targetPath
           )
         }
-        return linkTargets.some(resolvesToMovedNote) ? candidatePath : null
+        // Obsidian opens a file card by its exact path, so a card that names
+        // the note any other way does not open it.
+        const hasFileCardForTarget = fileCardPaths.includes(params.targetPath)
+        const linksToTarget = hasFileCardForTarget || linkTargets.some(resolvesToMovedNote)
+        return linksToTarget ? candidatePath : null
       } catch (error) {
         // Skipped rather than aborting the whole scan
         logger.warn("backlink scan: skipping a file that could not be read or parsed", {
@@ -958,29 +953,11 @@ const moveNote = async (
           return (rewriteParams) => rewriteTarget(rewriteParams, context)
         }
 
-        // File cards are matched with the resolver the backlink scan uses, so
-        // the rewrite covers exactly the cards the scan reports. A matching
-        // card gets the full new path whatever form it had, because Obsidian
-        // opens a file card by its exact vault path. Canvases never move, so
-        // the source location is fixed.
-        const rewriteCanvasFilePathForSource = (
-          canvasPath: string,
-        ): ((filePath: string) => string | null) => {
-          return (filePath) => {
-            // The index resolves a Plan.pdf card to a Plan.pdf.md note, but
-            // the card opens the PDF; retargeting it would swap the card's file.
-            if (!isNoteCardPath(filePath)) return null
-
-            const resolvedNote = links.resolve({
-              target: filePath,
-              allPaths: allNotePaths,
-              sourcePath: canvasPath,
-            })
-            // A card that already holds the new path (such as a bare name for
-            // a note moved to the vault root) is unchanged, so it is not counted.
-            const cardNeedsNewPath = resolvedNote === oldPath && filePath !== newPath
-            return cardNeedsNewPath ? newPath : null
-          }
+        // Obsidian opens a file card by its exact vault path, so only a card
+        // holding oldPath opens the moved note; the backlink scan matches cards
+        // the same way.
+        const rewriteCanvasFilePath = (filePath: string): string | null => {
+          return filePath === oldPath ? newPath : null
         }
 
         const rewriteBacklinkSource = ({
@@ -996,7 +973,7 @@ const moveNote = async (
             return rewriteCanvasContent({
               rawContent,
               rewriteLink,
-              rewriteFilePath: rewriteCanvasFilePathForSource(source),
+              rewriteFilePath: rewriteCanvasFilePath,
             })
           }
           return rewriteNoteContent(rawContent, rewriteLink)

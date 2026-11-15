@@ -1180,8 +1180,8 @@ describe("moveNote — Canvas sources", () => {
   it("finds and rewrites a Canvas that links the note only from a text card", async () => {
     const { writeFixture, moveNote, readNote, logger } = setupVault()
     await writeFixture("Foo.md", "# Foo\n")
-    // The index records only file cards, so this Canvas never arrives as a
-    // backlink source; the move's own scan has to find it.
+    // No backlink sources are passed, as when the index has not read this
+    // Canvas yet, so the move's own scan has to find it.
     await writeFixture(
       "Ideas.canvas",
       obsidianCanvas([
@@ -1233,14 +1233,48 @@ describe("moveNote — Canvas sources", () => {
     })
   })
 
-  it("gives a file card written as a bare name or a relative path the full new path", async () => {
+  it("leaves a file card written as a bare name or a relative path unchanged and does not report its Canvas", async () => {
+    const { writeFixture, moveNote, readNote, noteExists, logger } = setupVault()
+    await writeFixture("Inbox/Note.md", "# Note\n")
+    // Obsidian opens a file card by its exact path, so neither card opens
+    // Inbox/Note.md. No backlink sources are passed, as the index lists none,
+    // so the move's own scan must not report the Canvas either.
+    const boardCanvas = obsidianCanvas([
+      '{"id":"f1","type":"file","file":"Note.md","x":0,"y":0,"width":400,"height":400}',
+      '{"id":"f2","type":"file","file":"../Inbox/Note.md","x":500,"y":0,"width":400,"height":400}',
+    ])
+    await writeFixture("Boards/Board.canvas", boardCanvas)
+
+    const result = await moveNote({ oldPath: "Inbox/Note.md", newPath: "Projects/Plan.md" })
+
+    expect(await noteExists("Inbox/Note.md")).toBe(false)
+    expect(await readNote("Projects/Plan.md")).toBe("# Note\n")
+    expect(await readNote("Boards/Board.canvas")).toBe(boardCanvas)
+    expect(result).toEqual({
+      moved_to: "Projects/Plan.md",
+      links_updated: 0,
+      updated_notes: [],
+      pruned_empty_folders: 0,
+    })
+    // No file links Inbox/Note.md, so this log must never fire, whatever its
+    // context.
+    expect(vi.mocked(logger.info)).not.toHaveBeenCalledWith(
+      "backlink verification discovered sources the index missed",
+      expect.anything(),
+    )
+  })
+
+  it("rewrites the text-card link in a backlink-source Canvas and leaves its bare-name and relative file cards unchanged", async () => {
     const { writeFixture, moveNote, readNote } = setupVault()
     await writeFixture("Inbox/Note.md", "# Note\n")
+    // The text card links the note, so the index lists the Canvas as a
+    // backlink source; neither file card holds the note's exact path.
     await writeFixture(
       "Boards/Board.canvas",
       obsidianCanvas([
         '{"id":"f1","type":"file","file":"Note.md","x":0,"y":0,"width":400,"height":400}',
         '{"id":"f2","type":"file","file":"../Inbox/Note.md","x":500,"y":0,"width":400,"height":400}',
+        '{"id":"t1","type":"text","text":"See [[Inbox/Note]]","x":0,"y":500,"width":250,"height":60}',
       ]),
     )
 
@@ -1252,39 +1286,75 @@ describe("moveNote — Canvas sources", () => {
 
     expect(await readNote("Boards/Board.canvas")).toBe(
       obsidianCanvas([
-        '{"id":"f1","type":"file","file":"Projects/Plan.md","x":0,"y":0,"width":400,"height":400}',
-        '{"id":"f2","type":"file","file":"Projects/Plan.md","x":500,"y":0,"width":400,"height":400}',
+        '{"id":"f1","type":"file","file":"Note.md","x":0,"y":0,"width":400,"height":400}',
+        '{"id":"f2","type":"file","file":"../Inbox/Note.md","x":500,"y":0,"width":400,"height":400}',
+        '{"id":"t1","type":"text","text":"See [[Projects/Plan]]","x":0,"y":500,"width":250,"height":60}',
       ]),
     )
     expect(result).toEqual({
       moved_to: "Projects/Plan.md",
-      links_updated: 2,
+      links_updated: 1,
       updated_notes: ["Boards/Board.canvas"],
       pruned_empty_folders: 0,
     })
   })
 
-  it("leaves a file card alone when it already holds the moved note's new path", async () => {
+  it("finds and rewrites a relative text-card link, resolving it from the Canvas's folder", async () => {
+    const { writeFixture, moveNote, readNote, logger } = setupVault()
+    await writeFixture("Note.md", "# Note\n")
+    // Boards/Note.md is the decoy: [[../Note]] from Boards/ opens the root
+    // Note.md, never the note beside the Canvas.
+    await writeFixture("Boards/Note.md", "# Board note\n")
+    await writeFixture(
+      "Boards/Board.canvas",
+      obsidianCanvas([
+        '{"id":"t1","type":"text","text":"Up one folder: [[../Note]]","x":0,"y":0,"width":250,"height":60}',
+      ]),
+    )
+
+    const result = await moveNote({ oldPath: "Note.md", newPath: "Archive/Note.md" })
+
+    expect(await readNote("Boards/Board.canvas")).toBe(
+      obsidianCanvas([
+        '{"id":"t1","type":"text","text":"Up one folder: [[../Archive/Note]]","x":0,"y":0,"width":250,"height":60}',
+      ]),
+    )
+    expect(result).toEqual({
+      moved_to: "Archive/Note.md",
+      links_updated: 1,
+      updated_notes: ["Boards/Board.canvas"],
+      pruned_empty_folders: 0,
+    })
+    expect(vi.mocked(logger.info)).toHaveBeenCalledWith(
+      "backlink verification discovered sources the index missed",
+      {
+        from: "Note.md",
+        to: "Archive/Note.md",
+        additionalSources: ["Boards/Board.canvas"],
+        attempt: 0,
+      },
+    )
+  })
+
+  it("leaves a file card that names the note in other letter case unchanged", async () => {
     const { writeFixture, moveNote, readNote, noteExists } = setupVault()
     await writeFixture("Inbox/Note.md", "# Note\n")
-    // The bare name resolves to Inbox/Note.md now and is the exact new path
-    // once the note moves to the vault root.
     const boardCanvas = obsidianCanvas([
-      '{"id":"f1","type":"file","file":"Note.md","x":0,"y":0,"width":400,"height":400}',
+      '{"id":"f1","type":"file","file":"inbox/note.md","x":0,"y":0,"width":400,"height":400}',
     ])
     await writeFixture("Boards/Board.canvas", boardCanvas)
 
     const result = await moveNote({
       oldPath: "Inbox/Note.md",
-      newPath: "Note.md",
+      newPath: "Projects/Note.md",
       backlinkSources: ["Boards/Board.canvas"],
     })
 
     expect(await noteExists("Inbox/Note.md")).toBe(false)
-    expect(await readNote("Note.md")).toBe("# Note\n")
+    expect(await readNote("Projects/Note.md")).toBe("# Note\n")
     expect(await readNote("Boards/Board.canvas")).toBe(boardCanvas)
     expect(result).toEqual({
-      moved_to: "Note.md",
+      moved_to: "Projects/Note.md",
       links_updated: 0,
       updated_notes: [],
       pruned_empty_folders: 0,
