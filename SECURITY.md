@@ -135,7 +135,7 @@ mechanism-level detail.
 ### Injection
 
 - **SQL:** all queries use parameterized statements.
-  `sanitizeFtsQuery()` strips FTS5 metacharacters and reserved words.
+  `sanitizeFtsQuery()` strips FTS5 metacharacters and the uppercase reserved words.
   `escapeLikeWildcards()` escapes `\`, `%`, `_` in LIKE clauses
 - **Prompt (tag breakout):** `escapeVaultContentClosingTag()` prevents
   vault content from breaking out of the `<vault-content>` data boundary
