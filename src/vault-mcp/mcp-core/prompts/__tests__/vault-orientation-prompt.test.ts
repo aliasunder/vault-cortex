@@ -106,7 +106,7 @@ describe("vault-orientation live orphan folders", () => {
   })
 
   it.each(["Journal/", "Journal///"])(
-    "renders one trailing separator for the excluded daily folder %s",
+    "excludes forward-refs under the daily folder written as %s",
     async (dailyNotesFolder) => {
       const { readSurveySections } = await setupOrphanPrompt({
         settings: JSON.stringify({ folder: dailyNotesFolder }),
@@ -115,7 +115,7 @@ describe("vault-orientation live orphan folders", () => {
       })
 
       expect((await readSurveySections()).stats).toBe(
-        "2 notes across 0 folders, 0 tags, 0 property keys. 2 untagged. 2 without properties. 2 broken links (excludes 2 forward-refs in Journal/).",
+        "2 notes across 0 folders, 0 tags, 0 property keys. 2 untagged. 2 without properties. 2 broken links (excludes 2 forward-refs to daily notes).",
       )
     },
   )
@@ -128,7 +128,58 @@ describe("vault-orientation live orphan folders", () => {
     })
 
     expect((await readSurveySections()).stats).toBe(
-      "2 notes across 0 folders, 0 tags, 0 property keys. 2 untagged. 2 without properties. 1 broken link (excludes 1 forward-ref in Journal/).",
+      "2 notes across 0 folders, 0 tags, 0 property keys. 2 untagged. 2 without properties. 1 broken link (excludes 1 forward-ref to daily notes).",
+    )
+  })
+
+  it("excludes a bare date link in the daily-note format from the broken links", async () => {
+    const { readSurveySections } = await setupOrphanPrompt({
+      settings: '{"folder":"Journal"}',
+      paths: ["source.md", "other.md"],
+      noteContents: { "source.md": "[[2026-10-08]] [[missing]]" },
+    })
+
+    expect((await readSurveySections()).stats).toBe(
+      "2 notes across 0 folders, 0 tags, 0 property keys. 2 untagged. 2 without properties. 1 broken link (excludes 1 forward-ref to daily notes).",
+    )
+  })
+
+  it("excludes a bare date link in the format set in daily-notes.json", async () => {
+    // Not Obsidian's default format, so a bare date in the default format stays
+    // broken. Two dates in the set format make the counts differ from what the
+    // default format would give.
+    const { readSurveySections } = await setupOrphanPrompt({
+      settings: '{"folder":"Journal","format":"DD.MM.YYYY"}',
+      paths: ["source.md", "other.md"],
+      noteContents: { "source.md": "[[08.10.2026]] [[09.10.2026]] [[2026-10-08]]" },
+    })
+
+    expect((await readSurveySections()).stats).toBe(
+      "2 notes across 0 folders, 0 tags, 0 property keys. 2 untagged. 2 without properties. 1 broken link (excludes 2 forward-refs to daily notes).",
+    )
+  })
+
+  it("reports zero broken links beside the excluded forward-refs when every missing target is a daily note", async () => {
+    const { readSurveySections } = await setupOrphanPrompt({
+      settings: '{"folder":"Journal"}',
+      paths: ["source.md", "other.md"],
+      noteContents: { "source.md": "[[2026-10-08]]" },
+    })
+
+    expect((await readSurveySections()).stats).toBe(
+      "2 notes across 0 folders, 0 tags, 0 property keys. 2 untagged. 2 without properties. 0 broken links (excludes 1 forward-ref to daily notes).",
+    )
+  })
+
+  it("excludes a bare date link when the daily folder setting is blank", async () => {
+    const { readSurveySections } = await setupOrphanPrompt({
+      settings: '{"folder":""}',
+      paths: ["source.md", "other.md"],
+      noteContents: { "source.md": "[[2026-10-08]] [[missing]]" },
+    })
+
+    expect((await readSurveySections()).stats).toBe(
+      "2 notes across 0 folders, 0 tags, 0 property keys. 2 untagged. 2 without properties. 1 broken link (excludes 1 forward-ref to daily notes).",
     )
   })
 
@@ -223,7 +274,7 @@ describe("vault-orientation live orphan folders", () => {
       orphans:
         "4 orphan notes (no incoming links):\n- Journal/daily.md — daily\n- Daily Notes/daily.md — daily\n- Templates/template.md — template\n- Profile/memory.md — memory",
       stats:
-        "4 notes across 0 folders, 0 tags, 0 property keys. 4 untagged. 4 without properties. 2 broken links (excludes 2 forward-refs in Journal/).",
+        "4 notes across 0 folders, 0 tags, 0 property keys. 4 untagged. 4 without properties. 2 broken links (excludes 2 forward-refs to daily notes).",
     })
     expect(vi.mocked(readDailyNotesConfig)).toHaveBeenCalledTimes(1)
     expect(vi.mocked(readDailyNotesConfig)).toHaveBeenCalledWith(
@@ -245,7 +296,7 @@ describe("vault-orientation live orphan folders", () => {
       orphans:
         "4 orphan notes (no incoming links):\n- JournalOld/note.md — note\n- ordinary.md — ordinary\n- Daily Notes/daily.md — daily\n- Archive/note.md — note",
       stats:
-        "8 notes across 0 folders, 0 tags, 0 property keys. 8 untagged. 8 without properties. 2 broken links (excludes 2 forward-refs in Journal/).",
+        "8 notes across 0 folders, 0 tags, 0 property keys. 8 untagged. 8 without properties. 2 broken links (excludes 2 forward-refs to daily notes).",
     })
     expect(vi.mocked(readDailyNotesConfig)).toHaveBeenCalledTimes(1)
   })

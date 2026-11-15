@@ -762,7 +762,7 @@ When to use: Navigating the graph forward, auditing broken links in one note or 
 
 Behavior: ${INDEX_LAG_LEAD}. A path that does not exist, or one in a dot-prefixed folder, returns an empty result (count 0), not an error, just as a note with no outbound links does; if you expected links, ${linkEmptyResultRemedy}.
 
-Returns: JSON with path, outgoing_links (array of { path, title, exists, kind, bytes, daily_note_forward_ref } sorted by target path), and count. A target's path is the vault-relative path the link resolved to; a broken link's path is its target text without any #heading or |alias, with a markdown link's %-escapes decoded. When exists is true, kind "note" is a markdown note${whenToolEnabledText("vault_read_note", " readable via vault_read_note")} and kind "file" a non-markdown file (.canvas, image, PDF)${fileReadableClause}; when exists is false the link is broken and kind is "note" even for a path like "diagram.png". title is null for files and broken links. daily_note_forward_ref is true on a broken link into the daily notes folder (a daily note not yet created, not breakage) and false otherwise, including when Obsidian's Daily Notes folder setting is the vault root or blank. bytes is the on-disk size (null for broken links)${fileBytesClause}.
+Returns: JSON with path, outgoing_links (array of { path, title, exists, kind, bytes, daily_note_forward_ref } sorted by target path), and count. A target's path is the vault-relative path the link resolved to; a broken link's path is its target text without any #heading or |alias, with a markdown link's %-escapes decoded. When exists is true, kind "note" is a markdown note${whenToolEnabledText("vault_read_note", " readable via vault_read_note")} and kind "file" a non-markdown file (.canvas, image, PDF)${fileReadableClause}; when exists is false the link is broken and kind is "note" even for a path like "diagram.png". title is null for files and broken links. daily_note_forward_ref is true on a broken link to a daily note not yet created: one into a dedicated daily notes folder, or a bare date written in the daily note format; false otherwise. bytes is the on-disk size (null for broken links)${fileBytesClause}.
 
 Errors:
 ${LINK_GRAPH_EXTENSION_ERROR_ENTRY}
@@ -795,7 +795,11 @@ ${INDEX_ENGINE_ERROR_ENTRY}`,
             reqLogger,
           )
           return search.getOutgoingLinks(
-            { path, dailyNotesFolder: dailyNotesConfig.dedicatedFolder },
+            {
+              path,
+              dailyNotesFolder: dailyNotesConfig.dedicatedFolder,
+              dailyNotesFormat: dailyNotesConfig.format,
+            },
             reqLogger,
           )
         },
@@ -816,17 +820,18 @@ ${INDEX_ENGINE_ERROR_ENTRY}`,
   const orphanDefaultsText = config.orphanExcludeFoldersOverride
     ? {
         folders: JSON.stringify(config.orphanExcludeFoldersOverride),
-        dailyFolderLine: "",
+        dailyFolderClause: "",
       }
     : {
         folders: `the daily notes folder (none when Obsidian's Daily Notes folder setting is the vault root or blank), "Templates", ${JSON.stringify(config.memoryDir)}`,
-        dailyFolderLine: isToolEnabled("vault_get_daily_note")
+        dailyFolderClause: isToolEnabled("vault_get_daily_note")
           ? " (when the vault has a daily notes folder, vault_get_daily_note's path starts with it)"
           : "",
       }
 
   // SQLite's expression depth limit (1000) caps how many folders the orphan
-  // query can exclude
+  // query can exclude. Each folder adds one level, and the rest of the query
+  // takes the other 6.
   const maxOrphanExcludeFolders = 994
 
   const findOrphansAlternativesLine = formatServedSentencesLine([
@@ -848,7 +853,7 @@ Example: vault_find_orphans({ exclude_folders: ["Templates", "Archive"], limit: 
 When to use: Vault maintenance — surfacing notes to integrate into the graph.${whenToolEnabledText("vault_patch_note", " Link an orphan by mentioning it from a relevant note with vault_patch_note.")}${findOrphansAlternativesLine}
 
 Parameters:
-- exclude_folders replaces the defaults — list a default yourself to keep it${orphanDefaultsText.dailyFolderLine}. Pass [] for no exclusions. Each entry names ${INDEX_FOLDER_SCOPE_CLAUSE}. Excluded notes are left out of the results; links from them still count as incoming links.
+- exclude_folders replaces the defaults — list a default yourself to keep it${orphanDefaultsText.dailyFolderClause}. Pass [] for no exclusions. Each entry names ${INDEX_FOLDER_SCOPE_CLAUSE}. Excluded notes are left out of the results; links from them still count as incoming links.
 - limit applies after exclusions and sorting; ${LIMIT_TRUNCATION_CLAUSE}.
 
 Behavior: ${INDEX_LAG_LEAD}. An empty array means no orphans were found (after exclusions), not an error.
