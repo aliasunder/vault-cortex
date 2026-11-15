@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach, onTestFinished } from 
 import type { Mock } from "vitest"
 import { createHash } from "node:crypto"
 import { mkdtemp, rm, writeFile, mkdir, symlink, readFile } from "node:fs/promises"
-import { join } from "node:path"
+import { dirname, join } from "node:path"
 import { tmpdir } from "node:os"
 import { setImmediate as setImmediateAsync } from "node:timers/promises"
 import Database from "better-sqlite3"
@@ -6856,6 +6856,883 @@ describe("relative links (path from current file)", () => {
   })
 })
 
+// ── Link rows ───────────────────────────────────────────────────
+
+type LinkRow = {
+  source: string
+  target: string
+  link_text: string
+  link_kind: string
+  link_name: string
+}
+
+/** An on-disk index beside a second connection that reads its links table. */
+const createLinkRowsIndex = async () => {
+  const directory = await mkdtemp(join(tmpdir(), "link-rows-"))
+  onTestFinished(() => rm(directory, { recursive: true, force: true }))
+  const dbPath = join(directory, "index.db")
+  const searchIndex = createSearchIndex(dbPath)
+  const inspect = new Database(dbPath)
+  onTestFinished(() => {
+    inspect.close()
+  })
+  const readLinkRows = (): LinkRow[] => {
+    return inspect
+      .prepare<[], LinkRow>(
+        `SELECT source, target, link_text, link_kind, link_name FROM links
+         ORDER BY source, link_text, link_kind`,
+      )
+      .all()
+  }
+  return { searchIndex, dbPath, inspect, readLinkRows }
+}
+
+const saveLinkTestNote = (search: SearchIndex, filePath: string, rawContent = "# Note\n"): void => {
+  search.upsertNote(withBodyTags({ filePath, rawContent, fileStat: testStat(1000) }), logger)
+}
+
+/** Canvas JSON with one card per entry, stacked top to bottom. */
+const linkTestCanvasJson = (cards: ReadonlyArray<Record<string, unknown>>): string => {
+  const nodes = cards.map((card, position) => ({
+    id: `card-${position}`,
+    x: 0,
+    y: position * 100,
+    width: 100,
+    height: 100,
+    ...card,
+  }))
+  return JSON.stringify({ nodes, edges: [] })
+}
+
+/** Saves a canvas as the file watcher does, registering the file before its content. */
+const saveLinkTestCanvas = (
+  search: SearchIndex,
+  filePath: string,
+  cards: ReadonlyArray<Record<string, unknown>>,
+): void => {
+  search.upsertNonMdFile(filePath, 200)
+  search.upsertFileContent(
+    { filePath, rawContent: linkTestCanvasJson(cards), fileStat: testStat(5000, 200) },
+    logger,
+  )
+}
+
+describe("links table schema", () => {
+  /** Writes a links table in the shape an earlier release created, then opens it. */
+  const openOverOldLinksTable = async (): Promise<Database.Database> => {
+    const directory = await mkdtemp(join(tmpdir(), "old-links-"))
+    onTestFinished(() => rm(directory, { recursive: true, force: true }))
+    const dbPath = join(directory, "index.db")
+    const oldDb = new Database(dbPath)
+    oldDb.exec(`
+      CREATE TABLE links (
+        source TEXT NOT NULL, target TEXT NOT NULL, PRIMARY KEY (source, target)
+      );
+      CREATE INDEX idx_links_target ON links(target);
+    `)
+    oldDb.close()
+
+    createSearchIndex(dbPath)
+    const inspect = new Database(dbPath)
+    onTestFinished(() => {
+      inspect.close()
+    })
+    return inspect
+  }
+
+  it("recreates an old links table with the text and kind columns in its key and the name column outside it", async () => {
+    const inspect = await openOverOldLinksTable()
+
+    const columns = inspect
+      .prepare<[], { name: string; pk: number; dflt_value: string | null }>(
+        "SELECT name, pk, dflt_value FROM pragma_table_info('links') ORDER BY cid",
+      )
+      .all()
+    expect(columns).toEqual([
+      { name: "source", pk: 1, dflt_value: null },
+      { name: "target", pk: 2, dflt_value: null },
+      { name: "link_text", pk: 3, dflt_value: "''" },
+      { name: "link_kind", pk: 4, dflt_value: "'link'" },
+      { name: "link_name", pk: 0, dflt_value: "''" },
+    ])
+  })
+
+  it("recreates an old links table with its target and name indexes", async () => {
+    const inspect = await openOverOldLinksTable()
+
+    const indexes = inspect
+      .prepare<[], { name: string }>("SELECT name FROM pragma_index_list('links') ORDER BY name")
+      .all()
+    expect(indexes.map((tableIndex) => tableIndex.name)).toEqual([
+      "idx_links_name",
+      "idx_links_target",
+      "sqlite_autoindex_links_1",
+    ])
+  })
+
+  it("keeps every row an earlier release's (source, target) insert writes", async () => {
+    const { inspect, readLinkRows } = await createLinkRowsIndex()
+
+    // After a downgrade, an earlier release inserts without the new columns,
+    // and OR IGNORE would silently skip any row that failed a constraint.
+    inspect.exec(`
+      INSERT OR IGNORE INTO links (source, target) VALUES ('a.md', 'b.md');
+      INSERT OR IGNORE INTO links (source, target) VALUES ('a.md', 'c.md');
+    `)
+    expect(readLinkRows()).toEqual([
+      { source: "a.md", target: "b.md", link_text: "", link_kind: "link", link_name: "" },
+      { source: "a.md", target: "c.md", link_text: "", link_kind: "link", link_name: "" },
+    ])
+  })
+
+  it("keeps a current links table's rows when the index opens it again", async () => {
+    const { searchIndex, dbPath, readLinkRows } = await createLinkRowsIndex()
+    saveLinkTestNote(searchIndex, "B.md")
+    saveLinkTestNote(searchIndex, "source.md", "# Source\n\n[[B]]\n")
+
+    createSearchIndex(dbPath)
+
+    expect(readLinkRows()).toEqual([
+      { source: "source.md", target: "B.md", link_text: "B", link_kind: "link", link_name: "b" },
+    ])
+  })
+
+  it("clears an earlier release's rows when the index opens again and rebuilds", async () => {
+    const { dbPath, inspect, readLinkRows } = await createLinkRowsIndex()
+    // A row an earlier release wrote after a downgrade, for a source the vault still holds.
+    inspect.exec("INSERT INTO links (source, target) VALUES ('source.md', 'old/B.md')")
+    const vaultPath = await mkdtemp(join(tmpdir(), "link-rows-vault-"))
+    onTestFinished(() => rm(vaultPath, { recursive: true, force: true }))
+    await writeFile(join(vaultPath, "source.md"), "# Source\n\n[[B]]\n")
+    await writeFile(join(vaultPath, "B.md"), "# B\n")
+
+    const reopened = createSearchIndex(dbPath)
+    const rebuilt = await reopened.rebuildFromVault(
+      {
+        vaultPath,
+        bodyTagParser: inProcessBodyTagParser,
+        pdfExtractor: createInProcessPdfExtractor(vaultPath),
+        maxFileBytes: 10_000_000,
+      },
+      logger,
+    )
+    await rebuilt.embedding
+
+    expect(readLinkRows()).toEqual([
+      { source: "source.md", target: "B.md", link_text: "B", link_kind: "link", link_name: "b" },
+    ])
+  })
+})
+
+describe("link rows", () => {
+  /** sub/source.md reaches the root B.md through two spellings. */
+  const seedTwoSpellings = (search: SearchIndex): void => {
+    saveLinkTestNote(search, "B.md")
+    saveLinkTestNote(search, "sub/source.md", "# Source\n\n[[../B]] and [[B]]\n")
+  }
+
+  it("stores one row per link text when two texts reach one note", async () => {
+    const { searchIndex, readLinkRows } = await createLinkRowsIndex()
+    seedTwoSpellings(searchIndex)
+
+    expect(readLinkRows()).toEqual([
+      {
+        source: "sub/source.md",
+        target: "B.md",
+        link_text: "../B",
+        link_kind: "link",
+        link_name: "b",
+      },
+      {
+        source: "sub/source.md",
+        target: "B.md",
+        link_text: "B",
+        link_kind: "link",
+        link_name: "b",
+      },
+    ])
+  })
+
+  it("lists a source with two texts reaching the note once among its backlinks", () => {
+    seedTwoSpellings(index)
+
+    expect(index.getBacklinks({ path: "B.md" }, logger)).toEqual([
+      { path: "sub/source.md", title: "source", bytes: 100 },
+    ])
+  })
+
+  it("lists a note reached by two link texts once among the outgoing links", () => {
+    seedTwoSpellings(index)
+
+    expect(
+      index.getOutgoingLinks(
+        { path: "sub/source.md", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
+        logger,
+      ),
+    ).toEqual([
+      {
+        path: "B.md",
+        title: "B",
+        exists: true,
+        kind: "note",
+        bytes: 100,
+        daily_note_forward_ref: false,
+      },
+    ])
+  })
+
+  it("stores a canvas file card as a file-card row and a text-card link as a link row", async () => {
+    const { searchIndex, readLinkRows } = await createLinkRowsIndex()
+    saveLinkTestNote(searchIndex, "Note.md")
+    saveLinkTestCanvas(searchIndex, "board.canvas", [
+      { type: "file", file: "Plan.pdf" },
+      { type: "text", text: "[[Note]]" },
+    ])
+
+    expect(readLinkRows()).toEqual([
+      {
+        source: "board.canvas",
+        target: "Note.md",
+        link_text: "Note",
+        link_kind: "link",
+        link_name: "note",
+      },
+      {
+        source: "board.canvas",
+        target: "Plan.pdf",
+        link_text: "Plan.pdf",
+        link_kind: "file-card",
+        link_name: "plan.pdf",
+      },
+    ])
+  })
+})
+
+describe("links after a file is added or removed", () => {
+  type VaultFile = { path: string; content: string }
+
+  /** What the graph tools report: the source's outgoing links, each listed
+   *  note's backlinks, and the orphans (sorted, since a rebuild's file times differ). */
+  type LinkView = {
+    outgoing: Array<{ path: string; exists: boolean }>
+    backlinks: Record<string, string[]>
+    orphans: string[]
+  }
+
+  const readLinkView = (
+    search: SearchIndex,
+    params: { source: string; backlinksOf: readonly string[] },
+  ): LinkView => ({
+    outgoing: search
+      .getOutgoingLinks(
+        { path: params.source, dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
+        logger,
+      )
+      .map((link) => ({ path: link.path, exists: link.exists })),
+    backlinks: Object.fromEntries(
+      params.backlinksOf.map((notePath) => [
+        notePath,
+        search.getBacklinks({ path: notePath }, logger).map((backlink) => backlink.path),
+      ]),
+    ),
+    orphans: search
+      .findOrphans({}, logger)
+      .map((orphan) => orphan.path)
+      .toSorted(),
+  })
+
+  /** Asserts the expected view on the incrementally updated index and on a
+   *  fresh index rebuilt from a vault holding exactly `files`. */
+  const expectViewAsRebuilt = async (params: {
+    search: SearchIndex
+    files: readonly VaultFile[]
+    source: string
+    backlinksOf: readonly string[]
+    expected: LinkView
+  }): Promise<void> => {
+    const directory = await mkdtemp(join(tmpdir(), "link-repair-rebuild-"))
+    onTestFinished(() => rm(directory, { recursive: true, force: true }))
+    for (const file of params.files) {
+      await mkdir(dirname(join(directory, file.path)), { recursive: true })
+      await writeFile(join(directory, file.path), file.content)
+    }
+    const rebuiltIndex = createSearchIndex(":memory:")
+    const rebuilt = await rebuiltIndex.rebuildFromVault(
+      {
+        vaultPath: directory,
+        bodyTagParser: inProcessBodyTagParser,
+        pdfExtractor: createInProcessPdfExtractor(directory),
+        maxFileBytes: 10_000_000,
+      },
+      logger,
+    )
+    await rebuilt.embedding
+
+    expect(readLinkView(params.search, params)).toEqual(params.expected)
+    expect(readLinkView(rebuiltIndex, params)).toEqual(params.expected)
+  }
+
+  const NOTE = "# Note\n"
+  const SOURCE_LINKING_B = { path: "source.md", content: "# Source\n\n[[B]]\n" }
+
+  const saveAttachment = (search: SearchIndex, filePath: string): void => {
+    search.upsertNonMdFile(filePath, 10)
+  }
+
+  describe("a note renamed into another folder", () => {
+    const EXPECTED_AFTER_RENAME: LinkView = {
+      outgoing: [{ path: "folder/B.md", exists: true }],
+      backlinks: { "folder/B.md": ["source.md"] },
+      orphans: ["source.md"],
+    }
+
+    it("moves [[B]] to the renamed note when the add arrives first", async () => {
+      const search = createSearchIndex(":memory:")
+      saveLinkTestNote(search, SOURCE_LINKING_B.path, SOURCE_LINKING_B.content)
+      saveLinkTestNote(search, "B.md")
+      saveLinkTestNote(search, "folder/B.md")
+      search.removeNote("B.md")
+
+      await expectViewAsRebuilt({
+        search,
+        files: [SOURCE_LINKING_B, { path: "folder/B.md", content: NOTE }],
+        source: "source.md",
+        backlinksOf: ["folder/B.md"],
+        expected: EXPECTED_AFTER_RENAME,
+      })
+    })
+
+    it("moves [[B]] to the renamed note when the removal arrives first", async () => {
+      const search = createSearchIndex(":memory:")
+      saveLinkTestNote(search, SOURCE_LINKING_B.path, SOURCE_LINKING_B.content)
+      saveLinkTestNote(search, "B.md")
+      search.removeNote("B.md")
+      saveLinkTestNote(search, "folder/B.md")
+
+      await expectViewAsRebuilt({
+        search,
+        files: [SOURCE_LINKING_B, { path: "folder/B.md", content: NOTE }],
+        source: "source.md",
+        backlinksOf: ["folder/B.md"],
+        expected: EXPECTED_AFTER_RENAME,
+      })
+    })
+  })
+
+  describe("a note whose name ends in a capital sigma, renamed into another folder", () => {
+    // The resolver lowercases "ΟΔΟΣ.md" to "οδοσ.md", so [[οδοσ]] reaches the
+    // note. The note's name key lowercases "ΟΔΟΣ" alone, which ends in "ς",
+    // so the add finds the link only because the key folds "ς" to "σ".
+    const SOURCE_LINKING_SIGMA = { path: "source.md", content: "# Source\n\n[[οδοσ]]\n" }
+    const FILES_AFTER_RENAME = [SOURCE_LINKING_SIGMA, { path: "folder/ΟΔΟΣ.md", content: NOTE }]
+    const EXPECTED_AFTER_RENAME: LinkView = {
+      outgoing: [{ path: "folder/ΟΔΟΣ.md", exists: true }],
+      backlinks: { "folder/ΟΔΟΣ.md": ["source.md"] },
+      orphans: ["source.md"],
+    }
+
+    it("moves [[οδοσ]] to the renamed ΟΔΟΣ.md when the add arrives first", async () => {
+      const search = createSearchIndex(":memory:")
+      saveLinkTestNote(search, SOURCE_LINKING_SIGMA.path, SOURCE_LINKING_SIGMA.content)
+      saveLinkTestNote(search, "ΟΔΟΣ.md")
+      saveLinkTestNote(search, "folder/ΟΔΟΣ.md")
+      search.removeNote("ΟΔΟΣ.md")
+
+      await expectViewAsRebuilt({
+        search,
+        files: FILES_AFTER_RENAME,
+        source: "source.md",
+        backlinksOf: ["folder/ΟΔΟΣ.md"],
+        expected: EXPECTED_AFTER_RENAME,
+      })
+    })
+
+    it("moves [[οδοσ]] to the renamed ΟΔΟΣ.md when the removal arrives first", async () => {
+      const search = createSearchIndex(":memory:")
+      saveLinkTestNote(search, SOURCE_LINKING_SIGMA.path, SOURCE_LINKING_SIGMA.content)
+      saveLinkTestNote(search, "ΟΔΟΣ.md")
+      search.removeNote("ΟΔΟΣ.md")
+      saveLinkTestNote(search, "folder/ΟΔΟΣ.md")
+
+      await expectViewAsRebuilt({
+        search,
+        files: FILES_AFTER_RENAME,
+        source: "source.md",
+        backlinksOf: ["folder/ΟΔΟΣ.md"],
+        expected: EXPECTED_AFTER_RENAME,
+      })
+    })
+  })
+
+  describe("a note renamed beside a longer path with the same name", () => {
+    // Projects/B.md is shorter than Zzzzzzzz-long/B.md, so [[B]] prefers it.
+    const FILES_AFTER_RENAME = [
+      SOURCE_LINKING_B,
+      { path: "Projects/B.md", content: NOTE },
+      { path: "Zzzzzzzz-long/B.md", content: NOTE },
+    ]
+    const EXPECTED_AFTER_RENAME: LinkView = {
+      outgoing: [{ path: "Projects/B.md", exists: true }],
+      backlinks: { "Projects/B.md": ["source.md"], "Zzzzzzzz-long/B.md": [] },
+      orphans: ["Zzzzzzzz-long/B.md", "source.md"],
+    }
+
+    const seedBeforeRename = (search: SearchIndex): void => {
+      saveLinkTestNote(search, SOURCE_LINKING_B.path, SOURCE_LINKING_B.content)
+      saveLinkTestNote(search, "B.md")
+      saveLinkTestNote(search, "Zzzzzzzz-long/B.md")
+    }
+
+    it("settles [[B]] on the shorter renamed path when the add arrives first", async () => {
+      const search = createSearchIndex(":memory:")
+      seedBeforeRename(search)
+      saveLinkTestNote(search, "Projects/B.md")
+      search.removeNote("B.md")
+
+      await expectViewAsRebuilt({
+        search,
+        files: FILES_AFTER_RENAME,
+        source: "source.md",
+        backlinksOf: ["Projects/B.md", "Zzzzzzzz-long/B.md"],
+        expected: EXPECTED_AFTER_RENAME,
+      })
+    })
+
+    it("moves [[B]] off the longer path to the renamed note when the removal arrives first", async () => {
+      const search = createSearchIndex(":memory:")
+      seedBeforeRename(search)
+      search.removeNote("B.md")
+      const outgoingBetweenEvents = search
+        .getOutgoingLinks(
+          { path: "source.md", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
+          logger,
+        )
+        .map((link) => link.path)
+      saveLinkTestNote(search, "Projects/B.md")
+
+      expect(outgoingBetweenEvents).toEqual(["Zzzzzzzz-long/B.md"])
+      await expectViewAsRebuilt({
+        search,
+        files: FILES_AFTER_RENAME,
+        source: "source.md",
+        backlinksOf: ["Projects/B.md", "Zzzzzzzz-long/B.md"],
+        expected: EXPECTED_AFTER_RENAME,
+      })
+    })
+  })
+
+  describe("an attachment renamed into another folder", () => {
+    const SOURCE_EMBEDDING_B = { path: "source.md", content: "# Source\n\n![[B.png]]\n" }
+    const EXPECTED_AFTER_RENAME: LinkView = {
+      outgoing: [{ path: "new/B.png", exists: true }],
+      backlinks: {},
+      orphans: ["source.md"],
+    }
+
+    it("moves ![[B.png]] to the renamed attachment when the add arrives first", async () => {
+      const search = createSearchIndex(":memory:")
+      saveAttachment(search, "old/B.png")
+      saveLinkTestNote(search, SOURCE_EMBEDDING_B.path, SOURCE_EMBEDDING_B.content)
+      saveAttachment(search, "new/B.png")
+      search.removeNonMdFile("old/B.png")
+
+      await expectViewAsRebuilt({
+        search,
+        files: [SOURCE_EMBEDDING_B, { path: "new/B.png", content: "png" }],
+        source: "source.md",
+        backlinksOf: [],
+        expected: EXPECTED_AFTER_RENAME,
+      })
+    })
+
+    it("moves ![[B.png]] to the renamed attachment when the removal arrives first", async () => {
+      const search = createSearchIndex(":memory:")
+      saveAttachment(search, "old/B.png")
+      saveLinkTestNote(search, SOURCE_EMBEDDING_B.path, SOURCE_EMBEDDING_B.content)
+      search.removeNonMdFile("old/B.png")
+      saveAttachment(search, "new/B.png")
+
+      await expectViewAsRebuilt({
+        search,
+        files: [SOURCE_EMBEDDING_B, { path: "new/B.png", content: "png" }],
+        source: "source.md",
+        backlinksOf: [],
+        expected: EXPECTED_AFTER_RENAME,
+      })
+    })
+  })
+
+  it("moves [x](photo.png) to a renamed photo.png.canvas, which it names by its stem", async () => {
+    const search = createSearchIndex(":memory:")
+    const source = { path: "source.md", content: "# Source\n\n[x](photo.png)\n" }
+    saveLinkTestCanvas(search, "boards/photo.png.canvas", [])
+    saveLinkTestNote(search, source.path, source.content)
+    search.removeNonMdFile("boards/photo.png.canvas")
+    search.removeFileContent({ filePath: "boards/photo.png.canvas" }, logger)
+    saveLinkTestCanvas(search, "archive/photo.png.canvas", [])
+
+    await expectViewAsRebuilt({
+      search,
+      files: [source, { path: "archive/photo.png.canvas", content: linkTestCanvasJson([]) }],
+      source: "source.md",
+      backlinksOf: ["archive/photo.png.canvas"],
+      expected: {
+        outgoing: [{ path: "archive/photo.png.canvas", exists: true }],
+        backlinks: { "archive/photo.png.canvas": ["source.md"] },
+        orphans: ["source.md"],
+      },
+    })
+  })
+
+  it.each([
+    { label: "[[x.md]] to x.MD.png", linkText: "x.md", attachment: "files/x.MD.png" },
+    { label: "[[x.MD]] to x.md.png", linkText: "x.MD", attachment: "files/x.md.png" },
+  ])(
+    "resolves $label, whose .md ending differs in letter case, once the attachment is added",
+    async ({ linkText, attachment }) => {
+      const search = createSearchIndex(":memory:")
+      const source = { path: "source.md", content: `# Source\n\n[[${linkText}]]\n` }
+      saveLinkTestNote(search, source.path, source.content)
+      saveAttachment(search, attachment)
+
+      await expectViewAsRebuilt({
+        search,
+        files: [source, { path: attachment, content: "png" }],
+        source: "source.md",
+        backlinksOf: [],
+        expected: {
+          outgoing: [{ path: attachment, exists: true }],
+          backlinks: {},
+          orphans: ["source.md"],
+        },
+      })
+    },
+  )
+
+  it("leaves [[../B]] unresolved once the root B.md moves into a folder", async () => {
+    const search = createSearchIndex(":memory:")
+    const source = { path: "sub/source.md", content: "# Source\n\n[[../B]]\n" }
+    saveLinkTestNote(search, "B.md")
+    saveLinkTestNote(search, source.path, source.content)
+    search.removeNote("B.md")
+    saveLinkTestNote(search, "folder/B.md")
+
+    await expectViewAsRebuilt({
+      search,
+      files: [source, { path: "folder/B.md", content: NOTE }],
+      source: "sub/source.md",
+      backlinksOf: ["folder/B.md"],
+      expected: {
+        outgoing: [{ path: "../B", exists: false }],
+        backlinks: { "folder/B.md": [] },
+        orphans: ["folder/B.md", "sub/source.md"],
+      },
+    })
+  })
+
+  it("re-resolves [[../B]] and [[B]] in one note separately through two renames", async () => {
+    const search = createSearchIndex(":memory:")
+    const source = { path: "sub/source.md", content: "# Source\n\n[[../B]] and [[B]]\n" }
+    saveLinkTestNote(search, "B.md")
+    saveLinkTestNote(search, source.path, source.content)
+
+    search.removeNote("B.md")
+    saveLinkTestNote(search, "folder/B.md")
+    await expectViewAsRebuilt({
+      search,
+      files: [source, { path: "folder/B.md", content: NOTE }],
+      source: "sub/source.md",
+      backlinksOf: ["folder/B.md"],
+      expected: {
+        outgoing: [
+          { path: "../B", exists: false },
+          { path: "folder/B.md", exists: true },
+        ],
+        backlinks: { "folder/B.md": ["sub/source.md"] },
+        orphans: ["sub/source.md"],
+      },
+    })
+
+    search.removeNote("folder/B.md")
+    saveLinkTestNote(search, "B.md")
+    await expectViewAsRebuilt({
+      search,
+      files: [source, { path: "B.md", content: NOTE }],
+      source: "sub/source.md",
+      backlinksOf: ["B.md"],
+      expected: {
+        outgoing: [{ path: "B.md", exists: true }],
+        backlinks: { "B.md": ["sub/source.md"] },
+        orphans: ["sub/source.md"],
+      },
+    })
+  })
+
+  it("keeps a Plan.pdf file card on the PDF through a Plan.pdf.md note and the PDF's arrival", async () => {
+    const search = createSearchIndex(":memory:")
+    const planCard = [{ type: "file", file: "Plan.pdf" }]
+    saveLinkTestCanvas(search, "board.canvas", planCard)
+    saveLinkTestNote(search, "Plan.pdf.md")
+    saveAttachment(search, "Plan.pdf")
+
+    await expectViewAsRebuilt({
+      search,
+      files: [
+        { path: "board.canvas", content: linkTestCanvasJson(planCard) },
+        { path: "Plan.pdf.md", content: NOTE },
+        { path: "Plan.pdf", content: "x".repeat(10) },
+      ],
+      source: "board.canvas",
+      backlinksOf: ["Plan.pdf.md"],
+      expected: {
+        outgoing: [{ path: "Plan.pdf", exists: true }],
+        backlinks: { "Plan.pdf.md": [] },
+        orphans: ["Plan.pdf.md"],
+      },
+    })
+  })
+
+  it("resolves a stored [[real]] once Folder/Real.md, differing only in letter case, is added", async () => {
+    const search = createSearchIndex(":memory:")
+    const source = { path: "source.md", content: "# Source\n\n[[real]]\n" }
+    saveLinkTestNote(search, source.path, source.content)
+    const outgoingBeforeAdd = search
+      .getOutgoingLinks({ path: "source.md", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT }, logger)
+      .map((link) => ({ path: link.path, exists: link.exists }))
+    saveLinkTestNote(search, "Folder/Real.md")
+
+    expect(outgoingBeforeAdd).toEqual([{ path: "real", exists: false }])
+    await expectViewAsRebuilt({
+      search,
+      files: [source, { path: "Folder/Real.md", content: NOTE }],
+      source: "source.md",
+      backlinksOf: ["Folder/Real.md"],
+      expected: {
+        outgoing: [{ path: "Folder/Real.md", exists: true }],
+        backlinks: { "Folder/Real.md": ["source.md"] },
+        orphans: ["source.md"],
+      },
+    })
+  })
+
+  it("moves a text-card link but not a file card with the same text when its note is renamed", async () => {
+    const search = createSearchIndex(":memory:")
+    const cards = [
+      { type: "file", file: "B.md" },
+      { type: "text", text: "[[B.md]]" },
+    ]
+    saveLinkTestNote(search, "B.md")
+    saveLinkTestCanvas(search, "board.canvas", cards)
+    search.removeNote("B.md")
+    saveLinkTestNote(search, "folder/B.md")
+
+    await expectViewAsRebuilt({
+      search,
+      files: [
+        { path: "board.canvas", content: linkTestCanvasJson(cards) },
+        { path: "folder/B.md", content: NOTE },
+      ],
+      source: "board.canvas",
+      backlinksOf: ["folder/B.md"],
+      expected: {
+        outgoing: [
+          { path: "B.md", exists: false },
+          { path: "folder/B.md", exists: true },
+        ],
+        backlinks: { "folder/B.md": ["board.canvas"] },
+        orphans: [],
+      },
+    })
+  })
+
+  it("re-resolves one relative link text from two folders to two notes", async () => {
+    const search = createSearchIndex(":memory:")
+    const upperSource = { path: "sub/upper.md", content: "# Upper\n\n[[../B]]\n" }
+    const deepSource = { path: "sub/deep/lower.md", content: "# Lower\n\n[[../B]]\n" }
+    saveLinkTestNote(search, "B.md")
+    saveLinkTestNote(search, "sub/B.md")
+    saveLinkTestNote(search, upperSource.path, upperSource.content)
+    saveLinkTestNote(search, deepSource.path, deepSource.content)
+    // A new B.md re-resolves both [[../B]] links in one pass.
+    saveLinkTestNote(search, "x/B.md")
+
+    const files = [
+      upperSource,
+      deepSource,
+      { path: "B.md", content: NOTE },
+      { path: "sub/B.md", content: NOTE },
+      { path: "x/B.md", content: NOTE },
+    ]
+    const orphans = ["sub/deep/lower.md", "sub/upper.md", "x/B.md"]
+    await expectViewAsRebuilt({
+      search,
+      files,
+      source: upperSource.path,
+      backlinksOf: [],
+      expected: { outgoing: [{ path: "B.md", exists: true }], backlinks: {}, orphans },
+    })
+    await expectViewAsRebuilt({
+      search,
+      files,
+      source: deepSource.path,
+      backlinksOf: [],
+      expected: { outgoing: [{ path: "sub/B.md", exists: true }], backlinks: {}, orphans },
+    })
+  })
+
+  it("re-resolves [[b/C]] from a/ and [[C]] from a/b/ to two notes", async () => {
+    // Joining each source's folder and link text gives both links "a/b/C",
+    // yet [[b/C]] reaches a/b/C.md and [[C]] reaches the root C.md.
+    const folderSource = { path: "a/one.md", content: "# One\n\n[[b/C]]\n" }
+    const subfolderSource = { path: "a/b/two.md", content: "# Two\n\n[[C]]\n" }
+    const search = createSearchIndex(":memory:")
+    saveLinkTestNote(search, "C.md")
+    saveLinkTestNote(search, "a/b/C.md")
+    saveLinkTestNote(search, folderSource.path, folderSource.content)
+    saveLinkTestNote(search, subfolderSource.path, subfolderSource.content)
+    // A new C.md re-resolves both links in one pass.
+    saveLinkTestNote(search, "z/C.md")
+
+    await expectViewAsRebuilt({
+      search,
+      files: [
+        folderSource,
+        subfolderSource,
+        { path: "C.md", content: NOTE },
+        { path: "a/b/C.md", content: NOTE },
+        { path: "z/C.md", content: NOTE },
+      ],
+      source: folderSource.path,
+      backlinksOf: ["C.md", "a/b/C.md"],
+      expected: {
+        outgoing: [{ path: "a/b/C.md", exists: true }],
+        backlinks: { "C.md": ["a/b/two.md"], "a/b/C.md": ["a/one.md"] },
+        orphans: ["a/b/two.md", "a/one.md", "z/C.md"],
+      },
+    })
+  })
+
+  it("keeps a Plan.md file card on its missing path when Projects/Plan.md is edited", async () => {
+    const search = createSearchIndex(":memory:")
+    const planCard = [{ type: "file", file: "Plan.md" }]
+    saveLinkTestNote(search, "Projects/Plan.md")
+    saveLinkTestCanvas(search, "board.canvas", planCard)
+    saveLinkTestNote(search, "Projects/Plan.md", "# Plan edited\n")
+
+    await expectViewAsRebuilt({
+      search,
+      files: [
+        { path: "board.canvas", content: linkTestCanvasJson(planCard) },
+        { path: "Projects/Plan.md", content: "# Plan edited\n" },
+      ],
+      source: "board.canvas",
+      backlinksOf: ["Projects/Plan.md"],
+      expected: {
+        outgoing: [{ path: "Plan.md", exists: false }],
+        backlinks: { "Projects/Plan.md": [] },
+        orphans: ["Projects/Plan.md"],
+      },
+    })
+  })
+
+  it("re-resolves no link when an existing note is edited", async () => {
+    const { searchIndex, inspect, readLinkRows } = await createLinkRowsIndex()
+    saveLinkTestNote(searchIndex, "source.md", "# Source\n\n[[B]]\n")
+    saveLinkTestNote(searchIndex, "B.md")
+    // A decoy target that re-resolving [[B]] would replace with B.md.
+    inspect.exec("UPDATE links SET target = 'decoy/B.md' WHERE source = 'source.md'")
+
+    saveLinkTestNote(searchIndex, "B.md", "# Note\n\nzebrawood\n")
+
+    expect(
+      searchIndex.fullTextSearch({ query: "zebrawood" }, logger).map((result) => result.path),
+    ).toEqual(["B.md"])
+    expect(readLinkRows()).toEqual([
+      {
+        source: "source.md",
+        target: "decoy/B.md",
+        link_text: "B",
+        link_kind: "link",
+        link_name: "b",
+      },
+    ])
+  })
+
+  it("re-resolves no link when an existing attachment changes", async () => {
+    const { searchIndex, inspect, readLinkRows } = await createLinkRowsIndex()
+    saveLinkTestNote(searchIndex, "source.md", "# Source\n\n![[B.png]]\n")
+    saveAttachment(searchIndex, "B.png")
+    // A decoy target that re-resolving ![[B.png]] would replace with B.png.
+    inspect.exec("UPDATE links SET target = 'decoy/B.png' WHERE source = 'source.md'")
+
+    searchIndex.upsertNonMdFile("B.png", 20)
+
+    expect(
+      inspect.prepare("SELECT path, base_path, basename, bytes FROM non_md_files").all(),
+    ).toEqual([{ path: "B.png", base_path: "B", basename: "B", bytes: 20 }])
+    expect(readLinkRows()).toEqual([
+      {
+        source: "source.md",
+        target: "decoy/B.png",
+        link_text: "B.png",
+        link_kind: "link",
+        link_name: "b.png",
+      },
+    ])
+  })
+
+  it("touches no link row when a note without incoming links is removed", async () => {
+    const { searchIndex, inspect, readLinkRows } = await createLinkRowsIndex()
+    saveLinkTestNote(searchIndex, "source.md", "# Source\n\n[[B]]\n")
+    saveLinkTestNote(searchIndex, "B.md")
+    saveLinkTestNote(searchIndex, "lonely.md")
+    // A stale target that re-resolving [[B]] would replace with B.md.
+    inspect.exec("UPDATE links SET target = 'stale/B.md' WHERE source = 'source.md'")
+
+    searchIndex.removeNote("lonely.md")
+
+    expect(
+      inspect
+        .prepare<[], { path: string }>("SELECT path FROM notes ORDER BY path")
+        .all()
+        .map((note) => note.path),
+    ).toEqual(["B.md", "source.md"])
+    expect(readLinkRows()).toEqual([
+      {
+        source: "source.md",
+        target: "stale/B.md",
+        link_text: "B",
+        link_kind: "link",
+        link_name: "b",
+      },
+    ])
+  })
+
+  it("keeps a file card on its removed file rather than a note with the same name", async () => {
+    const search = createSearchIndex(":memory:")
+    const planCard = [{ type: "file", file: "Plan.pdf" }]
+    saveLinkTestNote(search, "Plan.pdf.md")
+    saveAttachment(search, "Plan.pdf")
+    saveLinkTestCanvas(search, "board.canvas", planCard)
+    search.removeNonMdFile("Plan.pdf")
+
+    await expectViewAsRebuilt({
+      search,
+      files: [
+        { path: "board.canvas", content: linkTestCanvasJson(planCard) },
+        { path: "Plan.pdf.md", content: NOTE },
+      ],
+      source: "board.canvas",
+      backlinksOf: ["Plan.pdf.md"],
+      expected: {
+        outgoing: [{ path: "Plan.pdf", exists: false }],
+        backlinks: { "Plan.pdf.md": [] },
+        orphans: ["Plan.pdf.md"],
+      },
+    })
+  })
+})
+
 describe("links that differ from their file only in letter case", () => {
   const indexNote = (filePath: string, rawContent: string): void => {
     index.upsertNote(withBodyTags({ filePath, rawContent, fileStat: testStat(1000) }), logger)
@@ -6973,31 +7850,11 @@ describe("links that differ from their file only in letter case", () => {
     ).toEqual([resolvedNoteLink("Note.md", "Note")])
   })
 
-  it("moves incoming links to the new spelling when the linking note is re-indexed after an add-first case-only rename", () => {
+  it("moves incoming links to the new spelling when a case-only rename adds the new note first", () => {
     indexNote("note.md", "# Note\n")
     indexNote("source.md", "[[note]].\n")
     indexNote("Note.md", "# Note\n")
     index.removeNote("note.md")
-
-    // Adding Note.md while note.md still existed left the link on note.md,
-    // so it reads as broken until the linking note is indexed again.
-    expect(
-      index.getOutgoingLinks(
-        { path: "source.md", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
-        logger,
-      ),
-    ).toEqual([
-      {
-        path: "note.md",
-        title: null,
-        exists: false,
-        kind: "note",
-        bytes: null,
-        daily_note_forward_ref: false,
-      },
-    ])
-
-    indexNote("source.md", "[[note]].\n")
 
     expect(
       index.getOutgoingLinks(

@@ -351,6 +351,11 @@ Link queries use a `links` table populated during indexing:
   - File links fold ASCII letters only, because the index resolves them in SQL (`COLLATE NOCASE`) and the in-memory twin must pick the same file; `![[éclair.png]]` stays broken beside `Éclair.png`. Their path-suffix tiers query with `LIKE`, which ignores ASCII letter case, so those tiers fold in the first walk too: `![[photo.png]]` reaches the shorter `A/Photo.PNG` rather than `B/sub/photo.png`.
   - Two notes whose paths differ only in letter case, possible on a case-sensitive filesystem, each keep the links written in their own spelling; a third spelling goes to the shortest path, then byte order. This is the server's own rule, not a statement of Obsidian's behaviour.
 - **Non-markdown files:** Targets that don't resolve to a note are checked against a `non_md_files` table (populated during rebuild, maintained by the file watcher). Both wikilinks and markdown-style links to `.canvas`, `.base`, images, PDFs, and other non-markdown files resolve as `kind: "file"` instead of being counted as broken.
+- **Stored rows:** Each row keeps the link's text as written and its kind: a link typed in a note or a Canvas text card, or a Canvas file card. One note can hold two spellings that reach the same file (`[[../B]]` and `[[B]]`); each keeps its own row, and the link queries list the file once.
+- **Re-resolution:** When the file watcher adds or removes a file, the affected links re-resolve from their text, so a renamed file's links end where a rebuild would put them, whichever of the rename's two events arrives first:
+  - Adding a file new to the index re-resolves, by the rules above, the links whose last path segment names it: a note by its name without `.md` in any letter case, a non-markdown file by its full name or its name without the extension in ASCII letter case. A link that already reached another file moves to the new one when the new file now ranks first.
+  - Removing a file re-resolves the links that pointed at it against the remaining files; a link that matches none becomes broken.
+  - Editing an existing file re-resolves nothing, and a Canvas file card always keeps the exact path it names.
 - **Outgoing links:** `vault_get_outgoing_links` returns a `kind` discriminator (`"note"` or `"file"`) plus each target's byte size (`bytes` — from the notes table for notes, from `non_md_files` for files), so clients can route notes to `vault_read_note` and files to `vault_read_file` with size awareness. A broken link keeps the target text the index stored: its original letter case, and for a markdown link, its `%`-escapes decoded.
 - **Orphans:** `vault_find_orphans` and `vault-orientation` resolve default exclusions on each invocation: the daily notes folder (resolved as [Daily notes](#property-discovery--daily-notes) describes), `Templates`, and the memory dir.
   - `ORPHAN_EXCLUDE_FOLDERS` replaces that list; a tool call's `exclude_folders` replaces it for that call.
@@ -648,13 +653,16 @@ flowchart TD
     BT --> UP[upsertNote]
     UP --> FTS[Update FTS5]
     UP --> LK[Update Links]
+    UP --> RN[Re-resolve links\nnaming a new file]
     UP --> EM[embedAndStoreChunks]
     EM --> CH{Content\nhash match?}
     CH --> |unchanged| SK[Skip]
     CH --> |changed| EMB[Embed chunk\nbge-small q8]
     EMB --> VEC[Store in\nnote_vectors]
 
-    FW --> |non-PDF non-.md add/change| UFC[upsertFileContent]
+    FW --> |non-.md add/change| UNA[upsertNonMdFile]
+    UNA --> RN
+    FW --> |canvas or non-PDF\ncontent-indexed file add/change| UFC[upsertFileContent]
     FW --> |PDF add/change| PN[Publish Filename\nclear old text and vectors]
     PN --> PG
     PP --> FFTS
@@ -669,8 +677,11 @@ flowchart TD
     FW --> |.md delete| RM[removeNote]
     RM --> D1[Delete FTS + links]
     RM --> D2[Delete chunks + vectors]
+    RM --> RR[Re-resolve links\nto the deleted file]
 
-    FW --> |non-.md delete| RMF[removeFileContent]
+    FW --> |non-.md delete| RMN[removeNonMdFile]
+    RMN --> RR
+    FW --> |canvas or content-indexed\nfile delete| RMF[removeFileContent]
     RMF --> FD1[Delete FTS + links]
     RMF --> FD2[Delete file chunks + vectors]
 

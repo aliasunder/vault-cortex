@@ -265,6 +265,19 @@ const stripExtension = (filePath: string): string => {
   return filePath.slice(0, filePath.length - extension.length)
 }
 
+/** The key that pairs a link's text with the files it could name. A link and
+ *  a file a resolver could match must share a key; a key shared more widely
+ *  costs only an extra re-resolve. The key is:
+ *  - the last path segment, minus one trailing ".md" (case-sensitive, as
+ *    noteTargetWithExtension adds it), lowercased;
+ *  - "ς" folded to "σ", because toLowerCase turns a capital "Σ" into either one depending
+ *    on what follows it, so one name could otherwise lowercase two ways. */
+const pathToLinkName = (path: string): string => {
+  const lastSegment = posix.basename(path)
+  const name = lastSegment.endsWith(".md") ? lastSegment.slice(0, -".md".length) : lastSegment
+  return name.toLowerCase().replaceAll("ς", "σ")
+}
+
 /** Splits a matched wikilink, or returns null for malformed text.
  *  A trailing backslash moves from the target to the alias to preserve a table-pipe escape. */
 const splitWikilink = (linkText: string): WikilinkParts | null => {
@@ -759,5 +772,6 @@ export const links = {
   resolve,
   resolveInExactCase,
   stripExtension,
+  pathToLinkName,
   resolveAsset,
 }
