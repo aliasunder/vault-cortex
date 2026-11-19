@@ -25,6 +25,7 @@ import { createErrorMiddleware } from "../http-error-middleware.js"
 import { describeError, describeErrorForLog } from "../utils/describe-error.js"
 import { urlHasCredentials } from "../utils/url-has-credentials.js"
 import { securityHeaders } from "../utils/security-headers.js"
+import { stripTrailingSlashes } from "../utils/strip-trailing-slashes.js"
 import env from "env-var"
 
 type ShutdownResources = {
@@ -151,7 +152,7 @@ export const startServer = async (): Promise<void> => {
     throw new Error("PUBLIC_URL must be a bare origin — no query string or fragment")
   }
 
-  if (serverUrl.pathname.replace(/\/+$/, "") !== "") {
+  if (stripTrailingSlashes(serverUrl.pathname) !== "") {
     throw new Error(
       "PUBLIC_URL must be a bare origin — path prefixes are not supported (e.g. https://vault.example.com)",
     )
