@@ -10876,6 +10876,65 @@ describe("canvas file content and links", () => {
       const canvasResult = results.find((result) => result.path === "Diagrams/arch.canvas")
       expect(canvasResult).toBeUndefined()
     })
+
+    it("does not log the FTS byte cap for an oversized canvas without fileToolsEnabled", () => {
+      const debugSpy = vi.spyOn(logger, "debug").mockImplementation(() => {})
+      onTestFinished(() => debugSpy.mockRestore())
+      // The text card alone is about 140KB, past the 100KB FTS cap.
+      const oversizedCanvas = JSON.stringify({
+        nodes: [
+          {
+            id: "t1",
+            type: "text",
+            x: 0,
+            y: 0,
+            width: 200,
+            height: 100,
+            text: "filler ".repeat(20_000),
+          },
+          {
+            id: "f1",
+            type: "file",
+            x: 300,
+            y: 0,
+            width: 400,
+            height: 200,
+            file: "Projects/vault-cortex.md",
+          },
+        ],
+        edges: [],
+      })
+      index.upsertNote(
+        withBodyTags({
+          filePath: "Projects/vault-cortex.md",
+          rawContent: "# vault-cortex\n\nProject note.\n",
+          fileStat: testStat(1000),
+        }),
+        logger,
+      )
+      index.upsertNonMdFile("Diagrams/big.canvas", oversizedCanvas.length)
+      index.upsertFileContent(
+        {
+          filePath: "Diagrams/big.canvas",
+          rawContent: oversizedCanvas,
+          fileStat: testStat(5000, oversizedCanvas.length),
+        },
+        logger,
+      )
+
+      // The canvas's file card became a backlink, so the upsert ran.
+      expect(
+        index
+          .getBacklinks({ path: "Projects/vault-cortex.md" }, logger)
+          .map((backlink) => backlink.path),
+      ).toEqual(["Diagrams/big.canvas"])
+
+      // The message alone shows the cap ran, so any payload counts.
+      expect(debugSpy).not.toHaveBeenCalledWith(
+        "truncated file content for FTS indexing",
+        expect.anything(),
+      )
+    })
   })
 
   describe("links typed in text cards", () => {
