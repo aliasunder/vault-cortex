@@ -1700,7 +1700,10 @@ export const createSearchIndex = (
       // FTS indexing — gated behind fileToolsEnabled
       if (upsertFileContentStmt && deleteFileContentFtsStmt && insertFileContentFtsStmt) {
         const title = basename(params.filePath, extension)
-        const folder = posix.dirname(params.filePath)
+
+        // A file at the vault root stores "" like a root note or task. posix.dirname
+        // returns "." there, and a caller passing "." back as a folder filter gets nothing.
+        const folder = params.filePath.includes("/") ? posix.dirname(params.filePath) : ""
         const upsertedRow = upsertFileContentStmt.get(
           params.filePath,
           title,
