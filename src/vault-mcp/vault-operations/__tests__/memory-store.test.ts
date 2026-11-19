@@ -1563,6 +1563,32 @@ describe("updateMemory near-duplicate section guard", () => {
     )
   })
 
+  // The near-miss comparison drops the "(newest first)" suffix from both names.
+  // The typo keeps the strict matcher from finding the section. If the suffix
+  // stayed on the requested name, its extra length would pass the edit budget
+  // and a duplicate section would be created.
+  it("rejects a typo whose suffix has no space before it as a near miss", async () => {
+    const contentBefore = await readFile(join(vault, "About Me/Principles.md"), "utf8")
+
+    await expect(
+      updateMemory(
+        {
+          vaultPath: vault,
+          file: "Principles",
+          section: "Working stlye(newest first)",
+          entry: "Unspaced suffix",
+          date: "2026-07-31",
+        },
+        logger,
+      ),
+    ).rejects.toThrow(
+      new Error(
+        'section not created: "Working stlye(newest first)" is nearly identical to existing section "Working style (newest first)". Existing sections: Decision heuristics (newest first), Working style (newest first), Empty section (newest first)',
+      ),
+    )
+    expect(await readFile(join(vault, "About Me/Principles.md"), "utf8")).toBe(contentBefore)
+  })
+
   it("still creates a genuinely distinct new section", async () => {
     const outcome = await updateMemory(
       {
