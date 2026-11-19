@@ -134,6 +134,12 @@ const fileTextToIndexedText = (params: {
   }
 }
 
+/** The full parent folder of a vault path, or "" at the vault root, where
+ *  posix.dirname returns ".". */
+const getParentFolder = (vaultPath: string): string => {
+  return vaultPath.includes("/") ? posix.dirname(vaultPath) : ""
+}
+
 // ── Types ───────────────────────────────────────────────────────
 
 /** A note path with its best-chunk distance from a vector KNN query. */
@@ -151,6 +157,7 @@ export type SearchResult = {
   tags: string[]
   /** The `#tags` written in a note's body, each spelling once; absent when there are none. */
   body_tags?: string[]
+  /** A note's top-level folder or a file's full parent folder, "" at the vault root. */
   folder: string
   type: string | null
   created?: string
@@ -988,12 +995,22 @@ export const createSearchIndex = (
     `SELECT path FROM non_md_files WHERE path LIKE '%/' || ? ESCAPE '\\' ORDER BY length(path), path LIMIT 1`,
   )
   // ── File content prepared statements (conditional on fileToolsEnabled) ──
-  // Each file_content_fts row has its file_content row's rowid, as the notes
-  // statements above explain.
+  // Each file_content_fts row has its file_content row's rowid, as the comment
+  // above upsertNotesStmt explains.
   const upsertFileContentStmt = fileToolsEnabled
-    ? db.prepare<[string, string, string, string, number, number], { rowid: number }>(
+    ? db.prepare<
+        {
+          path: string
+          title: string
+          content: string
+          folder: string
+          mtime: number
+          bytes: number
+        },
+        { rowid: number }
+      >(
         `INSERT INTO file_content (path, title, content, folder, mtime, bytes)
-         VALUES (?, ?, ?, ?, ?, ?)
+         VALUES (@path, @title, @content, @folder, @mtime, @bytes)
          ON CONFLICT (path) DO UPDATE SET
            title = excluded.title, content = excluded.content, folder = excluded.folder,
            mtime = excluded.mtime, bytes = excluded.bytes
@@ -1657,7 +1674,8 @@ export const createSearchIndex = (
 
   // ── File content indexing ─────────────────────────────────────
 
-  /** Pass the returned source version to embedFileContent for this upsert.
+  /** Indexes a file and returns its source version, a token embedFileContent checks so that an
+   *  embed of this content is dropped once a later write replaces it.
    *  - Canvas JSON is linearized for FTS and parsed for graph links regardless of fileToolsEnabled.
    *  - An HTML page arrives as its source and is indexed as its visible text.
    *  - Other files supply rendered text; FTS storage requires fileToolsEnabled and caps UTF-8 bytes. */
@@ -1670,7 +1688,6 @@ export const createSearchIndex = (
     },
     logger: Logger,
   ): symbol => {
-    const extension = posix.extname(params.filePath)
     const isCanvas = isCanvasPath(params.filePath)
     const contentToIndex = fileTextToIndexedText({
       filePath: params.filePath,
@@ -1697,21 +1714,17 @@ export const createSearchIndex = (
       : { fileCardPaths: [], textCardLinks: [] }
 
     db.transaction(() => {
-      // FTS indexing — gated behind fileToolsEnabled
+      // The FTS statements exist only when fileToolsEnabled is on.
       if (upsertFileContentStmt && deleteFileContentFtsStmt && insertFileContentFtsStmt) {
-        const title = basename(params.filePath, extension)
-
-        // A file at the vault root stores "" like a root note or task. posix.dirname
-        // returns "." there, and a caller passing "." back as a folder filter gets nothing.
-        const folder = params.filePath.includes("/") ? posix.dirname(params.filePath) : ""
-        const upsertedRow = upsertFileContentStmt.get(
-          params.filePath,
+        const title = basename(params.filePath, posix.extname(params.filePath))
+        const upsertedRow = upsertFileContentStmt.get({
+          path: params.filePath,
           title,
-          truncatedContent,
-          folder,
-          Math.round(params.fileStat.mtimeMs),
-          params.fileStat.size,
-        )
+          content: truncatedContent,
+          folder: getParentFolder(params.filePath),
+          mtime: Math.round(params.fileStat.mtimeMs),
+          bytes: params.fileStat.size,
+        })
 
         // RETURNING yields the inserted or updated row on every upsert.
         if (!upsertedRow) throw new Error(`file content upsert returned no row: ${params.filePath}`)
@@ -1719,7 +1732,7 @@ export const createSearchIndex = (
         insertFileContentFtsStmt.run(upsertedRow.rowid, params.filePath, title, truncatedContent)
       }
 
-      // Link extraction — canvas only, unconditional (graph integrity)
+      // A canvas's links feed backlinks and the graph, which do not depend on fileToolsEnabled.
       if (isCanvas) {
         deleteLinksStmt.run(params.filePath)
 
@@ -1983,7 +1996,7 @@ export const createSearchIndex = (
     // notes.folder which stores only the first path segment — task triage
     // needs project-level attribution ("Code Projects/vault-cortex", not
     // "Code Projects").
-    const taskFolder = filePath.includes("/") ? posix.dirname(filePath) : ""
+    const taskFolder = getParentFolder(filePath)
     // Tasks read the whole file, not noteBody, so their line numbers match the
     // file's lines; extractTasks skips the properties block with
     // splitPropertiesBlock, the same split noteBody comes from
