@@ -22,6 +22,12 @@ describe("vaultCortexCommand", () => {
     )
   })
 
+  it("keeps an apostrophe in a Windows folder, which double quotes keep literal", () => {
+    expect(vaultCortexCommand("start", "C:\\Users\\O'Brien\\Sam’s notes", "win32")).toBe(
+      `npx vault-cortex@latest start --dir "C:\\Users\\O'Brien\\Sam’s notes"`,
+    )
+  })
+
   it("double-quotes the folder on Windows, the only quoting cmd.exe understands", () => {
     expect(vaultCortexCommand("start", "C:\\Users\\me\\R&D\\vault-cortex", "win32")).toBe(
       'npx vault-cortex@latest start --dir "C:\\Users\\me\\R&D\\vault-cortex"',

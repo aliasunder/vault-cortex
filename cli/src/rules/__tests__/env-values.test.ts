@@ -493,18 +493,21 @@ describe("validatePublicUrl", () => {
     { label: "a tab", publicUrl: "https://exa\tmple.com" },
     { label: "a line feed", publicUrl: "https://example.com\n:8000" },
     { label: "a carriage return", publicUrl: "https://exa\rmple.com" },
-    {
-      label: "a line separator",
-      publicUrl: `https://example.com/a${String.fromCodePoint(0x2028)}b`,
-    },
     { label: "a control character", publicUrl: `${String.fromCodePoint(0x01)}https://example.com` },
     { label: "a backslash", publicUrl: "https://example.com\\" },
-    { label: "a space in the path", publicUrl: "https://example.com/a b" },
   ])("rejects a URL containing $label, which the URL parser would rewrite", ({ publicUrl }) => {
     expect(validatePublicUrl(publicUrl)).toEqual({
       kind: "error",
       message:
         "PUBLIC_URL must not contain spaces, tabs, line breaks, control characters or backslashes.",
+    })
+  })
+
+  it("keeps the path message for a URL whose path holds a space", () => {
+    expect(validatePublicUrl("https://example.com/a b")).toEqual({
+      kind: "error",
+      message:
+        "PUBLIC_URL must be a bare origin — no path (e.g. https://vault.example.com, not https://vault.example.com/vault/).",
     })
   })
 

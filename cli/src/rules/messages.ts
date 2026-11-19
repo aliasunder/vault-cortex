@@ -140,13 +140,17 @@ type CliCommand = "init" | "start" | "restart" | "configure" | "upgrade" | "down
  * Matches a folder path that stays literal inside quotes in every shell a
  * printed command may be pasted into (sh, bash, zsh, fish, tcsh, PowerShell
  * and cmd.exe): letters, digits, accents, spaces and plain punctuation.
- * Quotes of any kind, `$`, backticks, `%`, `!`, control characters and, outside
- * Windows, backslashes each change a path's meaning in one of those shells.
+ * Double quotes of any kind, `$`, backticks, `%`, `!` and control characters
+ * each change a path's meaning in one of those shells. So do single quotes
+ * and backslashes outside the double quotes Windows uses.
  */
 const SHELL_SAFE_FOLDER = /^[\p{L}\p{N}\p{M} ._,+=@~:/()[\]{}#&-]+$/u
 
-/** SHELL_SAFE_FOLDER with the backslash, the separator in Windows paths. */
-const SHELL_SAFE_WINDOWS_FOLDER = /^[\p{L}\p{N}\p{M} ._,+=@~:/\\()[\]{}#&-]+$/u
+/**
+ * SHELL_SAFE_FOLDER with the backslash, the separator in Windows paths, and
+ * the straight and curly apostrophes, which double quotes keep literal.
+ */
+const SHELL_SAFE_WINDOWS_FOLDER = /^[\p{L}\p{N}\p{M} ._,+=@~:/\\'’()[\]{}#&-]+$/u
 
 /** Printed in place of a folder path that no single quoting keeps literal in every shell. */
 const INSTALL_FOLDER_PLACEHOLDER = "<install folder>"

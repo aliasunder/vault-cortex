@@ -29,6 +29,14 @@ export const runGetSyncToken = async (
 
   prompts.intro("vault-cortex get-sync-token")
 
+  // Checked before the sign-in, so a refused folder does not waste a captured token.
+  const targetDir = flags.dir ? resolveTargetDir(flags.dir) : undefined
+  const unprintableFolder = targetDir ? describeUnprintableInstallFolder(targetDir) : undefined
+
+  if (unprintableFolder) {
+    prompts.error(unprintableFolder)
+    return 1
+  }
   const token = await captureObsidianToken(deps)
 
   if (!token) {
@@ -36,20 +44,13 @@ export const runGetSyncToken = async (
     return 1
   }
 
-  if (!flags.dir) {
+  if (!targetDir) {
     prompts.log("Your OBSIDIAN_AUTH_TOKEN:")
     prompts.print(`\n  ${token}\n`)
     prompts.outro("Done.")
     return 0
   }
 
-  const targetDir = resolveTargetDir(flags.dir)
-  const unprintableFolder = describeUnprintableInstallFolder(targetDir)
-
-  if (unprintableFolder) {
-    prompts.error(unprintableFolder)
-    return 1
-  }
   const envFilePath = join(targetDir, ".env")
   const envContent = envFile.read(envFilePath)
 

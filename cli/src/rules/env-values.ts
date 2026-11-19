@@ -217,9 +217,9 @@ const parseHttpUrl = (value: string): URL | null => {
 const PLAIN_URL_HOST = /^(?:[a-z0-9._-]+|\[[0-9a-f:.]+\])$/
 
 /**
- * Matches what the URL parser drops or rewrites before the host is checked:
- * whitespace (tabs and line breaks included), control characters and
- * backslashes.
+ * Matches whitespace (tabs and line breaks included), control characters and
+ * backslashes, which the URL parser drops or rewrites, so the parsed URL the
+ * checks read would differ from the text the CLI stores.
  */
 const URL_CHARACTER_THE_PARSER_REWRITES = /[\s\p{Cc}\\]/u
 
@@ -241,15 +241,6 @@ export const validatePublicUrl = (input: string): PublicUrlValidation => {
     return {
       kind: "error",
       message: "PUBLIC_URL must not contain credentials (user:password@).",
-    }
-  }
-  // PUBLIC_URL is stored and printed as typed, not as parsed, so the text
-  // must hold nothing the parser would have rewritten.
-  if (URL_CHARACTER_THE_PARSER_REWRITES.test(trimmed)) {
-    return {
-      kind: "error",
-      message:
-        "PUBLIC_URL must not contain spaces, tabs, line breaks, control characters or backslashes.",
     }
   }
   // The CLI prints PUBLIC_URL unquoted in commands to paste into a shell, and
@@ -282,6 +273,15 @@ export const validatePublicUrl = (input: string): PublicUrlValidation => {
       kind: "error",
       message:
         "PUBLIC_URL must be a bare origin — no path (e.g. https://vault.example.com, not https://vault.example.com/vault/).",
+    }
+  }
+  // PUBLIC_URL is stored and printed as typed, not as parsed. This check runs
+  // last, so input the checks above also refuse keeps their clearer message.
+  if (URL_CHARACTER_THE_PARSER_REWRITES.test(trimmed)) {
+    return {
+      kind: "error",
+      message:
+        "PUBLIC_URL must not contain spaces, tabs, line breaks, control characters or backslashes.",
     }
   }
   // Trim trailing slashes so the connect URL is `${base}/mcp`, never

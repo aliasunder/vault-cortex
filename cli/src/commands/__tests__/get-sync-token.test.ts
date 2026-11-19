@@ -99,7 +99,7 @@ describe("runGetSyncToken subcommand", () => {
     expect(readFileSync(join(targetDir, ".env"), "utf8")).toBe("MCP_AUTH_TOKEN=abc\n")
   })
 
-  it("exits 1 without writing when the --dir path holds a control character", async () => {
+  it("exits 1 before the sign-in when the --dir path holds a control character", async () => {
     const targetDir = join(makeTempTargetDir(), "notes\r")
     mkdirSync(targetDir)
     const remoteEnv = "MCP_AUTH_TOKEN=abc\nOBSIDIAN_AUTH_TOKEN=old-token\nVAULT_NAME=MyVault\n"
@@ -118,6 +118,7 @@ describe("runGetSyncToken subcommand", () => {
     expect(scripted.errors).toEqual([
       "The install folder's path contains a control character, which a terminal cannot show. Choose another folder with --dir.",
     ])
+    expect(scripted.asked).toEqual([])
     expect(readFileSync(join(targetDir, ".env"), "utf8")).toBe(remoteEnv)
   })
 
