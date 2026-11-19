@@ -182,7 +182,7 @@ describe("runDown", () => {
       "Container stopped and removed. Your vault data, search index, and settings are untouched.",
     ])
     expect(scripted.outros).toEqual([
-      `Start again with: npx vault-cortex@latest start --dir "${targetDir}"`,
+      `Start again with: npx vault-cortex@latest start --dir '${targetDir}'`,
     ])
   })
 
@@ -263,7 +263,7 @@ describe("runLogs", () => {
     expect(exitCode).toBe(1)
     expect(streamCalls).toEqual([])
     expect(scripted.errors).toEqual([
-      `No vault-cortex container — start it with: npx vault-cortex@latest start --dir "${targetDir}"`,
+      `No vault-cortex container — start it with: npx vault-cortex@latest start --dir '${targetDir}'`,
     ])
   })
 
@@ -1084,7 +1084,7 @@ describe("commands on an install with a custom INSTANCE_NAME", () => {
 
     expect(exitCode).toBe(1)
     expect(scripted.errors).toEqual([
-      `No work container — start it with: npx vault-cortex@latest start --dir "${targetDir}"`,
+      `No work container — start it with: npx vault-cortex@latest start --dir '${targetDir}'`,
     ])
   })
 

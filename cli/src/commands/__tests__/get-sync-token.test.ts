@@ -74,7 +74,7 @@ describe("runGetSyncToken subcommand", () => {
     )
     expect(scripted.logs).toEqual([
       `Token written to ${join(targetDir, ".env")}\n\n` +
-        `Start the server:\n  npx vault-cortex@latest start --dir "${targetDir}"`,
+        `Start the server:\n  npx vault-cortex@latest start --dir '${targetDir}'`,
     ])
   })
 

@@ -119,7 +119,7 @@ describe("buildRemoteEnv", () => {
     expect(env).toContain(
       "# Obsidian Sync auth token. Leave empty to sign in on the server's sign-in\n" +
         "# page at your PUBLIC_URL once it starts (over HTTPS), or generate one with:\n" +
-        '#   npx vault-cortex@latest get-sync-token --dir "<this folder>"\n' +
+        "#   npx vault-cortex@latest get-sync-token --dir '<this folder>'\n" +
         "OBSIDIAN_AUTH_TOKEN=\n",
     )
   })

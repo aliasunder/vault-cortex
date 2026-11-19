@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process"
 import { describe, expect, it } from "vitest"
 
 import {
@@ -6,7 +7,44 @@ import {
   buildRemoteConnectMessage,
   healthPollTimeoutMs,
   healthTimeoutMessage,
+  vaultCortexCommand,
 } from "../messages.js"
+
+describe("vaultCortexCommand", () => {
+  it("prints the command alone when no folder is given", () => {
+    expect(vaultCortexCommand("init")).toBe("npx vault-cortex@latest init")
+  })
+
+  it("single-quotes the folder on macOS and Linux, so shell syntax in it stays literal", () => {
+    expect(vaultCortexCommand("start", "/tmp/notes$(id)/vault-cortex", "darwin")).toBe(
+      "npx vault-cortex@latest start --dir '/tmp/notes$(id)/vault-cortex'",
+    )
+  })
+
+  it("closes, escapes and reopens a single quote inside the folder", () => {
+    expect(vaultCortexCommand("restart", "/home/me/Sam's vault", "linux")).toBe(
+      "npx vault-cortex@latest restart --dir '/home/me/Sam'\\''s vault'",
+    )
+  })
+
+  it("keeps double quotes on Windows, the only quoting cmd.exe understands", () => {
+    expect(vaultCortexCommand("start", "C:\\Users\\me\\vault-cortex", "win32")).toBe(
+      'npx vault-cortex@latest start --dir "C:\\Users\\me\\vault-cortex"',
+    )
+  })
+
+  it.skipIf(process.platform === "win32")("gives a POSIX shell back the exact folder", () => {
+    const folderPath = "/tmp/a $(echo ran) `echo ran` $HOME \\ \" 'b'"
+    const printed = vaultCortexCommand("start", folderPath, "linux")
+    const quotedFolder = printed.slice(printed.indexOf("--dir ") + "--dir ".length)
+
+    const shellOutput = execFileSync("sh", ["-c", `printf '%s' ${quotedFolder}`], {
+      encoding: "utf8",
+    })
+
+    expect(shellOutput).toBe(folderPath)
+  })
+})
 
 // ── Expected rules (mirrors the module-private helpers at RULE_WIDTH = 56) ────
 // Tests run in non-TTY, so paint() is a no-op — these are the raw strings.
@@ -58,7 +96,7 @@ describe("buildLocalConnectMessage", () => {
     expect(message).toBe(`${expectedTopRule("Connect")}
 
 Start the server:
-  npx vault-cortex@latest start --dir "/home/user/vault-cortex"
+  npx vault-cortex@latest start --dir '/home/user/vault-cortex'
 
 ${expectedSectionRule("MCP client")}
 
@@ -97,14 +135,14 @@ ${expectedSectionRule("Settings")}
 Adjust optional settings (memory layer and folder, daily notes
 folder and format, file tools, read-only mode, semantic search, port,
 timezone):
-  npx vault-cortex@latest configure --dir "/home/user/vault-cortex"
+  npx vault-cortex@latest configure --dir '/home/user/vault-cortex'
 
 Or edit /home/user/vault-cortex/.env directly — change a value (uncommenting it
 first if needed), then apply it (plain docker restart does not re-read .env):
-  npx vault-cortex@latest restart --dir "/home/user/vault-cortex"
+  npx vault-cortex@latest restart --dir '/home/user/vault-cortex'
 
 Update to the latest release:
-  npx vault-cortex@latest upgrade --dir "/home/user/vault-cortex"
+  npx vault-cortex@latest upgrade --dir '/home/user/vault-cortex'
 
 Full docs: https://github.com/aliasunder/vault-cortex
 
@@ -240,7 +278,7 @@ ${expectedBottomRule()}`)
     // Bound to the start line specifically — the update-guidance block also
     // prints an npx command, so a bare command match could pass on that.
     expect(message).toContain(
-      `Start the server:\n  npx vault-cortex@latest start --dir "${localDefaults.targetDir}"`,
+      `Start the server:\n  npx vault-cortex@latest start --dir '${localDefaults.targetDir}'`,
     )
   })
 
@@ -281,14 +319,14 @@ ${expectedBottomRule()}`)
     const message = buildLocalConnectMessage(localDefaults)
 
     expect(message).toContain("Update to the latest release:")
-    expect(message).toContain(`npx vault-cortex@latest upgrade --dir "${localDefaults.targetDir}"`)
+    expect(message).toContain(`npx vault-cortex@latest upgrade --dir '${localDefaults.targetDir}'`)
   })
 
   it("tells a .env editor to restart with the targetDir", () => {
     const message = buildLocalConnectMessage(localDefaults)
 
     expect(message).toContain(
-      `then apply it (plain docker restart does not re-read .env):\n  npx vault-cortex@latest restart --dir "${localDefaults.targetDir}"`,
+      `then apply it (plain docker restart does not re-read .env):\n  npx vault-cortex@latest restart --dir '${localDefaults.targetDir}'`,
     )
   })
 
@@ -384,7 +422,7 @@ describe("buildRemoteConnectMessage", () => {
     expect(message).toBe(`${expectedTopRule("Connect")}
 
 Start the server:
-  npx vault-cortex@latest start --dir "/srv/vault-cortex"
+  npx vault-cortex@latest start --dir '/srv/vault-cortex'
 Until it's signed in to Obsidian Sync, it shows a sign-in page instead of
 syncing. Open the page:
   https://vault.example.com
@@ -420,14 +458,14 @@ ${expectedSectionRule("Settings")}
 Adjust optional settings (memory layer and folder, daily notes
 folder and format, file tools, read-only mode, semantic search, port,
 timezone, sync direction):
-  npx vault-cortex@latest configure --dir "/srv/vault-cortex"
+  npx vault-cortex@latest configure --dir '/srv/vault-cortex'
 
 Or edit /srv/vault-cortex/.env directly — change a value (uncommenting it
 first if needed), then apply it (plain docker restart does not re-read .env):
-  npx vault-cortex@latest restart --dir "/srv/vault-cortex"
+  npx vault-cortex@latest restart --dir '/srv/vault-cortex'
 
 Update to the latest release:
-  npx vault-cortex@latest upgrade --dir "/srv/vault-cortex"
+  npx vault-cortex@latest upgrade --dir '/srv/vault-cortex'
 
 For HTTPS options (API Gateway, Caddy, Cloudflare Tunnel), see:
 https://github.com/aliasunder/vault-cortex/blob/main/deploy/remote/README.md#https-access
@@ -518,7 +556,7 @@ ${expectedBottomRule()}`)
     })
 
     expect(message).toContain(
-      `Start the server:\n  npx vault-cortex@latest start --dir "${remoteDefaults.targetDir}"\n` +
+      `Start the server:\n  npx vault-cortex@latest start --dir '${remoteDefaults.targetDir}'\n` +
         "Until it's signed in to Obsidian Sync, it shows a sign-in page instead of\n" +
         "syncing. Open the page:\n" +
         "  https://vault.example.com\n" +
@@ -569,7 +607,7 @@ ${expectedBottomRule()}`)
     // Bound to the start line specifically — the update-guidance block also
     // prints an npx command, so a bare command match could pass on that.
     expect(message).toContain(
-      `Start the server:\n  npx vault-cortex@latest start --dir "${remoteDefaults.targetDir}"`,
+      `Start the server:\n  npx vault-cortex@latest start --dir '${remoteDefaults.targetDir}'`,
     )
   })
 
@@ -626,14 +664,14 @@ ${expectedBottomRule()}`)
     const message = buildRemoteConnectMessage(remoteDefaults)
 
     expect(message).toContain("Update to the latest release:")
-    expect(message).toContain(`npx vault-cortex@latest upgrade --dir "${remoteDefaults.targetDir}"`)
+    expect(message).toContain(`npx vault-cortex@latest upgrade --dir '${remoteDefaults.targetDir}'`)
   })
 
   it("tells a .env editor to restart with the targetDir", () => {
     const message = buildRemoteConnectMessage(remoteDefaults)
 
     expect(message).toContain(
-      `then apply it (plain docker restart does not re-read .env):\n  npx vault-cortex@latest restart --dir "${remoteDefaults.targetDir}"`,
+      `then apply it (plain docker restart does not re-read .env):\n  npx vault-cortex@latest restart --dir '${remoteDefaults.targetDir}'`,
     )
   })
 
@@ -697,12 +735,12 @@ describe("buildDaemonUnavailableMessage", () => {
     expect(
       buildDaemonUnavailableMessage({
         daemonStatus: "not-running",
-        startCommand: 'npx vault-cortex@latest start --dir "/srv/vault"',
+        startCommand: "npx vault-cortex@latest start --dir '/srv/vault'",
       }),
     ).toBe(
       "Container runtime not running — start Docker Desktop, Colima,\n" +
         "OrbStack, or another Docker-compatible runtime, then run:\n" +
-        '  npx vault-cortex@latest start --dir "/srv/vault"',
+        "  npx vault-cortex@latest start --dir '/srv/vault'",
     )
   })
 
@@ -732,13 +770,13 @@ describe("buildDaemonUnavailableMessage", () => {
     expect(
       buildDaemonUnavailableMessage({
         daemonStatus: "not-installed",
-        startCommand: 'npx vault-cortex@latest start --dir "/srv/vault"',
+        startCommand: "npx vault-cortex@latest start --dir '/srv/vault'",
         platform: "linux",
       }),
     ).toBe(
       `${NOT_INSTALLED_LEAD}Install Docker Engine: https://docs.docker.com/engine/install/\n` +
         "Then start the server with:\n" +
-        '  npx vault-cortex@latest start --dir "/srv/vault"',
+        "  npx vault-cortex@latest start --dir '/srv/vault'",
     )
   })
 })

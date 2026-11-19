@@ -477,6 +477,26 @@ describe("value readers with an empty last line", () => {
 })
 
 describe("validatePublicUrl", () => {
+  it.each([
+    { label: "a command substitution", publicUrl: "https://a$(id).example" },
+    { label: "a backtick", publicUrl: "https://a`id`.example" },
+    { label: "a semicolon", publicUrl: "https://a;id.example" },
+  ])("rejects a host containing $label", ({ publicUrl }) => {
+    expect(validatePublicUrl(publicUrl)).toEqual({
+      kind: "error",
+      message:
+        "PUBLIC_URL's host may use only letters, digits, dots, hyphens and underscores, or be an IPv6 address in brackets.",
+    })
+  })
+
+  it.each([
+    { label: "an international domain", publicUrl: "https://bücher.example" },
+    { label: "an IPv6 address", publicUrl: "http://[::1]:8000" },
+    { label: "an underscore", publicUrl: "https://vault_cortex.example" },
+  ])("accepts a host with $label", ({ publicUrl }) => {
+    expect(validatePublicUrl(publicUrl)).toEqual({ kind: "ok", url: publicUrl })
+  })
+
   it("accepts a valid https URL", () => {
     expect(validatePublicUrl("https://vault.example.com")).toEqual({
       kind: "ok",

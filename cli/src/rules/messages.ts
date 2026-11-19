@@ -137,12 +137,27 @@ export const buildSettingsSavedWithoutRuntimeMessage = (params: {
 type CliCommand = "init" | "start" | "restart" | "configure" | "upgrade" | "down" | "get-sync-token"
 
 /**
- * The command line a message tells the user to run, pinned to the latest
- * release. targetDir is quoted: these lines are meant to be copy-pasted into
- * a shell, and an unquoted path breaks on spaces or on characters such as `&` and `*`.
+ * Quotes a folder path for the shell the user pastes a printed command into:
+ * - macOS and Linux get single quotes, which keep every character literal.
+ *   A single quote inside the path is closed, escaped and reopened (`'\''`).
+ * - Windows keeps double quotes, the only quoting cmd.exe understands.
  */
-export const vaultCortexCommand = (command: CliCommand, targetDir?: string): string => {
-  const dirOption = targetDir ? ` --dir "${targetDir}"` : ""
+const quoteFolderForShell = (folderPath: string, platform: NodeJS.Platform): string => {
+  if (platform === "win32") return `"${folderPath}"`
+  return `'${folderPath.replaceAll("'", `'\\''`)}'`
+}
+
+/**
+ * The command line a message tells the user to run, pinned to the latest
+ * release. These lines are meant to be copy-pasted into a shell, so targetDir
+ * is quoted for it.
+ */
+export const vaultCortexCommand = (
+  command: CliCommand,
+  targetDir?: string,
+  platform: NodeJS.Platform = process.platform,
+): string => {
+  const dirOption = targetDir ? ` --dir ${quoteFolderForShell(targetDir, platform)}` : ""
   return `npx vault-cortex@latest ${command}${dirOption}`
 }
 

@@ -516,7 +516,7 @@ describe("runInit interactive local flow", () => {
       nameCheckSkippedWarning("vault-cortex"),
       "Container runtime not running — start Docker Desktop, Colima,\n" +
         "OrbStack, or another Docker-compatible runtime, then run:\n" +
-        `  npx vault-cortex@latest start --dir "${targetDir}"`,
+        `  npx vault-cortex@latest start --dir '${targetDir}'`,
     ])
   })
 
@@ -544,7 +544,7 @@ describe("runInit interactive local flow", () => {
     expect(scripted.warnings).toEqual([
       nameCheckSkippedWarning("vault-cortex"),
       `${NO_RUNTIME_GUIDANCE}\nThen start the server with:\n` +
-        `  npx vault-cortex@latest start --dir "${targetDir}"`,
+        `  npx vault-cortex@latest start --dir '${targetDir}'`,
     ])
   })
 
@@ -618,7 +618,7 @@ describe("runInit remote flow", () => {
       "Your server needs an Obsidian Sync token to access your vault.\n" +
         "You can sign in to your Obsidian account now to generate one.",
       "No Sync token in .env — sign in on the server's sign-in page once it starts, or add a token with:\n" +
-        `  npx vault-cortex@latest get-sync-token --dir "${targetDir}"`,
+        `  npx vault-cortex@latest get-sync-token --dir '${targetDir}'`,
       `${targetDir}/.env — created`,
       "Generated MCP auth token (saved to .env).",
     ])
@@ -883,7 +883,7 @@ describe("runInit remote flow", () => {
       nameCheckSkippedWarning("vault-cortex"),
       "Container runtime not running — start Docker Desktop, Colima,\n" +
         "OrbStack, or another Docker-compatible runtime, then run:\n" +
-        `  npx vault-cortex@latest start --dir "${targetDir}"`,
+        `  npx vault-cortex@latest start --dir '${targetDir}'`,
     ])
   })
 
@@ -1001,7 +1001,7 @@ describe("runInit re-init guard", () => {
     ])
     expect(scripted.logs).toEqual([
       `Found an existing deployment in ${targetDir}.`,
-      `Nothing changed. To adjust settings instead: npx vault-cortex@latest configure --dir "${targetDir}"`,
+      `Nothing changed. To adjust settings instead: npx vault-cortex@latest configure --dir '${targetDir}'`,
     ])
     expect(scripted.outros).toEqual(["Done."])
     expect(readFileSync(join(targetDir, ".env"), "utf8")).toBe(existingEnv)
@@ -1038,7 +1038,7 @@ describe("runInit re-init guard", () => {
     ])
     expect(scripted.logs).toEqual([
       `Found an existing deployment in ${targetDir}.`,
-      `Nothing changed. To adjust settings instead: npx vault-cortex@latest configure --dir "${targetDir}"`,
+      `Nothing changed. To adjust settings instead: npx vault-cortex@latest configure --dir '${targetDir}'`,
     ])
     expect(scripted.outros).toEqual(["Done."])
     expect(readFileSync(join(targetDir, ".env"), "utf8")).toBe("MCP_AUTH_TOKEN=existing\n")
@@ -1065,7 +1065,7 @@ describe("runInit re-init guard", () => {
     expect(exitCode).toBe(1)
     expect(scripted.errors).toEqual([
       `${targetDir} holds a remote install, and this run sets up a local one.\n` +
-        `To start the existing install: npx vault-cortex@latest start --dir "${targetDir}"\n` +
+        `To start the existing install: npx vault-cortex@latest start --dir '${targetDir}'\n` +
         "To set up a local install, run init again with another --dir.",
     ])
     expect(scripted.asked).toEqual([])
@@ -1113,7 +1113,7 @@ describe("runInit re-init guard", () => {
     expect(exitCode).toBe(1)
     expect(scripted.errors).toEqual([
       `${targetDir} holds a local install, and this run sets up a remote one.\n` +
-        `To start the existing install: npx vault-cortex@latest start --dir "${targetDir}"\n` +
+        `To start the existing install: npx vault-cortex@latest start --dir '${targetDir}'\n` +
         "To set up a remote install, run init again with another --dir.",
     ])
     expect(scripted.asked).toEqual([])
@@ -1510,7 +1510,7 @@ describe("runInit remote with a kept existing .env", () => {
     expect(exitCode).toBe(0)
     expect(scripted.warnings).toEqual([
       `The Sync token from this sign-in wasn't saved, because ${targetDir}/.env was kept. To add it, run:\n` +
-        `  npx vault-cortex@latest get-sync-token --dir "${targetDir}"`,
+        `  npx vault-cortex@latest get-sync-token --dir '${targetDir}'`,
     ])
   })
 
@@ -1566,7 +1566,7 @@ describe("runInit sync-token auto-capture fallback", () => {
       "Your server needs an Obsidian Sync token to access your vault.\n" +
         "You can sign in to your Obsidian account now to generate one.",
       "No Sync token in .env — sign in on the server's sign-in page once it starts, or add a token with:\n" +
-        `  npx vault-cortex@latest get-sync-token --dir "${targetDir}"`,
+        `  npx vault-cortex@latest get-sync-token --dir '${targetDir}'`,
       `${targetDir}/.env — created`,
       "Generated MCP auth token (saved to .env).",
     ])
@@ -2836,7 +2836,7 @@ describe("runInit --yes when the instance name is already in use", () => {
       "Your server needs an Obsidian Sync token to access your vault.\n" +
         "You can sign in to your Obsidian account now to generate one.",
       "No Sync token in .env — sign in on the server's sign-in page once it starts, or add a token with:\n" +
-        `  npx vault-cortex@latest get-sync-token --dir "${targetDir}"`,
+        `  npx vault-cortex@latest get-sync-token --dir '${targetDir}'`,
       `${targetDir}/.env — created`,
       "Generated MCP auth token (saved to .env).",
     ])
@@ -3090,7 +3090,7 @@ describe("runInit re-run keeps the instance identity", () => {
     expect(exitCode).toBe(1)
     expect(scripted.errors).toEqual([
       `--instance-name: the install in ${targetDir} is named "work", and init keeps that name.\n` +
-        `To rename it, stop it first (npx vault-cortex@latest down --dir "${targetDir}"), then change INSTANCE_NAME in its .env\n` +
+        `To rename it, stop it first (npx vault-cortex@latest down --dir '${targetDir}'), then change INSTANCE_NAME in its .env\n` +
         "to a name no other install uses: it starts on new, empty volumes under the new name.",
     ])
     expect(readFileSync(join(targetDir, ".env"), "utf8")).toBe(existingEnv)

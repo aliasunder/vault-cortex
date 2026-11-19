@@ -92,7 +92,7 @@ describe("runConfigure with picked settings", () => {
     )
     expect(scripted.logs).toEqual([`Updated MEMORY_ENABLED in ${targetDir}/.env.`])
     expect(scripted.warnings).toEqual([
-      `Container runtime not running — settings saved.\nApply the new settings with: npx vault-cortex@latest restart --dir "${targetDir}"`,
+      `Container runtime not running — settings saved.\nApply the new settings with: npx vault-cortex@latest restart --dir '${targetDir}'`,
     ])
     expect(scripted.asked).toEqual([
       "Any optional settings to change? (press enter to skip)",
@@ -120,7 +120,7 @@ describe("runConfigure with picked settings", () => {
     expect(exitCode).toBe(0)
     expect(daemonStatus).toHaveBeenCalledTimes(2)
     expect(scripted.warnings).toEqual([
-      `Container runtime not running — settings saved.\nApply the new settings with: npx vault-cortex@latest restart --dir "${targetDir}"`,
+      `Container runtime not running — settings saved.\nApply the new settings with: npx vault-cortex@latest restart --dir '${targetDir}'`,
     ])
     // The restart question is never asked.
     expect(scripted.asked).toEqual([
@@ -151,7 +151,7 @@ describe("runConfigure with picked settings", () => {
       LOCAL_ENV_CONTENT.replace("MEMORY_ENABLED=true", "MEMORY_ENABLED=false"),
     )
     expect(scripted.warnings).toEqual([
-      `No container runtime found — settings saved.\nApply the new settings with: npx vault-cortex@latest restart --dir "${targetDir}"`,
+      `No container runtime found — settings saved.\nApply the new settings with: npx vault-cortex@latest restart --dir '${targetDir}'`,
     ])
   })
 
@@ -177,7 +177,7 @@ describe("runConfigure with picked settings", () => {
     expect(runParams).toEqual([])
     expect(scripted.logs).toEqual([
       `Updated MEMORY_ENABLED in ${targetDir}/.env.`,
-      `Apply the new settings with: npx vault-cortex@latest restart --dir "${targetDir}"`,
+      `Apply the new settings with: npx vault-cortex@latest restart --dir '${targetDir}'`,
     ])
     expect(scripted.outros).toEqual(["Done."])
   })
@@ -448,7 +448,7 @@ describe("runConfigure with picked settings", () => {
       "MCP_AUTH_TOKEN=abc123\nVAULT_PATH=/home/user/MyVault\nMEMORY_ENABLED=false\n",
     )
     expect(scripted.warnings).toEqual([
-      `The restart did not run — your settings are saved. Fix the issue above, then apply them with: npx vault-cortex@latest restart --dir "${targetDir}"`,
+      `The restart did not run — your settings are saved. Fix the issue above, then apply them with: npx vault-cortex@latest restart --dir '${targetDir}'`,
     ])
   })
 
@@ -476,7 +476,7 @@ describe("runConfigure with picked settings", () => {
     )
     expect(scripted.warnings).toEqual([
       "PORT changed — make sure PUBLIC_URL (https://vault.example.com) still reaches the server.",
-      `Container runtime not running — settings saved.\nApply the new settings with: npx vault-cortex@latest restart --dir "${targetDir}"`,
+      `Container runtime not running — settings saved.\nApply the new settings with: npx vault-cortex@latest restart --dir '${targetDir}'`,
     ])
   })
 

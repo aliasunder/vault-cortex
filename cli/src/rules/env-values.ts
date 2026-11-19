@@ -209,6 +209,13 @@ const parseHttpUrl = (value: string): URL | null => {
   }
 }
 
+/**
+ * Matches a URL host as `new URL(...).hostname` gives it (lowercase, with
+ * international names already converted to xn-- form): letters, digits,
+ * dots, hyphens and underscores, or an IPv6 address in brackets.
+ */
+const PLAIN_URL_HOST = /^(?:[a-z0-9._-]+|\[[0-9a-f:.]+\])$/
+
 export type PublicUrlValidation = { kind: "ok"; url: string } | { kind: "error"; message: string }
 
 /** Validates a PUBLIC_URL value: must be a bare http(s) origin — no path, credentials, query, or fragment. */
@@ -227,6 +234,15 @@ export const validatePublicUrl = (input: string): PublicUrlValidation => {
     return {
       kind: "error",
       message: "PUBLIC_URL must not contain credentials (user:password@).",
+    }
+  }
+  // The CLI prints PUBLIC_URL unquoted in commands to paste into a shell, and
+  // the URL parser accepts shell punctuation in a host.
+  if (!PLAIN_URL_HOST.test(url.hostname)) {
+    return {
+      kind: "error",
+      message:
+        "PUBLIC_URL's host may use only letters, digits, dots, hyphens and underscores, or be an IPv6 address in brackets.",
     }
   }
   // Raw-string check: url.search/url.hash return "" for bare delimiters
