@@ -293,6 +293,21 @@ const updateGuidance = (targetDir: string): string =>
   `Update to the latest release:
   ${vaultCortexCommand("upgrade", targetDir)}`
 
+/** The connect messages' Settings section. The list names what the configure chooser offers in each mode. */
+const settingsGuidance = (params: { targetDir: string; mode: Mode }): string => {
+  const { targetDir, mode } = params
+  const lastSettings = mode === "remote" ? "timezone, sync direction" : "timezone"
+
+  return `Adjust optional settings (memory layer and folder, daily notes
+folder and format, file tools, read-only mode, semantic search, port,
+${lastSettings}):
+  ${vaultCortexCommand("configure", targetDir)}
+
+${editEnvGuidance(targetDir)}
+
+${updateGuidance(targetDir)}`
+}
+
 // Over https every client converges, including the Claude apps' connector
 // dialog, so there is nothing to set up. Shared by both modes: a local install
 // behind a reverse proxy is reached the same way as a remote one.
@@ -377,14 +392,7 @@ ${nonOauthBlocks}
 
 ${sectionRule("Settings")}
 
-Adjust optional settings (memory layer and folder, daily notes
-folder and format, file tools, read-only mode, semantic search, port,
-timezone):
-  ${vaultCortexCommand("configure", targetDir)}
-
-${editEnvGuidance(targetDir)}
-
-${updateGuidance(targetDir)}
+${settingsGuidance({ targetDir, mode: "local" })}
 
 Full docs: https://github.com/aliasunder/vault-cortex
 
@@ -459,14 +467,7 @@ ${remoteHealthCheckBlock(`${publicUrl}/healthz`, startStatus)}
 
 ${sectionRule("Settings")}
 
-Adjust optional settings (memory layer and folder, daily notes
-folder and format, file tools, read-only mode, semantic search, port,
-timezone, sync direction):
-  ${vaultCortexCommand("configure", targetDir)}
-
-${editEnvGuidance(targetDir)}
-
-${updateGuidance(targetDir)}
+${settingsGuidance({ targetDir, mode: "remote" })}
 
 For HTTPS options (API Gateway, Caddy, Cloudflare Tunnel), see:
 https://github.com/aliasunder/vault-cortex/blob/main/deploy/remote/README.md#https-access
