@@ -69,6 +69,11 @@ const start = async (
   const { prompts, docker, fetchFn } = deps
   const { mode, instanceName, envFilePath, port, bindAddress } = deployment
 
+  // docker run --env-file keeps quotes as part of a value, so the .env's
+  // quoted values are unquoted in place first. This runs before the removal,
+  // so a .env that cannot be rewritten leaves the running container alone.
+  envFile.stripQuotedValues(envFilePath)
+
   // `docker rm -f` on a missing container exits non-zero on engines < 23,
   // so the bare return value can't distinguish "nothing to remove" from a
   // real failure — only treat removal as failed when a container exists.
@@ -78,10 +83,6 @@ const start = async (
     prompts.error(buildContainerRemovalFailedMessage(instanceName))
     return "not-started"
   }
-
-  // docker run --env-file keeps quotes as part of a value, so the .env's
-  // quoted values are unquoted in place first.
-  envFile.stripQuotedValues(envFilePath)
   prompts.log("Starting container...")
   const containerStarted = docker.dockerRun({
     mode,

@@ -4,6 +4,7 @@ import { join } from "node:path"
 import { describe, expect, it, onTestFinished, vi } from "vitest"
 
 import { pollHealth, type DockerLogsParams, type DockerRunner } from "../../adapters/docker.js"
+import { envFile } from "../../adapters/env-file.js"
 import { runDown, runLogs, runRestart, runStart } from "../lifecycle.js"
 
 // Spy mode keeps the real adapter, so a test can make one health wait time out.
@@ -604,6 +605,34 @@ describe("runRestart", () => {
     expect(readFileSync(join(targetDir, ".env"), "utf8")).toBe(
       "MCP_AUTH_TOKEN=abc123\nVAULT_PATH=/home/user/My Vault\nPORT=9000\nPUBLIC_URL=http://localhost:9000\n",
     )
+  })
+
+  it("leaves the running container alone when the .env cannot be rewritten", async () => {
+    const targetDir = makeTempTargetDir("vault-cli-restart-")
+    writeLocalEnv(targetDir)
+    vi.spyOn(envFile, "stripQuotedValues").mockImplementationOnce(() => {
+      throw new Error("EACCES: permission denied")
+    })
+    onTestFinished(() => {
+      vi.restoreAllMocks()
+    })
+    const removeCalls: string[] = []
+    const dockerRecordingRemoval: DockerRunner = {
+      ...dockerReady,
+      stopAndRemoveContainer: (instanceName) => {
+        removeCalls.push(instanceName)
+        return true
+      },
+    }
+    const scripted = createScriptedPrompts()
+
+    await expect(
+      runRestart(
+        { dir: targetDir },
+        { prompts: scripted.prompts, docker: dockerRecordingRemoval, fetchFn: fetchOk },
+      ),
+    ).rejects.toThrow(new Error("EACCES: permission denied"))
+    expect(removeCalls).toEqual([])
   })
 
   it("re-creates a remote container without a vault path", async () => {
