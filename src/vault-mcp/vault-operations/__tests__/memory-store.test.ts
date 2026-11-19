@@ -3914,10 +3914,10 @@ describe("updateMemory with a long new section name", () => {
       )
 
       const content = await readFile(join(vault, "About Me/Principles.md"), "utf8")
-      const expectedEnding = `## a${" ".repeat(LONG_RUN_LENGTH)}b (newest first)\n- **2026-05-08**: long section probe\n`
+      const expectedContent = `${PRINCIPLES_MD}\n## a${" ".repeat(LONG_RUN_LENGTH)}b (newest first)\n- **2026-05-08**: long section probe\n`
 
       // A boolean keeps a million-character diff out of a failure report.
-      expect(content.endsWith(expectedEnding)).toBe(true)
+      expect(content === expectedContent).toBe(true)
     },
     CHILD_DEADLINE_MS + 5_000,
   )
@@ -3927,11 +3927,8 @@ describe("updateMemory with a long new section name", () => {
     async () => {
       const existingSection = "a".repeat(LONG_RUN_LENGTH)
       const requestedSection = `${"a".repeat(LONG_RUN_LENGTH - 3)}bcd`
-      await writeFile(
-        join(vault, "About Me/Principles.md"),
-        `${PRINCIPLES_MD}\n## ${existingSection} (newest first)\n- **2026-05-07**: existing long entry\n`,
-        "utf8",
-      )
+      const contentBefore = `${PRINCIPLES_MD}\n## ${existingSection} (newest first)\n- **2026-05-07**: existing long entry\n`
+      await writeFile(join(vault, "About Me/Principles.md"), contentBefore, "utf8")
       const memoryStoreUrl = new URL("../memory-store.ts", import.meta.url).href
       execFileSync(
         process.execPath,
@@ -3964,10 +3961,10 @@ describe("updateMemory with a long new section name", () => {
       // Three edits apart, past the long-name budget of 2, so the request is
       // a new section rather than a near miss of the existing one.
       const content = await readFile(join(vault, "About Me/Principles.md"), "utf8")
-      const expectedEnding = `## ${requestedSection} (newest first)\n- **2026-05-08**: near-miss probe\n`
+      const expectedContent = `${contentBefore}\n## ${requestedSection} (newest first)\n- **2026-05-08**: near-miss probe\n`
 
       // A boolean keeps a million-character diff out of a failure report.
-      expect(content.endsWith(expectedEnding)).toBe(true)
+      expect(content === expectedContent).toBe(true)
     },
     CHILD_DEADLINE_MS + 5_000,
   )
