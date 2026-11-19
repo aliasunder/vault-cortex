@@ -536,6 +536,56 @@ describe("findHeading", () => {
     )
   })
 
+  describe("the list of available headings", () => {
+    /** `count` H2 lines, "## Heading 1" through "## Heading <count>". */
+    const numberedHeadingLines = (count: number): string[] => {
+      return Array.from({ length: count }, (_, index) => `## Heading ${index + 1}`)
+    }
+
+    const missingHeadingError = (count: number): unknown => {
+      try {
+        findHeading({
+          headings: parseHeadings(numberedHeadingLines(count)),
+          text: "Missing",
+          bodyStartFileLine: 0,
+        })
+        return null
+      } catch (error) {
+        return error
+      }
+    }
+
+    it("says (none) when the note has no headings", () => {
+      expect(() => findHeading({ headings: [], text: "Missing", bodyStartFileLine: 0 })).toThrow(
+        new Error('heading not found: "Missing". Available headings: (none)'),
+      )
+    })
+
+    it("lists all 30 headings with no count when the note has exactly 30", () => {
+      expect(missingHeadingError(30)).toEqual(
+        new Error(
+          `heading not found: "Missing". Available headings: ${numberedHeadingLines(30).join(", ")}`,
+        ),
+      )
+    })
+
+    it("lists the first 30 headings and the total when the note has 31", () => {
+      expect(missingHeadingError(31)).toEqual(
+        new Error(
+          `heading not found: "Missing". Available headings (first 30 of 31): ${numberedHeadingLines(30).join(", ")}`,
+        ),
+      )
+    })
+
+    it("lists the first 30 headings and the total when the note has 202", () => {
+      expect(missingHeadingError(202)).toEqual(
+        new Error(
+          `heading not found: "Missing". Available headings (first 30 of 202): ${numberedHeadingLines(30).join(", ")}`,
+        ),
+      )
+    })
+  })
+
   it("throws ambiguous when more than one heading matches", () => {
     expect(() => findHeading({ headings, text: "Active", bodyStartFileLine: 0 })).toThrow(
       new Error(

@@ -278,6 +278,27 @@ export const linesBeforeFirstHeading = (
   return lines.slice(0, regionEndLine)
 }
 
+// Thirty covers every heading of nearly every real note, while a note with
+// hundreds of headings still gets an error of about 2 KB instead of 15 KB
+export const MAX_LISTED_HEADINGS = 30
+
+/** `<lead>: a, b, c`, the labels in document order. Past `MAX_LISTED_HEADINGS`
+ *  it lists only the first ones and states the cut before the list, as
+ *  `<lead> (first 30 of 202): a, b, …`, so the count never reads as part of a
+ *  heading. */
+export const formatHeadingList = ({
+  lead,
+  labels,
+}: {
+  lead: string
+  labels: readonly string[]
+}): string => {
+  if (labels.length <= MAX_LISTED_HEADINGS) return `${lead}: ${labels.join(", ")}`
+
+  const listedLabels = labels.slice(0, MAX_LISTED_HEADINGS).join(", ")
+  return `${lead} (first ${MAX_LISTED_HEADINGS} of ${labels.length}): ${listedLabels}`
+}
+
 /** Case-sensitive heading lookup. Errors on 0 or 2+ matches. Headings are
  *  parsed from a note's body, so the ambiguity error adds `bodyStartFileLine`,
  *  the 0-based file line the body starts on, to name the file's own lines. */
@@ -302,12 +323,12 @@ export const findHeading = ({
   )
 
   if (matches.length === 0) {
-    const availableHeadings = headings
-      .map((heading) => `${"#".repeat(heading.level)} ${heading.text}`)
-      .join(", ")
-    throw new Error(
-      `heading not found: "${searchText}". Available headings: ${availableHeadings || "(none)"}`,
-    )
+    const headingLabels = headings.map((heading) => `${"#".repeat(heading.level)} ${heading.text}`)
+    const availableHeadings =
+      headingLabels.length > 0
+        ? formatHeadingList({ lead: "Available headings", labels: headingLabels })
+        : "Available headings: (none)"
+    throw new Error(`heading not found: "${searchText}". ${availableHeadings}`)
   }
 
   if (matches.length > 1) {

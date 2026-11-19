@@ -14,7 +14,11 @@ import { assertPathHasExtension } from "../../utils/assert-path-has-extension.js
 import { classifyIsoDate } from "../../utils/classify-iso-date.js"
 import { readFileOrNull } from "../../utils/fs.js"
 import { withExclusiveFileLock } from "../../utils/file-write-lock.js"
-import { parseHeadings, type HeadingInfo } from "../obsidian-markdown/headings.js"
+import {
+  formatHeadingList,
+  parseHeadings,
+  type HeadingInfo,
+} from "../obsidian-markdown/headings.js"
 import {
   splitIntoLines,
   advanceFence,
@@ -749,8 +753,11 @@ const resolveNewTaskPlacement = ({
     const targetHeading = headings.find((headingInfo) => headingInfo.text === heading)
 
     if (!targetHeading) {
-      const availableHeadings = headings.map((headingInfo) => headingInfo.text).join(", ")
-      throw new Error(`heading "${heading}" not found; available: ${availableHeadings}`)
+      const availableHeadings = formatHeadingList({
+        lead: "available",
+        labels: headings.map((headingInfo) => headingInfo.text),
+      })
+      throw new Error(`heading "${heading}" not found; ${availableHeadings}`)
     }
     if (typeof position === "number") {
       const matchCount = headings.filter((headingInfo) => headingInfo.text === heading).length
@@ -2291,8 +2298,11 @@ const resolveTargetLane = ({
 
     if (namedHeading) return namedHeading
 
-    const availableHeadings = laneHeadings.map((heading) => heading.text).join(", ")
-    throw new Error(`heading "${targetHeadingParam}" not found; available: ${availableHeadings}`)
+    const availableHeadings = formatHeadingList({
+      lead: "available",
+      labels: laneHeadings.map((heading) => heading.text),
+    })
+    throw new Error(`heading "${targetHeadingParam}" not found; ${availableHeadings}`)
   }
 
   const autoDoneLane = status === "done" && isKanbanBoard && !isSubtask

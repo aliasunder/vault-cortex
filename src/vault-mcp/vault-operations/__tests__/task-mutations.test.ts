@@ -192,6 +192,11 @@ title: Priority
 - [ ] Plain task without dates ^plain-task
 `
 
+/** Lane names "Lane 1" through "Lane <count>", for notes with many headings. */
+const numberedLaneNames = (count: number): string[] => {
+  return Array.from({ length: count }, (_, index) => `Lane ${index + 1}`)
+}
+
 // ── Status changes ──────────────────────────────────────────────
 
 describe("task-mutations", () => {
@@ -1241,6 +1246,35 @@ title: Tasks
       )
     })
 
+    it("lists the first 30 lanes and the total when the target heading is missing from a note with 31", async () => {
+      const vault = await createVault()
+      const laneNames = numberedLaneNames(31)
+      const content = laneNames
+        .map((laneName, index) => {
+          return index === 0 ? `## ${laneName}\n\n- [ ] Task A ^task-a\n` : `## ${laneName}\n`
+        })
+        .join("\n")
+      await writeTestNote(vault, "board.md", content)
+
+      await expect(
+        taskMutations.updateTask(
+          {
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
+            vaultPath: vault,
+            path: "board.md",
+            blockId: "task-a",
+            heading: "Missing",
+          },
+          logger,
+        ),
+      ).rejects.toThrow(
+        new Error(
+          `heading "Missing" not found; available (first 30 of 31): ${laneNames.slice(0, 30).join(", ")}`,
+        ),
+      )
+      expect(await readTestNote(vault, "board.md")).toBe(content)
+    })
+
     it("throws when multiple done lanes and no explicit heading", async () => {
       const vault = await createVault()
       await writeTestNote(vault, "board.md", KANBAN_MULTIPLE_DONE_LANES)
@@ -1697,6 +1731,32 @@ kanban-plugin: board
       ).rejects.toThrow(
         new Error("heading required for Kanban boards (note has kanban-plugin frontmatter)"),
       )
+    })
+
+    it("lists the first 30 headings and the total when the heading is missing from a note with 31", async () => {
+      const vault = await createVault()
+      const laneNames = numberedLaneNames(31)
+      const content = laneNames.map((laneName) => `## ${laneName}\n`).join("\n")
+      await writeTestNote(vault, "tasks.md", content)
+
+      await expect(
+        taskMutations.createTask(
+          {
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
+            vaultPath: vault,
+            path: "tasks.md",
+            description: "New task",
+            blockId: "new-task",
+            heading: "Missing",
+          },
+          logger,
+        ),
+      ).rejects.toThrow(
+        new Error(
+          `heading "Missing" not found; available (first 30 of 31): ${laneNames.slice(0, 30).join(", ")}`,
+        ),
+      )
+      expect(await readTestNote(vault, "tasks.md")).toBe(content)
     })
 
     it("errors on a malformed date", async () => {
