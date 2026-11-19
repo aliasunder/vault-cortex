@@ -80,13 +80,17 @@ const splitOversizedParagraph = (paragraph: string, maxChunkTokens: number): str
   return fragments
 }
 
+/** One or more empty lines between two paragraphs. A body reaches the chunker
+ *  with its line endings as written, so CRLF line endings match too. */
+const PARAGRAPH_BREAK = /(?:\r?\n){2,}/
+
 /** Split oversized text into sub-chunks at paragraph boundaries,
  *  keeping each under maxChunkTokens. Falls back to word-boundary
  *  splitting for single paragraphs that exceed the limit. */
 const splitLargeText = (text: string, maxChunkTokens: number): string[] => {
   if (approximateTokenCount(text) <= maxChunkTokens) return [text]
 
-  const paragraphs = text.split(/\n\n+/)
+  const paragraphs = text.split(PARAGRAPH_BREAK)
   const subChunks: string[] = []
   // The paragraphs of the chunk being built, joined with "\n\n" when it is
   // pushed; a new list starts after each push.
@@ -97,8 +101,9 @@ const splitLargeText = (text: string, maxChunkTokens: number): string[] => {
   let chunkTokens = 0
 
   for (const paragraph of paragraphs) {
-    // An empty paragraph comes only from "\n\n" at the start or end of the
-    // text. It holds no words, and in a chunk it would only add a separator.
+    // An empty paragraph comes only from a paragraph break at the start or end
+    // of the text. It holds no words, and in a chunk it would only add a
+    // separator.
     if (paragraph === "") continue
 
     const paragraphTokens = approximateTokenCount(paragraph)

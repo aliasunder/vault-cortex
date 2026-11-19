@@ -580,6 +580,24 @@ describe("chunkContent", () => {
       ])
     })
 
+    it("splits a body with CRLF line endings at its paragraph boundaries", () => {
+      // Three 300-token paragraphs against a 449-token budget → one chunk each
+      const firstParagraph = generateLabeledTokens(300, "first")
+      const secondParagraph = generateLabeledTokens(300, "second")
+      const thirdParagraph = generateLabeledTokens(300, "third")
+
+      const chunks = chunkContent({
+        noteTitle: "Note",
+        bodyContent: `${firstParagraph}\r\n\r\n${secondParagraph}\r\n\r\n${thirdParagraph}`,
+      })
+
+      expect(chunks).toEqual([
+        { index: 0, text: `Note\n\n${firstParagraph}` },
+        { index: 1, text: `Note\n\n${secondParagraph}` },
+        { index: 2, text: `Note\n\n${thirdParagraph}` },
+      ])
+    })
+
     describe("a body with an empty paragraph at either end", () => {
       // Three 300-token paragraphs against a 449-token budget → one chunk each
       const firstParagraph = generateLabeledTokens(300, "first")
