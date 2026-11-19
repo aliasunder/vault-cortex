@@ -2257,6 +2257,46 @@ describe("note names in keyword search", () => {
     expect(namesIndex.fullTextSearch({ query: "aliases" }, logger)).toEqual([])
   })
 
+  it("ranks a note whose title is a YAML block scalar first for that title", () => {
+    const blockTitleIndex = createSearchIndex(":memory:")
+    const notes = [
+      {
+        // A folded block scalar ends the title with a line break
+        filePath: "People/Avery.md",
+        rawContent: "---\ntitle: >\n  Avery\n  Quinn\n---\n\nLives near the coast.\n",
+      },
+      {
+        filePath: "Visits/Visit.md",
+        rawContent:
+          "---\ntitle: Visit\n---\n\nAvery Quinn came by. Avery Quinn stayed. Avery Quinn left.\n",
+      },
+    ]
+    for (const note of notes) {
+      blockTitleIndex.upsertNote(withBodyTags({ ...note, fileStat: testStat(1000) }), logger)
+    }
+
+    // Without an exact-name match, Visits/Visit.md ranks first because it repeats the name
+    const results = blockTitleIndex.fullTextSearch({ query: "Avery Quinn" }, logger)
+
+    expect(results.map((result) => result.path)).toEqual(["People/Avery.md", "Visits/Visit.md"])
+  })
+
+  it("finds a note by an aliases entry that is not text", () => {
+    const numberAliasIndex = createSearchIndex(":memory:")
+    numberAliasIndex.upsertNote(
+      withBodyTags({
+        filePath: "Reviews/Year in review.md",
+        rawContent: "---\naliases: [Recap, 2024]\n---\n\nThe garden came first.\n",
+        fileStat: testStat(1000),
+      }),
+      logger,
+    )
+
+    const results = numberAliasIndex.fullTextSearch({ query: "2024" }, logger)
+
+    expect(results.map((result) => result.path)).toEqual(["Reviews/Year in review.md"])
+  })
+
   it("matches a name in another letter case beyond ASCII", () => {
     const accentIndex = createSearchIndex(":memory:")
     const notes = [

@@ -186,14 +186,24 @@ export const folderLikePattern = (folder: string): string =>
 
 // ── FTS metadata builder ───────────────────────────────────────
 
+/** The part of an aliases value the title column does not hold: its entries
+ *  that are not text, which parseFrontmatterAliases skips. */
+const nonTextAliasEntries = (value: unknown): unknown => {
+  if (isString(value)) return null
+  return Array.isArray(value) ? value.filter((element) => !isString(element)) : value
+}
+
 /** Flattens frontmatter into a searchable text block for the FTS metadata column.
- *  Keys are included (so "lifecycle" is findable). The title and the aliases
- *  key are excluded, because both fill the title column. */
+ *  Keys are included (so "lifecycle" is findable). The title and the text
+ *  aliases are excluded, because both fill the title column. */
 export const buildFtsMetadataText = (frontmatter: Record<string, unknown>): string => {
   const aliasesKey = findAliasesKey(frontmatter)
   const lines: string[] = []
-  for (const [key, value] of Object.entries(frontmatter)) {
-    if (key === "title" || key === aliasesKey) continue
+  for (const [key, frontmatterValue] of Object.entries(frontmatter)) {
+    if (key === "title") continue
+
+    const value = key === aliasesKey ? nonTextAliasEntries(frontmatterValue) : frontmatterValue
+
     if (value == null) continue
     if (Array.isArray(value)) {
       const primitiveElements = value.filter(isScalarListElement).map(String)
@@ -220,7 +230,8 @@ export const foldName = (name: string): string => name.toLowerCase()
 
 /**
  * SQL expression over `notes_fts` that is 1 when the bound text equals a whole
- * line of the title column, and 0 otherwise. It binds `toNameLookupText(query)`.
+ * line of the title column, 0 when it does not, and null when the bound text
+ * is null. It binds `toNameLookupText(query)`.
  * - buildFtsTitleText writes the title and each alias on a line of its own.
  * - A newline on both sides of both strings limits `instr` to whole lines.
  */
@@ -251,10 +262,14 @@ export const toNameLookupText = (query: string): string => {
 /** Matches a run of line breaks with the whitespace around it. */
 const LINE_BREAK_RUN_RE = /\s*[\r\n]+\s*/g
 
-/** A name with each line break replaced by one space. A YAML block scalar can
- *  give a title or an alias several lines, and the title column must hold each
- *  name on a single line for EXACT_NAME_MATCH_SQL to match it whole. */
-const toSingleLineName = (name: string): string => name.replace(LINE_BREAK_RUN_RE, " ")
+/**
+ * A name on one line: each line break becomes one space, and the ends are trimmed.
+ * - A YAML block scalar can give a title or an alias several lines and a final
+ *   line break.
+ * - EXACT_NAME_MATCH_SQL compares a trimmed query with whole lines of the title
+ *   column, so each name must fill one line and nothing else.
+ */
+const toSingleLineName = (name: string): string => name.replace(LINE_BREAK_RUN_RE, " ").trim()
 
 /** The aliases that differ from the title and from each other, compared
  *  without letter case, in document order, each on a single line. */
@@ -284,7 +299,7 @@ export const buildFtsTitleText = (params: {
   return [toSingleLineName(params.title), ...findDistinctAliases(params)].join("\n")
 }
 
-/** The title line that starts every chunk of a note:
+/** The note's title line in every chunk of the note:
  *  `Avery Quinn (also known as Avery, Mom)`, or the bare title without aliases. */
 export const buildChunkTitleLine = (params: {
   title: string

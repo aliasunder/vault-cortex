@@ -144,6 +144,13 @@ describe("buildFtsMetadataText", () => {
   it("excludes only the first key spelled aliases, the one the alias reader reads", () => {
     expect(buildFtsMetadataText({ Aliases: ["Mom"], aliases: ["Pup"] })).toBe("aliases: Pup")
   })
+
+  it.each([
+    { label: "a list", aliases: ["Mom", 2024, true], expected: "aliases: 2024 true" },
+    { label: "a single number", aliases: 2024, expected: "aliases: 2024" },
+  ])("keeps the aliases entries that are not text from $label", ({ aliases, expected }) => {
+    expect(buildFtsMetadataText({ aliases })).toBe(expected)
+  })
 })
 
 // ── Note names ────────────────────────────────────────────────
@@ -169,6 +176,12 @@ describe("buildFtsTitleText", () => {
     expect(
       buildFtsTitleText({ title: "Sam\nCarter", aliases: ["Avery \r\n  Quinn", "sam carter"] }),
     ).toBe("Sam Carter\nAvery Quinn")
+  })
+
+  it("trims the line break a block scalar leaves at the end of a title", () => {
+    expect(buildFtsTitleText({ title: "Avery Quinn\n", aliases: ["avery quinn", "Mom"] })).toBe(
+      "Avery Quinn\nMom",
+    )
   })
 })
 
