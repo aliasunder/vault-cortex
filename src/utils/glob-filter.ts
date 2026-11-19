@@ -1,21 +1,10 @@
-import { extname } from "node:path"
-import { fileURLToPath } from "node:url"
 import { MessageChannel, receiveMessageOnPort, Worker } from "node:worker_threads"
 import type { MessagePort } from "node:worker_threads"
 import type { Logger } from "../logger.js"
 import { describeError } from "./describe-error.js"
+import { siblingModuleUrl } from "./sibling-module-url.js"
 
-/**
- * The worker entry beside this module. Compiled `dist` runs `.js` files, while
- * `tsx` and vitest run the `.ts` sources, so the entry takes this module's own
- * extension. A `.ts` entry needs a TypeScript loader in the worker: under tsx
- * the worker inherits the parent's `--import tsx`, and vitest's config passes
- * the same flag.
- */
-const WORKER_ENTRY = new URL(
-  `./glob-filter-worker${extname(fileURLToPath(import.meta.url))}`,
-  import.meta.url,
-)
+const WORKER_ENTRY = siblingModuleUrl({ name: "glob-filter-worker", besideModule: import.meta.url })
 
 type GlobFilterOutcome =
   | Readonly<{ kind: "matched"; matches: string[] }>
