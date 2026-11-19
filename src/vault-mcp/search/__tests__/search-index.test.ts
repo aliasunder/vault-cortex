@@ -10863,6 +10863,15 @@ describe("canvas file content and links", () => {
     })
 
     it("canvas content is NOT indexed into FTS without fileToolsEnabled", async () => {
+      // The note matching the same query shows the search ran and returns hits.
+      index.upsertNote(
+        withBodyTags({
+          filePath: "Notes/plan.md",
+          rawContent: "# Plan\n\nThe architecture deployment plan.\n",
+          fileStat: testStat(1000),
+        }),
+        logger,
+      )
       index.upsertNonMdFile("Diagrams/arch.canvas", 500)
       index.upsertFileContent(
         {
@@ -10872,9 +10881,10 @@ describe("canvas file content and links", () => {
         },
         logger,
       )
+
       const { results } = await index.hybridSearch({ query: "architecture deployment" }, logger)
-      const canvasResult = results.find((result) => result.path === "Diagrams/arch.canvas")
-      expect(canvasResult).toBeUndefined()
+
+      expect(results.map((result) => result.path)).toEqual(["Notes/plan.md"])
     })
 
     it("does not log the FTS byte cap for an oversized canvas without fileToolsEnabled", () => {
