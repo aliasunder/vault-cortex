@@ -120,6 +120,21 @@ created: 2026-04-22T22:04:32-04:00
 - **2026-05-07**: **.reduce() over filter/map chains.** Single reduce pass
 `
 
+/** A fixture as a read returns it: the properties block dropped and the
+ *  surrounding blank lines trimmed. */
+const bodyWithoutProperties = (fileContent: string): string => {
+  return fileContent.slice(fileContent.indexOf("\n---\n") + "\n---\n".length).trim()
+}
+
+/** The all-files read of the two fixtures, in alphabetical order. */
+const ALL_FILES_READ = [
+  bodyWithoutProperties(OPINIONS_MD),
+  bodyWithoutProperties(PRINCIPLES_MD),
+].join("\n\n---\n\n")
+
+const DECISION_HEURISTICS_BODY =
+  "- **2026-05-06**: Secrets invisible at every layer\n- **2026-05-05**: Least-privilege for AI agents"
+
 beforeEach(async () => {
   vault = await mkdtemp(join(tmpdir(), "memory-test-"))
   await mkdir(join(vault, "About Me"), { recursive: true })
@@ -156,10 +171,9 @@ describe("getMemory", () => {
       "utf8",
     )
     const result = await getMemory({ vaultPath: vault }, logger)
-    expect(result).not.toContain("leaked-fixture-content")
-    // The visible files still come back — proves the read ran normally.
-    expect(result).toContain("# Opinions")
-    expect(result).toContain("# Principles")
+    // The read returns the two visible files and nothing else, so it ran and
+    // left the hidden file out.
+    expect(result).toBe(ALL_FILES_READ)
   })
 
   it("leaves a file whose name ends in .md twice out of the all-files read", async () => {
@@ -194,10 +208,7 @@ describe("getMemory", () => {
 
   it("concatenates all memory files when no file specified", async () => {
     const result = await getMemory({ vaultPath: vault }, logger)
-    expect(result).toContain("# Opinions")
-    expect(result).toContain("# Principles")
-    expect(result).toContain("\n\n---\n\n")
-    expect(result).not.toContain("title:")
+    expect(result).toBe(ALL_FILES_READ)
   })
 
   it("returns files in alphabetical order", async () => {
@@ -208,10 +219,7 @@ describe("getMemory", () => {
 
   it("returns a single file without frontmatter", async () => {
     const result = await getMemory({ vaultPath: vault, file: "Principles" }, logger)
-    expect(result).toContain("# Principles")
-    expect(result).toContain("## Decision heuristics")
-    expect(result).not.toContain("title:")
-    expect(result).not.toContain("---")
+    expect(result).toBe(bodyWithoutProperties(PRINCIPLES_MD))
   })
 
   it("returns a specific section body", async () => {
@@ -223,10 +231,7 @@ describe("getMemory", () => {
       },
       logger,
     )
-    expect(result).toContain("Secrets invisible at every layer")
-    expect(result).toContain("Least-privilege for AI agents")
-    expect(result).not.toContain("## Decision heuristics")
-    expect(result).not.toContain("Working style")
+    expect(result).toBe(DECISION_HEURISTICS_BODY)
   })
 
   it("section matching is case-insensitive", async () => {
@@ -238,7 +243,7 @@ describe("getMemory", () => {
       },
       logger,
     )
-    expect(result).toContain("Secrets invisible at every layer")
+    expect(result).toBe(DECISION_HEURISTICS_BODY)
   })
 
   it("resolves a section addressed by its short name (no suffix)", async () => {
@@ -267,14 +272,14 @@ describe("getMemory", () => {
 
   it("throws on non-existent file", async () => {
     await expect(getMemory({ vaultPath: vault, file: "Nonexistent" }, logger)).rejects.toThrow(
-      'memory file not found: "About Me/Nonexistent.md"',
+      new Error('memory file not found: "About Me/Nonexistent.md"'),
     )
   })
 
   it("reports a folder named like the file as not found, never the server's path", async () => {
     await mkdir(join(vault, "About Me", "Archive.md"), { recursive: true })
     await expect(getMemory({ vaultPath: vault, file: "Archive" }, logger)).rejects.toThrow(
-      'memory file not found: "About Me/Archive.md"',
+      new Error('memory file not found: "About Me/Archive.md"'),
     )
   })
 
@@ -310,7 +315,9 @@ describe("getMemory", () => {
         logger,
       ),
     ).rejects.toThrow(
-      'section not found: "Nonexistent section" in About Me/Principles.md. Available sections: Decision heuristics (newest first), Working style (newest first), Empty section (newest first)',
+      new Error(
+        'section not found: "Nonexistent section" in About Me/Principles.md. Available sections: Decision heuristics (newest first), Working style (newest first), Empty section (newest first)',
+      ),
     )
   })
 
@@ -328,7 +335,7 @@ describe("getMemory", () => {
     // file, must be what rejects the read.
     await writeFile(join(vault, "Outside.md"), "# Outside\n", "utf8")
     await expect(getMemory({ vaultPath: vault, file: "../Outside" }, logger)).rejects.toThrow(
-      'memory file must be a bare name without path separators: "../Outside"',
+      new Error('memory file must be a bare name without path separators: "../Outside"'),
     )
   })
 
@@ -340,7 +347,7 @@ describe("getMemory", () => {
     // must be what rejects the read.
     await writeFile(join(vault, "About Me", ".secret.md"), "# Hidden\n", "utf8")
     await expect(getMemory({ vaultPath: vault, file: ".secret" }, logger)).rejects.toThrow(
-      'memory file must not start with a dot: ".secret" would be a hidden file',
+      new Error('memory file must not start with a dot: ".secret" would be a hidden file'),
     )
   })
 
@@ -424,9 +431,7 @@ describe("updateMemory", () => {
       },
       logger,
     )
-    const lines = result.split("\n")
-    expect(lines[0]).toBe("- **2026-05-08**: new entry text")
-    expect(lines[1]).toContain("2026-05-06")
+    expect(result).toBe(`- **2026-05-08**: new entry text\n${DECISION_HEURISTICS_BODY}`)
   })
 
   it("keeps a last line that holds only a carriage return", async () => {
@@ -586,7 +591,7 @@ created: 2026-01-01T00:00:00-05:00
         },
         logger,
       )
-      expect(result).toContain("- **2026-07-15**: today entry")
+      expect(result).toBe("- **2026-07-15**: today entry\n- **2026-05-04**: Single-purpose files")
     } finally {
       vi.useRealTimers()
     }
@@ -611,7 +616,7 @@ created: 2026-01-01T00:00:00-05:00
       },
       logger,
     )
-    expect(result).toContain("- **2026-05-08**: case test")
+    expect(result).toBe("- **2026-05-08**: case test\n- **2026-05-04**: Single-purpose files")
   })
 
   it("auto-creates file when it does not exist", async () => {
@@ -909,11 +914,12 @@ created: 2026-01-01T00:00:00-05:00
     const principlesContent = await readFile(join(vault, "About Me/Principles.md"), "utf8")
     // The entry lands in the existing section — no second "## Working style …"
     // heading is appended at EOF (the duplicate-section bug).
-    const workingStyleHeadings = principlesContent
-      .split("\n")
-      .filter((line) => line.startsWith("## Working style"))
-    expect(workingStyleHeadings).toEqual(["## Working style (newest first)"])
-    expect(principlesContent).toContain("- **2026-05-09**: short-name entry")
+    expect(principlesContent).toBe(
+      PRINCIPLES_MD.replace(
+        "## Working style (newest first)\n",
+        "## Working style (newest first)\n- **2026-05-09**: short-name entry\n",
+      ),
+    )
 
     const outlines = await listMemoryFiles({ vaultPath: vault }, logger)
     const principles = outlines.find((outline) => outline.file === "Principles")
@@ -1078,7 +1084,9 @@ created: 2026-01-01T00:00:00-05:00
           logger,
         ),
       ).rejects.toThrow(
-        "entry must be a single line: memory entries are single dated bullets — collapse newlines or append multiple entries",
+        new Error(
+          "entry must be a single line: memory entries are single dated bullets — collapse newlines or append multiple entries",
+        ),
       )
       // Nothing was written — the file is byte-identical to the fixture.
       const fileContent = await readFile(join(vault, "About Me/Principles.md"), "utf8")
@@ -1133,7 +1141,9 @@ created: 2026-01-01T00:00:00-05:00
         logger,
       ),
     ).rejects.toThrow(
-      "section must be a single line: section names become H2 headings — remove line breaks",
+      new Error(
+        "section must be a single line: section names become H2 headings — remove line breaks",
+      ),
     )
     // Nothing was written — the file is byte-identical to the fixture.
     const fileContent = await readFile(join(vault, "About Me/Principles.md"), "utf8")
@@ -1153,7 +1163,9 @@ created: 2026-01-01T00:00:00-05:00
         logger,
       ),
     ).rejects.toThrow(
-      "entry contains a control character (U+0000 at position 5) — control characters other than tab, LF, and CR are not allowed",
+      new Error(
+        "entry contains a control character (U+0000 at position 5) — control characters other than tab, LF, and CR are not allowed",
+      ),
     )
   })
 
@@ -1170,7 +1182,9 @@ created: 2026-01-01T00:00:00-05:00
         logger,
       ),
     ).rejects.toThrow(
-      "section contains a control character (U+0007 at position 3) — control characters other than tab, LF, and CR are not allowed",
+      new Error(
+        "section contains a control character (U+0007 at position 3) — control characters other than tab, LF, and CR are not allowed",
+      ),
     )
   })
 
@@ -1231,8 +1245,9 @@ created: 2026-01-01T00:00:00-05:00
       },
       logger,
     )
-    expect(result).toContain("- **2026-07-01**: same text")
-    expect(result).toContain("- **2026-07-02**: same text")
+    expect(result).toBe(
+      `- **2026-07-02**: same text\n- **2026-07-01**: same text\n${DECISION_HEURISTICS_BODY}`,
+    )
   })
 
   it("appends when the same date arrives with different text", async () => {
@@ -1265,8 +1280,9 @@ created: 2026-01-01T00:00:00-05:00
       },
       logger,
     )
-    expect(result).toContain("- **2026-07-02**: first entry of the day")
-    expect(result).toContain("- **2026-07-02**: second entry of the day")
+    expect(result).toBe(
+      `- **2026-07-02**: second entry of the day\n- **2026-07-02**: first entry of the day\n${DECISION_HEURISTICS_BODY}`,
+    )
   })
 
   it("an identical bullet in a different section does not suppress the append", async () => {
@@ -1302,7 +1318,9 @@ created: 2026-01-01T00:00:00-05:00
       },
       logger,
     )
-    expect(workingStyle).toContain("- **2026-07-02**: cross-section entry")
+    expect(workingStyle).toBe(
+      "- **2026-07-02**: cross-section entry\n- **2026-05-04**: Single-purpose files",
+    )
   })
 })
 
@@ -1412,10 +1430,20 @@ describe("updateMemory auto-creation", () => {
       },
       logger,
     )
-    const raw = await readFile(join(emptyVault, "About Me/Preferences.md"), "utf8")
-    expect(raw).toContain("# Preferences")
-    expect(raw).toContain("## Editor settings (newest first)")
-    expect(raw).toContain("- **2026-05-15**: Dark mode")
+    // The read drops the properties block, whose created stamp is the clock's.
+    const body = await getMemory({ vaultPath: emptyVault, file: "Preferences" }, logger)
+    expect(body).toBe(
+      [
+        "# Preferences",
+        "",
+        "> [!info] Scope of this file",
+        "> **Contains:** (describe what belongs in this file — and what doesn't)",
+        "> **Convention:** append newest first; never overwrite dated entries; ISO dates only.",
+        "",
+        "## Editor settings (newest first)",
+        "- **2026-05-15**: Dark mode",
+      ].join("\n"),
+    )
   })
 
   it("auto-created section preserves existing file content", async () => {
@@ -1468,8 +1496,9 @@ describe("updateMemory auto-creation", () => {
       logger,
     )
     const raw = await readFile(join(vault, "About Me/Opinions.md"), "utf8")
-    expect(raw).toContain("## Design preferences (newest first)")
-    expect(raw).not.toContain("## Design preferences (newest first) (newest first)")
+    expect(raw).toBe(
+      `${OPINIONS_MD}\n## Design preferences (newest first)\n- **2026-05-15**: Already suffixed\n`,
+    )
   })
 })
 
@@ -1488,7 +1517,9 @@ describe("updateMemory near-duplicate section guard", () => {
         logger,
       ),
     ).rejects.toThrow(
-      'section not created: "AI tooling &amp; memory (newest first)" is nearly identical to existing section "AI tooling & memory (newest first)". Existing sections: AI tooling & memory (newest first), Code patterns (newest first)',
+      new Error(
+        'section not created: "AI tooling &amp; memory (newest first)" is nearly identical to existing section "AI tooling & memory (newest first)". Existing sections: AI tooling & memory (newest first), Code patterns (newest first)',
+      ),
     )
     const contentAfter = await readFile(join(vault, "About Me/Opinions.md"), "utf8")
     expect(contentAfter).toBe(contentBefore)
@@ -1507,7 +1538,9 @@ describe("updateMemory near-duplicate section guard", () => {
         logger,
       ),
     ).rejects.toThrow(
-      'section not created: "Working stlye" is nearly identical to existing section "Working style (newest first)". Existing sections: Decision heuristics (newest first), Working style (newest first), Empty section (newest first)',
+      new Error(
+        'section not created: "Working stlye" is nearly identical to existing section "Working style (newest first)". Existing sections: Decision heuristics (newest first), Working style (newest first), Empty section (newest first)',
+      ),
     )
   })
 
@@ -1524,7 +1557,9 @@ describe("updateMemory near-duplicate section guard", () => {
         logger,
       ),
     ).rejects.toThrow(
-      'section not created: "Working  style" is nearly identical to existing section "Working style (newest first)". Existing sections: Decision heuristics (newest first), Working style (newest first), Empty section (newest first)',
+      new Error(
+        'section not created: "Working  style" is nearly identical to existing section "Working style (newest first)". Existing sections: Decision heuristics (newest first), Working style (newest first), Empty section (newest first)',
+      ),
     )
   })
 
@@ -1645,7 +1680,9 @@ describe("updateMemory near-duplicate section guard", () => {
         logger,
       ),
     ).rejects.toThrow(
-      'section not created: "Goal" is nearly identical to existing section "Goals (newest first)". Existing sections: Goals (newest first)',
+      new Error(
+        'section not created: "Goal" is nearly identical to existing section "Goals (newest first)". Existing sections: Goals (newest first)',
+      ),
     )
   })
 
@@ -1708,7 +1745,9 @@ describe("updateMemory near-duplicate section guard", () => {
         logger,
       ),
     ).rejects.toThrow(
-      'section not created: "Taxa" is nearly identical to existing section "Taxi (newest first)". Existing sections: Taxi (newest first)',
+      new Error(
+        'section not created: "Taxa" is nearly identical to existing section "Taxi (newest first)". Existing sections: Taxi (newest first)',
+      ),
     )
   })
 
@@ -1771,7 +1810,9 @@ describe("updateMemory near-duplicate section guard", () => {
         logger,
       ),
     ).rejects.toThrow(
-      'section not created: "Practiec" is nearly identical to existing section "Practice (newest first)". Existing sections: Practice (newest first)',
+      new Error(
+        'section not created: "Practiec" is nearly identical to existing section "Practice (newest first)". Existing sections: Practice (newest first)',
+      ),
     )
   })
 
@@ -2103,7 +2144,9 @@ title: Dupe
         logger,
       ),
     ).rejects.toThrow(
-      'section not found: "Nope" in About Me/Principles.md. Available sections: Decision heuristics (newest first), Working style (newest first), Empty section (newest first)',
+      new Error(
+        'section not found: "Nope" in About Me/Principles.md. Available sections: Decision heuristics (newest first), Working style (newest first), Empty section (newest first)',
+      ),
     )
   })
 
@@ -2592,7 +2635,7 @@ describe("custom memoryDir", () => {
       { vaultPath: customVault, file: "Principles" },
       logger,
     )
-    expect(result).toContain("# Principles")
+    expect(result).toBe(bodyWithoutProperties(PRINCIPLES_MD))
   })
 
   it("error messages reference the configured directory name", async () => {
@@ -2733,10 +2776,7 @@ describe("bootstrapMemoryDir", () => {
 
   it("preserves existing files when directory already exists", async () => {
     await bootstrapMemoryDir({ vaultPath: vault }, logger)
-    const raw = await readFile(join(vault, "About Me/Principles.md"), "utf8")
-    const parsed = parseNote(raw)
-    expect(parsed.data.title).toBe("Principles — About Me")
-    expect(raw).toContain("Secrets invisible at every layer")
+    expect(await readFile(join(vault, "About Me/Principles.md"), "utf8")).toBe(PRINCIPLES_MD)
   })
 })
 
