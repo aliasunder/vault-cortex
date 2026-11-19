@@ -37,7 +37,7 @@ import {
   type OpenFence,
   type CommentResult,
 } from "../obsidian-markdown/lines.js"
-import { levenshteinDistance } from "../../utils/levenshtein-distance.js"
+import { isWithinEditDistance } from "../../utils/levenshtein-distance.js"
 import { DateTime } from "luxon"
 import type { Logger } from "../../logger.js"
 
@@ -342,7 +342,11 @@ const findNearMissSection = (
     const editBudget = nearMissEditBudget(shorterNameLength)
 
     if (editBudget === 0) return false
-    return levenshteinDistance(existingForm, requestedForm) <= editBudget
+    return isWithinEditDistance({
+      first: existingForm,
+      second: requestedForm,
+      maxDistance: editBudget,
+    })
   }
   return sections.find(isNearMissOfRequested)
 }

@@ -3921,4 +3921,54 @@ describe("updateMemory with a long new section name", () => {
     },
     CHILD_DEADLINE_MS + 5_000,
   )
+
+  it(
+    "checks a million-character name against a same-length existing section within a child deadline",
+    async () => {
+      const existingSection = "a".repeat(LONG_RUN_LENGTH)
+      const requestedSection = `${"a".repeat(LONG_RUN_LENGTH - 3)}bcd`
+      await writeFile(
+        join(vault, "About Me/Principles.md"),
+        `${PRINCIPLES_MD}\n## ${existingSection} (newest first)\n- **2026-05-07**: existing long entry\n`,
+        "utf8",
+      )
+      const memoryStoreUrl = new URL("../memory-store.ts", import.meta.url).href
+      execFileSync(
+        process.execPath,
+        [
+          "--import",
+          "tsx",
+          "--input-type=module",
+          "--eval",
+          `
+      import { createMemoryStore } from ${JSON.stringify(memoryStoreUrl)};
+      const silentLogger = new Proxy({}, {
+        get: (_target, property) => (property === "child" ? () => silentLogger : () => {}),
+      });
+      const { updateMemory } = createMemoryStore({ memoryDir: "About Me" });
+      await updateMemory(
+        {
+          vaultPath: ${JSON.stringify(vault)},
+          file: "Principles",
+          section: 'a'.repeat(${LONG_RUN_LENGTH - 3}) + 'bcd',
+          entry: "near-miss probe",
+          date: "2026-05-08",
+        },
+        silentLogger,
+      );
+    `,
+        ],
+        { encoding: "utf8", timeout: CHILD_DEADLINE_MS, killSignal: "SIGKILL" },
+      )
+
+      // Three edits apart, past the long-name budget of 2, so the request is
+      // a new section rather than a near miss of the existing one.
+      const content = await readFile(join(vault, "About Me/Principles.md"), "utf8")
+      const expectedEnding = `## ${requestedSection} (newest first)\n- **2026-05-08**: near-miss probe\n`
+
+      // A boolean keeps a million-character diff out of a failure report.
+      expect(content.endsWith(expectedEnding)).toBe(true)
+    },
+    CHILD_DEADLINE_MS + 5_000,
+  )
 })
