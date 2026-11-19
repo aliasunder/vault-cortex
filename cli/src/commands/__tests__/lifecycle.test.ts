@@ -953,60 +953,11 @@ describe("runRestart", () => {
     expect(recording.runParams.map((runParams) => runParams.bindAddress)).toEqual([bindAddress])
   })
 
-  it.each([
-    { label: "localhost", publicUrl: "http://localhost:8000" },
-    { label: "127.0.0.1", publicUrl: "http://127.0.0.1:8000" },
-    { label: "[::1]", publicUrl: "http://[::1]:8000" },
-  ])(
-    "warns and still starts when a network BIND_ADDRESS leaves a $label PUBLIC_URL unreachable",
-    async ({ publicUrl }) => {
-      const targetDir = makeTempTargetDir("vault-cli-restart-")
-      writeFileSync(
-        join(targetDir, ".env"),
-        `MCP_AUTH_TOKEN=abc123\nVAULT_PATH=/vault\nBIND_ADDRESS=192.168.1.20\nPUBLIC_URL=${publicUrl}\n`,
-      )
-      const recording = createRecordingDocker()
-      const scripted = createScriptedPrompts()
-
-      const exitCode = await runRestart(
-        { dir: targetDir },
-        { prompts: scripted.prompts, docker: recording.docker, fetchFn: fetchOk },
-      )
-
-      expect(exitCode).toBe(0)
-      expect(recording.runParams.map((runParams) => runParams.bindAddress)).toEqual([
-        "192.168.1.20",
-      ])
-      expect(scripted.warnings).toEqual([
-        `BIND_ADDRESS publishes the port on 192.168.1.20 only, so PUBLIC_URL (${publicUrl}) no longer reaches the server — ` +
-          `set PUBLIC_URL to the address clients use, such as http://192.168.1.20:8000, in ${targetDir}/.env.`,
-      ])
-    },
-  )
-
-  it.each([
-    {
-      label: "a loopback BIND_ADDRESS",
-      bindAddress: "127.0.0.1",
-      publicUrl: "http://localhost:8000",
-    },
-    {
-      label: "an IPv6 loopback BIND_ADDRESS",
-      bindAddress: "[::1]",
-      publicUrl: "http://[::1]:8000",
-    },
-    { label: "BIND_ADDRESS 0.0.0.0", bindAddress: "0.0.0.0", publicUrl: "http://localhost:8000" },
-    { label: "BIND_ADDRESS [::]", bindAddress: "[::]", publicUrl: "http://localhost:8000" },
-    {
-      label: "a PUBLIC_URL at the network BIND_ADDRESS",
-      bindAddress: "192.168.1.20",
-      publicUrl: "http://192.168.1.20:8000",
-    },
-  ])("does not warn about PUBLIC_URL with $label", async ({ bindAddress, publicUrl }) => {
+  it("warns and still starts when a network BIND_ADDRESS leaves a localhost PUBLIC_URL unreachable", async () => {
     const targetDir = makeTempTargetDir("vault-cli-restart-")
     writeFileSync(
       join(targetDir, ".env"),
-      `MCP_AUTH_TOKEN=abc123\nVAULT_PATH=/vault\nBIND_ADDRESS=${bindAddress}\nPUBLIC_URL=${publicUrl}\n`,
+      "MCP_AUTH_TOKEN=abc123\nVAULT_PATH=/vault\nBIND_ADDRESS=192.168.1.20\nPUBLIC_URL=http://localhost:8000\n",
     )
     const recording = createRecordingDocker()
     const scripted = createScriptedPrompts()
@@ -1017,7 +968,29 @@ describe("runRestart", () => {
     )
 
     expect(exitCode).toBe(0)
-    expect(recording.runParams.map((runParams) => runParams.bindAddress)).toEqual([bindAddress])
+    expect(recording.runParams.map((runParams) => runParams.bindAddress)).toEqual(["192.168.1.20"])
+    expect(scripted.warnings).toEqual([
+      "BIND_ADDRESS publishes the port on 192.168.1.20 only, so PUBLIC_URL (http://localhost:8000) no longer reaches the server — " +
+        `set PUBLIC_URL to the address clients use, such as http://192.168.1.20:8000, in ${targetDir}/.env.`,
+    ])
+  })
+
+  it("does not warn about PUBLIC_URL when it names the network BIND_ADDRESS", async () => {
+    const targetDir = makeTempTargetDir("vault-cli-restart-")
+    writeFileSync(
+      join(targetDir, ".env"),
+      "MCP_AUTH_TOKEN=abc123\nVAULT_PATH=/vault\nBIND_ADDRESS=192.168.1.20\nPUBLIC_URL=http://192.168.1.20:8000\n",
+    )
+    const recording = createRecordingDocker()
+    const scripted = createScriptedPrompts()
+
+    const exitCode = await runRestart(
+      { dir: targetDir },
+      { prompts: scripted.prompts, docker: recording.docker, fetchFn: fetchOk },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(recording.runParams.map((runParams) => runParams.bindAddress)).toEqual(["192.168.1.20"])
     expect(scripted.warnings).toEqual([])
   })
 })

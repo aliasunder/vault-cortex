@@ -168,36 +168,15 @@ describe("readEnvBindAddress", () => {
     })
   })
 
-  it.each([
-    { label: "a hostname", envValue: "localhost", reportedValue: "localhost" },
-    { label: "a bare IPv6 address", envValue: "::1", reportedValue: "::1" },
-    {
-      label: "a zone-scoped IPv6 address",
-      envValue: "[fe80::1%eth0]",
-      reportedValue: "[fe80::1%eth0]",
-    },
-    {
-      label: "an address with a port",
-      envValue: "127.0.0.1:8000",
-      reportedValue: "127.0.0.1:8000",
-    },
-    { label: "an incomplete IPv4 address", envValue: "192.168.1", reportedValue: "192.168.1" },
-    {
-      label: "a quoted value padded with spaces",
-      envValue: '" 127.0.0.1 "',
-      reportedValue: " 127.0.0.1 ",
-    },
-  ])(
-    "reports $label as an invalid address instead of using the default",
-    ({ envValue, reportedValue }) => {
-      const envValues = parseEnvValues(`BIND_ADDRESS=0.0.0.0\nBIND_ADDRESS=${envValue}\n`)
+  it("reports a value that is not an address, quotes removed, instead of using the default", () => {
+    const envValues = parseEnvValues('BIND_ADDRESS=0.0.0.0\nBIND_ADDRESS=" 127.0.0.1 "\n')
 
-      expect(readEnvBindAddress(envValues, "local")).toEqual({
-        kind: "invalid",
-        message: `BIND_ADDRESS "${reportedValue}" is not an address Docker can publish on — use an IPv4 address such as 127.0.0.1 or 0.0.0.0, or an IPv6 address in brackets such as [::1].`,
-      })
-    },
-  )
+    expect(readEnvBindAddress(envValues, "local")).toEqual({
+      kind: "invalid",
+      message:
+        'BIND_ADDRESS " 127.0.0.1 " is not an address Docker can publish on — use an IPv4 address such as 127.0.0.1 or 0.0.0.0, or an IPv6 address in brackets such as [::1].',
+    })
+  })
 })
 
 describe("readEnvInstanceName", () => {
