@@ -748,6 +748,26 @@ describe("chunkContent", () => {
       ])
     })
 
+    it("splits a short note with CRLF line endings at its paragraph boundary when the prefix pushes it over budget", () => {
+      // Two 240-token paragraphs make a 480-token body: one chunk bare (under
+      // the 500-token threshold), but over the 445-token budget left by "Note"
+      // and the 4-token metadata line, so each paragraph gets its own chunk.
+      const firstParagraph = generateLabeledTokens(240, "first")
+      const secondParagraph = generateLabeledTokens(240, "second")
+      const metadataPrefix = "Type: session-log. Tags: project/vault-cortex."
+
+      const chunks = chunkContent({
+        noteTitle: "Note",
+        bodyContent: `${firstParagraph}\r\n\r\n${secondParagraph}`,
+        metadataPrefix,
+      })
+
+      expect(chunks).toEqual([
+        { index: 0, text: `Note\n${metadataPrefix}\n\n${firstParagraph}` },
+        { index: 1, text: `Note\n${metadataPrefix}\n\n${secondParagraph}` },
+      ])
+    })
+
     it("floors the budget at MIN_CHUNK_TOKENS when the prefix is very large", () => {
       // A ~420-token prefix would shrink the budget to ~30 without the
       // floor, but MIN_CHUNK_TOKENS (50) catches it. 120 body tokens at a

@@ -10247,9 +10247,13 @@ describe("vectors reused by chunk text", () => {
       // anything, and one more call for the table-of-contents chunk
       const content = Array.from({ length: 2_560 }, () => "## same\nword").join("\n")
 
-      // Counts the turns of the event loop while the embed runs
+      // Counts the turns of the event loop while the embed runs. The counter
+      // stops when the test ends, so a failed embed cannot leave it running.
       let eventLoopTurns = 0
       let embedRunning = true
+      onTestFinished(() => {
+        embedRunning = false
+      })
       const countTurn = (): void => {
         if (!embedRunning) return
         eventLoopTurns++
@@ -10260,8 +10264,10 @@ describe("vectors reused by chunk text", () => {
       embedRunning = false
 
       expect(embedder.embedText).toHaveBeenCalledTimes(2)
-      // One yield every 256 chunks gives at least nine turns across 2,560
-      expect(eventLoopTurns).toBeGreaterThanOrEqual(9)
+      // Nothing else in the embed waits for the event loop, so each turn is
+      // one yield: before chunks 256, 512 and so on up to 2,560, the
+      // table-of-contents chunk
+      expect(eventLoopTurns).toBe(10)
     },
   )
 
