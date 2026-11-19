@@ -191,11 +191,16 @@ describe("toNameLookupText", () => {
     { label: "a quoted name", query: '"Avery Quinn"', expected: "avery quinn" },
     { label: "padding inside the quotes", query: '" Mom "', expected: "mom" },
     { label: "a query with a quoted part", query: '"Mom" trip', expected: '"mom" trip' },
-    { label: "empty quotes", query: '""', expected: "" },
-    { label: "whitespace only", query: "   ", expected: "" },
-    { label: "a query spanning lines", query: "Avery\nMom", expected: "" },
   ])("folds $label", ({ query, expected }) => {
     expect(toNameLookupText(query)).toBe(expected)
+  })
+
+  it.each([
+    { label: "empty quotes", query: '""' },
+    { label: "whitespace only", query: "   " },
+    { label: "a query spanning lines", query: "Avery\nMom" },
+  ])("returns no name text for $label", ({ query }) => {
+    expect(toNameLookupText(query)).toBe("")
   })
 })
 

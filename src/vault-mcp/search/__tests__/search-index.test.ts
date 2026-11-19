@@ -2207,11 +2207,24 @@ describe("note names in keyword search", () => {
   })
 
   it("keeps the relevance order for a query that equals no name", () => {
-    const results = createNamesIndex().fullTextSearch({ query: "mom trip" }, logger)
+    // The least relevant match sorts first by path, so a path-only order fails
+    const namesIndex = createNamesIndex()
+    namesIndex.upsertNote(
+      withBodyTags({
+        filePath: "Archive/Someday.md",
+        rawContent:
+          "---\ntitle: Someday\n---\n\nSomeday a trip with mom, once the garden, the shed, the fence, the porch and the attic are done.\n",
+        fileStat: testStat(1000),
+      }),
+      logger,
+    )
+
+    const results = namesIndex.fullTextSearch({ query: "mom trip" }, logger)
 
     expect(results.map((result) => result.path)).toEqual([
       "Trips/Mom and Daughter Trip.md",
       "Trips/Session log.md",
+      "Archive/Someday.md",
     ])
   })
 
@@ -2233,10 +2246,61 @@ describe("note names in keyword search", () => {
     ])
   })
 
-  it("no longer matches an alias through the metadata column's key name", () => {
-    const results = createNamesIndex().fullTextSearch({ query: "aliases" }, logger)
+  it("does not match a note through the name of its aliases key", () => {
+    const namesIndex = createNamesIndex()
 
-    expect(results).toEqual([])
+    // The person note's other key names stay searchable, so the empty result
+    // below comes from leaving the aliases key out of the metadata column
+    const relationResults = namesIndex.fullTextSearch({ query: "relation" }, logger)
+    expect(relationResults.map((result) => result.path)).toEqual(["People/Avery Quinn.md"])
+
+    expect(namesIndex.fullTextSearch({ query: "aliases" }, logger)).toEqual([])
+  })
+
+  it("matches a name in another letter case beyond ASCII", () => {
+    const accentIndex = createSearchIndex(":memory:")
+    const notes = [
+      {
+        filePath: "Pets/Biscuit.md",
+        rawContent: "---\naliases: [Éclair]\n---\n\nNaps all afternoon.\n",
+      },
+      {
+        filePath: "Bakery/Order.md",
+        rawContent:
+          "---\ntitle: Order\n---\n\nOne éclair, a second éclair and an éclair for later.\n",
+      },
+    ]
+    for (const note of notes) {
+      accentIndex.upsertNote(withBodyTags({ ...note, fileStat: testStat(1000) }), logger)
+    }
+
+    // Without an exact-name match, Bakery/Order.md ranks first because it repeats the word
+    const results = accentIndex.fullTextSearch({ query: "éclair" }, logger)
+
+    expect(results.map((result) => result.path)).toEqual(["Pets/Biscuit.md", "Bakery/Order.md"])
+  })
+
+  it("gives a note with an empty title no boost for a query with no name text", () => {
+    const untitledIndex = createSearchIndex(":memory:")
+    const notes = [
+      {
+        filePath: "Inbox/Untitled.md",
+        rawContent: '---\ntitle: ""\n---\n\nA trip with mom.\n',
+      },
+      {
+        filePath: "Trips/Plan.md",
+        rawContent:
+          "---\ntitle: Plan\n---\n\nMom and the trip, mom and the trip, the trip with mom.\n",
+      },
+    ]
+    for (const note of notes) {
+      untitledIndex.upsertNote(withBodyTags({ ...note, fileStat: testStat(1000) }), logger)
+    }
+
+    // A query spanning lines has no name text
+    const results = untitledIndex.fullTextSearch({ query: "mom\ntrip" }, logger)
+
+    expect(results.map((result) => result.path)).toEqual(["Trips/Plan.md", "Inbox/Untitled.md"])
   })
 })
 
