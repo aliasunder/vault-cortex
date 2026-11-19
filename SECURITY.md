@@ -67,7 +67,8 @@ mechanism-level detail.
 - The folder settings (`MEMORY_DIR`, `DAILY_NOTES_FOLDER`,
   `PROTECTED_PATHS`, `ORPHAN_EXCLUDE_FOLDERS`) reject `..`, absolute paths,
   and blank names, so the server refuses to start while any of them holds
-  such a value
+  such a value. The one exception is `DAILY_NOTES_FOLDER=/`, which Obsidian
+  saves for the vault root and the server reads the same way
 - Memory file names reject `/` and `\` — prevents `../../outside`-style
   escapes from the memory directory — and leading dots, which would
   create hidden files
@@ -93,9 +94,11 @@ mechanism-level detail.
   default `/data` volume), so the file tools can't reach them. The OAuth
   database stores each refresh token only as a keyed hash (an HMAC made
   with `MCP_AUTH_TOKEN`), so a copy of it holds no usable credential.
-  `INDEX_DB_PATH` sets where the search database lives, and the OAuth
-  database sits beside it. If `INDEX_DB_PATH` points into a _visible_
-  vault folder, hidden-path blocking covers neither database.
+  `INDEX_DB_PATH`, a container path the Compose files and the remote
+  image set to `/data/index.db`, places the search database, and the
+  OAuth database sits beside it. If an edited Compose file points
+  `INDEX_DB_PATH` into a _visible_ vault folder, hidden-path blocking
+  covers neither database.
   `vault_list_files` lists them like any other vault file, and
   `vault_read_file` refuses them only because a SQLite file holds binary
   data.
