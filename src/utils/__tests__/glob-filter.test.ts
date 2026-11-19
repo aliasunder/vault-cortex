@@ -4,7 +4,7 @@ import { logger } from "../../logger.js"
 import { filterPathsByGlob } from "../glob-filter.js"
 
 // Real workers throughout. The spy lets a test reach the worker a call
-// started, or make the next worker fail to start or to load
+// started, make the next worker fail to start, or swap the code it runs
 vi.mock("node:worker_threads", { spy: true })
 
 const { Worker: RealWorker } =
@@ -34,6 +34,16 @@ const rejectionOf = async (promise: Promise<unknown>): Promise<unknown> => {
  *  wait together for the next turn of the event loop. */
 const blockMainThread = (milliseconds: number): void => {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, milliseconds)
+}
+
+/** Makes the next call's worker run `source` in place of the glob worker. It
+ *  gets the call's own options, so the call's reply port still reaches it. */
+const replaceNextWorkerSource = (source: string): void => {
+  // A function expression, because an arrow function cannot be called with
+  // `new`
+  vi.mocked(Worker).mockImplementationOnce(function (_entry, options) {
+    return new RealWorker(new URL(`data:text/javascript,${encodeURIComponent(source)}`), options)
+  })
 }
 
 const VAULT_PATHS = [
@@ -115,12 +125,67 @@ describe("filterPathsByGlob", () => {
       { glob: "*.md", paths: VAULT_PATHS, timeoutMs: 50 },
       logger,
     )
-    // The worker replies while the main thread is blocked, so the deadline
-    // timer and the reply both wait, and the timer runs first
+    // The worker replies and exits while the main thread is blocked. Blocking
+    // from an immediate callback means the event loop runs its due timers,
+    // the deadline among them, before it handles the reply or the exit
+    setImmediate(() => {
+      blockMainThread(3_000)
+    })
+
+    expect(await pendingMatches).toEqual(["a.md"])
+  }, 10_000)
+
+  it("returns the worker's reply even when its exit is handled first", async () => {
+    const pendingMatches = filterPathsByGlob(
+      { glob: "*.md", paths: VAULT_PATHS, timeoutMs: 5_000 },
+      logger,
+    )
+    // The worker replies and exits while the main thread is blocked, and the
+    // event loop then handles the exit before the reply. The deadline stays
+    // beyond the block, so the exit is the only event that competes
     blockMainThread(3_000)
 
     expect(await pendingMatches).toEqual(["a.md"])
   }, 10_000)
+
+  it("rejects and logs when the worker exits without replying", async () => {
+    const requestLogger = createErrorLogger()
+    replaceNextWorkerSource("process.exit(3)")
+
+    const rejection = await rejectionOf(
+      filterPathsByGlob({ glob: "*.md", paths: VAULT_PATHS, timeoutMs: 2_000 }, requestLogger),
+    )
+
+    expect(rejection).toEqual(
+      new Error("glob matching failed", { cause: new Error("glob worker exited with code 3") }),
+    )
+    expect(requestLogger.error).toHaveBeenCalledTimes(1)
+    expect(requestLogger.error).toHaveBeenCalledWith("glob matching failed", {
+      error: "[Error]: glob worker exited with code 3",
+    })
+  })
+
+  it("rejects and logs when the worker replies with something other than matched paths", async () => {
+    const requestLogger = createErrorLogger()
+    replaceNextWorkerSource(
+      'import { workerData } from "node:worker_threads"\n' +
+        "workerData.replyPort.postMessage({ matches: [1] })",
+    )
+
+    const rejection = await rejectionOf(
+      filterPathsByGlob({ glob: "*.md", paths: VAULT_PATHS, timeoutMs: 2_000 }, requestLogger),
+    )
+
+    expect(rejection).toEqual(
+      new Error("glob matching failed", {
+        cause: new Error("glob worker sent a malformed reply"),
+      }),
+    )
+    expect(requestLogger.error).toHaveBeenCalledTimes(1)
+    expect(requestLogger.error).toHaveBeenCalledWith("glob matching failed", {
+      error: "[Error]: glob worker sent a malformed reply",
+    })
+  })
 
   it("rejects and logs when the worker cannot be created", async () => {
     const requestLogger = createErrorLogger()
@@ -145,9 +210,7 @@ describe("filterPathsByGlob", () => {
 
   it("rejects and logs when the worker fails to load, without matching on the main thread", async () => {
     const requestLogger = createErrorLogger()
-    vi.mocked(Worker).mockImplementationOnce(function (_entry, options) {
-      return new RealWorker(new URL("data:text/javascript,throw new Error('load failed')"), options)
-    })
+    replaceNextWorkerSource("throw new Error('load failed')")
 
     const rejection = await rejectionOf(
       filterPathsByGlob({ glob: "*.md", paths: VAULT_PATHS, timeoutMs: 2_000 }, requestLogger),
