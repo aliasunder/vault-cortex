@@ -49,15 +49,16 @@ const MAX_CHUNK_PREFIX_PART_CODE_POINTS = 2_000
 // A note's chunk text stops at the smaller of the two bounds below; the first
 // chunk and the table-of-contents chunk are always kept.
 
-/** A real note's chunk texts total up to about 4.7 times the length of its
- *  stripped body (a Kanban board: each section is embedded in its own chunk
- *  and again in its top-level aggregate, each with a prefix), so 20 leaves
- *  room above that while keeping a note's chunk text, and the work to embed
- *  it, proportional to the note's length. */
+/** A note's chunk texts total several times the length of its stripped body:
+ *  each chunk repeats its prefix, and a section below the top level is also
+ *  embedded in its top-level aggregate. Prose measures under 3 times, a Kanban
+ *  board about 4.7, and a note of one-line sections 7 to 14 as its title
+ *  lengthens, so 20 leaves room above that while keeping a note's chunk text,
+ *  and the work to embed it, proportional to the note's length. */
 const MAX_CHUNK_TEXT_PER_BODY_CHARACTER = 20
 
 /** Bounds a very large note's chunk text in memory; a real note at the densest
- *  measured ratio needs a stripped body over 10 MB to reach it. */
+ *  measured ratio needs a stripped body over 3.5 MB to reach it. */
 const MAX_NOTE_CHUNK_TEXT_CHARACTERS = 50_000_000
 
 /** Approximate token count via whitespace splitting — good enough for
@@ -145,8 +146,8 @@ const splitWithTrailingMerge = (text: string, maxChunkTokens: number): string[] 
   return [...fragments.slice(0, -2), `${precedingFragment}\n\n${trailingFragment}`]
 }
 
-/** The trim drops the whitespace that an empty title or an untrimmed fragment
- *  (the whole stripped body) leaves at either end. */
+/** The trim drops the whitespace that an empty title, or a fragment that starts
+ *  or ends with whitespace, leaves at either end. */
 const prefixFragment = (chunkPrefix: string, fragment: string): string => {
   return `${chunkPrefix}\n\n${fragment}`.trim()
 }
@@ -218,8 +219,8 @@ type HeadingSegment = Readonly<{
 const SECTION_LABEL_TOKENS = approximateTokenCount("Section:")
 
 /** The word count of `Section: <segments joined with " > ">`: the label, each
- *  segment, and one ">" between each pair. Spaces surround the label and every
- *  separator, so joining never merges two words. */
+ *  segment, and one ">" between each pair. A space follows the label and
+ *  surrounds every separator, so joining never merges two words. */
 const sectionLineTokenCount = (segments: readonly HeadingSegment[]): number => {
   const segmentTokens = segments
     .map((segment) => segment.tokens)
@@ -347,7 +348,8 @@ const collectSectionSpans = (
  *  queries ("what should I work on next") are structurally won by short
  *  chunks — a long chunk's extra tokens dilute its similarity average — so
  *  each split note gets one short chunk of its own, carrying the names of
- *  all its sections, populated or empty. Null when no heading has text.
+ *  all its sections, populated or empty. Null when no heading name has text
+ *  or fits the budget.
  *
  *  The first line prepends the note's folder segments to the title
  *  (`Projects > my-repo > TASKS`). Same-named notes with the same headings
@@ -554,9 +556,9 @@ export const chunkContent = (params: {
   // is the accurate representation.
   const chunkTexts = [...bodyChunkTexts, ...tableOfContentsTexts]
 
-  // A note whose split yields nothing (every section empty, and no heading
-  // name fits the TOC's budget) keeps the whole-body fallback so it never
-  // silently leaves the vector index.
+  // A note whose split yields nothing (no preamble, every section empty, and
+  // no heading name fits the TOC's budget) keeps the whole-body fallback so it
+  // never silently leaves the vector index.
   if (chunkTexts.length === 0) {
     return toChunks([strippedBody], basePrefix, maxChunkTextCharacters)
   }
