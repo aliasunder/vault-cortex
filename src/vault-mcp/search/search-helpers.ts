@@ -332,9 +332,9 @@ const dropRepeatedNames = (params: {
  * per line:
  * - titleText holds the names as written, for keyword matching, and drops only
  *   a name spelled exactly like an earlier one. The FTS tokenizer folds letter
- *   case from an older Unicode version than `toLowerCase`, so in some scripts
- *   (Cherokee, Osage) a lowercased copy, or a spelling that `toLowerCase`
- *   folds into an earlier one, is a different word to it;
+ *   case by an older Unicode version than `toLowerCase`, so in some scripts
+ *   (Cherokee, Osage) it reads two spellings that `toLowerCase` folds together
+ *   as different words;
  * - foldedNames holds each name folded, without repeats, for EXACT_NAME_MATCH_SQL.
  */
 export const buildFtsNameText = (params: {
@@ -363,9 +363,11 @@ export const buildChunkTitleLine = (params: {
     compareBy: "foldedName",
   })
 
-  if (!titleName?.singleLineName || aliasNames.length === 0) return params.title
+  const singleLineTitle = titleName?.singleLineName
+
+  if (!singleLineTitle || aliasNames.length === 0) return params.title
   const aliasList = aliasNames.map((aliasName) => aliasName.singleLineName).join(", ")
-  return `${titleName.singleLineName} (also known as ${aliasList})`
+  return `${singleLineTitle} (also known as ${aliasList})`
 }
 
 // ── Row mappers ────────────────────────────────────────────────

@@ -874,8 +874,16 @@ export const createSearchIndex = (
     RETURNING rowid
   `)
   const deleteFtsStmt = db.prepare<[number]>(`DELETE FROM notes_fts WHERE rowid = ?`)
-  const insertFtsStmt = db.prepare<[number, string, string, string, string, string]>(
-    `INSERT INTO notes_fts (rowid, path, title, content, metadata, names) VALUES (?, ?, ?, ?, ?, ?)`,
+  const insertFtsStmt = db.prepare<{
+    rowid: number
+    path: string
+    title: string
+    content: string
+    metadata: string
+    names: string
+  }>(
+    `INSERT INTO notes_fts (rowid, path, title, content, metadata, names)
+     VALUES (@rowid, @path, @title, @content, @metadata, @names)`,
   )
   const removeNotesStmt = db.prepare<[string], { rowid: number }>(
     `DELETE FROM notes WHERE path = ? RETURNING rowid`,
@@ -2037,14 +2045,14 @@ export const createSearchIndex = (
       // RETURNING yields the inserted or updated row on every upsert.
       if (!upsertedNoteRow) throw new Error(`note upsert returned no row: ${note.path}`)
       deleteFtsStmt.run(upsertedNoteRow.rowid)
-      insertFtsStmt.run(
-        upsertedNoteRow.rowid,
-        note.path,
-        ftsTitleText,
-        note.content,
-        metadataText,
-        ftsFoldedNames,
-      )
+      insertFtsStmt.run({
+        rowid: upsertedNoteRow.rowid,
+        path: note.path,
+        title: ftsTitleText,
+        content: note.content,
+        metadata: metadataText,
+        names: ftsFoldedNames,
+      })
 
       deleteTasksStmt.run(note.path)
       // Line→blockId lookup so each child can resolve its parent's
