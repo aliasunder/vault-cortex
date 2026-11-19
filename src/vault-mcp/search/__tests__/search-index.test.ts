@@ -2127,6 +2127,113 @@ describe("metadata search", () => {
   })
 })
 
+describe("note names in keyword search", () => {
+  /** An aliased person note whose body never says its alias, beside notes
+   *  that repeat the alias in their titles and bodies. Before aliases joined
+   *  the title column, the person note matched "mom" once, in its metadata
+   *  column, and ranked last. */
+  const createNamesIndex = (): SearchIndex => {
+    const namesIndex = createSearchIndex(":memory:")
+    const notes = [
+      {
+        filePath: "People/Avery Quinn.md",
+        rawContent:
+          "---\ntitle: Avery Quinn\naliases: [Avery, Mom]\nrelation: mother\n---\n\nLives near the coast.\n",
+      },
+      {
+        filePath: "Trips/Mom and Daughter Trip.md",
+        rawContent:
+          "---\ntitle: Mom and Daughter Trip\n---\n\nMom picks the hotels; mom books the trains. A trip with mom.\n",
+      },
+      {
+        filePath: "Trips/Session log.md",
+        rawContent:
+          "---\ntitle: Session log\n---\n\nMom said the session log helps on a trip. Mom agreed.\n",
+      },
+      {
+        filePath: "Logs/Daily.md",
+        rawContent:
+          "---\ntitle: Daily\n---\n\nThe session log, the session log and the session log again.\n",
+      },
+    ]
+    for (const note of notes) {
+      namesIndex.upsertNote(withBodyTags({ ...note, fileStat: testStat(1000) }), logger)
+    }
+    return namesIndex
+  }
+
+  it("ranks a note whose alias equals the query above notes that repeat it", () => {
+    const results = createNamesIndex().fullTextSearch({ query: "Mom" }, logger)
+
+    expect(results.map((result) => result.path)).toEqual([
+      "People/Avery Quinn.md",
+      "Trips/Mom and Daughter Trip.md",
+      "Trips/Session log.md",
+    ])
+  })
+
+  it("gives the exact-name match the highest score, so scores still descend", () => {
+    const results = createNamesIndex().fullTextSearch({ query: "Mom" }, logger)
+    const scores = results.map((result) => result.score)
+
+    expect(scores).toEqual(scores.toSorted((left, right) => right - left))
+    expect(new Set(scores).size).toBe(scores.length)
+  })
+
+  it.each([
+    { label: "another letter case", query: "MOM" },
+    { label: "padding around the query", query: "  mom  " },
+    { label: "the query in double quotes", query: '"Mom"' },
+  ])("matches the alias written with $label", ({ query }) => {
+    const results = createNamesIndex().fullTextSearch({ query }, logger)
+
+    expect(results.map((result) => result.path)).toEqual([
+      "People/Avery Quinn.md",
+      "Trips/Mom and Daughter Trip.md",
+      "Trips/Session log.md",
+    ])
+  })
+
+  it("ranks a note whose title equals the query above a note that repeats it", () => {
+    const results = createNamesIndex().fullTextSearch({ query: "session log" }, logger)
+
+    expect(results.map((result) => result.path)).toEqual(["Trips/Session log.md", "Logs/Daily.md"])
+  })
+
+  it("keeps the relevance order for a query that equals no name", () => {
+    const results = createNamesIndex().fullTextSearch({ query: "mom trip" }, logger)
+
+    expect(results.map((result) => result.path)).toEqual([
+      "Trips/Mom and Daughter Trip.md",
+      "Trips/Session log.md",
+    ])
+  })
+
+  it("gives no boost to a query that is only part of a name", () => {
+    const results = createNamesIndex().fullTextSearch({ query: "log" }, logger)
+
+    expect(results.map((result) => result.path)).toEqual(["Logs/Daily.md", "Trips/Session log.md"])
+  })
+
+  it("leaves out an exact-name match the filters exclude", () => {
+    const results = createNamesIndex().fullTextSearch(
+      { query: "Mom", filters: { folder: "Trips" } },
+      logger,
+    )
+
+    expect(results.map((result) => result.path)).toEqual([
+      "Trips/Mom and Daughter Trip.md",
+      "Trips/Session log.md",
+    ])
+  })
+
+  it("no longer matches an alias through the metadata column's key name", () => {
+    const results = createNamesIndex().fullTextSearch({ query: "aliases" }, logger)
+
+    expect(results).toEqual([])
+  })
+})
+
 describe("searchByTag", () => {
   beforeEach(() => {
     index.upsertNote(
@@ -9272,6 +9379,27 @@ It has multiple sentences to verify chunking works correctly.
       )
     })
 
+    it("names a note's distinct aliases on its chunk title line", async () => {
+      const mockEmbedder = createMockEmbedder()
+      const aliasIndex = createSearchIndex(":memory:", mockEmbedder)
+      const rawContent =
+        "---\ntitle: Avery Quinn\naliases: [Avery, Mom, avery quinn]\n---\n\nLives near the coast.\n"
+
+      const sourceVersion = seedEmbeddingSource(aliasIndex, {
+        notePath: "People/Avery Quinn.md",
+        rawContent,
+      })
+      await aliasIndex.embedNote(
+        { sourceVersion, notePath: "People/Avery Quinn.md", rawContent },
+        logger,
+      )
+
+      expect(mockEmbedder.embedText).toHaveBeenCalledTimes(1)
+      expect(mockEmbedder.embedText).toHaveBeenCalledWith(
+        "Avery Quinn (also known as Avery, Mom)\n\n\nLives near the coast.",
+      )
+    })
+
     it("content-hash gating skips unchanged chunks on re-embed", async () => {
       const mockEmbedder = createMockEmbedder()
       const embeddingIndex = createSearchIndex(":memory:", mockEmbedder)
@@ -12852,6 +12980,73 @@ describe("trash entries (retention-sweep bookkeeping)", () => {
       trashedAt: trashTime.toUnixInteger(),
       fileIdentity: SAMPLE_FILE_IDENTITY,
     })
+  })
+})
+
+describe("note aliases in stored chunk text", () => {
+  const uniformEmbedder = () => ({
+    embedText: vi.fn().mockResolvedValue(new Float32Array(384).fill(0.1)),
+    embedBatch: vi.fn().mockImplementation((texts: string[]) => {
+      return Promise.resolve(texts.map(() => new Float32Array(384).fill(0.1)))
+    }),
+  })
+
+  /** Embeds one note into a file-backed index and returns its stored chunks. */
+  const embedAndReadChunks = async (params: {
+    notePath: string
+    rawContent: string
+  }): Promise<Array<{ chunk_text: string; content_hash: string }>> => {
+    const dir = await mkdtemp(join(tmpdir(), "alias-chunks-"))
+    onTestFinished(() => rm(dir, { recursive: true, force: true }))
+    const dbPath = join(dir, "index.db")
+    const chunkIndex = createSearchIndex(dbPath, uniformEmbedder())
+
+    const sourceVersion = seedEmbeddingSource(chunkIndex, params)
+    await chunkIndex.embedNote({ sourceVersion, ...params }, logger)
+
+    const inspect = new Database(dbPath, { readonly: true })
+    onTestFinished(() => {
+      inspect.close()
+    })
+    return inspect
+      .prepare<[string], { chunk_text: string; content_hash: string }>(
+        "SELECT chunk_text, content_hash FROM note_chunks WHERE note_path = ? ORDER BY chunk_index",
+      )
+      .all(params.notePath)
+  }
+
+  it("opens every chunk of a split note, its table of contents included, with the aliases", async () => {
+    const activeContent = Array.from({ length: 300 }, (_, wordIndex) => `active${wordIndex}`).join(
+      " ",
+    )
+    const doneContent = Array.from({ length: 300 }, (_, wordIndex) => `done${wordIndex}`).join(" ")
+
+    const chunks = await embedAndReadChunks({
+      notePath: "People/Biscuit.md",
+      rawContent: `---\naliases: [Pup]\n---\n\n## Active\n${activeContent}\n\n## Done\n${doneContent}`,
+    })
+
+    expect(chunks.map((chunk) => chunk.chunk_text)).toEqual([
+      `Biscuit (also known as Pup)\nSection: Active\n\n${activeContent}`,
+      `Biscuit (also known as Pup)\nSection: Done\n\n${doneContent}`,
+      "People > Biscuit (also known as Pup)\n\nActive\nDone",
+    ])
+  })
+
+  it("keeps the chunk text, and so the stored hash, of a note without aliases", async () => {
+    const expectedChunkText = "Bare Note\n\n\nBody without aliases."
+
+    const chunks = await embedAndReadChunks({
+      notePath: "bare.md",
+      rawContent: "---\ntitle: Bare Note\n---\n\nBody without aliases.\n",
+    })
+
+    expect(chunks).toEqual([
+      {
+        chunk_text: expectedChunkText,
+        content_hash: createHash("sha256").update(expectedChunkText).digest("hex"),
+      },
+    ])
   })
 })
 

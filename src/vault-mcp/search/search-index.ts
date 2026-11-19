@@ -22,6 +22,7 @@ import {
   type MemoryEntry,
 } from "../obsidian-markdown/memory-entries.js"
 import { parseFrontmatterTags } from "../obsidian-markdown/tags.js"
+import { parseFrontmatterAliases } from "../obsidian-markdown/aliases.js"
 import { DEFAULT_STATUS_REGISTRY, tasks } from "../obsidian-markdown/tasks.js"
 import type { StatusClassification, TaskPriority, TaskStatus } from "../obsidian-markdown/tasks.js"
 import { contentHash, type Embedder } from "./embedder.js"
@@ -40,8 +41,11 @@ import { createActivityTracker } from "../../utils/activity-tracker.js"
 import {
   isString,
   coerceToArray,
+  buildChunkTitleLine,
   buildFtsMetadataText,
+  buildFtsTitleText,
   escapeLikeWildcards,
+  foldName,
   foldTag,
   NOTE_METADATA_COLUMNS_SQL,
   parseStringArray,
@@ -524,6 +528,11 @@ export const createSearchIndex = (
   // SQL tag predicates and query inputs use the same Obsidian case-folding rule.
   db.function("fold_tag", { deterministic: true }, (value: unknown): string => {
     return foldTag(String(value))
+  })
+
+  // The keyword score compares stored names and the query with one folding rule.
+  db.function("fold_name", { deterministic: true }, (value: unknown): string => {
+    return foldName(String(value))
   })
 
   db.pragma("journal_mode = WAL")
@@ -1975,6 +1984,11 @@ export const createSearchIndex = (
     }
 
     const metadataText = buildFtsMetadataText(frontmatter)
+    // Aliases are the note's other names, so a match on one ranks like a match on the title
+    const ftsTitleText = buildFtsTitleText({
+      title: note.title,
+      aliases: parseFrontmatterAliases(frontmatter),
+    })
 
     // Task rows carry the full immediate-parent folder (posix dirname), unlike
     // notes.folder which stores only the first path segment — task triage
@@ -2015,7 +2029,7 @@ export const createSearchIndex = (
       // RETURNING yields the inserted or updated row on every upsert.
       if (!upsertedNoteRow) throw new Error(`note upsert returned no row: ${note.path}`)
       deleteFtsStmt.run(upsertedNoteRow.rowid)
-      insertFtsStmt.run(upsertedNoteRow.rowid, note.path, note.title, note.content, metadataText)
+      insertFtsStmt.run(upsertedNoteRow.rowid, note.path, ftsTitleText, note.content, metadataText)
 
       deleteTasksStmt.run(note.path)
       // Line→blockId lookup so each child can resolve its parent's
@@ -2175,7 +2189,10 @@ export const createSearchIndex = (
     // Re-parsing is pure, so this reads what upsertNote read; the unreadable-block
     // error is ignored because upsertNote already logged it
     const { data: frontmatter, content: noteBody } = parseNoteSkippingUnreadableBlock(rawContent)
-    const noteTitle = isString(frontmatter.title) ? frontmatter.title : basename(notePath, ".md")
+    const noteTitle = buildChunkTitleLine({
+      title: isString(frontmatter.title) ? frontmatter.title : basename(notePath, ".md"),
+      aliases: parseFrontmatterAliases(frontmatter),
+    })
     // Metadata enrichment changes chunk text, so every note re-embeds once
     // (content-hash gated) after the option flips — kept off until the
     // search-eval measurements justify it.

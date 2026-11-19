@@ -233,6 +233,8 @@ Hybrid search fuses the keyword and vector rankings via [Reciprocal Rank Fusion]
 - **Vectors** (sqlite-vec) bridge the vocabulary gap by matching on meaning
 - **Reranker** (cross-encoder) refines ordering by scoring each query-document pair jointly — rescues intent-heavy queries where keywords and vectors both miss
 
+Search treats a note's [aliases](https://obsidian.md/help/aliases) as names for it, so searching an alias finds the note the way searching its title does. A note whose title or alias matches your whole search ranks first.
+
 All models run locally (~59MB total, no external API). Set `EMBEDDING_ENABLED=false` for keyword-only search, or `RERANK_MODE=none` to skip reranking for lower latency.
 
 See [ARCHITECTURE.md → Hybrid Search](./ARCHITECTURE.md#hybrid-search) for model details, blend weights, and the full pipeline breakdown.

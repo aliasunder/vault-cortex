@@ -5,6 +5,9 @@ import {
   isString,
   coerceToArray,
   buildFtsMetadataText,
+  buildFtsTitleText,
+  buildChunkTitleLine,
+  toNameLookupText,
   rowToMetadata,
   rowToTaskEntry,
   noteRowToSearchResult,
@@ -130,6 +133,62 @@ describe("buildFtsMetadataText", () => {
 
   it("returns empty string for empty frontmatter", () => {
     expect(buildFtsMetadataText({})).toBe("")
+  })
+
+  it("excludes the aliases key, which fills the title column, and keeps every other property", () => {
+    expect(buildFtsMetadataText({ aliases: ["Mom"], relation: "mother", tags: ["person"] })).toBe(
+      "relation: mother\ntags: person",
+    )
+  })
+
+  it("excludes only the first key spelled aliases, the one the alias reader reads", () => {
+    expect(buildFtsMetadataText({ Aliases: ["Mom"], aliases: ["Pup"] })).toBe("aliases: Pup")
+  })
+})
+
+// ── Note names ────────────────────────────────────────────────
+
+describe("buildFtsTitleText", () => {
+  it("puts the title, then each alias, on its own line", () => {
+    expect(buildFtsTitleText({ title: "Avery Quinn", aliases: ["Avery", "Mom"] })).toBe(
+      "Avery Quinn\nAvery\nMom",
+    )
+  })
+
+  it("drops an alias equal to the title or to an earlier alias, ignoring letter case", () => {
+    expect(buildFtsTitleText({ title: "Biscuit", aliases: ["Pup", "biscuit", "PUP"] })).toBe(
+      "Biscuit\nPup",
+    )
+  })
+
+  it("is the bare title for a note without aliases", () => {
+    expect(buildFtsTitleText({ title: "Sam Carter", aliases: [] })).toBe("Sam Carter")
+  })
+})
+
+describe("buildChunkTitleLine", () => {
+  it("names the distinct aliases after the title", () => {
+    expect(buildChunkTitleLine({ title: "Biscuit", aliases: ["Pup", "Biscuit", "Good Boy"] })).toBe(
+      "Biscuit (also known as Pup, Good Boy)",
+    )
+  })
+
+  it("is the bare title when every alias repeats the title", () => {
+    expect(buildChunkTitleLine({ title: "Biscuit", aliases: ["BISCUIT"] })).toBe("Biscuit")
+  })
+})
+
+describe("toNameLookupText", () => {
+  it.each([
+    { label: "a bare name", query: "Mom", expected: "mom" },
+    { label: "a padded name", query: "  Avery Quinn  ", expected: "avery quinn" },
+    { label: "a quoted name", query: '"Avery Quinn"', expected: "avery quinn" },
+    { label: "padding inside the quotes", query: '" Mom "', expected: "mom" },
+    { label: "a query with a quoted part", query: '"Mom" trip', expected: '"mom" trip' },
+    { label: "empty quotes", query: '""', expected: "" },
+    { label: "whitespace only", query: "   ", expected: "" },
+  ])("folds $label", ({ query, expected }) => {
+    expect(toNameLookupText(query)).toBe(expected)
   })
 })
 
@@ -423,14 +482,14 @@ describe("noteRowToSearchResult", () => {
 
   it("throws IndexIntegrityError when tags column contains invalid data", () => {
     expect(
-      describeThrow(() =>
-        noteRowToSearchResult({
+      describeThrow(() => {
+        return noteRowToSearchResult({
           row: makeNoteRow({ tags: "42" }),
           snippet: "text",
           score: 0.5,
           includeLeadingCallout: false,
-        }),
-      ),
+        })
+      }),
     ).toEqual({
       isIndexIntegrityError: true,
       message: "expected string[] from JSON column, got: 42",
@@ -439,8 +498,8 @@ describe("noteRowToSearchResult", () => {
 
   it("throws IndexIntegrityError when leading_callout column contains invalid data", () => {
     expect(
-      describeThrow(() =>
-        noteRowToSearchResult({
+      describeThrow(() => {
+        return noteRowToSearchResult({
           row: makeNoteRow({
             leading_callout: JSON.stringify({
               type: "note",
@@ -451,8 +510,8 @@ describe("noteRowToSearchResult", () => {
           snippet: "text",
           score: 0.5,
           includeLeadingCallout: true,
-        }),
-      ),
+        })
+      }),
     ).toEqual({
       isIndexIntegrityError: true,
       message:
@@ -462,14 +521,14 @@ describe("noteRowToSearchResult", () => {
 
   it("throws IndexIntegrityError when the stored mtime cannot be formatted", () => {
     expect(
-      describeThrow(() =>
-        noteRowToSearchResult({
+      describeThrow(() => {
+        return noteRowToSearchResult({
           row: makeNoteRow({ mtime: NaN }),
           snippet: "text",
           score: 0.5,
           includeLeadingCallout: false,
-        }),
-      ),
+        })
+      }),
     ).toEqual({ isIndexIntegrityError: true, message: "invalid mtime: NaN", causeName: "Error" })
   })
 })
@@ -533,8 +592,8 @@ describe("fileContentRowToSearchResult", () => {
 
   it("throws IndexIntegrityError when the stored mtime cannot be formatted", () => {
     expect(
-      describeThrow(() =>
-        fileContentRowToSearchResult(
+      describeThrow(() => {
+        return fileContentRowToSearchResult(
           {
             path: "Diagrams/architecture.canvas",
             title: "architecture",
@@ -544,8 +603,8 @@ describe("fileContentRowToSearchResult", () => {
             snippet: "Architecture overview",
           },
           0.85,
-        ),
-      ),
+        )
+      }),
     ).toEqual({ isIndexIntegrityError: true, message: "invalid mtime: NaN", causeName: "Error" })
   })
 })

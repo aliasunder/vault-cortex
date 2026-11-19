@@ -5,6 +5,7 @@ import { DateTime } from "luxon"
 import { mtimeToIso } from "../../utils/mtime-to-iso.js"
 import type { LeadingCallout } from "../obsidian-markdown/callouts.js"
 import { isRecord } from "../../utils/is-record.js"
+import { findAliasesKey } from "../obsidian-markdown/aliases.js"
 import type { NoteRow, NoteMetadata, SearchResult, TaskRow, TaskEntry } from "./search-index.js"
 
 // ── Type guards ────────────────────────────────────────────────
@@ -146,10 +147,13 @@ const parseRecord = (json: string): Record<string, unknown> => {
 /** Type predicate for the LeadingCallout shape ({type, title, body} — all strings). */
 const isLeadingCalloutShape = (
   value: Record<string, unknown>,
-): value is { type: string; title: string; body: string } =>
-  typeof value.type === "string" &&
-  typeof value.title === "string" &&
-  typeof value.body === "string"
+): value is { type: string; title: string; body: string } => {
+  return (
+    typeof value.type === "string" &&
+    typeof value.title === "string" &&
+    typeof value.body === "string"
+  )
+}
 
 /** Parses a JSON column that must contain a LeadingCallout ({type, title, body}).
  *  Throws on corruption — the indexer stores JSON.stringify(parseLeadingCallout(...)). */
@@ -183,11 +187,13 @@ export const folderLikePattern = (folder: string): string =>
 // ── FTS metadata builder ───────────────────────────────────────
 
 /** Flattens frontmatter into a searchable text block for the FTS metadata column.
- *  Keys are included (so "lifecycle" is findable), title is excluded (separate FTS column). */
+ *  Keys are included (so "lifecycle" is findable). The title and the aliases
+ *  key are excluded, because both fill the title column. */
 export const buildFtsMetadataText = (frontmatter: Record<string, unknown>): string => {
+  const aliasesKey = findAliasesKey(frontmatter)
   const lines: string[] = []
   for (const [key, value] of Object.entries(frontmatter)) {
-    if (key === "title") continue
+    if (key === "title" || key === aliasesKey) continue
     if (value == null) continue
     if (Array.isArray(value)) {
       const primitiveElements = value.filter(isScalarListElement).map(String)
@@ -200,6 +206,64 @@ export const buildFtsMetadataText = (frontmatter: Record<string, unknown>): stri
     }
   }
   return lines.join("\n")
+}
+
+// ── Note names ─────────────────────────────────────────────────
+
+/** Folds a note name for comparison without letter case, as Obsidian's Quick
+ *  Switcher compares names. The `fold_name` SQL function uses the same rule. */
+export const foldName = (name: string): string => name.toLowerCase()
+
+/** Matches a query that is one double-quoted phrase and captures the text
+ *  inside the quotes. */
+const QUOTED_PHRASE_RE = /^"(?<phrase>[^"]*)"$/
+
+/** The folded text a query is compared with note names: the trimmed query, or
+ *  the text inside the quotes when the whole query is one double-quoted phrase.
+ *  Empty when the query has no text. */
+export const toNameLookupText = (query: string): string => {
+  const trimmedQuery = query.trim()
+  const quotedPhrase = QUOTED_PHRASE_RE.exec(trimmedQuery)?.groups?.phrase
+
+  return foldName(quotedPhrase?.trim() ?? trimmedQuery)
+}
+
+/** The aliases that differ from the title and from each other, compared
+ *  without letter case, in document order. */
+const findDistinctAliases = (params: {
+  title: string
+  aliases: ReadonlyArray<string>
+}): string[] => {
+  const seenNames = new Set([foldName(params.title)])
+  const distinctAliases: string[] = []
+  for (const alias of params.aliases) {
+    const foldedAlias = foldName(alias)
+
+    if (seenNames.has(foldedAlias)) continue
+    seenNames.add(foldedAlias)
+    distinctAliases.push(alias)
+  }
+  return distinctAliases
+}
+
+/** The FTS title column's text: the title, then each distinct alias on its own line. */
+export const buildFtsTitleText = (params: {
+  title: string
+  aliases: ReadonlyArray<string>
+}): string => {
+  return [params.title, ...findDistinctAliases(params)].join("\n")
+}
+
+/** The title line that starts every chunk of a note:
+ *  `Avery Quinn (also known as Avery, Mom)`, or the bare title without aliases. */
+export const buildChunkTitleLine = (params: {
+  title: string
+  aliases: ReadonlyArray<string>
+}): string => {
+  const distinctAliases = findDistinctAliases(params)
+
+  if (distinctAliases.length === 0) return params.title
+  return `${params.title} (also known as ${distinctAliases.join(", ")})`
 }
 
 // ── Row mappers ────────────────────────────────────────────────
