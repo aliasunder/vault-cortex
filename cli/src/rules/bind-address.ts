@@ -67,7 +67,8 @@ const LOOPBACK_PUBLIC_URL_HOSTS: ReadonlySet<string> = new Set(["localhost", "12
 /**
  * Warns when BIND_ADDRESS publishes the port on one network address while
  * PUBLIC_URL still names loopback, where the port no longer answers. Returns
- * undefined when there is nothing to warn about.
+ * undefined when there is nothing to warn about. Pass a PUBLIC_URL that
+ * validatePublicUrl accepted.
  */
 export const describeStrandedLoopbackPublicUrl = (params: {
   targetDir: string
@@ -76,7 +77,7 @@ export const describeStrandedLoopbackPublicUrl = (params: {
   publicUrl: string
 }): string | undefined => {
   const { targetDir, port, bindAddress, publicUrl } = params
-  // Callers pass a PUBLIC_URL that validatePublicUrl accepted, so it parses here.
+  // A URL that does not parse names no host, so it gets no warning.
   const publicUrlHost = URL.parse(publicUrl)?.hostname
   const publicUrlNamesLoopback = Boolean(
     publicUrlHost && LOOPBACK_PUBLIC_URL_HOSTS.has(publicUrlHost),

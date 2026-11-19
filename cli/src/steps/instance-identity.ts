@@ -8,6 +8,7 @@ import {
 } from "../adapters/docker.js"
 import { envFile } from "../adapters/env-file.js"
 import type { Prompts } from "../adapters/prompts.js"
+import { describeInvalidEnvBindAddress, isValidBindAddress } from "../rules/bind-address.js"
 import {
   DEFAULT_INSTANCE_NAME,
   describeInvalidInstanceName,
@@ -15,7 +16,6 @@ import {
   readEnvValue,
   validatePublicUrl,
 } from "../rules/env-values.js"
-import { describeInvalidEnvBindAddress, isValidBindAddress } from "../rules/bind-address.js"
 import { withPublicUrlOverride, type InstanceIdentity } from "../rules/env-edits.js"
 import { describeEnvFix, vaultCortexCommand } from "../rules/messages.js"
 import {

@@ -147,7 +147,7 @@ const HEALTH_CMD = `node -e "fetch('http://127.0.0.1:${CONTAINER_PORT}/healthz')
 export const buildDockerRunArgs = (params: DockerRunParams): string[] => {
   const { mode, instanceName, envFilePath, port, bindAddress, vaultPath } = params
   const image = imageForMode(mode)
-  const publishedPort = bindAddress
+  const portMapping = bindAddress
     ? `${bindAddress}:${port}:${CONTAINER_PORT}`
     : `${port}:${CONTAINER_PORT}`
 
@@ -162,7 +162,7 @@ export const buildDockerRunArgs = (params: DockerRunParams): string[] => {
     envFilePath,
     ...CONTAINER_ENV_OVERRIDES.flatMap((override) => ["-e", override]),
     "-p",
-    publishedPort,
+    portMapping,
   ]
 
   if (mode === "local") {
