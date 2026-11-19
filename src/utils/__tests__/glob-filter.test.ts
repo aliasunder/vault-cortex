@@ -45,8 +45,8 @@ const VAULT_PATHS = [
   "readme.txt",
 ]
 
-/** Five wildcards over a 160-character name keep picomatch's regex
- *  backtracking for several seconds; the name has no "b", so it never matches. */
+/** A glob whose matching against `SLOW_GLOB_PATHS` outlasts these tests'
+ *  deadlines. Its one name has no "b", so the glob never matches it. */
 const SLOW_GLOB = "**/*a*a*a*a*a*b.md"
 const SLOW_GLOB_PATHS = [`${"a".repeat(160)}.md`]
 

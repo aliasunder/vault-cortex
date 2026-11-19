@@ -2145,8 +2145,8 @@ describe("control characters in body edits", () => {
 
 describe("glob matching deadline", () => {
   it("vault_list_notes stops a glob still matching after 2 seconds, and the server answers meanwhile", async () => {
-    // Five wildcards over a 160-character name keep the matcher backtracking
-    // for several seconds; the name has no "b", so the glob never matches it
+    // Matching the glob below against this note's name outlasts the 2-second
+    // limit. The name has no "b", so the glob never matches it
     const slowNotePath = join(serverVaultPath, `${"a".repeat(160)}.md`)
     await writeFile(slowNotePath, "# Slow glob target\n")
     onTestFinished(() => rm(slowNotePath))
