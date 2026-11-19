@@ -245,6 +245,10 @@ describe("buildChunkTitleLine", () => {
     expect(buildChunkTitleLine({ title: "Biscuit", aliases: ["BISCUIT"] })).toBe("Biscuit")
   })
 
+  it("is the empty title, with no alias clause, when the title is empty", () => {
+    expect(buildChunkTitleLine({ title: "", aliases: ["Mom"] })).toBe("")
+  })
+
   it("puts a title that spans lines on one line before its aliases", () => {
     expect(buildChunkTitleLine({ title: "Avery\nQuinn\n", aliases: ["Mom"] })).toBe(
       "Avery Quinn (also known as Mom)",

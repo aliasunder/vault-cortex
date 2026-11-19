@@ -352,7 +352,8 @@ export const buildFtsNameText = (params: {
 }
 
 /** The note's title line in every chunk of the note:
- *  `Avery Quinn (also known as Avery, Mom)`, or the bare title without aliases. */
+ *  `Avery Quinn (also known as Avery, Mom)`, or the bare title when the note
+ *  has no other name or its title is empty. */
 export const buildChunkTitleLine = (params: {
   title: string
   aliases: ReadonlyArray<string>
@@ -362,7 +363,7 @@ export const buildChunkTitleLine = (params: {
     compareBy: "foldedName",
   })
 
-  if (!titleName || aliasNames.length === 0) return params.title
+  if (!titleName?.singleLineName || aliasNames.length === 0) return params.title
   const aliasList = aliasNames.map((aliasName) => aliasName.singleLineName).join(", ")
   return `${titleName.singleLineName} (also known as ${aliasList})`
 }
