@@ -1,5 +1,16 @@
 import { randomUUID } from "node:crypto"
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs"
+import {
+  chmodSync,
+  chownSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  renameSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs"
 import { join } from "node:path"
 
 export type EnvWriteStatus = "created" | "unchanged" | "overwritten" | "kept"
@@ -24,20 +35,57 @@ const read = (envFilePath: string): string | undefined => {
   }
 }
 
+const ROOT_UID = 0
+
+/** True for the errors a folder gives when it does not let the CLI create a file in it. */
+const isFolderPermissionError = (error: unknown): boolean => {
+  return (
+    error instanceof Error && "code" in error && (error.code === "EACCES" || error.code === "EPERM")
+  )
+}
+
+/**
+ * Under sudo the CLI runs as root, and the new file would belong to root;
+ * this hands it to the old file's owner so they can still edit it.
+ */
+const keepOwner = (params: { newFilePath: string; oldFilePath: string }): void => {
+  if (process.getuid?.() !== ROOT_UID || !existsSync(params.oldFilePath)) return
+  const { uid, gid } = statSync(params.oldFilePath)
+  chownSync(params.newFilePath, uid, gid)
+}
+
 /**
  * Writes .env as a new owner-only file renamed over the old one, never into
  * the old file:
  * - the new text is only ever in a file created owner-only;
- * - an interrupted write leaves the old file whole.
- * A .env that is a symbolic link is replaced by a regular file.
+ * - an interrupted write leaves the old file whole;
+ * - a .env that is a symbolic link stays one, and the file it points to is replaced;
+ * - the replaced file keeps its owner.
+ * When the folder does not let the CLI create a file, it narrows an existing
+ * .env to owner-only and rewrites it in place instead.
  */
 const writeOwnerOnly = (envFilePath: string, envContent: string): void => {
-  const tempPath = `${envFilePath}.${randomUUID()}.tmp`
-  // "wx" creates the temporary file or fails, so it never writes into a file that exists.
-  writeFileSync(tempPath, envContent, { mode: ENV_FILE_MODE, flag: "wx" })
+  // realpathSync follows a symbolic link, so a linked .env is written where it points.
+  const destinationPath = existsSync(envFilePath) ? realpathSync(envFilePath) : envFilePath
+  const tempPath = `${destinationPath}.${randomUUID()}.tmp`
 
   try {
-    renameSync(tempPath, envFilePath)
+    // "wx" creates the temporary file or fails, so it never writes into a file that exists.
+    writeFileSync(tempPath, envContent, { mode: ENV_FILE_MODE, flag: "wx" })
+  } catch (error) {
+    // A write that fails partway (a full disk) leaves part of the text behind.
+    rmSync(tempPath, { force: true })
+    if (!isFolderPermissionError(error) || !existsSync(destinationPath)) throw error
+
+    // Narrowing the old file before writing keeps the new text out of a file others can read.
+    chmodSync(destinationPath, ENV_FILE_MODE)
+    writeFileSync(destinationPath, envContent)
+    return
+  }
+
+  try {
+    keepOwner({ newFilePath: tempPath, oldFilePath: destinationPath })
+    renameSync(tempPath, destinationPath)
   } catch (error) {
     rmSync(tempPath, { force: true })
     throw error

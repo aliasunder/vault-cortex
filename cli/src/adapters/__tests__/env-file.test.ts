@@ -1,13 +1,17 @@
 import {
   chmodSync,
+  chownSync,
   closeSync,
+  lstatSync,
   mkdirSync,
   mkdtempSync,
   openSync,
   readdirSync,
   readFileSync,
+  renameSync,
   rmSync,
   statSync,
+  symlinkSync,
   unlinkSync,
   writeFileSync,
 } from "node:fs"
@@ -23,9 +27,14 @@ import { envFile } from "../env-file.js"
 vi.mock("node:fs", { spy: true })
 
 // A test that fails before the adapter's fs call leaves its once-implementation
-// queued; mockReset drops it and puts the real function back.
+// queued; mockReset drops it and puts the real function back. restoreAllMocks
+// puts back process.getuid.
 afterEach(() => {
   vi.mocked(readFileSync).mockReset()
+  vi.mocked(writeFileSync).mockReset()
+  vi.mocked(renameSync).mockReset()
+  vi.mocked(chownSync).mockReset()
+  vi.restoreAllMocks()
 })
 
 const neverOverwrite = async (): Promise<boolean> => false
@@ -205,6 +214,106 @@ describe("write permissions", () => {
     expect(readFileSync(earlierReader, "utf8")).toBe("MCP_AUTH_TOKEN=old\n")
     expect(readFileSync(envPath, "utf8")).toBe("MCP_AUTH_TOKEN=new\n")
     expect(readdirSync(targetDir)).toEqual([".env"])
+  })
+})
+
+describe("write edge cases", () => {
+  it("keeps a linked .env a link and replaces the file it points to", () => {
+    const installDir = makeTempDir()
+    const linkedDir = makeTempDir()
+    const linkedEnvPath = join(linkedDir, "shared.env")
+    writeFileSync(linkedEnvPath, "MCP_AUTH_TOKEN=old\n", { mode: 0o644 })
+    const envPath = join(installDir, ".env")
+    symlinkSync(linkedEnvPath, envPath)
+
+    envFile.replace(envPath, "MCP_AUTH_TOKEN=new\n")
+
+    expect(lstatSync(envPath).isSymbolicLink()).toBe(true)
+    expect(readFileSync(linkedEnvPath, "utf8")).toBe("MCP_AUTH_TOKEN=new\n")
+    expect(statSync(linkedEnvPath).mode & 0o777).toBe(0o600)
+    expect(readdirSync(linkedDir)).toEqual(["shared.env"])
+  })
+
+  it("removes the part-written new file when the write fails, keeping the old .env", () => {
+    const targetDir = makeTempDir()
+    const envPath = join(targetDir, ".env")
+    writeFileSync(envPath, "MCP_AUTH_TOKEN=old\n", { mode: 0o600 })
+    // Writes the first line, then fails as a full disk would. The
+    // once-implementation is used up before it runs, so the inner call reaches the real fs.
+    vi.mocked(writeFileSync).mockImplementationOnce((file, _data, options) => {
+      writeFileSync(file, "MCP_AUTH", options)
+      throw new Error("ENOSPC: no space left on device")
+    })
+
+    expect(() => envFile.replace(envPath, "MCP_AUTH_TOKEN=new\n")).toThrow(
+      new Error("ENOSPC: no space left on device"),
+    )
+    expect(readdirSync(targetDir)).toEqual([".env"])
+    expect(readFileSync(envPath, "utf8")).toBe("MCP_AUTH_TOKEN=old\n")
+  })
+
+  it("removes the new file when renaming it over .env fails", () => {
+    const targetDir = makeTempDir()
+    const envPath = join(targetDir, ".env")
+    writeFileSync(envPath, "MCP_AUTH_TOKEN=old\n", { mode: 0o600 })
+    vi.mocked(renameSync).mockImplementationOnce(() => {
+      throw new Error("EBUSY: resource busy or locked")
+    })
+
+    expect(() => envFile.replace(envPath, "MCP_AUTH_TOKEN=new\n")).toThrow(
+      new Error("EBUSY: resource busy or locked"),
+    )
+    expect(readdirSync(targetDir)).toEqual([".env"])
+    expect(readFileSync(envPath, "utf8")).toBe("MCP_AUTH_TOKEN=old\n")
+  })
+
+  // Root ignores folder permissions, so the folder would not stop it.
+  it.skipIf(runsAsRoot)(
+    "rewrites .env in place, owner-only, when its folder does not allow a new file",
+    () => {
+      const targetDir = makeTempDir()
+      const envPath = join(targetDir, ".env")
+      writeFileSync(envPath, "MCP_AUTH_TOKEN=old\n", { mode: 0o644 })
+      chmodSync(targetDir, 0o500)
+      onTestFinished(() => {
+        chmodSync(targetDir, 0o700)
+      })
+
+      envFile.replace(envPath, "MCP_AUTH_TOKEN=new\n")
+
+      expect(readFileSync(envPath, "utf8")).toBe("MCP_AUTH_TOKEN=new\n")
+      expect(statSync(envPath).mode & 0o777).toBe(0o600)
+      expect(readdirSync(targetDir)).toEqual([".env"])
+    },
+  )
+
+  it("gives the new file the old file's owner when the CLI runs as root", () => {
+    const targetDir = makeTempDir()
+    const envPath = join(targetDir, ".env")
+    writeFileSync(envPath, "MCP_AUTH_TOKEN=old\n", { mode: 0o600 })
+    const { uid, gid } = statSync(envPath)
+    vi.spyOn(process, "getuid").mockReturnValue(0)
+
+    envFile.replace(envPath, "MCP_AUTH_TOKEN=new\n")
+
+    expect(chownSync).toHaveBeenCalledTimes(1)
+    expect(chownSync).toHaveBeenCalledWith(
+      expect.stringMatching(/\/\.env\.[0-9a-f-]{36}\.tmp$/),
+      uid,
+      gid,
+    )
+    expect(readFileSync(envPath, "utf8")).toBe("MCP_AUTH_TOKEN=new\n")
+  })
+
+  it("leaves the owner alone when the CLI runs as a normal user", () => {
+    const envPath = join(makeTempDir(), ".env")
+    writeFileSync(envPath, "MCP_AUTH_TOKEN=old\n", { mode: 0o600 })
+    vi.spyOn(process, "getuid").mockReturnValue(501)
+
+    envFile.replace(envPath, "MCP_AUTH_TOKEN=new\n")
+
+    expect(chownSync).not.toHaveBeenCalled()
+    expect(readFileSync(envPath, "utf8")).toBe("MCP_AUTH_TOKEN=new\n")
   })
 })
 
