@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest"
 import {
   applyInstanceIdentity,
   applyOptionalSettings,
+  describeStrandedCarriedPublicUrl,
   describeStrandedPublicUrl,
   withPublicUrlOverride,
 } from "../env-edits.js"
@@ -193,6 +194,48 @@ describe("describeStrandedPublicUrl", () => {
 
 const GENERATED_LOCAL_ENV =
   "MCP_AUTH_TOKEN=new\nVAULT_PATH=/vault\nPUBLIC_URL=http://localhost:8000\nPORT=8000\nINSTANCE_NAME=vault-cortex\n"
+
+describe("describeStrandedCarriedPublicUrl", () => {
+  it("warns when a carried localhost URL names a port the install no longer uses", () => {
+    const warning = describeStrandedCarriedPublicUrl(GENERATED_LOCAL_ENV, {
+      carried: { INSTANCE_NAME: "vault-cortex", PUBLIC_URL: "http://localhost:9001" },
+      chosen: {},
+    })
+
+    expect(warning).toBe(
+      "PUBLIC_URL (http://localhost:9001) names port 9001, but this install uses port 8000 — make sure it still reaches the server.",
+    )
+  })
+
+  it("stays quiet when the carried localhost URL names the carried port", () => {
+    const warning = describeStrandedCarriedPublicUrl(GENERATED_LOCAL_ENV, {
+      carried: { PORT: "9001", PUBLIC_URL: "http://localhost:9001" },
+      chosen: {},
+    })
+
+    expect(warning).toBeUndefined()
+  })
+
+  it("stays quiet for a carried custom URL when the port is unchanged", () => {
+    const warning = describeStrandedCarriedPublicUrl(GENERATED_LOCAL_ENV, {
+      carried: { PUBLIC_URL: "https://vault.example.com" },
+      chosen: {},
+    })
+
+    expect(warning).toBeUndefined()
+  })
+
+  it("keeps the --port warning for a carried custom URL", () => {
+    const warning = describeStrandedCarriedPublicUrl(GENERATED_LOCAL_ENV, {
+      carried: { PUBLIC_URL: "https://vault.example.com" },
+      chosen: { PORT: "9000" },
+    })
+
+    expect(warning).toBe(
+      "PORT changed — make sure PUBLIC_URL (https://vault.example.com) still reaches the server.",
+    )
+  })
+})
 
 describe("applyInstanceIdentity", () => {
   it("writes carried values verbatim, keeping a custom PUBLIC_URL beside a carried port", () => {

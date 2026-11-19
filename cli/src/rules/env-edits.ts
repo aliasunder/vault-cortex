@@ -129,10 +129,17 @@ export const applyInstanceIdentity = (envContent: string, identity: InstanceIden
   return applyOptionalSettings(withCarried, chosenSettings)
 }
 
+/** Matches a `http://localhost:<port>` URL, capturing the port. */
+const LOCALHOST_URL = /^http:\/\/localhost:(?<port>\d+)$/
+
 /**
- * Warns when --port changes a re-run's port but its carried PUBLIC_URL stays:
- * applyInstanceIdentity moves only a `http://localhost:<port>` URL, never a
- * custom one. Returns undefined when there is nothing to warn about.
+ * Warns when a re-run's carried PUBLIC_URL may no longer reach the server:
+ * - --port changed the port, and applyInstanceIdentity moves only a
+ *   `http://localhost:<port>` URL, never a custom one;
+ * - the carried URL is a `http://localhost:<port>` URL naming a port the
+ *   install no longer uses, such as after its PORT line was removed. The URL
+ *   is kept as written, since its owner may have chosen it.
+ * Returns undefined when there is nothing to warn about.
  */
 export const describeStrandedCarriedPublicUrl = (
   envContent: string,
@@ -140,8 +147,7 @@ export const describeStrandedCarriedPublicUrl = (
 ): string | undefined => {
   if (!identity.carried.PUBLIC_URL) return undefined
   const withCarried = applyOptionalSettings(envContent, identity.carried)
-
-  return describeStrandedPublicUrl({
+  const chosenPortWarning = describeStrandedPublicUrl({
     envContent: withCarried,
     pickedOverrides: identity.chosen,
     appliedOverrides: withPublicUrlOverride({
@@ -149,4 +155,16 @@ export const describeStrandedCarriedPublicUrl = (
       envContent: withCarried,
     }),
   })
+
+  if (chosenPortWarning) return chosenPortWarning
+  const writtenValues = parseEnvValues(applyInstanceIdentity(envContent, identity))
+  // An empty or missing PORT line leaves the default port in effect, as readEnvPort reads it.
+  const port = readEnvValue(writtenValues, "PORT") || String(DEFAULT_PORT)
+  const publicUrl = readEnvValue(writtenValues, "PUBLIC_URL")
+
+  if (!publicUrl) return undefined
+  const publicUrlPort = LOCALHOST_URL.exec(publicUrl)?.groups?.port
+
+  if (!publicUrlPort || publicUrlPort === port) return undefined
+  return `PUBLIC_URL (${publicUrl}) names port ${publicUrlPort}, but this install uses port ${port} — make sure it still reaches the server.`
 }
