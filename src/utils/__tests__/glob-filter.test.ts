@@ -64,7 +64,7 @@ const SLOW_GLOB = "**/*a*a*a*a*a*b.md"
 const SLOW_GLOB_PATHS = [`${"a".repeat(160)}.md`]
 
 // The tests below run one call at a time, so this limit never makes one wait
-const filterPathsByGlob = createGlobFilter({ maxRunningWorkers: 2 })
+const filterPathsByGlob = createGlobFilter({ maxRunningWorkers: 2, maxWaitingCalls: 8 })
 
 describe("createGlobFilter", () => {
   it.each([
@@ -234,7 +234,7 @@ describe("createGlobFilter", () => {
 
 describe("createGlobFilter's worker limit", () => {
   it("starts a waiting call's worker only after the running one ends", async () => {
-    const filterOneAtATime = createGlobFilter({ maxRunningWorkers: 1 })
+    const filterOneAtATime = createGlobFilter({ maxRunningWorkers: 1, maxWaitingCalls: 1 })
     vi.mocked(Worker).mockClear()
 
     const runningRejection = rejectionOf(
@@ -253,7 +253,7 @@ describe("createGlobFilter's worker limit", () => {
   }, 10_000)
 
   it("rejects a call still waiting at its deadline without starting its worker, and keeps the slot free for later calls", async () => {
-    const filterOneAtATime = createGlobFilter({ maxRunningWorkers: 1 })
+    const filterOneAtATime = createGlobFilter({ maxRunningWorkers: 1, maxWaitingCalls: 1 })
     vi.mocked(Worker).mockClear()
 
     const runningRejection = rejectionOf(
@@ -275,8 +275,37 @@ describe("createGlobFilter's worker limit", () => {
     expect(laterMatches).toEqual(["Notes/1-day.md", "Notes/x.md"])
   }, 10_000)
 
+  it("rejects a call at once when the waiting limit is full, and later calls still run", async () => {
+    const filterOneAtATime = createGlobFilter({ maxRunningWorkers: 1, maxWaitingCalls: 1 })
+    vi.mocked(Worker).mockClear()
+
+    const runningRejection = rejectionOf(
+      filterOneAtATime({ glob: SLOW_GLOB, paths: SLOW_GLOB_PATHS, timeoutMs: 500 }, logger),
+    )
+    const waitingMatches = filterOneAtATime(
+      { glob: "*.md", paths: VAULT_PATHS, timeoutMs: 5_000 },
+      logger,
+    )
+    // Settles before the running call reaches its 500 ms deadline
+    const turnedAwayRejection = await rejectionOf(
+      filterOneAtATime({ glob: "*.md", paths: VAULT_PATHS, timeoutMs: 5_000 }, logger),
+    )
+
+    expect(turnedAwayRejection).toEqual(new Error("glob matching timed out after 5000 ms"))
+    expect(vi.mocked(Worker)).toHaveBeenCalledTimes(1)
+    expect(await runningRejection).toEqual(new Error("glob matching timed out after 500 ms"))
+    expect(await waitingMatches).toEqual(["a.md"])
+
+    const laterMatches = await filterOneAtATime(
+      { glob: "Notes/*.md", paths: VAULT_PATHS, timeoutMs: 2_000 },
+      logger,
+    )
+
+    expect(laterMatches).toEqual(["Notes/1-day.md", "Notes/x.md"])
+  }, 10_000)
+
   it("frees the slot when a worker cannot be created", async () => {
-    const filterOneAtATime = createGlobFilter({ maxRunningWorkers: 1 })
+    const filterOneAtATime = createGlobFilter({ maxRunningWorkers: 1, maxWaitingCalls: 1 })
     // A function expression, because an arrow function cannot be called with
     // `new`
     vi.mocked(Worker).mockImplementationOnce(function () {

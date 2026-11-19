@@ -930,9 +930,19 @@ const listVaultFilePaths = async (
  *  15 ms over 50,000 paths), and 2 seconds is more than 25 times that. */
 const GLOB_MATCH_TIMEOUT_MS = 2_000
 
-/** Glob calls beyond one per CPU core wait for a running worker to finish, so
- *  many calls at once cannot exhaust the server's memory. */
-const filterPathsByGlob = createGlobFilter({ maxRunningWorkers: availableParallelism() })
+/** One glob worker per CPU core, and never more than four: four already
+ *  match far faster than clients send globs, and the ceiling bounds memory on
+ *  machines that report many cores. */
+const MAX_GLOB_WORKERS = Math.min(availableParallelism(), 4)
+
+/** Each waiting glob call holds its vault listing, so only a few wait per
+ *  worker; a call beyond them fails at once instead of adding to the queue. */
+const MAX_WAITING_GLOB_CALLS = 4 * MAX_GLOB_WORKERS
+
+const filterPathsByGlob = createGlobFilter({
+  maxRunningWorkers: MAX_GLOB_WORKERS,
+  maxWaitingCalls: MAX_WAITING_GLOB_CALLS,
+})
 
 /** Lists .md files under a folder (or vault root), optionally keeping only the
  *  notes whose path relative to that folder matches a glob. */

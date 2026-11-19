@@ -18,15 +18,23 @@ type GlobFilter = (
   logger: Logger,
 ) => Promise<string[]>
 
-type SlotRequest = Readonly<{
-  taken: Promise<Readonly<{ kind: "slot-taken" }>>
-  /** Leaves the queue, or gives back a slot handed over after the caller stopped waiting. */
-  abandon: () => void
-}>
+type SlotRequest =
+  | Readonly<{
+      admitted: true
+      taken: Promise<Readonly<{ kind: "slot-taken" }>>
+      /** Leaves the queue, or gives back a slot handed over after the caller stopped waiting. */
+      abandon: () => void
+    }>
+  | Readonly<{ admitted: false }>
 
-/** At most `maxRunningWorkers` slots are held at once; a caller over the limit
- *  waits, and a freed slot goes to the oldest waiting caller. */
-const createWorkerSlots = (maxRunningWorkers: number) => {
+/**
+ * At most `maxRunningWorkers` slots are held at once:
+ * - A caller over that limit waits, and a freed slot goes to the oldest
+ *   waiting caller.
+ * - At most `maxWaitingCalls` callers wait; a caller beyond them is not admitted.
+ */
+const createWorkerSlots = (params: { maxRunningWorkers: number; maxWaitingCalls: number }) => {
+  const { maxRunningWorkers, maxWaitingCalls } = params
   // Each waiting caller's grant, oldest first. A queue mutated in place, since
   // callers join it and leave it at any time
   const waitingGrants: Array<() => void> = []
@@ -47,8 +55,10 @@ const createWorkerSlots = (maxRunningWorkers: number) => {
   const take = (): SlotRequest => {
     if (heldSlots < maxRunningWorkers) {
       heldSlots += 1
-      return { taken: Promise.resolve({ kind: "slot-taken" }), abandon: give }
+      return { admitted: true, taken: Promise.resolve({ kind: "slot-taken" }), abandon: give }
     }
+
+    if (waitingGrants.length >= maxWaitingCalls) return { admitted: false }
 
     const { promise: taken, resolve: resolveTaken } =
       Promise.withResolvers<Readonly<{ kind: "slot-taken" }>>()
@@ -67,7 +77,7 @@ const createWorkerSlots = (maxRunningWorkers: number) => {
       }
       waitingGrants.splice(waitingIndex, 1)
     }
-    return { taken, abandon }
+    return { admitted: true, taken, abandon }
   }
 
   return { take, give }
@@ -168,16 +178,22 @@ const matchInWorker = async (params: {
  * A filter returning the paths `glob` matches, by picomatch, computed in a
  * worker thread so a glob that matches slowly never blocks the main thread.
  * - At most `maxRunningWorkers` workers run at once. A call over the limit
- *   waits for a running one to finish, oldest call first.
+ *   waits for a running one to finish, oldest call first, and at most
+ *   `maxWaitingCalls` calls wait.
  * - The `timeoutMs` deadline counts from the call's start, any wait for a
  *   worker and its start-up included. Past it, a running worker is terminated
  *   and the call rejects with `glob matching timed out after <timeoutMs> ms`.
+ *   A call that finds `maxWaitingCalls` calls already waiting rejects with
+ *   the same error at once, since it could not finish within the deadline.
  * - A worker that fails to start, errors, exits early or replies malformed
  *   rejects with `glob matching failed`, the original error as its `cause`,
  *   and logs an error. The glob never falls back to the main thread.
  */
-export const createGlobFilter = (params: { maxRunningWorkers: number }): GlobFilter => {
-  const workerSlots = createWorkerSlots(params.maxRunningWorkers)
+export const createGlobFilter = (params: {
+  maxRunningWorkers: number
+  maxWaitingCalls: number
+}): GlobFilter => {
+  const workerSlots = createWorkerSlots(params)
 
   const matchInSlot = async (params: {
     glob: string
@@ -186,6 +202,9 @@ export const createGlobFilter = (params: { maxRunningWorkers: number }): GlobFil
   }): Promise<GlobFilterOutcome> => {
     const { glob, paths, deadlinePassed } = params
     const slotRequest = workerSlots.take()
+
+    if (!slotRequest.admitted) return { kind: "timed-out" }
+
     const firstEvent = await Promise.race([slotRequest.taken, deadlinePassed])
 
     if (firstEvent.kind === "timed-out") {
