@@ -944,6 +944,20 @@ const filterPathsByGlob = createGlobFilter({
   maxWaitingCalls: MAX_WAITING_GLOB_CALLS,
 })
 
+/** The note paths whose path relative to `globBase` matches `glob`. */
+const filterNotePathsByGlob = async (
+  params: { glob: string; paths: readonly string[]; globBase: string },
+  logger: Logger,
+): Promise<string[]> => {
+  const { glob, paths, globBase } = params
+  const relativePaths = paths.map((notePath) => relative(globBase, notePath))
+  const matchedRelativePaths = await filterPathsByGlob(
+    { glob, paths: relativePaths, timeoutMs: GLOB_MATCH_TIMEOUT_MS },
+    logger,
+  )
+  return matchedRelativePaths.map((relativePath) => join(globBase, relativePath))
+}
+
 /** Lists .md files under a folder (or vault root), optionally keeping only the
  *  notes whose path relative to that folder matches a glob. */
 const listNotes = async (
@@ -973,20 +987,6 @@ const listNotes = async (
     : paths
   logger.info("listed notes", { folder: params.folder, count: result.length })
   return result
-}
-
-/** The note paths whose path relative to `globBase` matches `glob`. */
-const filterNotePathsByGlob = async (
-  params: { glob: string; paths: readonly string[]; globBase: string },
-  logger: Logger,
-): Promise<string[]> => {
-  const { glob, paths, globBase } = params
-  const relativePaths = paths.map((notePath) => relative(globBase, notePath))
-  const matchedRelativePaths = await filterPathsByGlob(
-    { glob, paths: relativePaths, timeoutMs: GLOB_MATCH_TIMEOUT_MS },
-    logger,
-  )
-  return matchedRelativePaths.map((relativePath) => join(globBase, relativePath))
 }
 
 /** Lists non-.md files (assets — images, canvases, PDFs, …) under a folder

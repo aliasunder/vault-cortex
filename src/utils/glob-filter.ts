@@ -22,8 +22,8 @@ type SlotRequest =
   | Readonly<{
       admitted: true
       taken: Promise<Readonly<{ kind: "slot-taken" }>>
-      /** Leaves the queue, or releases a slot handed over after the caller stopped waiting. */
-      abandon: () => void
+      /** Gives the caller's place back: leaves the queue while still waiting, or frees the slot it holds. */
+      release: () => void
     }>
   | Readonly<{ admitted: false }>
 
@@ -41,7 +41,7 @@ const createWorkerSlots = (params: { maxRunningWorkers: number; maxWaitingCalls:
   // Counts the slots held now, and changes as callers take and release them
   let heldSlots = 0
 
-  const release = (): void => {
+  const freeSlot = (): void => {
     const nextGrant = waitingGrants.shift()
 
     // The slot passes straight to the next caller, so the held count stays the same
@@ -55,7 +55,7 @@ const createWorkerSlots = (params: { maxRunningWorkers: number; maxWaitingCalls:
   const request = (): SlotRequest => {
     if (heldSlots < maxRunningWorkers) {
       heldSlots += 1
-      return { admitted: true, taken: Promise.resolve({ kind: "slot-taken" }), abandon: release }
+      return { admitted: true, taken: Promise.resolve({ kind: "slot-taken" }), release: freeSlot }
     }
 
     if (waitingGrants.length >= maxWaitingCalls) return { admitted: false }
@@ -67,20 +67,20 @@ const createWorkerSlots = (params: { maxRunningWorkers: number; maxWaitingCalls:
     }
     waitingGrants.push(grant)
 
-    const abandon = (): void => {
+    const release = (): void => {
       const waitingIndex = waitingGrants.indexOf(grant)
 
       // Not waiting any more means the slot was already handed to this caller
       if (waitingIndex === -1) {
-        release()
+        freeSlot()
         return
       }
       waitingGrants.splice(waitingIndex, 1)
     }
-    return { admitted: true, taken, abandon }
+    return { admitted: true, taken, release }
   }
 
-  return { request, release }
+  return { request }
 }
 
 const isGlobReply = (message: unknown): message is { matches: string[] } => {
@@ -207,15 +207,11 @@ export const createGlobFilter = (limits: {
 
     const firstEvent = await Promise.race([slotRequest.taken, deadlinePassed])
 
-    if (firstEvent.kind === "timed-out") {
-      slotRequest.abandon()
-      return firstEvent
-    }
-
     try {
+      if (firstEvent.kind === "timed-out") return firstEvent
       return await matchInWorker({ glob, paths, deadlinePassed })
     } finally {
-      workerSlots.release()
+      slotRequest.release()
     }
   }
 
