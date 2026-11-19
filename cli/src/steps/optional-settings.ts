@@ -238,8 +238,15 @@ const isValidTimezone = (value: string): boolean => {
   }
 }
 
-/** Re-prompts until the answer is a zone the runtime recognizes. */
-const askTimezone = async (currentValue: string | undefined, prompts: Prompts): Promise<string> => {
+/**
+ * Re-prompts until the answer is a zone the runtime recognizes. An empty
+ * answer, which a set timezone never gives because the prompt defaults to it,
+ * leaves TZ unset.
+ */
+const askTimezone = async (
+  currentValue: string | undefined,
+  prompts: Prompts,
+): Promise<string | undefined> => {
   const answer = (
     await prompts.text("Your IANA timezone:", {
       defaultValue: currentValue,
@@ -247,7 +254,11 @@ const askTimezone = async (currentValue: string | undefined, prompts: Prompts): 
     })
   ).trim()
 
-  if (answer !== "" && isValidTimezone(answer)) return answer
+  if (answer === "") {
+    prompts.log("Left unset — the server uses UTC.")
+    return undefined
+  }
+  if (isValidTimezone(answer)) return answer
   prompts.error(
     `"${answer}" is not a recognized IANA timezone (e.g. America/New_York, Europe/London).`,
   )
@@ -315,7 +326,8 @@ const askOptionalText = async (
 
 /**
  * Routes a picked setting to its kind's prompt and returns the .env value —
- * or undefined when an optionalText prompt was left blank (nothing to write).
+ * or undefined when an optionalText or timezone prompt was left blank
+ * (nothing to write).
  */
 const askSettingValue = async (
   params: { setting: OptionalSetting; currentValue: string | undefined; portsInUse: PortsInUse },
