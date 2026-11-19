@@ -224,9 +224,12 @@ export const buildFtsMetadataText = (frontmatter: Record<string, unknown>): stri
  * Folds a note name for comparison without letter case.
  * - Obsidian's Quick Switcher, which opens a note by its title or an alias,
  *   compares names this way: https://obsidian.md/help/plugins/quick-switcher
+ * - NFC normalization first makes an accented letter stored as a base letter
+ *   plus a combining mark (as some file systems save names) equal its
+ *   single-character form, which is what a typed query holds.
  * - The `fold_name` SQL function uses the same rule.
  */
-export const foldName = (name: string): string => name.toLowerCase()
+export const foldName = (name: string): string => name.normalize("NFC").toLowerCase()
 
 /**
  * SQL expression over `notes_fts` that is 1 when the bound text equals a whole
@@ -308,7 +311,7 @@ export const buildChunkTitleLine = (params: {
   const distinctAliases = findDistinctAliases(params)
 
   if (distinctAliases.length === 0) return params.title
-  return `${params.title} (also known as ${distinctAliases.join(", ")})`
+  return `${toSingleLineName(params.title)} (also known as ${distinctAliases.join(", ")})`
 }
 
 // ── Row mappers ────────────────────────────────────────────────

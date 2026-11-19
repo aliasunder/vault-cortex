@@ -7,6 +7,7 @@ import {
   buildFtsMetadataText,
   buildFtsTitleText,
   buildChunkTitleLine,
+  foldName,
   toNameLookupText,
   rowToMetadata,
   rowToTaskEntry,
@@ -194,6 +195,22 @@ describe("buildChunkTitleLine", () => {
 
   it("is the bare title when every alias repeats the title", () => {
     expect(buildChunkTitleLine({ title: "Biscuit", aliases: ["BISCUIT"] })).toBe("Biscuit")
+  })
+
+  it("puts a title that spans lines on one line before its aliases", () => {
+    expect(buildChunkTitleLine({ title: "Avery\nQuinn\n", aliases: ["Mom"] })).toBe(
+      "Avery Quinn (also known as Mom)",
+    )
+  })
+})
+
+describe("foldName", () => {
+  it("folds an accented letter written as a base letter plus a combining mark to its single-character form", () => {
+    const decomposedName = "Éclair"
+    const composedQuery = "Éclair"
+
+    expect(foldName(decomposedName)).toBe(foldName(composedQuery))
+    expect(foldName(composedQuery)).toBe("éclair")
   })
 })
 
