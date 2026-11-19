@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process"
 import { describe, it, expect } from "vitest"
 import { DateTime, Settings } from "luxon"
 import { mtimeToIso } from "../../../utils/mtime-to-iso.js"
@@ -23,6 +24,17 @@ import {
   IndexIntegrityError,
 } from "../search-helpers.js"
 import type { NoteRow, TaskRow } from "../search-index.js"
+
+/** The longest name foldName normalizes to NFC, owned here so a change to the
+ *  production limit shows up as a failing test. */
+const NFC_NAME_LENGTH_LIMIT = 256
+
+/** A name folding pass that grows with the square of a name this long runs for
+ *  minutes; a linear one takes milliseconds. */
+const LONG_NAME_LENGTH = 1_000_000
+
+/** Leaves room for the child's tsx start-up on a loaded machine. */
+const CHILD_DEADLINE_MS = 20_000
 
 // ── isString ──────────────────────────────────────────────────
 
@@ -157,31 +169,31 @@ describe("buildFtsMetadataText", () => {
 // ── Note names ────────────────────────────────────────────────
 
 describe("buildFtsTitleText", () => {
-  it("puts the title, then each alias, on its own line", () => {
+  it("puts the folded title, then each folded alias, on its own line", () => {
     expect(buildFtsTitleText({ title: "Avery Quinn", aliases: ["Avery", "Mom"] })).toBe(
-      "Avery Quinn\nAvery\nMom",
+      "avery quinn\navery\nmom",
     )
   })
 
   it("drops an alias equal to the title or to an earlier alias, ignoring letter case", () => {
     expect(buildFtsTitleText({ title: "Biscuit", aliases: ["Pup", "biscuit", "PUP"] })).toBe(
-      "Biscuit\nPup",
+      "biscuit\npup",
     )
   })
 
-  it("is the bare title for a note without aliases", () => {
-    expect(buildFtsTitleText({ title: "Sam Carter", aliases: [] })).toBe("Sam Carter")
+  it("is the folded title for a note without aliases", () => {
+    expect(buildFtsTitleText({ title: "Sam Carter", aliases: [] })).toBe("sam carter")
   })
 
   it("keeps a title or an alias that spans lines on one line, so it stays one name", () => {
     expect(
       buildFtsTitleText({ title: "Sam\nCarter", aliases: ["Avery \r\n  Quinn", "sam carter"] }),
-    ).toBe("Sam Carter\nAvery Quinn")
+    ).toBe("sam carter\navery quinn")
   })
 
   it("trims the line break a block scalar leaves at the end of a title", () => {
     expect(buildFtsTitleText({ title: "Avery Quinn\n", aliases: ["avery quinn", "Mom"] })).toBe(
-      "Avery Quinn\nMom",
+      "avery quinn\nmom",
     )
   })
 })
@@ -213,6 +225,56 @@ describe("foldName", () => {
     expect(foldName(decomposedName)).toBe(foldName(composedQuery))
     expect(foldName(composedQuery)).toBe(`${String.fromCodePoint(0x00e9)}clair`)
   })
+
+  it("normalizes a name of 256 code units", () => {
+    const decomposedName = `E${String.fromCodePoint(0x0301)}${"x".repeat(NFC_NAME_LENGTH_LIMIT - 2)}`
+
+    expect(foldName(decomposedName)).toBe(
+      `${String.fromCodePoint(0x00e9)}${"x".repeat(NFC_NAME_LENGTH_LIMIT - 2)}`,
+    )
+  })
+
+  it("only lowercases a name of 257 code units", () => {
+    const decomposedName = `E${String.fromCodePoint(0x0301)}${"x".repeat(NFC_NAME_LENGTH_LIMIT - 1)}`
+
+    expect(foldName(decomposedName)).toBe(
+      `e${String.fromCodePoint(0x0301)}${"x".repeat(NFC_NAME_LENGTH_LIMIT - 1)}`,
+    )
+  })
+})
+
+describe("note names on long input", () => {
+  it(
+    "folds and joins million-character names within a child deadline",
+    () => {
+      const searchHelpersUrl = new URL("../search-helpers.ts", import.meta.url).href
+      const output = execFileSync(
+        process.execPath,
+        [
+          "--import",
+          "tsx",
+          "--input-type=module",
+          "--eval",
+          `
+      import { toNameLookupText, buildFtsTitleText, buildChunkTitleLine } from ${JSON.stringify(searchHelpersUrl)};
+      const spacedName = 'a' + ' '.repeat(${LONG_NAME_LENGTH}) + 'b';
+      const markedName = 'a' + '\\u0316\\u0301'.repeat(${LONG_NAME_LENGTH / 2});
+      const checks = [
+        toNameLookupText(spacedName) === spacedName,
+        toNameLookupText(markedName) === markedName,
+        buildFtsTitleText({ title: spacedName, aliases: [markedName] }) === spacedName + '\\n' + markedName,
+        buildChunkTitleLine({ title: spacedName, aliases: [markedName] }) === spacedName + ' (also known as ' + markedName + ')',
+      ];
+      process.stdout.write(checks.join(','));
+    `,
+        ],
+        { encoding: "utf8", timeout: CHILD_DEADLINE_MS, killSignal: "SIGKILL" },
+      )
+
+      expect(output).toBe("true,true,true,true")
+    },
+    CHILD_DEADLINE_MS + 5_000,
+  )
 })
 
 describe("toNameLookupText", () => {

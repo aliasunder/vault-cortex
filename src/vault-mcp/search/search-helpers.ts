@@ -221,36 +221,56 @@ export const buildFtsMetadataText = (frontmatter: Record<string, unknown>): stri
 // ── Note names ─────────────────────────────────────────────────
 
 /**
+ * The longest name, in UTF-16 code units, that foldName normalizes to NFC.
+ * - NFC sorts each run of combining marks, in time that grows with the square
+ *   of the run's length, so the work is bounded per name.
+ * - A file name is at most 255 bytes on common file systems, so every note's
+ *   file name fits, and so do the titles and aliases of real vaults.
+ */
+const MAX_NFC_NAME_LENGTH = 256
+
+/**
  * Folds a note name for comparison without letter case.
  * - Obsidian's Quick Switcher, which opens a note by its title or an alias,
  *   compares names this way: https://obsidian.md/help/plugins/quick-switcher
  * - NFC normalization first makes an accented letter stored as a base letter
  *   plus a combining mark (as some file systems save names) equal its
- *   single-character form, which is what a typed query holds.
- * - The `fold_name` SQL function uses the same rule.
+ *   single-character form, which is what a typed query holds. A name longer
+ *   than MAX_NFC_NAME_LENGTH is compared without it.
  */
-export const foldName = (name: string): string => name.normalize("NFC").toLowerCase()
+export const foldName = (name: string): string => {
+  const normalizedName = name.length > MAX_NFC_NAME_LENGTH ? name : name.normalize("NFC")
+  return normalizedName.toLowerCase()
+}
 
 /**
  * SQL expression over `notes_fts` that is 1 when the bound text equals a whole
  * line of the title column, and 0 otherwise. It binds `toNameLookupText(query)`.
- * - buildFtsTitleText writes the title and each alias on a line of its own.
+ * - buildFtsTitleText writes each name folded, on a line of its own, so a
+ *   search folds nothing per row.
  * - A newline on both sides of both strings limits `instr` to whole lines.
  */
 export const EXACT_NAME_MATCH_SQL =
-  "instr(char(10) || fold_name(notes_fts.title) || char(10), char(10) || ? || char(10)) > 0"
+  "instr(char(10) || notes_fts.title || char(10), char(10) || ? || char(10)) > 0"
 
-/** Matches a run of line breaks with the whitespace around it. */
-const LINE_BREAK_RUN_RE = /\s*[\r\n]+\s*/g
+/** Matches a run of line breaks. */
+const LINE_BREAK_RUN_RE = /[\r\n]+/
 
 /**
- * A name on one line: each line break becomes one space, and the ends are trimmed.
+ * A name on one line: its lines, trimmed and without the blank ones, joined by
+ * one space.
  * - A YAML block scalar can give a title or an alias several lines and a final
  *   line break.
  * - EXACT_NAME_MATCH_SQL compares the query with whole lines of the title
  *   column, so each name, and the query, must fill one line and nothing else.
+ * - Splitting at line breaks keeps the work linear in the name's length; a
+ *   regex that also takes the whitespace around each break backtracks through
+ *   every long run of spaces.
  */
-const toSingleLineName = (name: string): string => name.replace(LINE_BREAK_RUN_RE, " ").trim()
+const toSingleLineName = (name: string): string => {
+  const lines = name.split(LINE_BREAK_RUN_RE).map((line) => line.trim())
+  return lines.filter(Boolean).join(" ")
+}
 
 /** Matches a query that is one double-quoted phrase and captures the text
  *  inside the quotes. */
@@ -288,13 +308,15 @@ const findDistinctAliases = (params: {
   return distinctAliases
 }
 
-/** The FTS title column's text: the title, then each distinct alias on its own
- *  line. EXACT_NAME_MATCH_SQL matches the query against these lines. */
+/** The FTS title column's text: the folded title, then each distinct alias
+ *  folded, on its own line. EXACT_NAME_MATCH_SQL matches the query against
+ *  these lines, and keyword matching is unchanged, because the FTS tokenizer
+ *  folds letter case and accents itself. */
 export const buildFtsTitleText = (params: {
   title: string
   aliases: ReadonlyArray<string>
 }): string => {
-  return [toSingleLineName(params.title), ...findDistinctAliases(params)].join("\n")
+  return [toSingleLineName(params.title), ...findDistinctAliases(params)].map(foldName).join("\n")
 }
 
 /** The note's title line in every chunk of the note:

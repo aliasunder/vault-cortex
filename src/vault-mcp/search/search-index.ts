@@ -45,7 +45,6 @@ import {
   buildFtsMetadataText,
   buildFtsTitleText,
   escapeLikeWildcards,
-  foldName,
   foldTag,
   NOTE_METADATA_COLUMNS_SQL,
   parseStringArray,
@@ -537,12 +536,6 @@ export const createSearchIndex = (
   // SQL tag predicates and query inputs use the same Obsidian case-folding rule.
   db.function("fold_tag", { deterministic: true }, (value: unknown): string => {
     return foldTag(String(value))
-  })
-
-  // EXACT_NAME_MATCH_SQL folds each stored name with this function, and
-  // toNameLookupText folds the query with the same foldName in JavaScript.
-  db.function("fold_name", { deterministic: true }, (value: unknown): string => {
-    return foldName(String(value))
   })
 
   db.pragma("journal_mode = WAL")
