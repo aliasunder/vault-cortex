@@ -12,7 +12,9 @@ notes below describe what the maintainer uses.
 
 - **Authentication and authorization** — OAuth 2.1 (Authorization Code + PKCE),
   per-client secrets (`client_secret_post`), JWT tokens (HS256), static bearer
-  token fallback, Express middleware (defense in depth)
+  token fallback, all checked by Express middleware on every protected
+  request. Only the maintainer's reference deployment adds a second check in
+  front of it (see [Reference deployment](#reference-deployment-maintainers-iac--not-required-by-adopters))
 - **Express server** — handles MCP protocol messages, OAuth flows, and the
   consent page. On the `:remote` image it also serves the `/setup` sign-in
   page until a working Sync token is on the volume (see
@@ -23,8 +25,8 @@ notes below describe what the maintainer uses.
   `resolveSafePath()` (resolve + prefix check), and hidden paths (any
   dot-prefixed segment, e.g. `.obsidian/`) are rejected for every read and
   write. Notes in protected folders (`PROTECTED_PATHS`) can't be deleted or
-  moved, and `READONLY_MODE=true` removes every vault-writing tool from the
-  server entirely
+  moved, no note can be moved into one, and `READONLY_MODE=true` removes
+  every vault-writing tool from the server entirely
 - **Docker image** — two targets from one Dockerfile: `local` (`:latest`,
   tini + MCP server) and `remote` (`:remote`, s6-overlay supervising
   obsidian-sync + MCP server in a single container, sharing a `/vault`
@@ -93,7 +95,8 @@ mechanism-level detail.
 - The search index and OAuth databases live outside the vault (the
   default `/data` volume), so the file tools can't reach them. The OAuth
   database stores each refresh token only as a keyed hash (an HMAC made
-  with `MCP_AUTH_TOKEN`), so a copy of it holds no usable credential.
+  with `MCP_AUTH_TOKEN`), so a copy of the database file holds no usable
+  credential.
   `INDEX_DB_PATH`, a container path the Compose files and the remote
   image set to `/data/index.db`, places the search database, and the
   OAuth database sits beside it. If an edited Compose file points
@@ -402,7 +405,8 @@ a real fixture vault on disk. Security-relevant coverage:
   asserting survivors by name, not just count); unknown names reject the boot
 - **Write mutation integrity** — each tool that changes a note (write,
   patch, replace, delete span, replace span, insert at anchor, update
-  properties, move, delete) is followed by a read that proves the change happened; a
+  properties, move, delete, create task, update task, update memory, delete
+  memory) is followed by a read that proves the change happened; a
   silent no-op fails the test
 - **Prompt-tool coupling** — when a prompt's prerequisite tool is disabled,
   the prompt disappears from the server's prompt list
