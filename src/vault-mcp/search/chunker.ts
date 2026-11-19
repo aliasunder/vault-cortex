@@ -178,18 +178,6 @@ const indexChunks = (chunkTexts: readonly string[]): NoteChunk[] => {
   return chunkTexts.map((text, index) => ({ index, text }))
 }
 
-/** Prefix each text fragment with the chunk prefix, within the note's chunk
- *  text limit, and assign sequential indices. */
-const toChunks = (params: {
-  fragments: readonly string[]
-  chunkPrefix: string
-  maxChunkTextCharacters: number
-}): NoteChunk[] => {
-  const { fragments, chunkPrefix, maxChunkTextCharacters } = params
-  const chunkTexts = fragments.values().map((fragment) => prefixFragment(chunkPrefix, fragment))
-  return indexChunks(takeWithinCharacterLimit(chunkTexts, maxChunkTextCharacters))
-}
-
 /** Chunk budget after subtracting the prefix's own token cost, floored at
  *  MIN_CHUNK_TOKENS so a pathological prefix (huge tag list, over-budget
  *  title, or a single heading segment longer than the budget) cannot
@@ -456,45 +444,6 @@ export const chunkContent = (params: {
     MAX_NOTE_CHUNK_TEXT_CHARACTERS,
   )
 
-  if (bodyTokenCount < CHUNK_THRESHOLD_TOKENS) {
-    // Only a metadata prefix can split a short note; without one, the note
-    // keeps the one-chunk form described above.
-    const exceedsBudgetWithPrefix =
-      Boolean(prefixMetadata) && bodyTokenCount > budgetAfterBasePrefix
-
-    if (!exceedsBudgetWithPrefix) {
-      return toChunks({
-        fragments: [strippedBody],
-        chunkPrefix: basePrefix,
-        maxChunkTextCharacters,
-      })
-    }
-    return toChunks({
-      fragments: splitWithTrailingMerge(strippedBody, budgetAfterBasePrefix),
-      chunkPrefix: basePrefix,
-      maxChunkTextCharacters,
-    })
-  }
-
-  const bodyLines = splitIntoLines(bodyContent)
-  // Wikilinks and emphasis markers in heading text would inject raw [[ / **
-  // tokens into Section lines and the TOC, so each name is stripped to plain
-  // text once here.
-  const headings = parseHeadings(bodyLines).map((heading) => ({
-    ...heading,
-    name: stripMarkdownSyntax(heading.text).trim(),
-  }))
-  const firstHeading = headings[0]
-
-  // No headings — split at paragraph boundaries
-  if (!firstHeading) {
-    return toChunks({
-      fragments: splitWithTrailingMerge(strippedBody, budgetAfterBasePrefix),
-      chunkPrefix: basePrefix,
-      maxChunkTextCharacters,
-    })
-  }
-
   // Total chunk budget minus the body-content floor (MIN), title, and
   // metadata leaves what is available for the Section-line ancestor path.
   const titleTokens = approximateTokenCount(prefixTitle)
@@ -504,8 +453,9 @@ export const chunkContent = (params: {
     0,
   )
 
-  /** A section's stripped text split into fragments, each prefixed only when it
-   *  is read. An empty heading path gives the base prefix (no Section line). */
+  /** A stripped text split into fragments under its heading path's prefix,
+   *  each prefixed only when it is read. An empty heading path gives the base
+   *  prefix (no Section line), which the preamble and an unsectioned body use. */
   const sectionChunkTexts = (
     headingPath: readonly HeadingSegment[],
     sectionText: string,
@@ -527,6 +477,35 @@ export const chunkContent = (params: {
     return splitWithTrailingMerge(sectionText, budgetAfterPrefix(sectionPrefix))
       .values()
       .map((fragment) => prefixFragment(sectionPrefix, fragment))
+  }
+
+  if (bodyTokenCount < CHUNK_THRESHOLD_TOKENS) {
+    // Only a metadata prefix can split a short note; without one, the note
+    // keeps the one-chunk form described above.
+    const exceedsBudgetWithPrefix =
+      Boolean(prefixMetadata) && bodyTokenCount > budgetAfterBasePrefix
+
+    if (!exceedsBudgetWithPrefix) return indexChunks([prefixFragment(basePrefix, strippedBody)])
+    return indexChunks(
+      takeWithinCharacterLimit(sectionChunkTexts([], strippedBody), maxChunkTextCharacters),
+    )
+  }
+
+  const bodyLines = splitIntoLines(bodyContent)
+  // Wikilinks and emphasis markers in heading text would inject raw [[ / **
+  // tokens into Section lines and the TOC, so each name is stripped to plain
+  // text once here.
+  const headings = parseHeadings(bodyLines).map((heading) => ({
+    ...heading,
+    name: stripMarkdownSyntax(heading.text).trim(),
+  }))
+  const firstHeading = headings[0]
+
+  // No headings — split at paragraph boundaries
+  if (!firstHeading) {
+    return indexChunks(
+      takeWithinCharacterLimit(sectionChunkTexts([], strippedBody), maxChunkTextCharacters),
+    )
   }
 
   // Preamble (content above the first heading) has no owning section, so it
@@ -581,11 +560,7 @@ export const chunkContent = (params: {
   // A note whose split yields nothing (no preamble, every section empty, and
   // no heading name fits the TOC's budget) keeps the whole-body fallback so it
   // never silently leaves the vector index.
-  if (chunkTexts.length === 0) {
-    return toChunks({ fragments: [strippedBody], chunkPrefix: basePrefix, maxChunkTextCharacters })
-  }
+  if (chunkTexts.length === 0) return indexChunks([prefixFragment(basePrefix, strippedBody)])
 
-  // Each text already carries its per-section prefix (sections have
-  // different prefixes), so toChunks' uniform-prefix join doesn't apply.
   return indexChunks(chunkTexts)
 }
