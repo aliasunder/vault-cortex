@@ -2181,9 +2181,11 @@ describe("note names in keyword search", () => {
   it("gives the exact-name match the highest score, so scores still descend", () => {
     const results = createNamesIndex().fullTextSearch({ query: "Mom" }, logger)
     const scores = results.map((result) => result.score)
+    const [exactNameScore, nextScore] = scores
 
+    expect(results[0]?.path).toBe("People/Avery Quinn.md")
+    expect(exactNameScore).toBeGreaterThan(nextScore ?? Number.POSITIVE_INFINITY)
     expect(scores).toEqual(scores.toSorted((left, right) => right - left))
-    expect(new Set(scores).size).toBe(scores.length)
   })
 
   it.each([
