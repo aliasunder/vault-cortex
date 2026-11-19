@@ -66,7 +66,8 @@ mechanism-level detail.
   filesystem) cannot evade the guard
 - The folder settings (`MEMORY_DIR`, `DAILY_NOTES_FOLDER`,
   `PROTECTED_PATHS`, `ORPHAN_EXCLUDE_FOLDERS`) reject `..`, absolute paths,
-  and blank names, and the server refuses to start with one
+  and blank names, so the server refuses to start while any of them holds
+  such a value
 - Memory file names reject `/` and `\` — prevents `../../outside`-style
   escapes from the memory directory — and leading dots, which would
   create hidden files
@@ -117,10 +118,9 @@ mechanism-level detail.
   index, OAuth database) remain.
 - `DISABLED_TOOLS` narrows the surface tool-by-tool — e.g. keep writes
   on but remove the delete tools. Same registration-time guarantee.
-- A hidden tool disappears from the other tools' descriptions and from
-  the prompts too, so no served text points at it. A test disables
-  each tool in turn and checks that no served tool's description or
-  input schema still names it.
+- No remaining tool description or prompt mentions a hidden tool. A test
+  disables each tool in turn and checks that no served tool's description
+  or input schema still names it.
 - Unknown tool names stop the server at startup rather than silently
   disabling nothing.
 
@@ -129,7 +129,7 @@ mechanism-level detail.
 A time-of-check-to-time-of-use (TOCTOU) race lets a file change between a
 check and the write that relies on it. Writes to a note hold its per-file
 write lock (see [Data corruption prevention](#data-corruption-prevention)),
-and these operations close the remaining windows:
+and these operations leave no gap between the check and the write:
 
 - A move creates its destination in one step that fails if the name is
   already taken. On POSIX that step is a hard link (`link()`); on
@@ -397,9 +397,9 @@ a real fixture vault on disk. Security-relevant coverage:
   at registration (verified by asserting each write tool is absent and reads
   still work); `DISABLED_TOOLS` removes exactly the named tools (verified by
   asserting survivors by name, not just count); unknown names reject the boot
-- **Write mutation integrity** — each note-writing tool (write, patch,
-  replace, delete span, replace span, insert at anchor, update properties,
-  move, delete) is followed by a read that proves the change happened; a
+- **Write mutation integrity** — each tool that changes a note (write,
+  patch, replace, delete span, replace span, insert at anchor, update
+  properties, move, delete) is followed by a read that proves the change happened; a
   silent no-op fails the test
 - **Prompt-tool coupling** — when a prompt's prerequisite tool is disabled,
   the prompt disappears from the server's prompt list
