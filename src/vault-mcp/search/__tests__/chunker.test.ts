@@ -354,6 +354,21 @@ describe("chunkContent", () => {
       ).join("\n")
       expect(chunks).toEqual([{ index: 0, text: `Note\n\n${expectedHeadingNames}` }])
     })
+
+    it("falls back to one whole-body chunk when every section is empty and no heading name fits the TOC", () => {
+      // Two 450-token heading names with no text under them: 900 stripped
+      // tokens take the split path, neither section has text, and each name
+      // is over the TOC's 449-token budget, so the split yields no chunk.
+      const firstName = generateLabeledTokens(450, "first")
+      const secondName = generateLabeledTokens(450, "second")
+
+      const chunks = chunkContent({
+        noteTitle: "Note",
+        bodyContent: `## ${firstName}\n## ${secondName}`,
+      })
+
+      expect(chunks).toEqual([{ index: 0, text: `Note\n\n${firstName}\n${secondName}` }])
+    })
   })
 
   describe("table of contents chunk", () => {
@@ -565,13 +580,13 @@ describe("chunkContent", () => {
       ])
     })
 
-    describe("a body that starts with an empty paragraph", () => {
+    describe("a body with an empty paragraph at either end", () => {
       // Three 300-token paragraphs against a 449-token budget → one chunk each
       const firstParagraph = generateLabeledTokens(300, "first")
       const secondParagraph = generateLabeledTokens(300, "second")
       const thirdParagraph = generateLabeledTokens(300, "third")
       const paragraphs = `${firstParagraph}\n\n${secondParagraph}\n\n${thirdParagraph}`
-      const chunksWithoutLeadingParagraph = [
+      const chunksWithoutEmptyParagraph = [
         { index: 0, text: `Note\n\n${firstParagraph}` },
         { index: 1, text: `Note\n\n${secondParagraph}` },
         { index: 2, text: `Note\n\n${thirdParagraph}` },
@@ -583,13 +598,22 @@ describe("chunkContent", () => {
           bodyContent: `%%hidden%%\n\n${paragraphs}`,
         })
 
-        expect(chunks).toEqual(chunksWithoutLeadingParagraph)
+        expect(chunks).toEqual(chunksWithoutEmptyParagraph)
       })
 
       it("drops the empty paragraph leading blank lines leave", () => {
         const chunks = chunkContent({ noteTitle: "Note", bodyContent: `\n\n\n${paragraphs}` })
 
-        expect(chunks).toEqual(chunksWithoutLeadingParagraph)
+        expect(chunks).toEqual(chunksWithoutEmptyParagraph)
+      })
+
+      it("drops the empty paragraph a trailing comment leaves", () => {
+        const chunks = chunkContent({
+          noteTitle: "Note",
+          bodyContent: `${paragraphs}\n\n%%hidden%%`,
+        })
+
+        expect(chunks).toEqual(chunksWithoutEmptyParagraph)
       })
 
       it("keeps a leading paragraph of spaces with the first paragraph", () => {
@@ -1012,34 +1036,39 @@ describe("chunkContent", () => {
   })
 
   describe("prefix parts cut to 2,000 characters", () => {
-    const sectionsBody = `## Other\n${generateTokens(300)}`
+    const otherBody = generateTokens(300)
+    const sectionsBody = `## Other\n${otherBody}`
 
-    it("cuts a long single-word heading in the Section line", () => {
+    it("cuts a long single-word heading in the Section line and keeps it whole in the table of contents", () => {
       const longHeading = "h".repeat(5_000)
       const firstBody = generateLabeledTokens(300, "first")
       const body = `## ${longHeading}\n${firstBody}\n\n${sectionsBody}`
 
       const chunks = chunkContent({ noteTitle: "Note", bodyContent: body })
 
-      expect(chunks[0]).toEqual({
-        index: 0,
-        text: `Note\nSection: ${"h".repeat(2_000)}\n\n${firstBody}`,
-      })
+      expect(chunks).toEqual([
+        { index: 0, text: `Note\nSection: ${"h".repeat(2_000)}\n\n${firstBody}` },
+        { index: 1, text: `Note\nSection: Other\n\n${otherBody}` },
+        { index: 2, text: `Note\n\n${longHeading}\nOther` },
+      ])
     })
 
     it("cuts a long multi-word heading in the Section line", () => {
       // The cut heading still passes the Section-line budget, so this section's
-      // body budget floors at 50 tokens; 40 words stay one fragment.
+      // body budget floors at 50 tokens; 40 words stay one fragment. The whole
+      // 1,000-token name is over the table of contents' budget, so only
+      // "Other" lands there.
       const longHeading = generateShortLabeledTokens(1_000, "h")
       const firstBody = generateLabeledTokens(40, "first")
       const body = `## ${longHeading}\n${firstBody}\n\n${sectionsBody}`
 
       const chunks = chunkContent({ noteTitle: "Note", bodyContent: body })
 
-      expect(chunks[0]).toEqual({
-        index: 0,
-        text: `Note\nSection: ${longHeading.slice(0, 2_000)}\n\n${firstBody}`,
-      })
+      expect(chunks).toEqual([
+        { index: 0, text: `Note\nSection: ${longHeading.slice(0, 2_000)}\n\n${firstBody}` },
+        { index: 1, text: `Note\nSection: Other\n\n${otherBody}` },
+        { index: 2, text: "Note\n\nOther" },
+      ])
     })
 
     it("cuts a long title in every chunk prefix and keeps it whole in the table of contents", () => {
@@ -1058,7 +1087,7 @@ describe("chunkContent", () => {
       ])
     })
 
-    it("cuts a long metadata line in every chunk prefix", () => {
+    it("cuts a long metadata line in a short note's one chunk", () => {
       const longMetadata = `Tags: ${"m".repeat(5_000)}.`
       const body = generateTokens(100)
 
@@ -1070,6 +1099,26 @@ describe("chunkContent", () => {
 
       expect(chunks).toEqual([
         { index: 0, text: `Note\n${longMetadata.slice(0, 2_000)}\n\n${body}` },
+      ])
+    })
+
+    it("cuts a long metadata line in every chunk prefix of a split note, leaving the table of contents bare", () => {
+      const longMetadata = `Tags: ${"m".repeat(5_000)}.`
+      const preamble = generateLabeledTokens(300, "preamble")
+      const firstBody = generateLabeledTokens(300, "first")
+      const body = `${preamble}\n\n## First\n${firstBody}`
+
+      const chunks = chunkContent({
+        noteTitle: "Note",
+        bodyContent: body,
+        metadataPrefix: longMetadata,
+      })
+
+      const cutMetadata = longMetadata.slice(0, 2_000)
+      expect(chunks).toEqual([
+        { index: 0, text: `Note\n${cutMetadata}\n\n${preamble}` },
+        { index: 1, text: `Note\nSection: First\n${cutMetadata}\n\n${firstBody}` },
+        { index: 2, text: "Note\n\nFirst" },
       ])
     })
   })
@@ -1085,58 +1134,99 @@ describe("chunkContent", () => {
     // A long title in short words: 1,000 tokens in 2,000 characters, so each
     // chunk's body budget floors at 50 tokens behind a 2,000-character prefix.
     const longWordyTitle = Array.from({ length: 1_000 }, () => "t").join(" ")
+    // Every chunk of the notes below that use longWordyTitle has this text:
+    // each body budget floors at 50 tokens, and the body is one-letter words.
+    const fiftyWordChunkText = `${longWordyTitle}\n\n${Array.from({ length: 50 }, () => "b").join(" ")}`
 
     it("stops a note of many one-line sections under a long ancestor at 20 times its body", () => {
-      const childSections = Array.from({ length: 2_000 }, (_, i) => `## c${i}\nw${i}`).join("\n")
+      const childCount = 2_000
+      const childSections = Array.from({ length: childCount }, (_, i) => `## c${i}\nw${i}`).join(
+        "\n",
+      )
       const body = `# ${longAncestor}\n${childSections}`
+      const limit = 20 * stripMarkdownSyntax(body).length
 
       const chunks = chunkContent({ noteTitle: "Note", bodyContent: body })
 
-      // The table-of-contents chunk comes last and sits outside the limit.
-      const bodyChunks = chunks.slice(0, -1)
-      const bodyTexts = bodyChunks.map((chunk) => chunk.text)
-      expect(totalChunkCharacters(bodyChunks)).toBeLessThanOrEqual(
-        20 * stripMarkdownSyntax(body).length,
+      // The note's chunk texts without the limit, in order. First come the
+      // wrapper heading's aggregate chunks: its children's 4,000 stripped
+      // words in 449-word runs under the bare title (the last run of 408
+      // words is over the 50-word minimum, so it is not merged). One chunk
+      // per child section follows.
+      const childWords = Array.from({ length: childCount }, (_, i) => [`c${i}`, `w${i}`]).flat()
+      const aggregateTexts = Array.from(
+        { length: Math.ceil(childWords.length / 449) },
+        (_, run) => `Note\n\n${childWords.slice(run * 449, (run + 1) * 449).join(" ")}`,
       )
-      expect(bodyTexts.indexOf(`Note\nSection: ${longAncestor} > c0\n\nw0`)).toBeGreaterThan(-1)
-      expect(bodyTexts.indexOf(`Note\nSection: ${longAncestor} > c1999\n\nw1999`)).toBe(-1)
-      expect(chunks.at(-1)?.text.startsWith(`Note\n\n${longAncestor}\nc0\nc1\n`)).toBe(true)
+      const childTexts = Array.from(
+        { length: childCount },
+        (_, i) => `Note\nSection: ${longAncestor} > c${i}\n\nw${i}`,
+      )
+      const unlimitedTexts = [...aggregateTexts, ...childTexts]
+
+      // The table-of-contents chunk comes last and sits outside the limit. The
+      // 390-token ancestor and 59 one-token child names fill its 449-token
+      // budget.
+      const bodyChunks = chunks.slice(0, -1)
+      const keptCount = bodyChunks.length
+      const tableOfContentsNames = [longAncestor, ...Array.from({ length: 59 }, (_, i) => `c${i}`)]
+      expect(chunks).toEqual([
+        ...unlimitedTexts.slice(0, keptCount).map((text, index) => ({ index, text })),
+        { index: keptCount, text: `Note\n\n${tableOfContentsNames.join("\n")}` },
+      ])
+
+      // The kept texts fit the limit, and the first text left out would not.
+      const keptCharacters = totalChunkCharacters(bodyChunks)
+      expect(keptCharacters).toBeLessThanOrEqual(limit)
+      expect(keptCharacters + (unlimitedTexts[keptCount]?.length ?? 0)).toBeGreaterThan(limit)
     })
 
     it("stops a note with no headings at 20 times its body", () => {
       const body = Array.from({ length: 10_000 }, () => "b").join(" ")
+      const keptCount = Math.floor((20 * body.length) / fiftyWordChunkText.length)
 
       const chunks = chunkContent({ noteTitle: longWordyTitle, bodyContent: body })
 
-      expect(chunks[0]).toEqual({ index: 0, text: `${longWordyTitle}\n\n${body.slice(0, 99)}` })
-      expect(totalChunkCharacters(chunks)).toBeLessThanOrEqual(20 * body.length)
+      // Without the limit, the 10,000 words would make 200 chunks.
+      expect(keptCount).toBeLessThan(200)
+      expect(chunks).toEqual(
+        Array.from({ length: keptCount }, (_, index) => ({ index, text: fiftyWordChunkText })),
+      )
     })
 
     it("stops one heading over a long body at 20 times the body", () => {
       const sectionBody = Array.from({ length: 10_000 }, () => "b").join(" ")
       const body = `## Only\n${sectionBody}`
+      const keptCount = Math.floor(
+        (20 * stripMarkdownSyntax(body).length) / fiftyWordChunkText.length,
+      )
 
       const chunks = chunkContent({ noteTitle: longWordyTitle, bodyContent: body })
 
       // The 1,000-token title leaves no table-of-contents budget, so every
-      // chunk here is a body chunk under the limit.
-      expect(chunks[0]).toEqual({
-        index: 0,
-        text: `${longWordyTitle}\n\n${sectionBody.slice(0, 99)}`,
-      })
-      expect(totalChunkCharacters(chunks)).toBeLessThanOrEqual(
-        20 * stripMarkdownSyntax(body).length,
+      // chunk here is a body chunk under the limit. Without the limit, the
+      // 10,000 words would make 200 chunks.
+      expect(keptCount).toBeLessThan(200)
+      expect(chunks).toEqual(
+        Array.from({ length: keptCount }, (_, index) => ({ index, text: fiftyWordChunkText })),
       )
     })
 
     it("stops any note at 50 million characters of chunk text", () => {
       const sectionBody = Array.from({ length: 1_500_000 }, () => "b").join(" ")
       const body = `## Only\n${sectionBody}`
+      const keptCount = Math.floor(50_000_000 / fiftyWordChunkText.length)
 
       const chunks = chunkContent({ noteTitle: longWordyTitle, bodyContent: body })
 
-      expect(totalChunkCharacters(chunks)).toBeLessThanOrEqual(50_000_000)
-      expect(totalChunkCharacters(chunks)).toBeGreaterThan(49_000_000)
+      // 20 times this body is over 50 million characters, so the fixed bound
+      // applies. The chunks are compared as a count and their distinct texts,
+      // because a failing toEqual on the whole array would print 50 MB.
+      expect(20 * stripMarkdownSyntax(body).length).toBeGreaterThan(50_000_000)
+      expect({
+        count: chunks.length,
+        distinctTexts: [...new Set(chunks.map((chunk) => chunk.text))],
+      }).toEqual({ count: keptCount, distinctTexts: [fiftyWordChunkText] })
     })
 
     it("keeps a short note's one chunk when its title alone passes 20 times the body", () => {
@@ -1169,12 +1259,20 @@ describe("chunkContent", () => {
     it(
       "splits a note with a million whitespace-only paragraphs within a child deadline",
       () => {
+        // The 500 words split 449 + 51. The whitespace-only paragraphs and
+        // "tail" form one 1-word fragment, which merges back into the 51.
         const output = runChunkerInChild(`
-          const words = Array.from({ length: 500 }, (_, i) => "w" + i).join(" ");
-          const bodyContent = words + " \\n\\n".repeat(${LONG_RUN_LENGTH}) + "tail";
+          const words = Array.from({ length: 500 }, (_, i) => "w" + i);
+          const bodyContent = words.join(" ") + " \\n\\n".repeat(${LONG_RUN_LENGTH}) + "tail";
           const chunks = chunkContent({ noteTitle: "Note", bodyContent });
-          const firstChunkText = "Note\\n\\n" + words.split(" ").slice(0, 449).join(" ");
-          process.stdout.write(String(chunks[0].text === firstChunkText && chunks.at(-1).text.endsWith("tail")));
+          const expectedChunks = [
+            { index: 0, text: "Note\\n\\n" + words.slice(0, 449).join(" ") },
+            {
+              index: 1,
+              text: "Note\\n\\n" + words.slice(449).join(" ") + "\\n\\n" + " \\n\\n".repeat(${LONG_RUN_LENGTH - 1}) + "tail",
+            },
+          ];
+          process.stdout.write(String(JSON.stringify(chunks) === JSON.stringify(expectedChunks)));
         `)
 
         expect(output).toBe("true")
