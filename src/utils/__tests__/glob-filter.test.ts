@@ -406,6 +406,30 @@ describe("createGlobFilter's worker limit", () => {
     expect(await stillWaitingMatches).toEqual(["a.md"])
   }, 10_000)
 
+  it("keeps the running call's slot held after a waiting call stops waiting", async () => {
+    const filterOneAtATime = createGlobFilter({ maxRunningWorkers: 1, maxWaitingCalls: 1 })
+    vi.mocked(Worker).mockClear()
+
+    const runningRejection = rejectionOf(
+      filterOneAtATime({ glob: SLOW_GLOB, paths: SLOW_GLOB_PATHS, timeoutMs: 1_000 }, logger),
+    )
+    const stoppedWaitingRejection = await rejectionOf(
+      filterOneAtATime({ glob: "*.md", paths: VAULT_PATHS, timeoutMs: 100 }, logger),
+    )
+    const laterMatches = filterOneAtATime(
+      { glob: "Notes/*.md", paths: VAULT_PATHS, timeoutMs: 5_000 },
+      logger,
+    )
+    await nextTurn()
+
+    expect(stoppedWaitingRejection).toEqual(new Error("glob matching timed out after 100 ms"))
+    // The running call still holds the one slot, so the later call waits for it
+    expect(vi.mocked(Worker)).toHaveBeenCalledTimes(1)
+    expect(await runningRejection).toEqual(new Error("glob matching timed out after 1000 ms"))
+    expect(await laterMatches).toEqual(["Notes/1-day.md", "Notes/x.md"])
+    expect(vi.mocked(Worker)).toHaveBeenCalledTimes(2)
+  }, 10_000)
+
   it("counts a waiting call's deadline from the call's start, not from its worker's start", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
     onTestFinished(() => {
