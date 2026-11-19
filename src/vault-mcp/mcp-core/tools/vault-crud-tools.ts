@@ -18,6 +18,7 @@ import {
   CONCURRENT_WRITE_RETRY_ERROR_ENTRY,
   EDIT_SAVE_RULES_SENTENCE,
   FILESYSTEM_ERROR_ENTRY,
+  HEADING_LIST_CAP_CLAUSE,
   LISTING_FILESYSTEM_ERROR_ENTRY,
   NOTE_END_BLANK_LINES_SENTENCE,
   RETRY_REREAD_CLAUSE,
@@ -32,8 +33,7 @@ import {
 } from "./tool-helpers.js"
 
 // Errors entries that two or more of this module's tools share word for word.
-const HEADING_NOT_FOUND_ERROR_ENTRY =
-  '- "heading not found" — the message lists the available headings'
+const HEADING_NOT_FOUND_ERROR_ENTRY = `- "heading not found" — the message lists the available headings; ${HEADING_LIST_CAP_CLAUSE}`
 const EMPTY_HEADING_ERROR_ENTRY =
   '- "heading cannot be empty" — heading is whitespace only; pass the heading\'s text'
 const CONTENT_CONTROL_CHARACTER_ERROR_ENTRY =
@@ -605,7 +605,7 @@ Behavior:
 Errors:
 ${noteNotFoundCheckErrorEntry}
 ${NOTE_EXTENSION_ERROR_ENTRY}
-${HEADING_NOT_FOUND_ERROR_ENTRY}
+${HEADING_NOT_FOUND_ERROR_ENTRY}${whenToolEnabledText("vault_read_note", "; vault_read_note with outline: true lists every heading")}
 - "ambiguous heading" — multiple headings match; use heading_level to disambiguate; if they share a level, rename one${whenToolEnabledText("vault_replace_in_note", " or use vault_replace_in_note to target by text content")}
 - "operation … requires a heading target" — pass heading, or use append or prepend to edit the file body
 ${EMPTY_HEADING_ERROR_ENTRY}

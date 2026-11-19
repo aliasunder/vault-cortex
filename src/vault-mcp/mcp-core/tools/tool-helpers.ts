@@ -13,6 +13,7 @@ import type { ToolAvailability } from "../tool-availability.js"
 import { describeErrorForLog, describeErrorRelativeTo } from "../../../utils/describe-error.js"
 import { appendRemedy, remedyForCodedError } from "../coded-error-remedy.js"
 import { isTagsKey } from "../../obsidian-markdown/tags.js"
+import { MAX_LISTED_HEADINGS } from "../../obsidian-markdown/headings.js"
 import {
   OverwriteBlockedError,
   UnkeepableOpeningBlockError,
@@ -280,6 +281,9 @@ export const INDEX_LAG_LEAD = "Results can lag a file change by a few seconds"
  *  listing tools match case-sensitively, so they state their own rule. */
 export const INDEX_FOLDER_SCOPE_CLAUSE =
   'a whole folder, subfolders included: "Projects" covers "Projects/Archive" but not "ProjectsOld/", ignoring ASCII letter case'
+
+/** How a missing-heading error lists a long note's headings. */
+export const HEADING_LIST_CAP_CLAUSE = `past ${MAX_LISTED_HEADINGS}, only the first ${MAX_LISTED_HEADINGS}, marked "(first ${MAX_LISTED_HEADINGS} of N)"`
 
 /** What a limit on an index-backed listing never tells the caller. */
 export const LIMIT_TRUNCATION_CLAUSE =
