@@ -485,18 +485,15 @@ export const chunkContent = (params: {
   }
 
   // Preamble (content above the first heading) has no owning section, so it
-  // keeps the base prefix (no Section line) and gets its own chunks, however
-  // short it is. The preamble and section texts are iterators: a span is
-  // split only when it is reached, and a fragment is prefixed only when it is
-  // read. Assembly stops at the first text past the note's chunk text limit,
-  // before any later span is split or any later fragment is prefixed.
-  const preambleLines = bodyLines.slice(0, firstHeading.startLine)
-  const preambleText = stripMarkdownSyntax(preambleLines.join("\n")).trim()
-  const preambleTexts = preambleText
-    ? splitWithTrailingMerge(preambleText, budgetAfterBasePrefix)
-        .values()
-        .map((fragment) => prefixFragment(basePrefix, fragment))
-    : []
+  // is a span with an empty heading path: it keeps the base prefix (no
+  // Section line) and gets its own chunks, however short it is.
+  const preambleSpan: SectionSpan = {
+    headingPath: [],
+    startLine: 0,
+    endLine: firstHeading.startLine,
+  }
+  const preambleExists =
+    stripMarkdownSyntax(bodyLines.slice(0, firstHeading.startLine).join("\n")).trim() !== ""
 
   // Total chunk budget minus the body-content floor (MIN), title, and
   // metadata leaves what is available for the Section-line ancestor path.
@@ -507,7 +504,11 @@ export const chunkContent = (params: {
     0,
   )
 
-  const sectionTexts = collectSectionSpans(headings, preambleText !== "")
+  // The span texts are an iterator: a span is split only when it is reached,
+  // and a fragment is prefixed only when it is read. Assembly stops at the
+  // first text past the note's chunk text limit, before any later span is
+  // split or any later fragment is prefixed.
+  const sectionTexts = [preambleSpan, ...collectSectionSpans(headings, preambleExists)]
     .values()
     .flatMap((sectionSpan) => {
       const sectionSpanText = stripMarkdownSyntax(
@@ -533,12 +534,7 @@ export const chunkContent = (params: {
         .map((fragment) => prefixFragment(sectionPrefix, fragment))
     })
 
-  // The identity flatMap chains the two iterators; Node 24 has no
-  // Iterator.concat.
-  const bodyChunkTexts = takeWithinCharacterLimit(
-    [preambleTexts, sectionTexts].values().flatMap((chunkTexts) => chunkTexts),
-    maxChunkTextCharacters,
-  )
+  const bodyChunkTexts = takeWithinCharacterLimit(sectionTexts, maxChunkTextCharacters)
 
   // The TOC chunk takes no metadata prefix — on a chunk this small the prefix
   // would dominate the token average, and notes of one type (e.g. Kanban
