@@ -29,6 +29,7 @@ import {
   NESTED_TAG_PREDICATE_SQL,
   noteHasTagCondition,
   NOTE_METADATA_COLUMNS_SQL,
+  EXACT_NAME_MATCH_SQL,
   toNameLookupText,
 } from "./search-helpers.js"
 import type { FileContentFtsRow } from "./search-helpers.js"
@@ -310,11 +311,6 @@ export const buildNoteFilterSql = (filters: Readonly<SearchFilters> | undefined)
 
 // ── Full-text search ───────────────────────────────────────────
 
-/** 1 when a line of the title column (the title or an alias) equals the bound
- *  name text, else 0. */
-const EXACT_NAME_MATCH_SQL =
-  "instr(char(10) || fold_name(notes_fts.title) || char(10), char(10) || ? || char(10)) > 0"
-
 export const fullTextSearch = (
   context: SearchQueryContext,
   params: {
@@ -336,8 +332,10 @@ export const fullTextSearch = (
   // result lean; callers triaging which note to open can request it.
   const includeLeadingCallout = params.include_leading_callout ?? false
 
-  // A query with no name text binds null, which makes instr return null, so
-  // no note gets the exact-name boost.
+  // - The name check reads the raw query, because sanitizing it for MATCH
+  //   rewrites its punctuation and quoting.
+  // - A query with no name text binds null, which makes instr return null, so
+  //   no note gets the exact-name boost.
   const nameLookupText = toNameLookupText(params.query) || null
 
   // Positional parameters bind in the order they appear in the SQL text: the
@@ -348,6 +346,9 @@ export const fullTextSearch = (
   // tie-break keeps equal-rank rows in the same order across index rebuilds;
   // without it they arrive in insertion order, which follows the directory
   // listing.
+  //
+  // n.title is the note's title alone, while notes_fts.title also holds its
+  // aliases. snippet() takes its column by index, and 2 is the content column.
   //
   // snippetTokens is interpolated as a coerced number rather than bound, so
   // queryParams lists every bound parameter.
@@ -382,7 +383,7 @@ export const fullTextSearch = (
           | "bytes"
         > & {
           snippet: string
-          is_exact_name: number
+          is_exact_name: number | null
           rank_score: number
           leading_callout?: string | null
         }
@@ -392,17 +393,18 @@ export const fullTextSearch = (
     // An exact-name match adds the best negated rank among the returned rows
     // to its own. FTS5 keeps every rank below zero, so an exact-name match
     // outscores every other returned row, and the scores descend in the order
-    // the query sorted the rows, as the tool description promises.
+    // the query sorted the rows, so a higher score still means a more relevant
+    // result.
     const bestRankScore = Math.max(0, ...rows.map((row) => row.rank_score))
 
-    /** The result contract caps scores at four significant digits; SQL ranks
-     * at full precision, so returned scores can tie without reordering hits. */
     const results: SearchResult[] = rows.map((row) => {
       const score = row.is_exact_name ? row.rank_score + bestRankScore : row.rank_score
 
       return noteRowToSearchResult({
         row,
         snippet: row.snippet,
+        // The result contract caps scores at four significant digits; SQL ranks
+        // at full precision, so returned scores can tie without reordering hits
         score: Number(score.toPrecision(4)),
         includeLeadingCallout,
       })

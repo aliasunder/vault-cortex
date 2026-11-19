@@ -488,6 +488,15 @@ const createStoredVectorLookup = (
   }
 }
 
+/** The note's `title` property when it is text, else its file name without `.md`. */
+const resolveNoteTitle = (params: {
+  frontmatter: Record<string, unknown>
+  notePath: string
+}): string => {
+  const { frontmatter, notePath } = params
+  return isString(frontmatter.title) ? frontmatter.title : basename(notePath, ".md")
+}
+
 // ── Factory ─────────────────────────────────────────────────────
 
 export const createSearchIndex = (
@@ -530,7 +539,8 @@ export const createSearchIndex = (
     return foldTag(String(value))
   })
 
-  // The keyword score compares stored names and the query with one folding rule.
+  // EXACT_NAME_MATCH_SQL folds each stored name with this function, and
+  // toNameLookupText folds the query with the same foldName in JavaScript.
   db.function("fold_name", { deterministic: true }, (value: unknown): string => {
     return foldName(String(value))
   })
@@ -1965,7 +1975,7 @@ export const createSearchIndex = (
 
     const note = {
       path: filePath,
-      title: isString(frontmatter.title) ? frontmatter.title : basename(filePath, ".md"),
+      title: resolveNoteTitle({ frontmatter, notePath: filePath }),
       content: noteBody,
       tags: JSON.stringify(tags),
       related: JSON.stringify(related),
@@ -1984,7 +1994,8 @@ export const createSearchIndex = (
     }
 
     const metadataText = buildFtsMetadataText(frontmatter)
-    // Aliases are the note's other names, so a match on one ranks like a match on the title
+    // The FTS title column holds the aliases beside the title, so an alias match
+    // ranks like a title match; the notes row keeps the title alone
     const ftsTitleText = buildFtsTitleText({
       title: note.title,
       aliases: parseFrontmatterAliases(frontmatter),
@@ -2183,16 +2194,18 @@ export const createSearchIndex = (
 
     if (
       !isCurrentSourceVersion({ sourcePath: notePath, sourceVersion: params.sourceVersion }, logger)
-    )
+    ) {
       return 0
+    }
 
     // Re-parsing is pure, so this reads what upsertNote read; the unreadable-block
     // error is ignored because upsertNote already logged it
     const { data: frontmatter, content: noteBody } = parseNoteSkippingUnreadableBlock(rawContent)
-    const noteTitle = buildChunkTitleLine({
-      title: isString(frontmatter.title) ? frontmatter.title : basename(notePath, ".md"),
+    const chunkTitleLine = buildChunkTitleLine({
+      title: resolveNoteTitle({ frontmatter, notePath }),
       aliases: parseFrontmatterAliases(frontmatter),
     })
+
     // Metadata enrichment changes chunk text, so every note re-embeds once
     // (content-hash gated) after the option flips — kept off until the
     // search-eval measurements justify it.
@@ -2203,7 +2216,7 @@ export const createSearchIndex = (
         })
       : null
     const chunks = chunkContent({
-      noteTitle,
+      noteTitle: chunkTitleLine,
       bodyContent: noteBody,
       metadataPrefix,
       sourcePath: notePath,
@@ -2281,8 +2294,9 @@ export const createSearchIndex = (
 
     if (
       !isCurrentSourceVersion({ sourcePath: notePath, sourceVersion: params.sourceVersion }, logger)
-    )
+    ) {
       return embeddedCount
+    }
 
     // chunkContent assigns indices 0 through length - 1, so a shortened note's
     // old tail starts at chunks.length; remove its vectors before their parent rows.
@@ -2430,8 +2444,9 @@ export const createSearchIndex = (
         { sourcePath: params.filePath, sourceVersion: params.sourceVersion },
         logger,
       )
-    )
+    ) {
       return 0
+    }
 
     const fileContentRow = selectFileContentForEmbeddingStmt.get(params.filePath)
 
@@ -2516,8 +2531,9 @@ export const createSearchIndex = (
         { sourcePath: params.filePath, sourceVersion: params.sourceVersion },
         logger,
       )
-    )
+    ) {
       return embeddedCount
+    }
 
     // chunkContent assigns indices 0 through length - 1, so a shortened file's
     // old tail starts at chunks.length; remove its vectors before their parent rows.

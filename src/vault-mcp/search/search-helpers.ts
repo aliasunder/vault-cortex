@@ -210,24 +210,40 @@ export const buildFtsMetadataText = (frontmatter: Record<string, unknown>): stri
 
 // ── Note names ─────────────────────────────────────────────────
 
-/** Folds a note name for comparison without letter case, as Obsidian's Quick
- *  Switcher compares names. The `fold_name` SQL function uses the same rule. */
+/**
+ * Folds a note name for comparison without letter case.
+ * - Obsidian's Quick Switcher, which opens a note by its title or an alias,
+ *   compares names this way: https://obsidian.md/help/plugins/quick-switcher
+ * - The `fold_name` SQL function uses the same rule.
+ */
 export const foldName = (name: string): string => name.toLowerCase()
+
+/**
+ * SQL expression over `notes_fts` that is 1 when the bound text equals a whole
+ * line of the title column, and 0 otherwise. It binds `toNameLookupText(query)`.
+ * - buildFtsTitleText writes the title and each alias on a line of its own.
+ * - A newline on both sides of both strings limits `instr` to whole lines.
+ */
+export const EXACT_NAME_MATCH_SQL =
+  "instr(char(10) || fold_name(notes_fts.title) || char(10), char(10) || ? || char(10)) > 0"
 
 /** Matches a query that is one double-quoted phrase and captures the text
  *  inside the quotes. */
 const QUOTED_PHRASE_RE = /^"(?<phrase>[^"]*)"$/
 
-/** The folded text a query is compared with note names: the trimmed query, or
- *  the text inside the quotes when the whole query is one double-quoted phrase.
- *  Empty when the query has no text or spans lines. */
+/**
+ * The folded text EXACT_NAME_MATCH_SQL compares with each note name:
+ * - the text inside the quotes when the whole query is one double-quoted phrase;
+ * - otherwise the trimmed query;
+ * - empty when the query has no text or spans lines.
+ */
 export const toNameLookupText = (query: string): string => {
   const trimmedQuery = query.trim()
   const quotedPhrase = QUOTED_PHRASE_RE.exec(trimmedQuery)?.groups?.phrase
   const nameText = quotedPhrase?.trim() ?? trimmedQuery
 
-  // The title column puts one name on each line, so text spanning lines would
-  // equal two adjacent names rather than one
+  // Each line of the title column holds one name, so text spanning lines would
+  // match two adjacent names joined together
   if (nameText.includes("\n")) return ""
   return foldName(nameText)
 }
@@ -250,7 +266,8 @@ const findDistinctAliases = (params: {
   return distinctAliases
 }
 
-/** The FTS title column's text: the title, then each distinct alias on its own line. */
+/** The FTS title column's text: the title, then each distinct alias on its own
+ *  line. EXACT_NAME_MATCH_SQL matches the query against these lines. */
 export const buildFtsTitleText = (params: {
   title: string
   aliases: ReadonlyArray<string>
