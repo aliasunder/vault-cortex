@@ -24,8 +24,8 @@ const ENV_LINE_BREAK = /[\r\n\u2028\u2029]/
 
 /**
  * Throws when a value would not stay on its own .env line: a line break
- * would split it into two lines. Callers check user input first with their own
- * message; this stops any caller that does not.
+ * would split it into two lines. The vault path and PUBLIC_URL checks refuse
+ * a line break first, with a clearer message.
  */
 export const assertSingleLineEnvValues = (
   values: Readonly<Record<string, string | undefined>>,
@@ -216,6 +216,13 @@ const parseHttpUrl = (value: string): URL | null => {
  */
 const PLAIN_URL_HOST = /^(?:[a-z0-9._-]+|\[[0-9a-f:.]+\])$/
 
+/**
+ * Matches what the URL parser drops or rewrites before the host is checked:
+ * whitespace (tabs and line breaks included), control characters and
+ * backslashes.
+ */
+const URL_CHARACTER_THE_PARSER_REWRITES = /[\s\p{Cc}\\]/u
+
 export type PublicUrlValidation = { kind: "ok"; url: string } | { kind: "error"; message: string }
 
 /** Validates a PUBLIC_URL value: must be a bare http(s) origin — no path, credentials, query, or fragment. */
@@ -234,6 +241,15 @@ export const validatePublicUrl = (input: string): PublicUrlValidation => {
     return {
       kind: "error",
       message: "PUBLIC_URL must not contain credentials (user:password@).",
+    }
+  }
+  // PUBLIC_URL is stored and printed as typed, not as parsed, so the text
+  // must hold nothing the parser would have rewritten.
+  if (URL_CHARACTER_THE_PARSER_REWRITES.test(trimmed)) {
+    return {
+      kind: "error",
+      message:
+        "PUBLIC_URL must not contain spaces, tabs, line breaks, control characters or backslashes.",
     }
   }
   // The CLI prints PUBLIC_URL unquoted in commands to paste into a shell, and

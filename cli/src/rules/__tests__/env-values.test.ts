@@ -490,6 +490,32 @@ describe("validatePublicUrl", () => {
   })
 
   it.each([
+    { label: "a tab", publicUrl: "https://exa\tmple.com" },
+    { label: "a line feed", publicUrl: "https://example.com\n:8000" },
+    { label: "a carriage return", publicUrl: "https://exa\rmple.com" },
+    {
+      label: "a line separator",
+      publicUrl: `https://example.com/a${String.fromCodePoint(0x2028)}b`,
+    },
+    { label: "a control character", publicUrl: `${String.fromCodePoint(0x01)}https://example.com` },
+    { label: "a backslash", publicUrl: "https://example.com\\" },
+    { label: "a space in the path", publicUrl: "https://example.com/a b" },
+  ])("rejects a URL containing $label, which the URL parser would rewrite", ({ publicUrl }) => {
+    expect(validatePublicUrl(publicUrl)).toEqual({
+      kind: "error",
+      message:
+        "PUBLIC_URL must not contain spaces, tabs, line breaks, control characters or backslashes.",
+    })
+  })
+
+  it("still trims surrounding spaces before checking", () => {
+    expect(validatePublicUrl("  https://vault.example.com  ")).toEqual({
+      kind: "ok",
+      url: "https://vault.example.com",
+    })
+  })
+
+  it.each([
     { label: "an international domain", publicUrl: "https://bücher.example" },
     { label: "an IPv6 address", publicUrl: "http://[::1]:8000" },
     { label: "an underscore", publicUrl: "https://vault_cortex.example" },
