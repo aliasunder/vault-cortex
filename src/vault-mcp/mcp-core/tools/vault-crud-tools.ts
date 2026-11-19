@@ -417,7 +417,7 @@ Behavior: A nonexistent folder or no glob matches returns an empty array, not an
 
 Errors:
 - "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use a vault-relative folder outside hidden folders, or omit folder to list the whole vault.
-- "glob matching timed out" — the glob takes too long to match against this vault's note paths; use fewer wildcards within one folder level, or narrow it with folder.
+- "glob matching timed out" — use fewer wildcards within one folder level, or narrow the glob with folder.
 ${LISTING_FILESYSTEM_ERROR_ENTRY}.
 
 Returns: JSON array of every matching vault-relative path (e.g. ["Notes/idea.md", "Projects/plan.md"]).`,
