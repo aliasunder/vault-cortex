@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { describe, expect, it, onTestFinished, vi } from "vitest"
@@ -20,13 +20,23 @@ import {
   NO_RUNTIME_GUIDANCE,
 } from "../../__tests__/command-stubs.js"
 
+// Creates a temp folder and registers its removal at creation time, so the
+// suite self-cleans even when an assertion throws mid-test.
+const makeTempDir = (prefix: string): string => {
+  const tempDir = mkdtempSync(join(tmpdir(), prefix))
+  onTestFinished(() => {
+    rmSync(tempDir, { recursive: true, force: true })
+  })
+  return tempDir
+}
+
 const makeVault = (): string => {
-  const vaultDir = mkdtempSync(join(tmpdir(), "vault-cli-vault-"))
+  const vaultDir = makeTempDir("vault-cli-vault-")
   mkdirSync(join(vaultDir, ".obsidian"))
   return vaultDir
 }
 
-const makeTargetDir = (): string => join(mkdtempSync(join(tmpdir(), "vault-cli-target-")), "out")
+const makeTargetDir = (): string => join(makeTempDir("vault-cli-target-"), "out")
 
 describe("runInit flag validation", () => {
   const invalidFlagScenarios = [
@@ -253,7 +263,7 @@ describe("local connect message client routing", () => {
 describe("target directory tilde expansion", () => {
   it("expands a leading ~ in --dir to the home directory instead of a literal ~ folder", async () => {
     const vaultDir = makeVault()
-    const fakeHome = mkdtempSync(join(tmpdir(), "vault-cli-home-"))
+    const fakeHome = makeTempDir("vault-cli-home-")
     const originalHome = process.env.HOME
     process.env.HOME = fakeHome
     onTestFinished(() => {
@@ -549,7 +559,7 @@ describe("runInit interactive local flow", () => {
   })
 
   it("asks for confirmation on a folder without .obsidian and proceeds on yes", async () => {
-    const plainDir = mkdtempSync(join(tmpdir(), "vault-cli-plain-"))
+    const plainDir = makeTempDir("vault-cli-plain-")
     const targetDir = makeTargetDir()
     const scripted = createScriptedPrompts([
       "local",

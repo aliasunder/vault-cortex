@@ -1,7 +1,7 @@
-import { mkdtempSync, writeFileSync } from "node:fs"
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { describe, expect, it, vi } from "vitest"
+import { describe, expect, it, onTestFinished, vi } from "vitest"
 
 import { pollHealth, type DockerRunner } from "../../adapters/docker.js"
 import { runUpgrade } from "../upgrade.js"
@@ -31,6 +31,16 @@ const writeRemoteEnv = (targetDir: string): void => {
   )
 }
 
+// Creates a temp folder and registers its removal at creation time, so the
+// suite self-cleans even when an assertion throws mid-test.
+const makeTempTargetDir = (): string => {
+  const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-upgrade-"))
+  onTestFinished(() => {
+    rmSync(targetDir, { recursive: true, force: true })
+  })
+  return targetDir
+}
+
 describe("runUpgrade", () => {
   it("exits 1 when no .env exists in the target directory", async () => {
     const targetDir = join(tmpdir(), "vault-cli-upgrade-missing")
@@ -48,7 +58,7 @@ describe("runUpgrade", () => {
   })
 
   it("exits 1 when Docker daemon is not running", async () => {
-    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-upgrade-"))
+    const targetDir = makeTempTargetDir()
     writeLocalEnv(targetDir)
     const scripted = createScriptedPrompts()
 
@@ -65,7 +75,7 @@ describe("runUpgrade", () => {
   })
 
   it("exits 1 when local .env has no VAULT_PATH", async () => {
-    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-upgrade-"))
+    const targetDir = makeTempTargetDir()
     writeFileSync(join(targetDir, ".env"), "MCP_AUTH_TOKEN=abc123\n")
     const scripted = createScriptedPrompts()
 
@@ -81,7 +91,7 @@ describe("runUpgrade", () => {
   })
 
   it("detects local mode and runs with the vault path from .env", async () => {
-    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-upgrade-"))
+    const targetDir = makeTempTargetDir()
     writeLocalEnv(targetDir)
     const dockerRunParams: Parameters<DockerRunner["dockerRun"]>[] = []
     const dockerSpy: DockerRunner = {
@@ -114,7 +124,7 @@ describe("runUpgrade", () => {
   })
 
   it("re-creates the container a custom INSTANCE_NAME names", async () => {
-    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-upgrade-"))
+    const targetDir = makeTempTargetDir()
     writeFileSync(
       join(targetDir, ".env"),
       "MCP_AUTH_TOKEN=abc123\nOBSIDIAN_AUTH_TOKEN=sync-token\nVAULT_NAME=Work\nPUBLIC_URL=https://work.example.com\nINSTANCE_NAME=work\n",
@@ -134,7 +144,7 @@ describe("runUpgrade", () => {
   })
 
   it("detects remote mode and runs without a vault path", async () => {
-    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-upgrade-"))
+    const targetDir = makeTempTargetDir()
     writeRemoteEnv(targetDir)
     const dockerRunParams: Parameters<DockerRunner["dockerRun"]>[] = []
     const dockerSpy: DockerRunner = {
@@ -170,7 +180,7 @@ describe("runUpgrade", () => {
     { label: "local", writeEnv: writeLocalEnv, image: "ghcr.io/aliasunder/vault-cortex:latest" },
     { label: "remote", writeEnv: writeRemoteEnv, image: "ghcr.io/aliasunder/vault-cortex:remote" },
   ])("pulls the image a $label install runs", async ({ writeEnv, image }) => {
-    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-upgrade-"))
+    const targetDir = makeTempTargetDir()
     writeEnv(targetDir)
     const pulledImages: string[] = []
     const docker: DockerRunner = {
@@ -192,7 +202,7 @@ describe("runUpgrade", () => {
   })
 
   it("probes the public URL after a remote upgrade", async () => {
-    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-upgrade-"))
+    const targetDir = makeTempTargetDir()
     writeRemoteEnv(targetDir)
     const fetchedUrls: string[] = []
     const fetchRecorder: typeof fetch = async (input) => {
@@ -228,7 +238,7 @@ describe("runUpgrade", () => {
   })
 
   it("keeps a successful remote upgrade at exit 0 when the public URL does not answer", async () => {
-    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-upgrade-"))
+    const targetDir = makeTempTargetDir()
     writeRemoteEnv(targetDir)
     const fetchedUrls: string[] = []
     // Localhost (the container check) answers; the public URL is unreachable
@@ -266,7 +276,7 @@ describe("runUpgrade", () => {
   })
 
   it("refuses a container of another app before downloading the image", async () => {
-    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-upgrade-"))
+    const targetDir = makeTempTargetDir()
     writeLocalEnv(targetDir)
     const pulledImages: string[] = []
     const docker: DockerRunner = {
@@ -294,7 +304,7 @@ describe("runUpgrade", () => {
   })
 
   it("exits 1 when image pull fails", async () => {
-    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-upgrade-"))
+    const targetDir = makeTempTargetDir()
     writeLocalEnv(targetDir)
     const dockerPullFails: DockerRunner = {
       ...dockerReady,
@@ -319,7 +329,7 @@ describe("runUpgrade", () => {
   })
 
   it("exits 1 when docker run fails", async () => {
-    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-upgrade-"))
+    const targetDir = makeTempTargetDir()
     writeLocalEnv(targetDir)
     const dockerRunFails: DockerRunner = {
       ...dockerReady,
@@ -341,7 +351,7 @@ describe("runUpgrade", () => {
   })
 
   it("reports success when the health check passes", async () => {
-    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-upgrade-"))
+    const targetDir = makeTempTargetDir()
     writeLocalEnv(targetDir)
     const scripted = createScriptedPrompts()
 
@@ -361,7 +371,7 @@ describe("runUpgrade", () => {
 
   it("reports failure when the health check times out", async () => {
     vi.mocked(pollHealth).mockResolvedValueOnce(false)
-    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-upgrade-"))
+    const targetDir = makeTempTargetDir()
     writeLocalEnv(targetDir)
     const scripted = createScriptedPrompts()
 
@@ -380,7 +390,7 @@ describe("runUpgrade", () => {
   })
 
   it("uses the PORT from .env for health polling", async () => {
-    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-upgrade-"))
+    const targetDir = makeTempTargetDir()
     writeFileSync(
       join(targetDir, ".env"),
       "MCP_AUTH_TOKEN=abc123\nVAULT_PATH=/vault\nPORT=9000\nPUBLIC_URL=http://localhost:9000\n",

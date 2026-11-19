@@ -1,10 +1,20 @@
-import { chmodSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs"
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, onTestFinished } from "vitest"
 
 import { runsAsRoot } from "../../../../src/__tests__/runs-as-root.js"
 import { expandTilde, validateVaultPath } from "../vault.js"
+
+// Creates a temp folder and registers its removal at creation time, so the
+// suite self-cleans even when an assertion throws mid-test.
+const makeTempDir = (): string => {
+  const tempDir = mkdtempSync(join(tmpdir(), "vault-cli-"))
+  onTestFinished(() => {
+    rmSync(tempDir, { recursive: true, force: true })
+  })
+  return tempDir
+}
 
 describe("expandTilde", () => {
   it("expands a leading ~/ to the home directory", () => {
@@ -97,7 +107,7 @@ describe("validateVaultPath", () => {
   it.skipIf(runsAsRoot)(
     "returns the does-not-exist error for a path behind a folder it cannot open",
     () => {
-      const lockedDir = join(mkdtempSync(join(tmpdir(), "vault-cli-")), "locked")
+      const lockedDir = join(makeTempDir(), "locked")
       mkdirSync(lockedDir)
       chmodSync(lockedDir, 0o000)
       const pathBehindLockedDir = join(lockedDir, "MyVault")
@@ -108,14 +118,14 @@ describe("validateVaultPath", () => {
           message: `Path does not exist: ${pathBehindLockedDir}`,
         })
       } finally {
-        // The OS temp cleanup needs the locked folder readable again.
+        // The temp folder's removal needs the locked folder readable again.
         chmodSync(lockedDir, 0o700)
       }
     },
   )
 
   it("returns the does-not-exist error for a path that runs through a file", () => {
-    const tempDir = mkdtempSync(join(tmpdir(), "vault-cli-"))
+    const tempDir = makeTempDir()
     const filePath = join(tempDir, "note.md")
     writeFileSync(filePath, "# hi")
     const pathThroughFile = join(filePath, "MyVault")
@@ -129,7 +139,7 @@ describe("validateVaultPath", () => {
   })
 
   it("returns an error when the path is a file, not a directory", () => {
-    const tempDir = mkdtempSync(join(tmpdir(), "vault-cli-"))
+    const tempDir = makeTempDir()
     const filePath = join(tempDir, "note.md")
     writeFileSync(filePath, "# hi")
 
@@ -142,7 +152,7 @@ describe("validateVaultPath", () => {
   })
 
   it("warns when the directory has no .obsidian folder", () => {
-    const tempDir = mkdtempSync(join(tmpdir(), "vault-cli-"))
+    const tempDir = makeTempDir()
 
     const validation = validateVaultPath(tempDir)
 
@@ -154,7 +164,7 @@ describe("validateVaultPath", () => {
   })
 
   it("returns ok for a directory containing .obsidian", () => {
-    const tempDir = mkdtempSync(join(tmpdir(), "vault-cli-"))
+    const tempDir = makeTempDir()
     mkdirSync(join(tempDir, ".obsidian"))
 
     const validation = validateVaultPath(tempDir)
