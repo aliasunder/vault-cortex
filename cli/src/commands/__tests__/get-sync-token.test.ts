@@ -105,13 +105,12 @@ describe("runGetSyncToken subcommand", () => {
 
     expect(exitCode).toBe(1)
     expect(scripted.errors).toEqual([
-      `Could not patch ${envPath} — the file is missing ` +
-        "or has no OBSIDIAN_AUTH_TOKEN line. Run init first.",
+      `Could not patch ${envPath} — the file is missing. Run init first.`,
     ])
     expect(existsSync(envPath)).toBe(false)
   })
 
-  it("exits 1 before the sign-in when --dir .env has no OBSIDIAN_AUTH_TOKEN line", async () => {
+  it("exits 1 before the sign-in when --dir holds a local install", async () => {
     const targetDir = makeTempTargetDir()
     writeFileSync(join(targetDir, ".env"), "MCP_AUTH_TOKEN=abc\n")
     const scripted = createScriptedPrompts(["user@example.com", "password"])
@@ -126,8 +125,8 @@ describe("runGetSyncToken subcommand", () => {
 
     expect(exitCode).toBe(1)
     expect(scripted.errors).toEqual([
-      `Could not patch ${join(targetDir, ".env")} — the file is missing ` +
-        "or has no OBSIDIAN_AUTH_TOKEN line. Run init first.",
+      `Could not patch ${join(targetDir, ".env")} — it holds a local install, which has no ` +
+        "OBSIDIAN_AUTH_TOKEN line. --dir writes the token into a remote install's .env.",
     ])
     expect(scripted.asked).toEqual([])
     expect(readFileSync(join(targetDir, ".env"), "utf8")).toBe("MCP_AUTH_TOKEN=abc\n")
@@ -176,6 +175,23 @@ describe("runGetSyncToken subcommand", () => {
     expect(readFileSync(join(targetDir, ".env"), "utf8")).toBe(remoteEnv)
   })
 
+  it("exits 1 before the sign-in when --dir names a file", async () => {
+    const filePath = join(makeTempTargetDir(), "notes.md")
+    writeFileSync(filePath, "# notes\n")
+    const scripted = createScriptedPrompts(["user@example.com", "password"])
+
+    const exitCode = await runGetSyncToken(
+      { dir: filePath },
+      { prompts: scripted.prompts, fetchFn: fetchSigninSuccess("new-sync-token") },
+    )
+
+    expect(exitCode).toBe(1)
+    expect(scripted.errors).toEqual([
+      `${filePath} is a file, not a folder. Choose a folder with --dir.`,
+    ])
+    expect(scripted.asked).toEqual([])
+  })
+
   it("exits 1 before the sign-in when --dir .env does not exist", async () => {
     const targetDir = join(makeTempTargetDir(), "nonexistent")
     const scripted = createScriptedPrompts(["user@example.com", "password"])
@@ -190,8 +206,7 @@ describe("runGetSyncToken subcommand", () => {
 
     expect(exitCode).toBe(1)
     expect(scripted.errors).toEqual([
-      `Could not patch ${join(targetDir, ".env")} — the file is missing ` +
-        "or has no OBSIDIAN_AUTH_TOKEN line. Run init first.",
+      `Could not patch ${join(targetDir, ".env")} — the file is missing. Run init first.`,
     ])
     expect(scripted.asked).toEqual([])
   })

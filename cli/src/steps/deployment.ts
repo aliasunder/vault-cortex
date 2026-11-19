@@ -100,7 +100,9 @@ export const requireInitializedDir = (
 
   // Only a missing file stops here: an empty .env reads as a local install.
   if (envContent === undefined) {
-    prompts.error(`No .env found in ${targetDir} — run \`${vaultCortexCommand("init")}\` first.`)
+    prompts.error(
+      `No .env found in ${targetDir} — run \`${vaultCortexCommand("init", targetDir)}\` first.`,
+    )
     return undefined
   }
   const envValues = parseEnvValues(envContent)

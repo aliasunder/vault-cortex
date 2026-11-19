@@ -195,6 +195,10 @@ export const describeUnprintableInstallFolder = (targetDir: string): string | un
   return "The install folder's path contains a control character, which a terminal cannot show. Choose another folder with --dir."
 }
 
+/** The bits of a stat mode that hold the file type, and the value they hold for a folder. */
+const FILE_TYPE_BITS = 0o170000
+const DIRECTORY_TYPE = 0o040000
+
 /** The permission bit that lets every user on the machine change a folder's contents. */
 const OTHERS_WRITE_BIT = 0o002
 
@@ -213,7 +217,12 @@ export const describeUntrustedInstallFolder = (params: {
 }): string | undefined => {
   const { targetDir, folder, trustedOwnerIds } = params
 
-  if (!folder || !trustedOwnerIds) return undefined
+  if (!folder) return undefined
+  // init would fail to create the folder only after its whole flow, sign-in included.
+  if ((folder.mode & FILE_TYPE_BITS) !== DIRECTORY_TYPE) {
+    return `${targetDir} is a file, not a folder. Choose a folder with --dir.`
+  }
+  if (!trustedOwnerIds) return undefined
   if (!trustedOwnerIds.includes(folder.ownerUid)) {
     return `${targetDir} belongs to another user, and the CLI uses only an install folder that you or root own. Choose a folder of your own with --dir.`
   }

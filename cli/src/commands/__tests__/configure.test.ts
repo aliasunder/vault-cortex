@@ -49,7 +49,7 @@ describe("runConfigure preconditions", () => {
 
     expect(exitCode).toBe(1)
     expect(scripted.errors).toEqual([
-      `No .env found in ${targetDir} — run \`npx vault-cortex@latest init\` first.`,
+      `No .env found in ${targetDir} — run \`npx vault-cortex@latest init --dir '${targetDir}'\` first.`,
     ])
   })
 })

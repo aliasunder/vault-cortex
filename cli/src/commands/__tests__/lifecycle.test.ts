@@ -56,7 +56,7 @@ describe("runDown", () => {
 
     expect(exitCode).toBe(1)
     expect(scripted.errors).toEqual([
-      `No .env found in ${targetDir} — run \`npx vault-cortex@latest init\` first.`,
+      `No .env found in ${targetDir} — run \`npx vault-cortex@latest init --dir '${targetDir}'\` first.`,
     ])
   })
 
@@ -280,7 +280,7 @@ describe("runLogs", () => {
 
     expect(exitCode).toBe(1)
     expect(scripted.errors).toEqual([
-      `No .env found in ${targetDir} — run \`npx vault-cortex@latest init\` first.`,
+      `No .env found in ${targetDir} — run \`npx vault-cortex@latest init --dir '${targetDir}'\` first.`,
     ])
   })
 
@@ -439,7 +439,7 @@ describe("runStart", () => {
 
     expect(exitCode).toBe(1)
     expect(scripted.errors).toEqual([
-      `No .env found in ${targetDir} — run \`npx vault-cortex@latest init\` first.`,
+      `No .env found in ${targetDir} — run \`npx vault-cortex@latest init --dir '${targetDir}'\` first.`,
     ])
   })
 })
@@ -456,7 +456,7 @@ describe("runRestart", () => {
 
     expect(exitCode).toBe(1)
     expect(scripted.errors).toEqual([
-      `No .env found in ${targetDir} — run \`npx vault-cortex@latest init\` first.`,
+      `No .env found in ${targetDir} — run \`npx vault-cortex@latest init --dir '${targetDir}'\` first.`,
     ])
   })
 

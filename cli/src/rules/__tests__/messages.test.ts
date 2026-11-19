@@ -107,6 +107,16 @@ describe("describeUntrustedInstallFolder", () => {
     ).toBeUndefined()
   })
 
+  it("refuses a path that is a file, wherever files have no Unix owner too", () => {
+    expect(
+      describeUntrustedInstallFolder({
+        targetDir: "/home/me/notes.md",
+        folder: { ownerUid: 501, mode: 0o100644, aclAllowsAccess: false },
+        trustedOwnerIds: undefined,
+      }),
+    ).toBe("/home/me/notes.md is a file, not a folder. Choose a folder with --dir.")
+  })
+
   it("refuses a folder another user owns", () => {
     expect(
       describeUntrustedInstallFolder({

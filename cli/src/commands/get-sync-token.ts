@@ -27,10 +27,22 @@ const holdsTokenLine = (envContent: string | undefined): envContent is string =>
   return envContent !== undefined && parseEnvValues(envContent).has("OBSIDIAN_AUTH_TOKEN")
 }
 
-const describeMissingTokenLine = (envFilePath: string): string => {
+/**
+ * Why --dir's .env cannot take the token: it is missing, or it belongs to a
+ * local install, which has no OBSIDIAN_AUTH_TOKEN line and never needs one.
+ */
+const describeMissingTokenLine = (params: {
+  envFilePath: string
+  envContent: string | undefined
+}): string => {
+  const { envFilePath, envContent } = params
+
+  if (envContent === undefined) {
+    return `Could not patch ${envFilePath} — the file is missing. Run init first.`
+  }
   return (
-    `Could not patch ${envFilePath} — the file is missing or has no ` +
-    "OBSIDIAN_AUTH_TOKEN line. Run init first."
+    `Could not patch ${envFilePath} — it holds a local install, which has no ` +
+    "OBSIDIAN_AUTH_TOKEN line. --dir writes the token into a remote install's .env."
   )
 }
 
@@ -56,9 +68,16 @@ const printSyncToken = async (deps: GetSyncTokenDeps): Promise<number> => {
 const writeSyncToken = async (targetDir: string, deps: GetSyncTokenDeps): Promise<number> => {
   const { prompts } = deps
   const envFilePath = join(targetDir, ".env")
-  const targetDirProblem =
-    describeInstallFolderProblem(targetDir) ??
-    (holdsTokenLine(envFile.read(envFilePath)) ? undefined : describeMissingTokenLine(envFilePath))
+  const installFolderProblem = describeInstallFolderProblem(targetDir)
+
+  if (installFolderProblem) {
+    prompts.error(installFolderProblem)
+    return 1
+  }
+  const envContentBeforeSignIn = envFile.read(envFilePath)
+  const targetDirProblem = holdsTokenLine(envContentBeforeSignIn)
+    ? undefined
+    : describeMissingTokenLine({ envFilePath, envContent: envContentBeforeSignIn })
 
   if (targetDirProblem) {
     prompts.error(targetDirProblem)
@@ -73,7 +92,7 @@ const writeSyncToken = async (targetDir: string, deps: GetSyncTokenDeps): Promis
   const envContent = envFile.read(envFilePath)
 
   if (!holdsTokenLine(envContent)) {
-    prompts.error(describeMissingTokenLine(envFilePath))
+    prompts.error(describeMissingTokenLine({ envFilePath, envContent }))
     return 1
   }
   envFile.replace(envFilePath, applyOptionalSettings(envContent, { OBSIDIAN_AUTH_TOKEN: token }))
