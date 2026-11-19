@@ -1240,6 +1240,36 @@ describe("runInit with a kept existing .env", () => {
     expect(recording.runParams.map((params) => params.vaultPath)).toEqual([keptVaultDir])
   })
 
+  it("starts the mode the kept file holds, as start does", async () => {
+    // No MCP_AUTH_TOKEN line, so the file is not one init wrote and the
+    // local-over-remote guard lets the run continue.
+    const vaultDir = makeVault()
+    const targetDir = makeTargetDir()
+    mkdirSync(targetDir, { recursive: true })
+    writeFileSync(
+      join(targetDir, ".env"),
+      "OBSIDIAN_AUTH_TOKEN=t\nPUBLIC_URL=https://vault.example.com\n",
+    )
+    const scripted = createScriptedPrompts([
+      ...keepEnvAnswers(vaultDir, targetDir),
+      true, // start the server now
+    ])
+    const recording = createRecordingDocker()
+    const fetchHealthy: typeof fetch = async () => {
+      return new Response(null, { status: 200 })
+    }
+
+    const exitCode = await runInit(
+      {},
+      { prompts: scripted.prompts, docker: recording.docker, fetchFn: fetchHealthy },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(recording.runParams.map(({ mode, vaultPath }) => ({ mode, vaultPath }))).toEqual([
+      { mode: "remote", vaultPath: undefined },
+    ])
+  })
+
   it("publishes on the kept file's BIND_ADDRESS and polls health there, as start does", async () => {
     const vaultDir = makeVault()
     const targetDir = makeTargetDir()
