@@ -165,9 +165,9 @@ const takeWithinCharacterLimit = (
   let keptCharacters = 0
 
   for (const chunkText of chunkTexts) {
-    const passesLimit = keptCharacters + chunkText.length > maxCharacters
+    const exceedsLimit = keptCharacters + chunkText.length > maxCharacters
 
-    if (passesLimit && keptTexts.length > 0) break
+    if (exceedsLimit && keptTexts.length > 0) break
     keptTexts.push(chunkText)
     keptCharacters += chunkText.length
   }
@@ -180,11 +180,12 @@ const indexChunks = (chunkTexts: readonly string[]): NoteChunk[] => {
 
 /** Prefix each text fragment with the chunk prefix, within the note's chunk
  *  text limit, and assign sequential indices. */
-const toChunks = (
-  fragments: readonly string[],
-  chunkPrefix: string,
-  maxChunkTextCharacters: number,
-): NoteChunk[] => {
+const toChunks = (params: {
+  fragments: readonly string[]
+  chunkPrefix: string
+  maxChunkTextCharacters: number
+}): NoteChunk[] => {
+  const { fragments, chunkPrefix, maxChunkTextCharacters } = params
   const chunkTexts = fragments.values().map((fragment) => prefixFragment(chunkPrefix, fragment))
   return indexChunks(takeWithinCharacterLimit(chunkTexts, maxChunkTextCharacters))
 }
@@ -253,6 +254,10 @@ const capHeadingPath = (
   return capped
 }
 
+/** A heading with its name as plain text, stripped once for both the Section
+ *  lines and the table of contents. */
+type NamedHeading = HeadingInfo & Readonly<{ name: string }>
+
 /** A heading's slice of the note (full subtree for top-level headings,
  *  own body for deeper ones — see collectSectionSpans) plus the
  *  ancestor-chain path that names it. */
@@ -281,7 +286,7 @@ type SectionSpan = Readonly<{
  *  no Section line. The heading's words stay findable in the TOC chunk and
  *  in descendants' Section lines. */
 const collectSectionSpans = (
-  headings: readonly HeadingInfo[],
+  headings: readonly NamedHeading[],
   preambleExists: boolean,
 ): SectionSpan[] => {
   const shallowestLevel = headings.reduce(
@@ -310,14 +315,9 @@ const collectSectionSpans = (
       ancestorStack.pop()
     }
 
-    // Wikilinks and emphasis markers in heading text would inject raw [[ / **
-    // tokens into Section lines and the TOC — strip to plain text once here.
-    // Cut once here too, so a long ancestor name is not copied in full into
-    // every descendant's Section line.
-    const headingText = truncateToCodePointLimit(
-      stripMarkdownSyntax(heading.text).trim(),
-      MAX_CHUNK_PREFIX_PART_CODE_POINTS,
-    )
+    // Cut once here, so a long ancestor name is not copied in full into every
+    // descendant's Section line.
+    const headingText = truncateToCodePointLimit(heading.name, MAX_CHUNK_PREFIX_PART_CODE_POINTS)
     const headingSegment = { text: headingText, tokens: approximateTokenCount(headingText) }
 
     // Empty-text segments (a bare `##` line) carry no vocabulary — skip them.
@@ -357,16 +357,17 @@ const collectSectionSpans = (
  *  (Kanban boards sharing standard lanes) would otherwise emit byte-identical
  *  TOC chunks and tie at identical distance, leaving their relative rank to
  *  an arbitrary tie-break. */
-const buildTableOfContentsText = (
-  noteTitle: string,
-  headings: readonly HeadingInfo[],
-  folderSegments: readonly string[],
-): string | null => {
-  // Stripped like the Section lines — raw wikilink/emphasis markers would
-  // pollute the short chunk's vocabulary. Unlike the Section lines, the names
-  // are not cut: each appears once, in this one chunk.
+const buildTableOfContentsText = (params: {
+  noteTitle: string
+  headings: readonly NamedHeading[]
+  folderSegments: readonly string[]
+}): string | null => {
+  const { noteTitle, headings, folderSegments } = params
+
+  // Unlike the Section lines, the names are not cut: each appears once, in
+  // this one chunk.
   const headingNames = headings
-    .map((heading) => stripMarkdownSyntax(heading.text).trim())
+    .map((heading) => heading.name)
     .filter((headingName) => headingName !== "")
 
   if (headingNames.length === 0) return null
@@ -462,38 +463,37 @@ export const chunkContent = (params: {
       Boolean(prefixMetadata) && bodyTokenCount > budgetAfterBasePrefix
 
     if (!exceedsBudgetWithPrefix) {
-      return toChunks([strippedBody], basePrefix, maxChunkTextCharacters)
+      return toChunks({
+        fragments: [strippedBody],
+        chunkPrefix: basePrefix,
+        maxChunkTextCharacters,
+      })
     }
-    return toChunks(
-      splitWithTrailingMerge(strippedBody, budgetAfterBasePrefix),
-      basePrefix,
+    return toChunks({
+      fragments: splitWithTrailingMerge(strippedBody, budgetAfterBasePrefix),
+      chunkPrefix: basePrefix,
       maxChunkTextCharacters,
-    )
+    })
   }
 
   const bodyLines = splitIntoLines(bodyContent)
-  const headings = parseHeadings(bodyLines)
+  // Wikilinks and emphasis markers in heading text would inject raw [[ / **
+  // tokens into Section lines and the TOC, so each name is stripped to plain
+  // text once here.
+  const headings = parseHeadings(bodyLines).map((heading) => ({
+    ...heading,
+    name: stripMarkdownSyntax(heading.text).trim(),
+  }))
   const firstHeading = headings[0]
 
   // No headings — split at paragraph boundaries
   if (!firstHeading) {
-    return toChunks(
-      splitWithTrailingMerge(strippedBody, budgetAfterBasePrefix),
-      basePrefix,
+    return toChunks({
+      fragments: splitWithTrailingMerge(strippedBody, budgetAfterBasePrefix),
+      chunkPrefix: basePrefix,
       maxChunkTextCharacters,
-    )
+    })
   }
-
-  // Preamble (content above the first heading) has no owning section, so it
-  // is a span with an empty heading path: it keeps the base prefix (no
-  // Section line) and gets its own chunks, however short it is.
-  const preambleSpan: SectionSpan = {
-    headingPath: [],
-    startLine: 0,
-    endLine: firstHeading.startLine,
-  }
-  const preambleExists =
-    stripMarkdownSyntax(bodyLines.slice(0, firstHeading.startLine).join("\n")).trim() !== ""
 
   // Total chunk budget minus the body-content floor (MIN), title, and
   // metadata leaves what is available for the Section-line ancestor path.
@@ -504,37 +504,57 @@ export const chunkContent = (params: {
     0,
   )
 
-  // The span texts are an iterator: a span is split only when it is reached,
-  // and a fragment is prefixed only when it is read. Assembly stops at the
+  /** A section's stripped text split into fragments, each prefixed only when it
+   *  is read. An empty heading path gives the base prefix (no Section line). */
+  const sectionChunkTexts = (
+    headingPath: readonly HeadingSegment[],
+    sectionText: string,
+  ): Iterable<string> => {
+    // A heading whose span has no content emits nothing — a heading-only
+    // fragment is too small to embed meaningfully, and any descendant
+    // fragment already carries the heading's words in its Section line.
+    // A childless empty heading emits no section chunk, but its name still
+    // rides the TOC chunk, and full-text search indexes the whole note text.
+    if (!sectionText) return []
+
+    const cappedPath = capHeadingPath(headingPath, sectionLineBudget)
+    const sectionLine =
+      cappedPath.length > 0
+        ? `Section: ${cappedPath.map((segment) => segment.text).join(" > ")}`
+        : null
+    const sectionPrefix = buildChunkPrefix(sectionLine)
+
+    return splitWithTrailingMerge(sectionText, budgetAfterPrefix(sectionPrefix))
+      .values()
+      .map((fragment) => prefixFragment(sectionPrefix, fragment))
+  }
+
+  // Preamble (content above the first heading) has no owning section, so it
+  // keeps the base prefix and gets its own chunks, however short it is.
+  const preambleText = stripMarkdownSyntax(
+    bodyLines.slice(0, firstHeading.startLine).join("\n"),
+  ).trim()
+
+  // A section span is split only when it is reached. Assembly stops at the
   // first text past the note's chunk text limit, before any later span is
   // split or any later fragment is prefixed.
-  const sectionTexts = [preambleSpan, ...collectSectionSpans(headings, preambleExists)]
+  const sectionTexts = collectSectionSpans(headings, preambleText !== "")
     .values()
     .flatMap((sectionSpan) => {
       const sectionSpanText = stripMarkdownSyntax(
         bodyLines.slice(sectionSpan.startLine, sectionSpan.endLine).join("\n"),
       ).trim()
-
-      // A heading whose span has no content emits nothing — a heading-only
-      // fragment is too small to embed meaningfully, and any descendant
-      // fragment already carries the heading's words in its Section line.
-      // A childless empty heading emits no section chunk, but its name still
-      // rides the TOC chunk, and full-text search indexes the whole note text.
-      if (!sectionSpanText) return []
-
-      const cappedPath = capHeadingPath(sectionSpan.headingPath, sectionLineBudget)
-      const sectionLine =
-        cappedPath.length > 0
-          ? `Section: ${cappedPath.map((segment) => segment.text).join(" > ")}`
-          : null
-      const sectionPrefix = buildChunkPrefix(sectionLine)
-
-      return splitWithTrailingMerge(sectionSpanText, budgetAfterPrefix(sectionPrefix))
-        .values()
-        .map((fragment) => prefixFragment(sectionPrefix, fragment))
+      return sectionChunkTexts(sectionSpan.headingPath, sectionSpanText)
     })
 
-  const bodyChunkTexts = takeWithinCharacterLimit(sectionTexts, maxChunkTextCharacters)
+  // The identity flatMap puts the preamble's texts before the sections'; Node
+  // 24 has no Iterator.concat.
+  const bodyChunkTexts = takeWithinCharacterLimit(
+    [sectionChunkTexts([], preambleText), sectionTexts]
+      .values()
+      .flatMap((chunkTexts) => chunkTexts),
+    maxChunkTextCharacters,
+  )
 
   // The TOC chunk takes no metadata prefix — on a chunk this small the prefix
   // would dominate the token average, and notes of one type (e.g. Kanban
@@ -542,7 +562,11 @@ export const chunkContent = (params: {
   // the note-vs-note discrimination this chunk exists to provide. It sits
   // outside the chunk text limit: it is emitted once, and it is the note's one
   // short chunk for broad queries.
-  const tableOfContentsText = buildTableOfContentsText(tocTitle, headings, folderSegments)
+  const tableOfContentsText = buildTableOfContentsText({
+    noteTitle: tocTitle,
+    headings,
+    folderSegments,
+  })
   const tableOfContentsTexts = tableOfContentsText ? [tableOfContentsText.trim()] : []
 
   // The TOC is emitted LAST: the reranker (hybrid-search.ts) scores FTS-only
@@ -557,7 +581,7 @@ export const chunkContent = (params: {
   // no heading name fits the TOC's budget) keeps the whole-body fallback so it
   // never silently leaves the vector index.
   if (chunkTexts.length === 0) {
-    return toChunks([strippedBody], basePrefix, maxChunkTextCharacters)
+    return toChunks({ fragments: [strippedBody], chunkPrefix: basePrefix, maxChunkTextCharacters })
   }
 
   // Each text already carries its per-section prefix (sections have
