@@ -42,8 +42,8 @@ const MIN_CHUNK_TOKENS = 50
 
 /** Each prefix part (the note title, the metadata line, each heading name) is
  *  cut to this many code points before it joins a chunk prefix. The embedding
- *  model reads 512 tokens, about 2,000 characters of English, so prefix text
- *  past this point leaves no body text in view. */
+ *  model reads 512 tokens, and 2,000 characters of English take about 370 of
+ *  them, so a longer part would leave little or no body text in view. */
 const MAX_CHUNK_PREFIX_PART_CODE_POINTS = 2_000
 
 // A note's chunk text stops at the smaller of the two bounds below; the first
