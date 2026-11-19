@@ -8,20 +8,22 @@ import {
 } from "../adapters/docker.js"
 import { envFile } from "../adapters/env-file.js"
 import type { Prompts } from "../adapters/prompts.js"
-import { describeInvalidEnvBindAddress, isValidBindAddress } from "../rules/bind-address.js"
 import {
   DEFAULT_INSTANCE_NAME,
   describeInvalidInstanceName,
   parseEnvValues,
+  readEnvBindAddress,
+  readEnvInstanceName,
+  readEnvPort,
   readEnvValue,
   validatePublicUrl,
+  type EnvValues,
 } from "../rules/env-values.js"
 import { withPublicUrlOverride, type InstanceIdentity } from "../rules/env-edits.js"
 import { describeEnvFix, vaultCortexCommand } from "../rules/messages.js"
 import {
   DEFAULT_PORT,
   buildPortsInUse,
-  describeInvalidEnvPort,
   isValidPort,
   portsOfOtherContainers,
   VALID_PORT_RANGE,
@@ -57,8 +59,7 @@ const CARRIED_SETTINGS: Readonly<Record<Mode, ReadonlyArray<string>>> = {
   remote: ["INSTANCE_NAME", "PORT", "BIND_ADDRESS", "DEVICE_NAME"],
 }
 
-const readCarriedIdentity = (envContent: string, mode: Mode): Record<string, string> => {
-  const envValues = parseEnvValues(envContent)
+const readCarriedIdentity = (envValues: EnvValues, mode: Mode): Record<string, string> => {
   const carriedEntries = CARRIED_SETTINGS[mode].flatMap((name) => {
     const currentValue = readEnvValue(envValues, name)
     return currentValue ? [[name, currentValue] as const] : []
@@ -257,34 +258,31 @@ export const resolveInstanceIdentity = async (
   // and its own container and volumes would always count as in use, so a
   // re-run skips the name check.
   if (existingEnvContent !== undefined) {
-    const carried = readCarriedIdentity(existingEnvContent, mode)
-    const carriedName = carried.INSTANCE_NAME || DEFAULT_INSTANCE_NAME
-    const carriedNameError = describeInvalidInstanceName(carriedName)
+    const existingEnvValues = parseEnvValues(existingEnvContent)
+    const carried = readCarriedIdentity(existingEnvValues, mode)
+    const carriedNameRead = readEnvInstanceName(existingEnvValues)
 
     // An invalid kept name gets the error every other command gives it before
     // init asks anything more, since the re-run would carry it into the new .env.
-    if (carriedNameError) {
-      prompts.error(describeEnvFix({ problem: `INSTANCE_NAME ${carriedNameError}`, targetDir }))
+    if (carriedNameRead.kind === "invalid") {
+      prompts.error(describeEnvFix({ problem: carriedNameRead.message, targetDir }))
       return { kind: "exit" }
     }
+    const carriedName = carriedNameRead.instanceName
     // The same holds for a kept port, unless --port replaces it.
-    const carriedPortError =
-      carried.PORT && !isValidPort(carried.PORT) ? describeInvalidEnvPort(carried.PORT) : undefined
+    const carriedPortRead = readEnvPort(existingEnvValues)
 
-    if (carriedPortError && !flags.port) {
-      prompts.error(describeEnvFix({ problem: carriedPortError, targetDir }))
+    if (carriedPortRead.kind === "invalid" && !flags.port) {
+      prompts.error(describeEnvFix({ problem: carriedPortRead.message, targetDir }))
       return { kind: "exit" }
     }
     // The same holds for a kept bind address, which no flag replaces. Without
     // this check, start refuses it only after the overwrite has already
     // replaced the old .env and its token.
-    const carriedBindAddressError =
-      carried.BIND_ADDRESS && !isValidBindAddress(carried.BIND_ADDRESS)
-        ? describeInvalidEnvBindAddress(carried.BIND_ADDRESS)
-        : undefined
+    const carriedBindAddressRead = readEnvBindAddress(existingEnvValues, mode)
 
-    if (carriedBindAddressError) {
-      prompts.error(describeEnvFix({ problem: carriedBindAddressError, targetDir }))
+    if (carriedBindAddressRead.kind === "invalid") {
+      prompts.error(describeEnvFix({ problem: carriedBindAddressRead.message, targetDir }))
       return { kind: "exit" }
     }
     // The same holds for a kept local PUBLIC_URL, because the server refuses
