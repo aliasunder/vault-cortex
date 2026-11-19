@@ -22,7 +22,7 @@ type SlotRequest =
   | Readonly<{
       admitted: true
       taken: Promise<Readonly<{ kind: "slot-taken" }>>
-      /** Leaves the queue, or gives back a slot handed over after the caller stopped waiting. */
+      /** Leaves the queue, or releases a slot handed over after the caller stopped waiting. */
       abandon: () => void
     }>
   | Readonly<{ admitted: false }>
@@ -35,13 +35,13 @@ type SlotRequest =
  */
 const createWorkerSlots = (params: { maxRunningWorkers: number; maxWaitingCalls: number }) => {
   const { maxRunningWorkers, maxWaitingCalls } = params
-  // Each waiting caller's grant, oldest first. A queue mutated in place, since
-  // callers join it and leave it at any time
+  // Holds each waiting caller's grant, oldest first, and is mutated in place
+  // because callers join it and leave it at any time
   const waitingGrants: Array<() => void> = []
-  // The slots held now, which changes as callers take and give them back
+  // Counts the slots held now, and changes as callers take and release them
   let heldSlots = 0
 
-  const give = (): void => {
+  const release = (): void => {
     const nextGrant = waitingGrants.shift()
 
     // The slot passes straight to the next caller, so the held count stays the same
@@ -52,10 +52,10 @@ const createWorkerSlots = (params: { maxRunningWorkers: number; maxWaitingCalls:
     heldSlots -= 1
   }
 
-  const take = (): SlotRequest => {
+  const request = (): SlotRequest => {
     if (heldSlots < maxRunningWorkers) {
       heldSlots += 1
-      return { admitted: true, taken: Promise.resolve({ kind: "slot-taken" }), abandon: give }
+      return { admitted: true, taken: Promise.resolve({ kind: "slot-taken" }), abandon: release }
     }
 
     if (waitingGrants.length >= maxWaitingCalls) return { admitted: false }
@@ -72,7 +72,7 @@ const createWorkerSlots = (params: { maxRunningWorkers: number; maxWaitingCalls:
 
       // Not waiting any more means the slot was already handed to this caller
       if (waitingIndex === -1) {
-        give()
+        release()
         return
       }
       waitingGrants.splice(waitingIndex, 1)
@@ -80,7 +80,7 @@ const createWorkerSlots = (params: { maxRunningWorkers: number; maxWaitingCalls:
     return { admitted: true, taken, abandon }
   }
 
-  return { take, give }
+  return { request, release }
 }
 
 const isGlobReply = (message: unknown): message is { matches: string[] } => {
@@ -189,11 +189,11 @@ const matchInWorker = async (params: {
  *   rejects with `glob matching failed`, the original error as its `cause`,
  *   and logs an error. The glob never falls back to the main thread.
  */
-export const createGlobFilter = (params: {
+export const createGlobFilter = (limits: {
   maxRunningWorkers: number
   maxWaitingCalls: number
 }): GlobFilter => {
-  const workerSlots = createWorkerSlots(params)
+  const workerSlots = createWorkerSlots(limits)
 
   const matchInSlot = async (params: {
     glob: string
@@ -201,7 +201,7 @@ export const createGlobFilter = (params: {
     deadlinePassed: DeadlinePassed
   }): Promise<GlobFilterOutcome> => {
     const { glob, paths, deadlinePassed } = params
-    const slotRequest = workerSlots.take()
+    const slotRequest = workerSlots.request()
 
     if (!slotRequest.admitted) return { kind: "timed-out" }
 
@@ -215,7 +215,7 @@ export const createGlobFilter = (params: {
     try {
       return await matchInWorker({ glob, paths, deadlinePassed })
     } finally {
-      workerSlots.give()
+      workerSlots.release()
     }
   }
 
@@ -234,8 +234,8 @@ export const createGlobFilter = (params: {
       case "matched":
         return outcome.matches
       case "timed-out":
-        // The call's glob, or the calls ahead of it, caused it, not a fault in
-        // the worker, so logging it is left to the caller
+        // A timeout comes from this call's glob or from the calls queued ahead
+        // of it, never from a fault in the worker, so logging it is left to the caller
         throw new Error(`glob matching timed out after ${timeoutMs} ms`)
       case "failed":
         logger.error("glob matching failed", { error: describeError(outcome.cause) })
