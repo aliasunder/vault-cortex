@@ -1,7 +1,10 @@
 import {
   chmodSync,
+  closeSync,
   mkdirSync,
   mkdtempSync,
+  openSync,
+  readdirSync,
   readFileSync,
   rmSync,
   statSync,
@@ -23,7 +26,6 @@ vi.mock("node:fs", { spy: true })
 // queued; mockReset drops it and puts the real function back.
 afterEach(() => {
   vi.mocked(readFileSync).mockReset()
-  vi.mocked(chmodSync).mockReset()
 })
 
 const neverOverwrite = async (): Promise<boolean> => false
@@ -170,7 +172,7 @@ describe("write permissions", () => {
     expect(fileMode).toBe(0o600)
   })
 
-  it("recreates .env owner-only, before the chmod, when it is deleted while the resolver decides", async () => {
+  it("recreates .env owner-only when it is deleted while the resolver decides", async () => {
     const targetDir = makeTempDir()
     const envPath = join(targetDir, ".env")
     writeFileSync(envPath, "MCP_AUTH_TOKEN=old\n", { mode: 0o600 })
@@ -178,13 +180,6 @@ describe("write permissions", () => {
       unlinkSync(envPath)
       return true
     }
-    // The chmod that follows the write would hide a wider mode, so record the
-    // mode the token was written with before letting the real chmod run.
-    const modesBeforeChmod: number[] = []
-    vi.mocked(chmodSync).mockImplementationOnce((chmodPath, chmodMode) => {
-      modesBeforeChmod.push(statSync(chmodPath).mode & 0o777)
-      chmodSync(chmodPath, chmodMode)
-    })
 
     const writeStatus = await envFile.write(
       { targetDir, envContent: "MCP_AUTH_TOKEN=new\n" },
@@ -193,8 +188,23 @@ describe("write permissions", () => {
 
     expect(writeStatus).toBe("overwritten")
     expect(readFileSync(envPath, "utf8")).toBe("MCP_AUTH_TOKEN=new\n")
-    expect(modesBeforeChmod).toEqual([0o600])
     expect(statSync(envPath).mode & 0o777).toBe(0o600)
+  })
+
+  it("writes a new file in place of the old one, leaving no temporary file", async () => {
+    const targetDir = makeTempDir()
+    const envPath = join(targetDir, ".env")
+    writeFileSync(envPath, "MCP_AUTH_TOKEN=old\n", { mode: 0o644 })
+    const earlierReader = openSync(envPath, "r")
+    onTestFinished(() => {
+      closeSync(earlierReader)
+    })
+
+    await envFile.write({ targetDir, envContent: "MCP_AUTH_TOKEN=new\n" }, alwaysOverwrite)
+
+    expect(readFileSync(earlierReader, "utf8")).toBe("MCP_AUTH_TOKEN=old\n")
+    expect(readFileSync(envPath, "utf8")).toBe("MCP_AUTH_TOKEN=new\n")
+    expect(readdirSync(targetDir)).toEqual([".env"])
   })
 })
 

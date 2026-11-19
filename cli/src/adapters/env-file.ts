@@ -1,14 +1,10 @@
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
+import { randomUUID } from "node:crypto"
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 
 export type EnvWriteStatus = "created" | "unchanged" | "overwritten" | "kept"
 
-/**
- * .env holds the bearer token (and possibly a vault password), so only its
- * owner may read it. Every .env write passes this mode: Node applies it only
- * when the write creates the file, so a .env deleted after its read comes back
- * owner-only.
- */
+/** .env holds the bearer token (and possibly a vault password), so only its owner may read it. */
 const ENV_FILE_MODE = 0o600
 
 /** Matches an env line whose value is wrapped in matching quotes. */
@@ -28,12 +24,29 @@ const read = (envFilePath: string): string | undefined => {
   }
 }
 
-/** Replaces an existing .env's text and makes it readable by its owner only.
- *  The mode on writeFileSync applies only when the file is created, so the
- *  chmod is what tightens a file that already exists with a wider mode. */
+/**
+ * Writes .env as a new owner-only file renamed over the old one, never into
+ * the old file:
+ * - the new text is only ever in a file created owner-only;
+ * - an interrupted write leaves the old file whole.
+ * A .env that is a symbolic link is replaced by a regular file.
+ */
+const writeOwnerOnly = (envFilePath: string, envContent: string): void => {
+  const tempPath = `${envFilePath}.${randomUUID()}.tmp`
+  // "wx" creates the temporary file or fails, so it never writes into a file that exists.
+  writeFileSync(tempPath, envContent, { mode: ENV_FILE_MODE, flag: "wx" })
+
+  try {
+    renameSync(tempPath, envFilePath)
+  } catch (error) {
+    rmSync(tempPath, { force: true })
+    throw error
+  }
+}
+
+/** Replaces an existing .env's text, leaving it readable by its owner only. */
 const replace = (envFilePath: string, envContent: string): void => {
-  writeFileSync(envFilePath, envContent, { mode: ENV_FILE_MODE })
-  chmodSync(envFilePath, ENV_FILE_MODE)
+  writeOwnerOnly(envFilePath, envContent)
 }
 
 /**
@@ -50,8 +63,7 @@ const stripQuotedValues = (envFilePath: string): boolean => {
   const sanitized = content.replace(QUOTED_ENV_VALUE, "$1$3$4")
 
   if (sanitized === content) return false
-  writeFileSync(envFilePath, sanitized, { mode: ENV_FILE_MODE })
-  chmodSync(envFilePath, ENV_FILE_MODE)
+  writeOwnerOnly(envFilePath, sanitized)
   return true
 }
 
@@ -71,17 +83,14 @@ const write = async (
   const existingContent = read(envFilePath)
 
   if (existingContent === undefined) {
-    writeFileSync(envFilePath, envContent, { mode: ENV_FILE_MODE })
+    writeOwnerOnly(envFilePath, envContent)
     return "created"
   }
   if (existingContent === envContent) return "unchanged"
   const overwrite = await resolveConflict()
 
   if (!overwrite) return "kept"
-  // The mode covers a .env deleted while the resolver waited. It applies only
-  // on creation, so chmod tightens a file that still exists.
-  writeFileSync(envFilePath, envContent, { mode: ENV_FILE_MODE })
-  chmodSync(envFilePath, ENV_FILE_MODE)
+  writeOwnerOnly(envFilePath, envContent)
   return "overwritten"
 }
 
