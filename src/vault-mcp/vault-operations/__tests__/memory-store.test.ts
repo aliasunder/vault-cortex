@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process"
 import { describe, it, expect, beforeEach, afterEach, vi, onTestFinished } from "vitest"
 import {
   chmod,
@@ -3869,5 +3870,55 @@ describe("memory file with a properties block the server cannot read or keep", (
       expect(refusal).toEqual(OPENS_A_BLOCK_REFUSAL)
       expect(await readBrokenFile()).toBe(content)
     },
+  )
+})
+
+/** A quadratic scan of a run this long takes minutes; a linear one takes
+ *  milliseconds. */
+const LONG_RUN_LENGTH = 1_000_000
+
+/** Leaves room for the child's tsx start-up on a loaded machine. */
+const CHILD_DEADLINE_MS = 20_000
+
+describe("updateMemory with a long new section name", () => {
+  it(
+    "creates a section whose name holds a million-space run within a child deadline",
+    async () => {
+      const memoryStoreUrl = new URL("../memory-store.ts", import.meta.url).href
+      execFileSync(
+        process.execPath,
+        [
+          "--import",
+          "tsx",
+          "--input-type=module",
+          "--eval",
+          `
+      import { createMemoryStore } from ${JSON.stringify(memoryStoreUrl)};
+      const silentLogger = new Proxy({}, {
+        get: (_target, property) => (property === "child" ? () => silentLogger : () => {}),
+      });
+      const { updateMemory } = createMemoryStore({ memoryDir: "About Me" });
+      await updateMemory(
+        {
+          vaultPath: ${JSON.stringify(vault)},
+          file: "Principles",
+          section: 'a' + ' '.repeat(${LONG_RUN_LENGTH}) + 'b',
+          entry: "long section probe",
+          date: "2026-05-08",
+        },
+        silentLogger,
+      );
+    `,
+        ],
+        { encoding: "utf8", timeout: CHILD_DEADLINE_MS, killSignal: "SIGKILL" },
+      )
+
+      const content = await readFile(join(vault, "About Me/Principles.md"), "utf8")
+      const expectedEnding = `## a${" ".repeat(LONG_RUN_LENGTH)}b (newest first)\n- **2026-05-08**: long section probe\n`
+
+      // A boolean keeps a million-character diff out of a failure report.
+      expect(content.endsWith(expectedEnding)).toBe(true)
+    },
+    CHILD_DEADLINE_MS + 5_000,
   )
 })

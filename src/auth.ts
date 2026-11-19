@@ -28,7 +28,11 @@ export const headerAsString = (value: string | string[] | undefined): string | u
  * https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization#canonical-server-uri
  */
 export const canonicalResourceUri = (resource: URL): string => {
-  const pathWithoutTrailingSlash = resource.pathname.replace(/\/+$/, "")
+  // The lookbehind lets a match start only at the first slash of a run, so a
+  // client-sent path holding a long run of slashes followed by another
+  // character is not rescanned from each of its slashes, which takes time
+  // quadratic in the run's length.
+  const pathWithoutTrailingSlash = resource.pathname.replace(/(?<!\/)\/+$/, "")
   return `${resource.origin}${pathWithoutTrailingSlash}`
 }
 
