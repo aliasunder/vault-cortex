@@ -1120,6 +1120,32 @@ describe("runInit re-init guard", () => {
     expect(readFileSync(join(targetDir, ".env"), "utf8")).toBe(existingEnv)
     expect(dockerRun).not.toHaveBeenCalled()
   })
+
+  it.each([
+    {
+      label: "local",
+      flags: (vaultDir: string) => ({ mode: "local" as const, vaultPath: vaultDir }),
+    },
+    { label: "remote", flags: () => ({ mode: "remote" as const }) },
+  ])(
+    "stops $label init on an install folder whose path holds a control character",
+    async ({ flags }) => {
+      const targetDir = `${makeTargetDir()}\r-notes`
+      const scripted = createScriptedPrompts([])
+
+      const exitCode = await runInit(
+        { ...flags(makeVault()), dir: targetDir },
+        { prompts: scripted.prompts, docker: dockerReadyEmptyHost, fetchFn: fetchNever },
+      )
+
+      expect(exitCode).toBe(1)
+      expect(scripted.errors).toEqual([
+        "The install folder's path contains a control character, which a terminal cannot show. Choose another folder with --dir.",
+      ])
+      expect(scripted.asked).toEqual([])
+      expect(existsSync(targetDir)).toBe(false)
+    },
+  )
 })
 
 describe("runInit with a kept existing .env", () => {

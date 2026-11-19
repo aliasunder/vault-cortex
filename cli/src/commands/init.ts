@@ -24,6 +24,7 @@ import {
   buildDaemonUnavailableMessage,
   buildLocalConnectMessage,
   buildRemoteConnectMessage,
+  describeUnprintableInstallFolder,
   vaultCortexCommand,
   type StartStatus,
 } from "../rules/messages.js"
@@ -328,10 +329,12 @@ const runLocalInit = async (flags: InitFlags, deps: InitDeps): Promise<number> =
   const requestedTargetDir =
     flags.dir ?? (flags.yes ? DEFAULT_TARGET_DIR : await askTargetDir(prompts))
   const targetDir = resolveTargetDir(requestedTargetDir)
-  const modeMismatch = describeModeMismatch({ targetDir, mode: "local" })
+  const targetDirProblem =
+    describeUnprintableInstallFolder(targetDir) ??
+    describeModeMismatch({ targetDir, mode: "local" })
 
-  if (modeMismatch) {
-    prompts.error(modeMismatch)
+  if (targetDirProblem) {
+    prompts.error(targetDirProblem)
     return 1
   }
 
@@ -436,10 +439,12 @@ const runRemoteInit = async (flags: InitFlags, deps: InitDeps): Promise<number> 
 
   const requestedTargetDir = flags.dir ?? (await askTargetDir(prompts))
   const targetDir = resolveTargetDir(requestedTargetDir)
-  const modeMismatch = describeModeMismatch({ targetDir, mode: "remote" })
+  const targetDirProblem =
+    describeUnprintableInstallFolder(targetDir) ??
+    describeModeMismatch({ targetDir, mode: "remote" })
 
-  if (modeMismatch) {
-    prompts.error(modeMismatch)
+  if (targetDirProblem) {
+    prompts.error(targetDirProblem)
     return 1
   }
 

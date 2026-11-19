@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { describe, expect, it, onTestFinished, vi } from "vitest"
@@ -56,6 +56,23 @@ describe("runDown", () => {
     expect(exitCode).toBe(1)
     expect(scripted.errors).toEqual([
       `No .env found in ${targetDir} — run \`npx vault-cortex@latest init\` first.`,
+    ])
+  })
+
+  it("exits 1 when the install folder's path holds a control character", async () => {
+    const targetDir = join(makeTempTargetDir("vault-cli-down-"), "notes\u001b[8m")
+    mkdirSync(targetDir)
+    writeLocalEnv(targetDir)
+    const scripted = createScriptedPrompts()
+
+    const exitCode = await runDown(
+      { dir: targetDir },
+      { prompts: scripted.prompts, docker: dockerReady },
+    )
+
+    expect(exitCode).toBe(1)
+    expect(scripted.errors).toEqual([
+      "The install folder's path contains a control character, which a terminal cannot show. Choose another folder with --dir.",
     ])
   })
 

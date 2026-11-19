@@ -19,6 +19,7 @@ import {
 import {
   buildDaemonUnavailableMessage,
   describeEnvFix,
+  describeUnprintableInstallFolder,
   vaultCortexCommand,
 } from "../rules/messages.js"
 
@@ -72,6 +73,12 @@ export const requireInitializedDir = (
   prompts: Prompts,
 ): InitializedDir | undefined => {
   const targetDir = resolveTargetDir(requestedDir)
+  const unprintableFolder = describeUnprintableInstallFolder(targetDir)
+
+  if (unprintableFolder) {
+    prompts.error(unprintableFolder)
+    return undefined
+  }
   const envFilePath = join(targetDir, ".env")
   const envContent = envFile.read(envFilePath)
 

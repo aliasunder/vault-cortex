@@ -137,14 +137,31 @@ export const buildSettingsSavedWithoutRuntimeMessage = (params: {
 type CliCommand = "init" | "start" | "restart" | "configure" | "upgrade" | "down" | "get-sync-token"
 
 /**
+ * Matches a folder path that stays literal inside quotes in every shell a
+ * printed command may be pasted into (sh, bash, zsh, fish, tcsh, PowerShell
+ * and cmd.exe): letters, digits, accents, spaces and plain punctuation.
+ * Quotes of any kind, `$`, backticks, `%`, `!`, control characters and, outside
+ * Windows, backslashes each change a path's meaning in one of those shells.
+ */
+const SHELL_SAFE_FOLDER = /^[\p{L}\p{N}\p{M} ._,+=@~:/()[\]{}#&-]+$/u
+
+/** SHELL_SAFE_FOLDER with the backslash, the separator in Windows paths. */
+const SHELL_SAFE_WINDOWS_FOLDER = /^[\p{L}\p{N}\p{M} ._,+=@~:/\\()[\]{}#&-]+$/u
+
+/** Printed in place of a folder path that no single quoting keeps literal in every shell. */
+const INSTALL_FOLDER_PLACEHOLDER = "<install folder>"
+
+/**
  * Quotes a folder path for the shell the user pastes a printed command into:
- * - macOS and Linux get single quotes, which keep every character literal.
- *   A single quote inside the path is closed, escaped and reopened (`'\''`).
- * - Windows keeps double quotes, the only quoting cmd.exe understands.
+ * single quotes on macOS and Linux, and double quotes on Windows, the only
+ * quoting cmd.exe understands.
  */
 const quoteFolderForShell = (folderPath: string, platform: NodeJS.Platform): string => {
-  if (platform === "win32") return `"${folderPath}"`
-  return `'${folderPath.replaceAll("'", `'\\''`)}'`
+  const onWindows = platform === "win32"
+  const shellSafeFolder = onWindows ? SHELL_SAFE_WINDOWS_FOLDER : SHELL_SAFE_FOLDER
+
+  if (!shellSafeFolder.test(folderPath)) return INSTALL_FOLDER_PLACEHOLDER
+  return onWindows ? `"${folderPath}"` : `'${folderPath}'`
 }
 
 /**
@@ -159,6 +176,19 @@ export const vaultCortexCommand = (
 ): string => {
   const dirOption = targetDir ? ` --dir ${quoteFolderForShell(targetDir, platform)}` : ""
   return `npx vault-cortex@latest ${command}${dirOption}`
+}
+
+/** Matches a control character, such as a carriage return or an escape. */
+const CONTROL_CHARACTER = /\p{Cc}/u
+
+/**
+ * The refusal for an install folder whose path holds a control character.
+ * Every command prints the folder in its messages, and a terminal acts on a
+ * control character instead of showing it, so the path would print wrong.
+ */
+export const describeUnprintableInstallFolder = (targetDir: string): string | undefined => {
+  if (!CONTROL_CHARACTER.test(targetDir)) return undefined
+  return "The install folder's path contains a control character, which a terminal cannot show. Choose another folder with --dir."
 }
 
 /** A problem in a .env value, with where to fix it. */

@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join, relative } from "node:path"
 import { describe, expect, it, onTestFinished } from "vitest"
@@ -97,6 +97,28 @@ describe("runGetSyncToken subcommand", () => {
         "or has no OBSIDIAN_AUTH_TOKEN line. Run init first.",
     ])
     expect(readFileSync(join(targetDir, ".env"), "utf8")).toBe("MCP_AUTH_TOKEN=abc\n")
+  })
+
+  it("exits 1 without writing when the --dir path holds a control character", async () => {
+    const targetDir = join(makeTempTargetDir(), "notes\r")
+    mkdirSync(targetDir)
+    const remoteEnv = "MCP_AUTH_TOKEN=abc\nOBSIDIAN_AUTH_TOKEN=old-token\nVAULT_NAME=MyVault\n"
+    writeFileSync(join(targetDir, ".env"), remoteEnv)
+    const scripted = createScriptedPrompts(["user@example.com", "password"])
+
+    const exitCode = await runGetSyncToken(
+      { dir: targetDir },
+      {
+        prompts: scripted.prompts,
+        fetchFn: fetchSigninSuccess("new-sync-token"),
+      },
+    )
+
+    expect(exitCode).toBe(1)
+    expect(scripted.errors).toEqual([
+      "The install folder's path contains a control character, which a terminal cannot show. Choose another folder with --dir.",
+    ])
+    expect(readFileSync(join(targetDir, ".env"), "utf8")).toBe(remoteEnv)
   })
 
   it("exits 1 when --dir .env does not exist", async () => {

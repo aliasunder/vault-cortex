@@ -4,7 +4,7 @@ import { envFile } from "../adapters/env-file.js"
 import type { Prompts } from "../adapters/prompts.js"
 import { applyOptionalSettings } from "../rules/env-edits.js"
 import { parseEnvValues } from "../rules/env-values.js"
-import { startServerLine } from "../rules/messages.js"
+import { describeUnprintableInstallFolder, startServerLine } from "../rules/messages.js"
 import { resolveTargetDir } from "../steps/deployment.js"
 import { captureObsidianToken } from "../steps/obsidian-sign-in.js"
 
@@ -44,6 +44,12 @@ export const runGetSyncToken = async (
   }
 
   const targetDir = resolveTargetDir(flags.dir)
+  const unprintableFolder = describeUnprintableInstallFolder(targetDir)
+
+  if (unprintableFolder) {
+    prompts.error(unprintableFolder)
+    return 1
+  }
   const envFilePath = join(targetDir, ".env")
   const envContent = envFile.read(envFilePath)
 

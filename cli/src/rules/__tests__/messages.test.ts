@@ -5,6 +5,7 @@ import {
   buildDaemonUnavailableMessage,
   buildLocalConnectMessage,
   buildRemoteConnectMessage,
+  describeUnprintableInstallFolder,
   healthPollTimeoutMs,
   healthTimeoutMessage,
   vaultCortexCommand,
@@ -15,26 +16,49 @@ describe("vaultCortexCommand", () => {
     expect(vaultCortexCommand("init")).toBe("npx vault-cortex@latest init")
   })
 
-  it("single-quotes the folder on macOS and Linux, so shell syntax in it stays literal", () => {
-    expect(vaultCortexCommand("start", "/tmp/notes$(id)/vault-cortex", "darwin")).toBe(
-      "npx vault-cortex@latest start --dir '/tmp/notes$(id)/vault-cortex'",
+  it("single-quotes the folder on macOS and Linux", () => {
+    expect(vaultCortexCommand("restart", "/home/me/My Notes (2024)/vault-cortex", "linux")).toBe(
+      "npx vault-cortex@latest restart --dir '/home/me/My Notes (2024)/vault-cortex'",
     )
   })
 
-  it("closes, escapes and reopens a single quote inside the folder", () => {
-    expect(vaultCortexCommand("restart", "/home/me/Sam's vault", "linux")).toBe(
-      "npx vault-cortex@latest restart --dir '/home/me/Sam'\\''s vault'",
+  it("double-quotes the folder on Windows, the only quoting cmd.exe understands", () => {
+    expect(vaultCortexCommand("start", "C:\\Users\\me\\R&D\\vault-cortex", "win32")).toBe(
+      'npx vault-cortex@latest start --dir "C:\\Users\\me\\R&D\\vault-cortex"',
     )
   })
 
-  it("keeps double quotes on Windows, the only quoting cmd.exe understands", () => {
-    expect(vaultCortexCommand("start", "C:\\Users\\me\\vault-cortex", "win32")).toBe(
-      'npx vault-cortex@latest start --dir "C:\\Users\\me\\vault-cortex"',
-    )
-  })
+  it.each([
+    { label: "a dollar sign", folderPath: "/home/me/a$b", platform: "linux" as const },
+    { label: "a backtick", folderPath: "/home/me/a`b", platform: "darwin" as const },
+    { label: "a single quote", folderPath: "/home/me/Sam's vault", platform: "linux" as const },
+    { label: "a double quote", folderPath: '/home/me/a"b', platform: "linux" as const },
+    { label: "a curly quote", folderPath: "/home/me/Sam’s vault", platform: "darwin" as const },
+    { label: "an exclamation mark", folderPath: "/home/me/a!b", platform: "linux" as const },
+    {
+      label: "a backslash outside Windows",
+      folderPath: "/home/me/a\\b",
+      platform: "linux" as const,
+    },
+    { label: "a control character", folderPath: "/home/me/a\u001bb", platform: "linux" as const },
+    { label: "a dollar sign on Windows", folderPath: "C:\\me\\a$b", platform: "win32" as const },
+    { label: "a percent sign on Windows", folderPath: "C:\\me\\a%b%", platform: "win32" as const },
+    {
+      label: "a curly double quote on Windows",
+      folderPath: "C:\\me\\a”b",
+      platform: "win32" as const,
+    },
+  ])(
+    "prints a placeholder for a folder holding $label, which some shell would not keep literal",
+    ({ folderPath, platform }) => {
+      expect(vaultCortexCommand("start", folderPath, platform)).toBe(
+        "npx vault-cortex@latest start --dir <install folder>",
+      )
+    },
+  )
 
   it.skipIf(process.platform === "win32")("gives a POSIX shell back the exact folder", () => {
-    const folderPath = "/tmp/a $(echo ran) `echo ran` $HOME \\ \" 'b'"
+    const folderPath = "/tmp/My Notes (2024) & more #1 [x] {y} ~é, a+b=c@d:e/vault-cortex"
     const printed = vaultCortexCommand("start", folderPath, "linux")
     const quotedFolder = printed.slice(printed.indexOf("--dir ") + "--dir ".length)
 
@@ -43,6 +67,24 @@ describe("vaultCortexCommand", () => {
     })
 
     expect(shellOutput).toBe(folderPath)
+  })
+})
+
+describe("describeUnprintableInstallFolder", () => {
+  it.each([
+    { label: "a carriage return", targetDir: "/home/me/notes\r" },
+    { label: "an escape", targetDir: "/home/me/notes\u001b[8m" },
+    { label: "a tab", targetDir: "/home/me/no\ttes" },
+  ])("refuses a path holding $label", ({ targetDir }) => {
+    expect(describeUnprintableInstallFolder(targetDir)).toBe(
+      "The install folder's path contains a control character, which a terminal cannot show. Choose another folder with --dir.",
+    )
+  })
+
+  it("accepts a path with spaces, accents and punctuation", () => {
+    expect(describeUnprintableInstallFolder("/home/me/Sam's Notes (é) $1/vault-cortex")).toBe(
+      undefined,
+    )
   })
 })
 
