@@ -1,4 +1,4 @@
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
+import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 
 export type EnvWriteStatus = "created" | "unchanged" | "overwritten" | "kept"
@@ -16,8 +16,15 @@ const QUOTED_ENV_VALUE = /^([A-Za-z_][A-Za-z0-9_]*=)(["'])(.*)\2(\s*)$/gm
 
 /** The file's text, or undefined when it does not exist. */
 const read = (envFilePath: string): string | undefined => {
-  if (!existsSync(envFilePath)) return undefined
-  return readFileSync(envFilePath, "utf8")
+  try {
+    return readFileSync(envFilePath, "utf8")
+  } catch (error) {
+    // A missing file is an expected state, not a failure. Catching it here,
+    // rather than checking first, also covers a .env deleted between a check
+    // and the read.
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") return undefined
+    throw error
+  }
 }
 
 /** Replaces an existing .env's text and makes it readable by its owner only.
@@ -60,12 +67,13 @@ const write = async (
   const { targetDir, envContent } = params
   mkdirSync(targetDir, { recursive: true })
   const envFilePath = join(targetDir, ".env")
+  const existingContent = read(envFilePath)
 
-  if (!existsSync(envFilePath)) {
+  if (existingContent === undefined) {
     writeFileSync(envFilePath, envContent, { mode: ENV_FILE_MODE })
     return "created"
   }
-  if (readFileSync(envFilePath, "utf8") === envContent) return "unchanged"
+  if (existingContent === envContent) return "unchanged"
   const overwrite = await resolveConflict()
 
   if (!overwrite) return "kept"

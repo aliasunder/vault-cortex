@@ -61,6 +61,15 @@ describe("read", () => {
 
     expect(envFile.read(envPath)).toBe("")
   })
+
+  it("throws a read failure other than a missing file", () => {
+    const directoryPath = makeTempDir()
+
+    // Node's error carries errno fields, so the whole message is matched instead.
+    expect(() => envFile.read(directoryPath)).toThrow(
+      /^EISDIR: illegal operation on a directory, read$/,
+    )
+  })
 })
 
 describe("write", () => {
