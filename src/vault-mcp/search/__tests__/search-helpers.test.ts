@@ -164,6 +164,12 @@ describe("buildFtsTitleText", () => {
   it("is the bare title for a note without aliases", () => {
     expect(buildFtsTitleText({ title: "Sam Carter", aliases: [] })).toBe("Sam Carter")
   })
+
+  it("keeps a title or an alias that spans lines on one line, so it stays one name", () => {
+    expect(
+      buildFtsTitleText({ title: "Sam\nCarter", aliases: ["Avery \r\n  Quinn", "sam carter"] }),
+    ).toBe("Sam Carter\nAvery Quinn")
+  })
 })
 
 describe("buildChunkTitleLine", () => {

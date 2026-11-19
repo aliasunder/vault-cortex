@@ -248,20 +248,29 @@ export const toNameLookupText = (query: string): string => {
   return foldName(nameText)
 }
 
+/** Matches a run of line breaks with the whitespace around it. */
+const LINE_BREAK_RUN_RE = /\s*[\r\n]+\s*/g
+
+/** A name with each line break replaced by one space. A YAML block scalar can
+ *  give a title or an alias several lines, and the title column must hold each
+ *  name on a single line for EXACT_NAME_MATCH_SQL to match it whole. */
+const toSingleLineName = (name: string): string => name.replace(LINE_BREAK_RUN_RE, " ")
+
 /** The aliases that differ from the title and from each other, compared
- *  without letter case, in document order. */
+ *  without letter case, in document order, each on a single line. */
 const findDistinctAliases = (params: {
   title: string
   aliases: ReadonlyArray<string>
 }): string[] => {
-  const seenNames = new Set([foldName(params.title)])
+  const seenNames = new Set([foldName(toSingleLineName(params.title))])
   const distinctAliases: string[] = []
   for (const alias of params.aliases) {
-    const foldedAlias = foldName(alias)
+    const singleLineAlias = toSingleLineName(alias)
+    const foldedAlias = foldName(singleLineAlias)
 
     if (seenNames.has(foldedAlias)) continue
     seenNames.add(foldedAlias)
-    distinctAliases.push(alias)
+    distinctAliases.push(singleLineAlias)
   }
   return distinctAliases
 }
@@ -272,7 +281,7 @@ export const buildFtsTitleText = (params: {
   title: string
   aliases: ReadonlyArray<string>
 }): string => {
-  return [params.title, ...findDistinctAliases(params)].join("\n")
+  return [toSingleLineName(params.title), ...findDistinctAliases(params)].join("\n")
 }
 
 /** The title line that starts every chunk of a note:
