@@ -291,7 +291,9 @@ describe("createGlobFilter's worker limit", () => {
       filterOneAtATime({ glob: "*.md", paths: VAULT_PATHS, timeoutMs: 5_000 }, logger),
     )
 
-    expect(turnedAwayRejection).toEqual(new Error("glob matching timed out after 5000 ms"))
+    expect(turnedAwayRejection).toEqual(
+      new Error("glob matching timed out: too many glob calls are waiting"),
+    )
     expect(vi.mocked(Worker)).toHaveBeenCalledTimes(1)
     expect(await runningRejection).toEqual(new Error("glob matching timed out after 500 ms"))
     expect(await waitingMatches).toEqual(["a.md"])

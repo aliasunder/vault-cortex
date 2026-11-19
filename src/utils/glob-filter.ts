@@ -9,6 +9,7 @@ const WORKER_ENTRY = siblingModuleUrl({ name: "glob-filter-worker", besideModule
 type GlobFilterOutcome =
   | Readonly<{ kind: "matched"; matches: string[] }>
   | Readonly<{ kind: "timed-out" }>
+  | Readonly<{ kind: "turned-away" }>
   | Readonly<{ kind: "failed"; cause: unknown }>
 
 type DeadlinePassed = Promise<Readonly<{ kind: "timed-out" }>>
@@ -183,8 +184,8 @@ const matchInWorker = async (params: {
  * - The `timeoutMs` deadline counts from the call's start, any wait for a
  *   worker and its start-up included. Past it, a running worker is terminated
  *   and the call rejects with `glob matching timed out after <timeoutMs> ms`.
- *   A call that finds `maxWaitingCalls` calls already waiting rejects with
- *   the same error at once.
+ *   A call that finds `maxWaitingCalls` calls already waiting rejects at once
+ *   with `glob matching timed out: too many glob calls are waiting`.
  * - A worker that fails to start, errors, exits early or replies malformed
  *   rejects with `glob matching failed`, the original error as its `cause`,
  *   and logs an error. The glob never falls back to the main thread.
@@ -203,7 +204,7 @@ export const createGlobFilter = (limits: {
     const { glob, paths, deadlinePassed } = params
     const slotRequest = workerSlots.request()
 
-    if (!slotRequest.admitted) return { kind: "timed-out" }
+    if (!slotRequest.admitted) return { kind: "turned-away" }
 
     const firstEvent = await Promise.race([slotRequest.taken, deadlinePassed])
 
@@ -229,10 +230,14 @@ export const createGlobFilter = (limits: {
     switch (outcome.kind) {
       case "matched":
         return outcome.matches
+      // A timeout or a turned-away call comes from this call's glob or from the
+      // calls queued ahead of it, never from a fault in the worker, so logging it
+      // is left to the caller. Both keep the "glob matching timed out" prefix the
+      // tool's Errors entry names
       case "timed-out":
-        // A timeout comes from this call's glob or from the calls queued ahead
-        // of it, never from a fault in the worker, so logging it is left to the caller
         throw new Error(`glob matching timed out after ${timeoutMs} ms`)
+      case "turned-away":
+        throw new Error("glob matching timed out: too many glob calls are waiting")
       case "failed":
         logger.error("glob matching failed", { error: describeError(outcome.cause) })
         throw new Error("glob matching failed", { cause: outcome.cause })
