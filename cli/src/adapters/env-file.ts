@@ -1,4 +1,4 @@
-import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 
 export type EnvWriteStatus = "created" | "unchanged" | "overwritten" | "kept"
@@ -19,10 +19,11 @@ const read = (envFilePath: string): string | undefined => {
   try {
     return readFileSync(envFilePath, "utf8")
   } catch (error) {
-    // A missing file is an expected state, not a failure. Catching it here,
-    // rather than checking first, also covers a .env deleted between a check
-    // and the read.
-    if (error instanceof Error && "code" in error && error.code === "ENOENT") return undefined
+    // After a failed read, existsSync decides what the failure means:
+    // - a path it cannot reach (missing, behind a folder without permission,
+    //   a file where a folder should be, or deleted mid-command) is no .env;
+    // - a file that exists but cannot be read still throws.
+    if (!existsSync(envFilePath)) return undefined
     throw error
   }
 }

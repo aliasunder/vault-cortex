@@ -34,12 +34,10 @@ export const validateVaultPath = (input: string): VaultPathValidation => {
 
   const absolutePath = resolve(expandTilde(trimmed))
 
-  const pathStats = statSync(absolutePath, { throwIfNoEntry: false })
-
-  if (!pathStats) {
+  if (!existsSync(absolutePath)) {
     return { kind: "error", message: `Path does not exist: ${absolutePath}` }
   }
-  if (!pathStats.isDirectory()) {
+  if (!statSync(absolutePath).isDirectory()) {
     return {
       kind: "error",
       message: `Path is not a directory: ${absolutePath}`,

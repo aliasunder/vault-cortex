@@ -79,6 +79,20 @@ describe("validateVaultPath", () => {
     })
   })
 
+  it("returns the does-not-exist error for a path that runs through a file", () => {
+    const tempDir = mkdtempSync(join(tmpdir(), "vault-cli-"))
+    const filePath = join(tempDir, "note.md")
+    writeFileSync(filePath, "# hi")
+    const pathThroughFile = join(filePath, "MyVault")
+
+    const validation = validateVaultPath(pathThroughFile)
+
+    expect(validation).toEqual({
+      kind: "error",
+      message: `Path does not exist: ${pathThroughFile}`,
+    })
+  })
+
   it("returns an error when the path is a file, not a directory", () => {
     const tempDir = mkdtempSync(join(tmpdir(), "vault-cli-"))
     const filePath = join(tempDir, "note.md")

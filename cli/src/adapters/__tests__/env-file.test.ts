@@ -62,6 +62,13 @@ describe("read", () => {
     expect(envFile.read(envPath)).toBe("")
   })
 
+  it("returns undefined for a path that runs through a file", () => {
+    const filePath = join(makeTempDir(), "note.md")
+    writeFileSync(filePath, "")
+
+    expect(envFile.read(join(filePath, ".env"))).toBeUndefined()
+  })
+
   it("throws a read failure other than a missing file", () => {
     const directoryPath = makeTempDir()
 
