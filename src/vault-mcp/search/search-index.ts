@@ -134,10 +134,10 @@ const fileTextToIndexedText = (params: {
   }
 }
 
-/** The full parent folder of a vault path, or "" at the vault root, where
- *  posix.dirname returns ".". */
-const getParentFolder = (vaultPath: string): string => {
-  return vaultPath.includes("/") ? posix.dirname(vaultPath) : ""
+/** The full parent folder of a vault-relative path, or "" at the vault root,
+ *  where posix.dirname returns ".". */
+const getParentFolder = (filePath: string): string => {
+  return filePath.includes("/") ? posix.dirname(filePath) : ""
 }
 
 // ── Types ───────────────────────────────────────────────────────
