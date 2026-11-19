@@ -44,7 +44,7 @@
 
 - **[Remote access](https://github.com/aliasunder/vault-cortex#remote-access-from-anywhere)** — works from your phone, a remote server, or any MCP client via OAuth 2.1. One click on Render or Railway gets you there with no server to manage; a VPS works too.
 - **[Plugin-free](https://github.com/aliasunder/vault-cortex#how-it-works)** — Obsidian doesn't need to be running. The server works directly with `.md` files on disk. Headless sync keeps the vault current.
-- **[Hybrid search](https://github.com/aliasunder/vault-cortex#hybrid-search)** — FTS5 keyword matching + vector semantic similarity via RRF fusion, refined by cross-encoder reranking for intent-heavy queries. Keywords stay precise on exact terms and jargon; vectors find notes even when your words differ from the vault's.
+- **[Hybrid search](https://github.com/aliasunder/vault-cortex#hybrid-search)** — keyword matching (SQLite FTS5) and semantic similarity (vector embeddings), merged by Reciprocal Rank Fusion, then reordered by a reranking model (a cross-encoder) for intent-heavy queries. Keywords stay precise on exact terms and jargon; vectors find notes even when your words differ from the vault's.
 - **[Structured memory](https://github.com/aliasunder/vault-cortex#memory)** — dated, append-only entries accumulate into a personal knowledge layer, auto-initialized for AI personalization. Topic recall answers "what do I think about X?" with the current take and the dated history behind it — evolution included.
 - **[Tasks](https://github.com/aliasunder/vault-cortex#tasks)** — Kanban-aware task queries and updates: triage by status, dates, or priority, then complete, reprioritize, or move tasks between lanes in one call. Completing a recurring task spawns its next occurrence. Parses both [Tasks plugin](https://publish.obsidian.md/tasks/) emoji and [Dataview](https://blacksmithgu.github.io/obsidian-dataview/) inline-field formats.
 - **[Link graph](https://github.com/aliasunder/vault-cortex#tools)** — backlinks, outgoing links, and orphan detection across the vault
@@ -67,13 +67,13 @@ See the [full Quick Start guide](https://github.com/aliasunder/vault-cortex#quic
 | --------------- | ---------------------------- | --------------------------------------------------------------------------------------------------- |
 | **Vault CRUD** | `vault_read_note` | Read a note — full body, properties, outline, or a section |
 |  | `vault_write_note` | Create a note (fails if it already exists; set `overwrite` to replace) |
-|  | `vault_patch_note` | Heading-targeted edit (append, prepend, replace with `include_children` guard, insert) |
+|  | `vault_patch_note` | Append, prepend, insert or replace by heading; replacing subsections needs `include_children` |
 |  | `vault_replace_in_note` | Find-and-replace text in a note (first match or `replace_all_occurrences`) |
-|  | `vault_delete_span` | Delete a block of lines by short anchors, no full re-quote |
-|  | `vault_replace_span` | Replace a block of lines by short anchors with new content |
-|  | `vault_insert_at_anchor` | Insert content before or after a line identified by a short anchor |
+|  | `vault_delete_span` | Delete a block of lines found by short text from its first and last lines |
+|  | `vault_replace_span` | Replace a block of lines found by short text from its first and last lines |
+|  | `vault_insert_at_anchor` | Insert content before or after a line found by a short piece of its text |
 |  | `vault_list_notes` | List notes with optional glob/folder filter |
-|  | `vault_delete_note` | Delete a note, honoring the vault's trash setting (protected paths enforced) |
+|  | `vault_delete_note` | Delete a note — trashed per the vault's setting, permanent under Sync (protected paths enforced) |
 |  | `vault_move_note` | Move or rename a note, rewriting links across the vault |
 | **Search** | `vault_search` | Hybrid search with tag/folder/property/date filters |
 |  | `vault_search_by_tag` | Find notes by tag, including the tags nested under it |
@@ -133,14 +133,14 @@ Vault Cortex indexes every [property](https://help.obsidian.md/Editing+and+forma
 
 All settings are environment variables with sensible defaults. Some defaults derive from other settings — the Default column shows each derivation, and a value you set replaces the whole derived default. Remote deployments also forward Obsidian Sync's own settings — `DEVICE_NAME`, `SYNC_MODE`, `CONFLICT_STRATEGY`, `SYNC_CONFIGS`, `SYNC_EXCLUDED_FOLDERS`, `SYNC_FILE_TYPES` — documented in the [remote guide's configuration table](https://github.com/aliasunder/vault-cortex/tree/main/deploy/remote/README.md#configuration).
 
-| Variable | Required? | Default | Description |
-| --------------------------- | ----------- | -------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `MCP_AUTH_TOKEN` | Yes | — | Bearer token for authentication (also the JWT signing key) |
-| `VAULT_PATH` | Local only | — | Host path to your vault (bind mount source; remote uses a named volume). Must not contain `*`, `?`, or `[` — rejected at startup. |
-| `PUBLIC_URL` | Remote only | — | Public URL for OAuth discovery metadata. Filled in automatically on Render and Railway (from `RENDER_EXTERNAL_URL` or `RAILWAY_PUBLIC_DOMAIN`) when left unset |
+| Variable | Required for | Default | Description |
+| --------------------------- | ------------ | -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `MCP_AUTH_TOKEN` | All | — | Bearer token for authentication (also the JWT signing key) |
+| `VAULT_PATH` | Local | — | Host path to your vault (bind mount source; remote uses a named volume). Must not contain `*`, `?`, or `[` — rejected at startup. |
+| `PUBLIC_URL` | Remote | — | Public URL for OAuth discovery metadata. Filled in automatically on Render and Railway (from `RENDER_EXTERNAL_URL` or `RAILWAY_PUBLIC_DOMAIN`) when left unset |
 | `OBSIDIAN_AUTH_TOKEN` | — | — | Obsidian Sync auth token. Leave empty to sign in through the `/setup` page after deploy; or the CLI's [`get-sync-token`](https://github.com/aliasunder/vault-cortex/blob/main/cli/README.md#get-sync-token) captures it for you |
-| `VAULT_NAME` | Remote only | — | Exact name of your Obsidian vault (case-sensitive) |
-| `VAULT_PASSWORD` | Remote only | — | End-to-end encryption password, if your vault has one. Leave empty otherwise. |
+| `VAULT_NAME` | Remote | — | Exact name of your Obsidian vault (case-sensitive) |
+| `VAULT_PASSWORD` | — | — | End-to-end encryption password, if your vault has one. Leave empty otherwise. |
 | `STORAGE_ROOT` | — | — | One directory for everything that must persist — the vault, the search index and its models, and Obsidian Sync state — for container hosting platforms that allow a single persistent volume (Railway, Render). Mount the volume there and set this to the same path. Must not contain `*`, `?`, or `[` — rejected at startup. |
 | `EMBEDDING_ENABLED` | — | `true` | Set `false` to disable the embedding pipeline — skips model download, vector tables, embedding passes, and hybrid search. Search falls back to FTS5 keyword matching. |
 | `RERANK_MODE` | — | `blended` | Cross-encoder reranking mode: `blended` applies position-aware score blending after RRF fusion (~200ms added latency), `none` skips reranking. Only takes effect when `EMBEDDING_ENABLED` is true. |
@@ -149,7 +149,7 @@ All settings are environment variables with sensible defaults. Some defaults der
 | `READONLY_MODE` | — | `false` | Set `true` to hide every tool that changes the vault and skip memory folder auto-creation — connected clients can read and search but never edit. |
 | `DISABLED_TOOLS` | — | — | Hide individual tools by name, comma-separated (e.g. `vault_delete_note,vault_move_note`). Names match the Tool column in the [tools table](https://github.com/aliasunder/vault-cortex#tools). Subtractive only — it cannot re-enable a tool another setting hides. An unknown tool name stops the server at startup, so typos surface immediately. |
 | `MEMORY_DIR` | — | `About Me` | Vault folder for structured memory files |
-| `PROTECTED_PATHS` | — | `MEMORY_DIR`, daily notes folder | Folders that `vault_delete_note` and `vault_move_note` refuse to touch. The default daily notes folder is read from `DAILY_NOTES_FOLDER` or `.obsidian/daily-notes.json` (default `Daily Notes`); see [Daily notes](https://github.com/aliasunder/vault-cortex#daily-notes) for root and empty settings. Overrides the default entirely when set. |
+| `PROTECTED_PATHS` | — | `MEMORY_DIR`, daily notes folder | Folders whose notes can't be deleted or moved, and that no note can be moved into; their notes stay editable. The default daily notes folder is read from `DAILY_NOTES_FOLDER` or `.obsidian/daily-notes.json` (default `Daily Notes`); see [Daily notes](https://github.com/aliasunder/vault-cortex#daily-notes) for root and empty settings. Overrides the default entirely when set. |
 | `ORPHAN_EXCLUDE_FOLDERS` | — | daily notes folder, `Templates`, `MEMORY_DIR` | Folders excluded from orphan detection. The daily notes folder is read from `DAILY_NOTES_FOLDER` or `.obsidian/daily-notes.json` (default `Daily Notes`); see [Daily notes](https://github.com/aliasunder/vault-cortex#daily-notes) for root and empty settings. Set a list to replace all defaults, or `ORPHAN_EXCLUDE_FOLDERS=,` to exclude nothing. An empty value uses the defaults. |
 | `DAILY_NOTES_FOLDER` | — | from `daily-notes.json` | Sets the folder your daily notes live in. When unset, read from `.obsidian/daily-notes.json`; `Daily Notes` when that file is missing or unreadable. See [Daily notes](https://github.com/aliasunder/vault-cortex#daily-notes). |
 | `DAILY_NOTES_FORMAT` | — | from `daily-notes.json` | Sets the daily note filename format — same tokens as Obsidian's daily note date format setting. When unset, read from `.obsidian/daily-notes.json`, falling back to `YYYY-MM-DD`. See [Daily notes](https://github.com/aliasunder/vault-cortex#daily-notes). |
@@ -159,11 +159,11 @@ All settings are environment variables with sensible defaults. Some defaults der
 | `LOG_DIR` | — | `/data/logs` (remote), `$STORAGE_ROOT/data/logs` (single-volume), `none` (local) | Directory for log files that survive container re-creation. The container's own log (what `docker logs` shows) is always written, but Docker discards it whenever the container is recreated — on image updates or config changes. Date-stamped files under `LOG_DIR` live on the data volume and survive. `none` keeps only the container log. |
 | `LOG_RETENTION_DAYS` | — | `90` | Days kept; startup and daily cleanup. Digits only; `0` keeps today. Invalid values warn and use `90`. |
 | `LOG_MAX_DAILY_MB` | — | `25` | Daily file cap in whole MB ≥1 or `none`; resets at midnight in `TZ` (default UTC). Console continues. |
-| `WINDOWS_MODE` | — | `false` | On Windows? Set `true`. Switches the file watcher to polling and note moves to rename-based writes so a vault on a `C:` drive works through Docker Desktop. Safe to leave on for any Windows setup; unneeded on macOS/Linux/WSL2. |
+| `WINDOWS_MODE` | — | `false` | On Windows? Set `true`. A `C:` drive mounted through Docker Desktop reports no file changes and has no hard links, so this switches the file watcher to polling and makes note moves work without hard links. Safe to leave on for any Windows setup; unneeded on macOS/Linux/WSL2. |
 | `MAX_FILE_BYTES` | — | `52428800` (50 MiB) | Maximum file size `vault_read_file` will read (in bytes). Files exceeding this are rejected before reading, and a larger PDF is searchable by its name only. Raise for vaults with very large individual files. |
 | `MAX_IMAGE_OUTPUT_BYTES` | — | `49152` (48 KiB) | Byte budget for images delivered by `vault_read_file`, in binary bytes before base64 encoding. Images exceeding this are downscaled and recompressed to fit. Sized for the tightest mainstream MCP client cap; raise for clients that accept larger responses. |
 | `MAX_PDF_RENDER_PAGES` | — | `5` | Maximum PDF pages to render as images when `raw: true` is set on `vault_read_file`. The per-page byte budget is `MAX_IMAGE_OUTPUT_BYTES` divided evenly across the rendered pages — fewer pages means higher quality each. |
-| `TRASH_RETENTION_DAYS` | Local only | `30` | Days a note deleted under Obsidian's default "Move to system trash" setting stays in `.trash/` before the server cleans it up. Set `none` to keep those notes forever. Only notes the server itself moved there are cleaned up. With Obsidian Sync, deletes are permanent on the server and recoverable from Sync's version history. |
+| `TRASH_RETENTION_DAYS` | — | `30` | Days a note deleted under Obsidian's default "Move to system trash" setting stays in `.trash/` before the server cleans it up. Set `none` to keep those notes forever. Only notes the server itself moved there are cleaned up. Unused with Obsidian Sync (the remote image), whose deletes are permanent and recoverable from Sync's version history. |
 | `TRUST_PROXY_HOPS` | — | `0` | Number of trusted reverse-proxy hops used to derive the client IP from `X-Forwarded-For` (OAuth rate limiting, request logs). Set `1` when exactly one proxy you control sits in front of the server (Caddy, nginx, Cloudflare Tunnel) and nothing else can reach the server's port. With `0`, injected forwarding headers are ignored. |
 | `TRUST_FORWARDED_HOPS` | — | `0` | How many trailing `for=` entries in the [RFC 7239](https://www.rfc-editor.org/rfc/rfc7239) `Forwarded` header belong to proxies you control. `0` ignores the header; `1` when the proxy in front writes it (e.g. AWS API Gateway) and is the only way to reach the server; `2` when a CDN fronts that proxy and is the only way to reach it. |
 
