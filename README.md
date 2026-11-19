@@ -446,7 +446,7 @@ Vault Cortex writes to personal notes — the file safety layer is built to prev
 - **Without Obsidian Sync, deletes honor Obsidian's trash setting** — with "Deleted files" at Obsidian's default "Move to system trash" or at "Move to Obsidian trash", a deleted note moves to `.trash/` inside the vault instead of being removed (a container has no system trash; `.trash/` is Obsidian's own fallback for that). "Permanently delete" removes the note for good.
 - **With Obsidian Sync, deletes are permanent** — the server skips the trash setting because `.trash/` never syncs; the delete reaches every device, and recovery is Sync's version history.
 - **Bounded trash with a retention sweep** — notes the server moves to `.trash/` under the system-default setting are cleaned up after `TRASH_RETENTION_DAYS` (default 30 days; `none` keeps them forever). The sweep removes only files it recorded — notes Obsidian itself trashed, and "Move to Obsidian trash" deletes, are never touched.
-- **Undoing an agent's edit** — the server keeps no earlier versions of a note. If the vault uses Obsidian Sync, restore one from Sync's version history; otherwise restore it from your own backups.
+- **Undoing an agent's edit** — the server keeps no earlier versions of a note, and an agent's edit syncs to your devices just as your own edits do. If the vault uses Obsidian Sync, restore an earlier version from Sync's version history; otherwise restore it from your own backups.
 - **Injection prevention** — search queries are parameterized and FTS5-sanitized; prompt content is wrapped in XML data markers with closing-tag escaping to prevent tag-breakout injection.
 - **Container hardening** — non-root user, PID 1 init, no package managers in the runtime image, digest-pinned base, graceful shutdown.
 - **Read-only mode** — `READONLY_MODE=true` hides every tool that edits the vault, so a connected client can read and search but never change a note.
@@ -459,7 +459,7 @@ See [ARCHITECTURE.md → Data Integrity](./ARCHITECTURE.md#data-integrity) for m
 
 For a server with read/write access to personal notes, authentication is not optional. Vault Cortex implements the full OAuth 2.1 specification, including PKCE and refresh-token rotation. Per [BlueRock's 2026 MCP security analysis](https://www.bluerock.io/use-cases/safely-adopt-mcp), only 8.5% of MCP servers implement OAuth; 41% have no authentication at all.
 
-The [AWS reference deployment](#deployment-options), its infrastructure defined in code with [SST](https://sst.dev), adds defense in depth by validating requests to protected routes at two independent layers (an API Gateway Lambda authorizer, then the server's Express middleware).
+The [AWS reference deployment](#deployment-options), its infrastructure defined in code with [SST](https://sst.dev), adds defense in depth by validating requests to protected routes at two independent layers (an API Gateway Lambda authorizer, then the server's Express middleware). Every other install relies on the server's own check.
 
 Two methods:
 

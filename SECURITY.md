@@ -37,10 +37,10 @@ These components are part of the maintainer's deployment, not the vault-cortex
 project itself — adopters may use any hosting, reverse proxy, and CI/CD setup:
 
 - **API Gateway + Lambda authorizer** — checks the bearer token on protected
-  routes before a request reaches the server. A JWT that is correctly signed
-  for this deployment but has expired still passes through, so the server
-  itself answers 401 and enforces expiry and revocation. The OAuth endpoints
-  skip the authorizer.
+  routes before a request reaches the server. The server itself enforces
+  expiry and revocation and answers 401, so the authorizer lets through a
+  JWT that is correctly signed for this deployment even after it expires.
+  The OAuth endpoints skip the authorizer.
 - **CI/CD workflows** — GitHub Actions with OIDC AWS auth, SSH to Lightsail,
   GHCR image push
 
@@ -90,12 +90,14 @@ mechanism-level detail.
   the server whenever the desktop pushes them.
 - The search index and OAuth databases live outside the vault (the
   default `/data` volume), so the file tools can't reach them. The OAuth
-  database stores refresh tokens keyed by an HMAC under `MCP_AUTH_TOKEN`,
-  so a copy of it holds no usable credential.
-  If `INDEX_DB_PATH` points into a _visible_ vault folder, hidden-path
-  blocking does not cover the databases there. `vault_list_files` lists
-  them like any other vault file, and `vault_read_file` refuses them only
-  because a SQLite file holds binary data.
+  database stores each refresh token only as a keyed hash (an HMAC made
+  with `MCP_AUTH_TOKEN`), so a copy of it holds no usable credential.
+  `INDEX_DB_PATH` sets where the search database lives, and the OAuth
+  database sits beside it. If `INDEX_DB_PATH` points into a _visible_
+  vault folder, hidden-path blocking covers neither database.
+  `vault_list_files` lists them like any other vault file, and
+  `vault_read_file` refuses them only because a SQLite file holds binary
+  data.
 - `vault_read_file` returns any visible non-markdown file whose bytes are
   UTF-8 text, whatever its extension, so a credential kept in a visible vault
   folder (a `deploy.env` or `secrets.txt`) is readable by any signed-in client.
@@ -187,10 +189,10 @@ The server, and the `:remote` image's setup mode, set these headers:
   `vault_update_properties` with `replace: true` replaces a refused block
   with the properties it is given. A rewrite of the properties does not
   keep YAML comments
-- First-sync gate (remote image): the init chain runs Obsidian Sync to
-  completion before the server starts, so the memory folder's starter
-  templates are never written while a two-way sync is still downloading
-  the vault. The download-only sync modes (`SYNC_MODE` set to `pull-only`
+- First-sync gate (remote image): the container's startup scripts (the
+  init chain) run Obsidian Sync to completion before the server starts,
+  so the memory folder's starter templates are never written while a
+  two-way sync is still downloading the vault. The download-only sync modes (`SYNC_MODE` set to `pull-only`
   or `mirror-remote`) never upload the templates at all
 - Sync-state vault guard (remote image): the Sync client's own device
   record of locally held files is read before any sync attempt. If the
@@ -293,8 +295,8 @@ The server, and the `:remote` image's setup mode, set these headers:
 When the `:remote` image starts without a working Obsidian Sync token —
 none set, or the Sync client rejected the saved one — it serves a `/setup`
 page where the owner signs in to Obsidian from the browser instead of
-running `get-sync-token` on their own computer. The sign-in form is served only until the server has a token the
-Sync client accepts:
+running `get-sync-token` on their own computer. The sign-in form is
+served only until the server has a token the Sync client accepts:
 
 - **Gated by `MCP_AUTH_TOKEN` before any upstream call** — the token is
   checked (constant-time) before the server contacts Obsidian, so the
