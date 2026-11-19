@@ -449,6 +449,13 @@ const readStoredBodyTags = (
  *    inference every 5 seconds, so a 30-second call pays for about six. */
 const BACKGROUND_EMBED_MAX_WAIT_MS = 5000
 
+/** How many chunks a note or file embed loop handles between yields to the
+ *  event loop. A chunk whose text or vector is already stored makes no model
+ *  call, so a long run of them would otherwise never let a tool call in; each
+ *  such chunk costs up to about a tenth of a millisecond, so a run this long
+ *  holds the thread for a few tens of milliseconds at most. */
+const CHUNKS_PER_EVENT_LOOP_YIELD = 256
+
 /** A stored chunk's content hash and the raw bytes of its vector. */
 type StoredVectorRow = { content_hash: string; embedding: Buffer }
 
@@ -2205,6 +2212,10 @@ export const createSearchIndex = (
     let reusedCount = 0
 
     for (const chunk of chunks) {
+      if (chunk.index > 0 && chunk.index % CHUNKS_PER_EVENT_LOOP_YIELD === 0) {
+        await setImmediateAsync()
+      }
+
       const hash = contentHash(chunk.text)
 
       // Skip if content hasn't changed
@@ -2442,6 +2453,10 @@ export const createSearchIndex = (
     let reusedCount = 0
 
     for (const chunk of chunks) {
+      if (chunk.index > 0 && chunk.index % CHUNKS_PER_EVENT_LOOP_YIELD === 0) {
+        await setImmediateAsync()
+      }
+
       const hash = contentHash(chunk.text)
 
       if (existingHashes.get(chunk.index) === hash) continue
