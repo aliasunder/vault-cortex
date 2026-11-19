@@ -1,4 +1,12 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs"
 import { tmpdir } from "node:os"
 import { join, relative } from "node:path"
 import { describe, expect, it, onTestFinished } from "vitest"
@@ -78,7 +86,31 @@ describe("runGetSyncToken subcommand", () => {
     ])
   })
 
-  it("exits 1 when --dir .env has no OBSIDIAN_AUTH_TOKEN line", async () => {
+  it("exits 1 when --dir .env is deleted during the sign-in", async () => {
+    const targetDir = makeTempTargetDir()
+    const envPath = join(targetDir, ".env")
+    writeFileSync(envPath, "MCP_AUTH_TOKEN=abc\nOBSIDIAN_AUTH_TOKEN=old-token\n")
+    const signIn = fetchSigninSuccess("new-sync-token")
+    const deleteEnvThenSignIn: typeof fetch = async (...fetchArgs) => {
+      unlinkSync(envPath)
+      return signIn(...fetchArgs)
+    }
+    const scripted = createScriptedPrompts(["user@example.com", "password"])
+
+    const exitCode = await runGetSyncToken(
+      { dir: targetDir },
+      { prompts: scripted.prompts, fetchFn: deleteEnvThenSignIn },
+    )
+
+    expect(exitCode).toBe(1)
+    expect(scripted.errors).toEqual([
+      `Could not patch ${envPath} — the file is missing ` +
+        "or has no OBSIDIAN_AUTH_TOKEN line. Run init first.",
+    ])
+    expect(existsSync(envPath)).toBe(false)
+  })
+
+  it("exits 1 before the sign-in when --dir .env has no OBSIDIAN_AUTH_TOKEN line", async () => {
     const targetDir = makeTempTargetDir()
     writeFileSync(join(targetDir, ".env"), "MCP_AUTH_TOKEN=abc\n")
     const scripted = createScriptedPrompts(["user@example.com", "password"])
@@ -96,6 +128,7 @@ describe("runGetSyncToken subcommand", () => {
       `Could not patch ${join(targetDir, ".env")} — the file is missing ` +
         "or has no OBSIDIAN_AUTH_TOKEN line. Run init first.",
     ])
+    expect(scripted.asked).toEqual([])
     expect(readFileSync(join(targetDir, ".env"), "utf8")).toBe("MCP_AUTH_TOKEN=abc\n")
   })
 
@@ -122,7 +155,7 @@ describe("runGetSyncToken subcommand", () => {
     expect(readFileSync(join(targetDir, ".env"), "utf8")).toBe(remoteEnv)
   })
 
-  it("exits 1 when --dir .env does not exist", async () => {
+  it("exits 1 before the sign-in when --dir .env does not exist", async () => {
     const targetDir = join(makeTempTargetDir(), "nonexistent")
     const scripted = createScriptedPrompts(["user@example.com", "password"])
 
@@ -139,5 +172,6 @@ describe("runGetSyncToken subcommand", () => {
       `Could not patch ${join(targetDir, ".env")} — the file is missing ` +
         "or has no OBSIDIAN_AUTH_TOKEN line. Run init first.",
     ])
+    expect(scripted.asked).toEqual([])
   })
 })

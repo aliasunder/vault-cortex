@@ -17,6 +17,71 @@ export type GetSyncTokenDeps = {
   fetchFn: typeof fetch
 }
 
+const TOKEN_CAPTURE_FAILED = "Could not capture the auth token."
+
+/**
+ * True for the text of a remote install's .env. A local-mode .env has no
+ * OBSIDIAN_AUTH_TOKEN line, and the token belongs only in a remote install's .env.
+ */
+const holdsTokenLine = (envContent: string | undefined): envContent is string => {
+  return envContent !== undefined && parseEnvValues(envContent).has("OBSIDIAN_AUTH_TOKEN")
+}
+
+const describeMissingTokenLine = (envFilePath: string): string => {
+  return (
+    `Could not patch ${envFilePath} — the file is missing or has no ` +
+    "OBSIDIAN_AUTH_TOKEN line. Run init first."
+  )
+}
+
+const printSyncToken = async (deps: GetSyncTokenDeps): Promise<number> => {
+  const { prompts } = deps
+  const token = await captureObsidianToken(deps)
+
+  if (!token) {
+    prompts.error(TOKEN_CAPTURE_FAILED)
+    return 1
+  }
+  prompts.log("Your OBSIDIAN_AUTH_TOKEN:")
+  prompts.print(`\n  ${token}\n`)
+  prompts.outro("Done.")
+  return 0
+}
+
+/**
+ * Signs in and writes the token into targetDir's .env. The folder and its
+ * .env are checked before the sign-in, so a refusal does not waste a captured
+ * token, and the .env is read again afterwards in case it changed meanwhile.
+ */
+const writeSyncToken = async (targetDir: string, deps: GetSyncTokenDeps): Promise<number> => {
+  const { prompts } = deps
+  const envFilePath = join(targetDir, ".env")
+  const targetDirProblem =
+    describeUnprintableInstallFolder(targetDir) ??
+    (holdsTokenLine(envFile.read(envFilePath)) ? undefined : describeMissingTokenLine(envFilePath))
+
+  if (targetDirProblem) {
+    prompts.error(targetDirProblem)
+    return 1
+  }
+  const token = await captureObsidianToken(deps)
+
+  if (!token) {
+    prompts.error(TOKEN_CAPTURE_FAILED)
+    return 1
+  }
+  const envContent = envFile.read(envFilePath)
+
+  if (!holdsTokenLine(envContent)) {
+    prompts.error(describeMissingTokenLine(envFilePath))
+    return 1
+  }
+  envFile.replace(envFilePath, applyOptionalSettings(envContent, { OBSIDIAN_AUTH_TOKEN: token }))
+  prompts.log(`Token written to ${envFilePath}\n\n${startServerLine(targetDir)}`)
+  prompts.outro("Done.")
+  return 0
+}
+
 /**
  * Generates an Obsidian Sync token through the Obsidian API. Without --dir it
  * prints the token; with --dir it writes the token to `<dir>/.env`.
@@ -25,46 +90,8 @@ export const runGetSyncToken = async (
   flags: GetSyncTokenFlags,
   deps: GetSyncTokenDeps,
 ): Promise<number> => {
-  const { prompts } = deps
+  deps.prompts.intro("vault-cortex get-sync-token")
 
-  prompts.intro("vault-cortex get-sync-token")
-
-  // Checked before the sign-in, so a refused folder does not waste a captured token.
-  const targetDir = flags.dir ? resolveTargetDir(flags.dir) : undefined
-  const unprintableFolder = targetDir ? describeUnprintableInstallFolder(targetDir) : undefined
-
-  if (unprintableFolder) {
-    prompts.error(unprintableFolder)
-    return 1
-  }
-  const token = await captureObsidianToken(deps)
-
-  if (!token) {
-    prompts.error("Could not capture the auth token.")
-    return 1
-  }
-
-  if (!targetDir) {
-    prompts.log("Your OBSIDIAN_AUTH_TOKEN:")
-    prompts.print(`\n  ${token}\n`)
-    prompts.outro("Done.")
-    return 0
-  }
-
-  const envFilePath = join(targetDir, ".env")
-  const envContent = envFile.read(envFilePath)
-
-  // A local-mode .env has no OBSIDIAN_AUTH_TOKEN line, and the token belongs
-  // only in a remote install's .env.
-  if (!envContent || !parseEnvValues(envContent).has("OBSIDIAN_AUTH_TOKEN")) {
-    prompts.error(
-      `Could not patch ${envFilePath} — the file is missing or has no ` +
-        "OBSIDIAN_AUTH_TOKEN line. Run init first.",
-    )
-    return 1
-  }
-  envFile.replace(envFilePath, applyOptionalSettings(envContent, { OBSIDIAN_AUTH_TOKEN: token }))
-  prompts.log(`Token written to ${envFilePath}\n\n${startServerLine(targetDir)}`)
-  prompts.outro("Done.")
-  return 0
+  if (!flags.dir) return printSyncToken(deps)
+  return writeSyncToken(resolveTargetDir(flags.dir), deps)
 }
