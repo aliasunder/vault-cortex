@@ -297,48 +297,57 @@ export const toNameLookupText = (query: string): string => {
 /** A note name on one line, and its folded form. */
 type NoteName = { singleLineName: string; foldedName: string }
 
-/**
- * The title, then each alias that differs from it and from the aliases before
- * it, compared without letter case, in document order. A name longer than
- * MAX_COMPARED_NAME_LENGTH is kept without the duplicate check.
- */
-const findDistinctNames = (params: {
-  title: string
-  aliases: ReadonlyArray<string>
-}): NoteName[] => {
-  const seenFoldedNames = new Set<string>()
-  const distinctNames: NoteName[] = []
-  for (const name of [params.title, ...params.aliases]) {
+/** The title, then each alias, in document order. */
+const toNoteNames = (params: { title: string; aliases: ReadonlyArray<string> }): NoteName[] => {
+  return [params.title, ...params.aliases].map((name) => {
     const singleLineName = toSingleLineName(name)
-    const foldedName = foldName(singleLineName)
-
-    if (singleLineName.length <= MAX_COMPARED_NAME_LENGTH) {
-      if (seenFoldedNames.has(foldedName)) continue
-      seenFoldedNames.add(foldedName)
-    }
-    distinctNames.push({ singleLineName, foldedName })
-  }
-  return distinctNames
+    return { singleLineName, foldedName: foldName(singleLineName) }
+  })
 }
 
 /**
- * The FTS row's two name columns. Each holds the title, then each distinct
- * alias, one per line:
- * - titleText holds the names as written, for keyword matching. The FTS
- *   tokenizer folds letter case from an older Unicode version than
- *   `toLowerCase`, so a lowercased copy of a name in some scripts (Cherokee,
- *   Osage) would no longer match a query typed as the name is written;
- * - foldedNames holds the same names folded, for EXACT_NAME_MATCH_SQL.
+ * The names that repeat no earlier name in the compared form, in document
+ * order. A name longer than MAX_COMPARED_NAME_LENGTH is kept without the check.
+ */
+const dropRepeatedNames = (params: {
+  noteNames: ReadonlyArray<NoteName>
+  compareBy: keyof NoteName
+}): NoteName[] => {
+  const seenForms = new Set<string>()
+  const keptNames: NoteName[] = []
+  for (const noteName of params.noteNames) {
+    if (noteName.singleLineName.length <= MAX_COMPARED_NAME_LENGTH) {
+      const comparedForm = noteName[params.compareBy]
+
+      if (seenForms.has(comparedForm)) continue
+      seenForms.add(comparedForm)
+    }
+    keptNames.push(noteName)
+  }
+  return keptNames
+}
+
+/**
+ * The FTS row's two name columns. Each holds the title, then the aliases, one
+ * per line:
+ * - titleText holds the names as written, for keyword matching, and drops only
+ *   a name spelled exactly like an earlier one. The FTS tokenizer folds letter
+ *   case from an older Unicode version than `toLowerCase`, so in some scripts
+ *   (Cherokee, Osage) a lowercased copy, or a spelling that `toLowerCase`
+ *   folds into an earlier one, is a different word to it;
+ * - foldedNames holds each name folded, without repeats, for EXACT_NAME_MATCH_SQL.
  */
 export const buildFtsNameText = (params: {
   title: string
   aliases: ReadonlyArray<string>
 }): { titleText: string; foldedNames: string } => {
-  const distinctNames = findDistinctNames(params)
+  const noteNames = toNoteNames(params)
+  const distinctSpellings = dropRepeatedNames({ noteNames, compareBy: "singleLineName" })
+  const distinctFoldedNames = dropRepeatedNames({ noteNames, compareBy: "foldedName" })
 
   return {
-    titleText: distinctNames.map((noteName) => noteName.singleLineName).join("\n"),
-    foldedNames: distinctNames.map((noteName) => noteName.foldedName).join("\n"),
+    titleText: distinctSpellings.map((noteName) => noteName.singleLineName).join("\n"),
+    foldedNames: distinctFoldedNames.map((noteName) => noteName.foldedName).join("\n"),
   }
 }
 
@@ -348,7 +357,10 @@ export const buildChunkTitleLine = (params: {
   title: string
   aliases: ReadonlyArray<string>
 }): string => {
-  const [titleName, ...aliasNames] = findDistinctNames(params)
+  const [titleName, ...aliasNames] = dropRepeatedNames({
+    noteNames: toNoteNames(params),
+    compareBy: "foldedName",
+  })
 
   if (!titleName || aliasNames.length === 0) return params.title
   const aliasList = aliasNames.map((aliasName) => aliasName.singleLineName).join(", ")

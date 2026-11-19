@@ -2380,6 +2380,25 @@ describe("note names in keyword search", () => {
 
     expect(results.map((result) => result.path)).toEqual(["Language/Cherokee.md"])
   })
+
+  it("finds a note by an alias that differs from its title only in Cherokee letter case", () => {
+    // toLowerCase folds the two spellings together, but the tokenizer reads them
+    // as different words, so the alias needs its own place in the title column
+    const cherokeeIndex = createSearchIndex(":memory:")
+    cherokeeIndex.upsertNote(
+      withBodyTags({
+        filePath: "Language/Cherokee.md",
+        rawContent:
+          "---\ntitle: ᏣᎳᎩ\naliases: [ꮳꮃꭹ]\n---\n\nThe syllabary has eighty-five letters.\n",
+        fileStat: testStat(1000),
+      }),
+      logger,
+    )
+
+    const results = cherokeeIndex.fullTextSearch({ query: "ꮳꮃꭹ" }, logger)
+
+    expect(results.map((result) => result.path)).toEqual(["Language/Cherokee.md"])
+  })
 })
 
 describe("searchByTag", () => {

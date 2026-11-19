@@ -176,9 +176,16 @@ describe("buildFtsNameText", () => {
     })
   })
 
-  it("drops an alias equal to the title or to an earlier alias, ignoring letter case", () => {
-    expect(buildFtsNameText({ title: "Biscuit", aliases: ["Pup", "biscuit", "PUP"] })).toEqual({
+  it("drops an alias spelled exactly like the title or an earlier alias from both columns", () => {
+    expect(buildFtsNameText({ title: "Biscuit", aliases: ["Pup", "Pup", "Biscuit"] })).toEqual({
       titleText: "Biscuit\nPup",
+      foldedNames: "biscuit\npup",
+    })
+  })
+
+  it("keeps an alias that differs only in letter case as written, and folds it out of the folded names", () => {
+    expect(buildFtsNameText({ title: "Biscuit", aliases: ["Pup", "biscuit", "PUP"] })).toEqual({
+      titleText: "Biscuit\nPup\nbiscuit\nPUP",
       foldedNames: "biscuit\npup",
     })
   })
@@ -192,12 +199,12 @@ describe("buildFtsNameText", () => {
 
   it("keeps a title or an alias that spans lines on one line, so it stays one name", () => {
     expect(
-      buildFtsNameText({ title: "Sam\nCarter", aliases: ["Avery \r\n  Quinn", "sam carter"] }),
+      buildFtsNameText({ title: "Sam\nCarter", aliases: ["Avery \r\n  Quinn", "Sam Carter"] }),
     ).toEqual({ titleText: "Sam Carter\nAvery Quinn", foldedNames: "sam carter\navery quinn" })
   })
 
   it("trims the line break a block scalar leaves at the end of a title", () => {
-    expect(buildFtsNameText({ title: "Avery Quinn\n", aliases: ["avery quinn", "Mom"] })).toEqual({
+    expect(buildFtsNameText({ title: "Avery Quinn\n", aliases: ["Avery Quinn", "Mom"] })).toEqual({
       titleText: "Avery Quinn\nMom",
       foldedNames: "avery quinn\nmom",
     })
