@@ -103,10 +103,6 @@ export const findTrailingCommentBlockStart = (lines: readonly string[]): number 
     const commentResult = advanceComment(line, commentOpen)
     commentOpen = commentResult.commentOpen
 
-    // Text after a closing `%%` on the same line is content below the block,
-    // so a block that closes mid-line cannot be the trailing one.
-    const closerEndsLine = line.trimEnd().endsWith(COMMENT_DELIMITER)
-
     // Derive block-tracking transitions from before/after state.
     if (!wasOpen && commentOpen) {
       commentOpenLine = i
@@ -114,14 +110,19 @@ export const findTrailingCommentBlockStart = (lines: readonly string[]): number 
     }
 
     if (wasOpen && !commentOpen) {
+      // Text after a closing `%%` on the same line is content below the block,
+      // so a block that closes mid-line cannot be the trailing one.
+      const closerEndsLine = line.trimEnd().endsWith(COMMENT_DELIMITER)
       lastClosedBlock = closerEndsLine ? { startLine: commentOpenLine, endLine: i } : null
       continue
     }
 
+    // An inline comment both starts and ends its line with `%%`, so it
+    // always closes at the line's end.
     const isInlineComment = !wasOpen && !commentOpen && commentResult.lineIsComment
 
     if (isInlineComment) {
-      lastClosedBlock = closerEndsLine ? { startLine: i, endLine: i } : null
+      lastClosedBlock = { startLine: i, endLine: i }
     }
   }
 
@@ -241,8 +242,9 @@ export const parseHeadings = (lines: readonly string[]): HeadingInfo[] => {
   // run to EOF, but must stop before a trailing `%% %%` comment block (e.g. a
   // Kanban board's `%% kanban:settings %%`) so replace/append don't clobber it.
   const trailingCommentBlockStart = findTrailingCommentBlockStart(lines)
-  // Every body starts out running to EOF; the loop below moves the end up for
-  // each heading that a later heading closes.
+
+  // Every body starts out ending at EOF or at the trailing block; the loop
+  // below moves the end up for each heading that a later heading closes.
   const completedHeadings = collectedHeadings.map((heading) => ({
     ...heading,
     bodyEndLine: Math.max(heading.bodyStartLine, trailingCommentBlockStart),
