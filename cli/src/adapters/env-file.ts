@@ -8,6 +8,7 @@ import {
   mkdirSync,
   openSync,
   readFileSync,
+  realpathSync,
   renameSync,
   rmSync,
   statSync,
@@ -225,9 +226,14 @@ type FolderOwnership = {
   aclAllowsAccess: boolean
 }
 
-/** True when the path's ACL lists an entry that lets someone in. */
+/**
+ * True when the ACL of what the path leads to lists an entry that lets
+ * someone in. A link is resolved first, so the listing covers the file or
+ * folder the CLI reads, as statSync does for the owner; macOS `ls -L` shows a
+ * link target's mode but not its ACL.
+ */
 const aclAllowsAccessTo = (filePath: string): boolean => {
-  return ACL_ALLOW_LINE.test(listWithAcl(filePath))
+  return ACL_ALLOW_LINE.test(listWithAcl(realpathSync(filePath)))
 }
 
 /** Who owns a folder and who else it lets in, or undefined when it does not exist. */

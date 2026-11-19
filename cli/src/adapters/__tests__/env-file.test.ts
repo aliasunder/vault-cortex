@@ -612,6 +612,18 @@ describe("folderOwnership", () => {
     },
   )
 
+  it.skipIf(process.platform !== "darwin")(
+    "reports an ACL entry on the folder a linked install folder leads to",
+    () => {
+      const linkedFolder = makeTempDir()
+      execFileSync("/bin/chmod", ["+a", "everyone allow add_file", linkedFolder])
+      const folderPath = join(makeTempDir(), "vault-cortex")
+      symlinkSync(linkedFolder, folderPath)
+
+      expect(envFile.folderOwnership(folderPath)?.aclAllowsAccess).toBe(true)
+    },
+  )
+
   it.skipIf(process.platform !== "darwin")("does not count an ACL entry that only denies", () => {
     const folderPath = makeTempDir()
     execFileSync("/bin/chmod", ["+a", "everyone deny add_file", folderPath])

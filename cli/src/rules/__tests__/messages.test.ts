@@ -127,7 +127,7 @@ describe("describeUntrustedInstallFolder", () => {
         trustedOwnerIds: [0, 501],
       }),
     ).toBe(
-      "/home/me/vault-cortex or its .env has access-list entries that let other users in, so the CLI won't use it. Remove them from the folder and everything in it with chmod -RN, or choose another folder with --dir.",
+      "/home/me/vault-cortex or its .env has access-list entries that let other users in, so the CLI won't use it. Remove them from the folder and its .env with chmod -h -N, or choose another folder with --dir.",
     )
   })
 

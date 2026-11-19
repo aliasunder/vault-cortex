@@ -223,7 +223,7 @@ export const describeUntrustedInstallFolder = (params: {
   // macOS gives each new file in the folder its "allow" entries, so they would reach .env,
   // and a .env written there earlier keeps the entries it took.
   if (folder.aclAllowsAccess) {
-    return `${targetDir} or its .env has access-list entries that let other users in, so the CLI won't use it. Remove them from the folder and everything in it with chmod -RN, or choose another folder with --dir.`
+    return `${targetDir} or its .env has access-list entries that let other users in, so the CLI won't use it. Remove them from the folder and its .env with chmod -h -N, or choose another folder with --dir.`
   }
   return undefined
 }
