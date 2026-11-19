@@ -1994,7 +1994,7 @@ export const createSearchIndex = (
 
     const metadataText = buildFtsMetadataText(frontmatter)
 
-    // Task rows carry the full immediate-parent folder (posix dirname), unlike
+    // Task rows carry the full immediate-parent folder, unlike
     // notes.folder which stores only the first path segment — task triage
     // needs project-level attribution ("Code Projects/vault-cortex", not
     // "Code Projects").
