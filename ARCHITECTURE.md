@@ -518,7 +518,7 @@ Both models lazy-load on first use (~1–2s cold start each, kept in memory afte
 `vault_search` calls `hybridSearch`, which runs up to four ranked retrieval legs and merges results via RRF. The flow:
 
 1. **Note FTS5** keyword search (synchronous, `fullTextSearch`):
-   - The title column holds the note's title and each of its [aliases](https://obsidian.md/help/aliases), one per line, so an alias match ranks like a title match. The metadata column leaves the aliases out.
+   - The title column holds the note's title and each of its [aliases](https://obsidian.md/help/aliases), one per line, so an alias match ranks like a title match. The metadata column keeps only alias entries that are not text, such as numbers.
    - A note whose title or alias equals the whole query sorts first, ignoring letter case and one pair of surrounding double quotes.
 2. **File content FTS5** — linearized canvas, extracted PDF text, text files, HTML visible text, and scripts (skipped when note-specific filters are active)
 3. **Note vector search** — embed the query → sqlite-vec KNN over `note_vectors` → deduplicate to best chunk per note

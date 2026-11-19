@@ -233,34 +233,12 @@ export const foldName = (name: string): string => name.normalize("NFC").toLowerC
 
 /**
  * SQL expression over `notes_fts` that is 1 when the bound text equals a whole
- * line of the title column, 0 when it does not, and null when the bound text
- * is null. It binds `toNameLookupText(query)`.
+ * line of the title column, and 0 otherwise. It binds `toNameLookupText(query)`.
  * - buildFtsTitleText writes the title and each alias on a line of its own.
  * - A newline on both sides of both strings limits `instr` to whole lines.
  */
 export const EXACT_NAME_MATCH_SQL =
   "instr(char(10) || fold_name(notes_fts.title) || char(10), char(10) || ? || char(10)) > 0"
-
-/** Matches a query that is one double-quoted phrase and captures the text
- *  inside the quotes. */
-const QUOTED_PHRASE_RE = /^"(?<phrase>[^"]*)"$/
-
-/**
- * The folded text EXACT_NAME_MATCH_SQL compares with each note name:
- * - the text inside the quotes when the whole query is one double-quoted phrase;
- * - otherwise the trimmed query;
- * - empty when the query has no text or spans lines.
- */
-export const toNameLookupText = (query: string): string => {
-  const trimmedQuery = query.trim()
-  const quotedPhrase = QUOTED_PHRASE_RE.exec(trimmedQuery)?.groups?.phrase
-  const nameText = quotedPhrase?.trim() ?? trimmedQuery
-
-  // Each line of the title column holds one name, so text spanning lines would
-  // match two adjacent names joined together
-  if (nameText.includes("\n")) return ""
-  return foldName(nameText)
-}
 
 /** Matches a run of line breaks with the whitespace around it. */
 const LINE_BREAK_RUN_RE = /\s*[\r\n]+\s*/g
@@ -269,10 +247,27 @@ const LINE_BREAK_RUN_RE = /\s*[\r\n]+\s*/g
  * A name on one line: each line break becomes one space, and the ends are trimmed.
  * - A YAML block scalar can give a title or an alias several lines and a final
  *   line break.
- * - EXACT_NAME_MATCH_SQL compares a trimmed query with whole lines of the title
- *   column, so each name must fill one line and nothing else.
+ * - EXACT_NAME_MATCH_SQL compares the query with whole lines of the title
+ *   column, so each name, and the query, must fill one line and nothing else.
  */
 const toSingleLineName = (name: string): string => name.replace(LINE_BREAK_RUN_RE, " ").trim()
+
+/** Matches a query that is one double-quoted phrase and captures the text
+ *  inside the quotes. */
+const QUOTED_PHRASE_RE = /^"(?<phrase>[^"]*)"$/
+
+/**
+ * The folded, single-line text EXACT_NAME_MATCH_SQL compares with each note name:
+ * - the text inside the quotes when the whole query is one double-quoted phrase;
+ * - otherwise the query;
+ * - empty when the query has no text.
+ */
+export const toNameLookupText = (query: string): string => {
+  const trimmedQuery = query.trim()
+  const quotedPhrase = QUOTED_PHRASE_RE.exec(trimmedQuery)?.groups?.phrase
+
+  return foldName(toSingleLineName(quotedPhrase ?? trimmedQuery))
+}
 
 /** The aliases that differ from the title and from each other, compared
  *  without letter case, in document order, each on a single line. */

@@ -332,11 +332,10 @@ export const fullTextSearch = (
   // result lean; callers triaging which note to open can request it.
   const includeLeadingCallout = params.include_leading_callout ?? false
 
-  // - The name check reads the raw query, because sanitizing it for MATCH
-  //   rewrites its punctuation and quoting.
-  // - A query with no name text binds null, which makes instr return null, so
-  //   no note gets the exact-name boost.
-  const nameLookupText = toNameLookupText(params.query) || null
+  // The name check reads the raw query, because sanitizing it for MATCH
+  // rewrites its punctuation and quoting. A query with no name text sanitizes
+  // to a MATCH that finds nothing, so no row is checked against it.
+  const nameLookupText = toNameLookupText(params.query)
 
   // Positional parameters bind in the order they appear in the SQL text: the
   // name text in the SELECT list, then the WHERE clause's, then LIMIT.
@@ -383,7 +382,7 @@ export const fullTextSearch = (
           | "bytes"
         > & {
           snippet: string
-          is_exact_name: number | null
+          is_exact_name: number
           rank_score: number
           leading_callout?: string | null
         }

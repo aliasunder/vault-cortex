@@ -206,11 +206,12 @@ describe("buildChunkTitleLine", () => {
 
 describe("foldName", () => {
   it("folds an accented letter written as a base letter plus a combining mark to its single-character form", () => {
-    const decomposedName = "Éclair"
-    const composedQuery = "Éclair"
+    // Code points keep the two spellings, which render alike, visible in source
+    const decomposedName = `E${String.fromCodePoint(0x0301)}clair`
+    const composedQuery = `${String.fromCodePoint(0x00c9)}clair`
 
     expect(foldName(decomposedName)).toBe(foldName(composedQuery))
-    expect(foldName(composedQuery)).toBe("éclair")
+    expect(foldName(composedQuery)).toBe(`${String.fromCodePoint(0x00e9)}clair`)
   })
 })
 
@@ -221,6 +222,11 @@ describe("toNameLookupText", () => {
     { label: "a quoted name", query: '"Avery Quinn"', expected: "avery quinn" },
     { label: "padding inside the quotes", query: '" Mom "', expected: "mom" },
     { label: "a query with a quoted part", query: '"Mom" trip', expected: '"mom" trip' },
+    {
+      label: "a query spanning lines, on one line",
+      query: "Avery\n  Quinn",
+      expected: "avery quinn",
+    },
   ])("folds $label", ({ query, expected }) => {
     expect(toNameLookupText(query)).toBe(expected)
   })
@@ -228,7 +234,6 @@ describe("toNameLookupText", () => {
   it.each([
     { label: "empty quotes", query: '""' },
     { label: "whitespace only", query: "   " },
-    { label: "a query spanning lines", query: "Avery\nMom" },
   ])("returns no name text for $label", ({ query }) => {
     expect(toNameLookupText(query)).toBe("")
   })

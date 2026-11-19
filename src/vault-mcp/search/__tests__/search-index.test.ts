@@ -2320,27 +2320,10 @@ describe("note names in keyword search", () => {
     expect(results.map((result) => result.path)).toEqual(["Pets/Biscuit.md", "Bakery/Order.md"])
   })
 
-  it("gives a note with an empty title no boost for a query with no name text", () => {
-    const untitledIndex = createSearchIndex(":memory:")
-    const notes = [
-      {
-        filePath: "Inbox/Untitled.md",
-        rawContent: '---\ntitle: ""\n---\n\nA trip with mom.\n',
-      },
-      {
-        filePath: "Trips/Plan.md",
-        rawContent:
-          "---\ntitle: Plan\n---\n\nMom and the trip, mom and the trip, the trip with mom.\n",
-      },
-    ]
-    for (const note of notes) {
-      untitledIndex.upsertNote(withBodyTags({ ...note, fileStat: testStat(1000) }), logger)
-    }
+  it("matches a query spanning lines against the name it spells on one line", () => {
+    const results = createNamesIndex().fullTextSearch({ query: "session\nlog" }, logger)
 
-    // A query spanning lines has no name text
-    const results = untitledIndex.fullTextSearch({ query: "mom\ntrip" }, logger)
-
-    expect(results.map((result) => result.path)).toEqual(["Trips/Plan.md", "Inbox/Untitled.md"])
+    expect(results.map((result) => result.path)).toEqual(["Trips/Session log.md", "Logs/Daily.md"])
   })
 })
 
