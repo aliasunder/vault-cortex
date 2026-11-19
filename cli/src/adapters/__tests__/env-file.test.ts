@@ -34,7 +34,10 @@ afterEach(() => {
   vi.mocked(writeFileSync).mockReset()
   vi.mocked(renameSync).mockReset()
   vi.mocked(fchownSync).mockReset()
+  vi.mocked(lstatSync).mockReset()
+  vi.mocked(closeSync).mockClear()
   vi.restoreAllMocks()
+  vi.unstubAllEnvs()
 })
 
 const neverOverwrite = async (): Promise<boolean> => false
@@ -245,10 +248,13 @@ describe("write edge cases", () => {
       writeFileSync(file, "MCP_AUTH", options)
       throw new Error("ENOSPC: no space left on device")
     })
+    // Writing the old .env above closed a file too.
+    vi.mocked(closeSync).mockClear()
 
     expect(() => envFile.replace(envPath, "MCP_AUTH_TOKEN=new\n")).toThrow(
       new Error("ENOSPC: no space left on device"),
     )
+    expect(closeSync).toHaveBeenCalledTimes(1)
     expect(readdirSync(targetDir)).toEqual([".env"])
     expect(readFileSync(envPath, "utf8")).toBe("MCP_AUTH_TOKEN=old\n")
   })
@@ -329,18 +335,56 @@ describe("write edge cases", () => {
     },
   )
 
-  it("gives the new file the old .env's owner, through the open file, when the CLI runs as root", () => {
-    const targetDir = makeTempDir()
-    const envPath = join(targetDir, ".env")
+  it("gives the new file to the user who ran sudo, not to the owner of the .env path", () => {
+    const envPath = join(makeTempDir(), ".env")
     writeFileSync(envPath, "MCP_AUTH_TOKEN=old\n", { mode: 0o600 })
-    const { uid, gid } = statSync(envPath)
     vi.spyOn(process, "getuid").mockReturnValue(0)
+    vi.stubEnv("SUDO_UID", "4242")
+    vi.stubEnv("SUDO_GID", "4343")
+    // Only root may hand a file to another user, so the call itself is skipped.
+    vi.mocked(fchownSync).mockImplementationOnce(() => undefined)
 
     envFile.replace(envPath, "MCP_AUTH_TOKEN=new\n")
 
     expect(fchownSync).toHaveBeenCalledTimes(1)
-    expect(fchownSync).toHaveBeenCalledWith(expect.any(Number), uid, gid)
+    expect(fchownSync).toHaveBeenCalledWith(expect.any(Number), 4242, 4343)
     expect(readFileSync(envPath, "utf8")).toBe("MCP_AUTH_TOKEN=new\n")
+  })
+
+  it.each([
+    { label: "no SUDO_UID", sudoUid: "", sudoGid: "20" },
+    { label: "a SUDO_GID that is not a number", sudoUid: "501", sudoGid: "staff" },
+  ])("leaves a root-run file with root when sudo gives $label", ({ sudoUid, sudoGid }) => {
+    const envPath = join(makeTempDir(), ".env")
+    writeFileSync(envPath, "MCP_AUTH_TOKEN=old\n", { mode: 0o600 })
+    vi.spyOn(process, "getuid").mockReturnValue(0)
+    vi.stubEnv("SUDO_UID", sudoUid)
+    vi.stubEnv("SUDO_GID", sudoGid)
+
+    envFile.replace(envPath, "MCP_AUTH_TOKEN=new\n")
+
+    expect(fchownSync).not.toHaveBeenCalled()
+    expect(readFileSync(envPath, "utf8")).toBe("MCP_AUTH_TOKEN=new\n")
+  })
+
+  // Root ignores folder permissions, so the folder would not stop it.
+  it.skipIf(runsAsRoot)("refuses a link put at the .env path after the regular-file check", () => {
+    const targetDir = makeTempDir()
+    const linkedEnvPath = join(makeTempDir(), "shared.env")
+    writeFileSync(linkedEnvPath, "MCP_AUTH_TOKEN=old\n", { mode: 0o644 })
+    symlinkSync(linkedEnvPath, join(targetDir, ".env"))
+    chmodSync(targetDir, 0o500)
+    onTestFinished(() => {
+      chmodSync(targetDir, 0o700)
+    })
+    // The check sees the linked file, as it would before the link was put there.
+    vi.mocked(lstatSync).mockImplementationOnce((checkedPath) => statSync(checkedPath))
+
+    expect(() => envFile.replace(join(targetDir, ".env"), "MCP_AUTH_TOKEN=new\n")).toThrow(
+      /^ELOOP: /,
+    )
+    expect(readFileSync(linkedEnvPath, "utf8")).toBe("MCP_AUTH_TOKEN=old\n")
+    expect(statSync(linkedEnvPath).mode & 0o777).toBe(0o644)
   })
 
   // Root ignores folder permissions, so the folder would not stop it.

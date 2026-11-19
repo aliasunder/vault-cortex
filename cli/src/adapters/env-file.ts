@@ -1,9 +1,11 @@
 import { randomUUID } from "node:crypto"
 import {
-  chmodSync,
   closeSync,
+  constants,
   existsSync,
+  fchmodSync,
   fchownSync,
+  ftruncateSync,
   lstatSync,
   mkdirSync,
   openSync,
@@ -47,34 +49,42 @@ const isFolderPermissionError = (error: unknown): boolean => {
 
 const runsAsRoot = (): boolean => process.getuid?.() === ROOT_UID
 
+/** Matches a user or group id as sudo writes it into SUDO_UID and SUDO_GID. */
+const NUMERIC_ID = /^\d+$/
+
+/** The user who ran sudo, or undefined when the CLI is not running under sudo. */
+const findSudoUser = (): { uid: number; gid: number } | undefined => {
+  if (!runsAsRoot()) return undefined
+  const { SUDO_UID: sudoUid = "", SUDO_GID: sudoGid = "" } = process.env
+  const sudoIdsValid = NUMERIC_ID.test(sudoUid) && NUMERIC_ID.test(sudoGid)
+
+  if (!sudoIdsValid) return undefined
+  return { uid: Number(sudoUid), gid: Number(sudoGid) }
+}
+
 /**
  * Under sudo the CLI runs as root, and the new file would belong to root;
- * this hands it to the old .env's owner so they can still edit it. lstat
- * reads the .env path itself, never a file a link points to.
+ * this gives it to the user who ran sudo, so they can still edit it without
+ * sudo. The owner comes from sudo, never from whatever sits at the .env path.
  */
-const keepOwner = (params: { newFile: number; oldFilePath: string }): void => {
-  if (!runsAsRoot()) return
-  const oldFileStats = lstatSync(params.oldFilePath, { throwIfNoEntry: false })
+const giveToSudoUser = (newFile: number): void => {
+  const sudoUser = findSudoUser()
 
-  if (!oldFileStats) return
-  fchownSync(params.newFile, oldFileStats.uid, oldFileStats.gid)
+  if (!sudoUser) return
+  fchownSync(newFile, sudoUser.uid, sudoUser.gid)
 }
 
 /**
  * Creates the temporary file owner-only and writes the text into it. Its
  * owner is set through the open file, so no path is looked up twice.
  */
-const writeTempFile = (params: {
-  tempPath: string
-  envFilePath: string
-  envContent: string
-}): void => {
+const writeTempFile = (params: { tempPath: string; envContent: string }): void => {
   // "wx" creates the file or fails, so it never writes into a file that exists.
   const tempFile = openSync(params.tempPath, "wx", ENV_FILE_MODE)
 
   try {
     writeFileSync(tempFile, params.envContent)
-    keepOwner({ newFile: tempFile, oldFilePath: params.envFilePath })
+    giveToSudoUser(tempFile)
   } finally {
     closeSync(tempFile)
   }
@@ -102,13 +112,31 @@ const canRewriteInPlace = (params: { error: unknown; envFilePath: string }): boo
 }
 
 /**
+ * Rewrites a regular .env in place:
+ * - O_NOFOLLOW refuses a link put at the path after canRewriteInPlace looked;
+ * - the mode is narrowed before the text goes in, so the text never sits in
+ *   a file others can read.
+ */
+const rewriteInPlace = (envFilePath: string, envContent: string): void => {
+  const envFileHandle = openSync(envFilePath, constants.O_WRONLY | constants.O_NOFOLLOW)
+
+  try {
+    fchmodSync(envFileHandle, ENV_FILE_MODE)
+    ftruncateSync(envFileHandle)
+    writeFileSync(envFileHandle, envContent)
+  } finally {
+    closeSync(envFileHandle)
+  }
+}
+
+/**
  * Writes .env as a new owner-only file renamed over the old one, never into
  * the old file:
  * - the new text is only ever in a file created owner-only;
  * - an interrupted write leaves the old file whole;
  * - a .env that is a link is replaced by a regular file, and the file it
  *   pointed to is left as it was;
- * - under sudo, the new file gets the old .env's owner.
+ * - under sudo, the new file belongs to the user who ran sudo.
  * When the folder does not let the CLI create a file, it narrows a regular
  * .env to owner-only and rewrites it in place instead, and an interrupted
  * write there can leave the file cut short.
@@ -117,15 +145,12 @@ const writeOwnerOnly = (envFilePath: string, envContent: string): void => {
   const tempPath = `${envFilePath}.${randomUUID()}.tmp`
 
   try {
-    writeTempFile({ tempPath, envFilePath, envContent })
+    writeTempFile({ tempPath, envContent })
   } catch (error) {
     // A write that fails partway (a full disk) leaves part of the text behind.
     removeTempFile(tempPath)
     if (!canRewriteInPlace({ error, envFilePath })) throw error
-
-    // Narrowing the old file before writing keeps the new text out of a file others can read.
-    chmodSync(envFilePath, ENV_FILE_MODE)
-    writeFileSync(envFilePath, envContent)
+    rewriteInPlace(envFilePath, envContent)
     return
   }
 
