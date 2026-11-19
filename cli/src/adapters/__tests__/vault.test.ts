@@ -1,8 +1,9 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs"
+import { chmodSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { describe, expect, it } from "vitest"
 
+import { runsAsRoot } from "../../../../src/__tests__/runs-as-root.js"
 import { expandTilde, validateVaultPath } from "../vault.js"
 
 describe("expandTilde", () => {
@@ -78,6 +79,26 @@ describe("validateVaultPath", () => {
       message: `Path does not exist: ${missingPath}`,
     })
   })
+
+  it.skipIf(runsAsRoot)(
+    "returns the does-not-exist error for a path behind a folder it cannot open",
+    () => {
+      const lockedDir = join(mkdtempSync(join(tmpdir(), "vault-cli-")), "locked")
+      mkdirSync(lockedDir)
+      chmodSync(lockedDir, 0o000)
+      const pathBehindLockedDir = join(lockedDir, "MyVault")
+
+      try {
+        expect(validateVaultPath(pathBehindLockedDir)).toEqual({
+          kind: "error",
+          message: `Path does not exist: ${pathBehindLockedDir}`,
+        })
+      } finally {
+        // The OS temp cleanup needs the locked folder readable again.
+        chmodSync(lockedDir, 0o700)
+      }
+    },
+  )
 
   it("returns the does-not-exist error for a path that runs through a file", () => {
     const tempDir = mkdtempSync(join(tmpdir(), "vault-cli-"))

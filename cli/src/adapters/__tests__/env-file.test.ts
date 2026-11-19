@@ -1,5 +1,6 @@
 import {
   chmodSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   rmSync,
@@ -11,6 +12,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest"
 
+import { runsAsRoot } from "../../../../src/__tests__/runs-as-root.js"
 import { envFile } from "../env-file.js"
 
 // Spy mode keeps the real fs, so a test can delete the .env right after the
@@ -67,6 +69,19 @@ describe("read", () => {
     writeFileSync(filePath, "")
 
     expect(envFile.read(join(filePath, ".env"))).toBeUndefined()
+  })
+
+  it.skipIf(runsAsRoot)("returns undefined for a .env behind a folder it cannot open", () => {
+    const lockedDir = join(makeTempDir(), "locked")
+    mkdirSync(lockedDir)
+    chmodSync(lockedDir, 0o000)
+
+    try {
+      expect(envFile.read(join(lockedDir, ".env"))).toBeUndefined()
+    } finally {
+      // The temp folder's removal needs the locked folder readable again.
+      chmodSync(lockedDir, 0o700)
+    }
   })
 
   it("throws a read failure other than a missing file", () => {
