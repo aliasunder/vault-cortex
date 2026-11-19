@@ -293,6 +293,7 @@ export const MAX_LISTED_HEADINGS = 30
 
 /** Formats `<lead>: <labels>`, where `lead` is the text before the list and the
  *  labels are comma-joined in document order.
+ *  - With no labels, it says `<lead>: (none)`.
  *  - Past `MAX_LISTED_HEADINGS` labels, only the first 30 are listed, and the
  *    count follows the lead: `<lead> (first 30 of 202): <first 30 labels>`.
  *  - The count sits before the list, because a count after it would read as
@@ -304,6 +305,7 @@ export const formatHeadingList = ({
   lead: string
   labels: readonly string[]
 }): string => {
+  if (labels.length === 0) return `${lead}: (none)`
   if (labels.length <= MAX_LISTED_HEADINGS) return `${lead}: ${labels.join(", ")}`
 
   const listedLabels = labels.slice(0, MAX_LISTED_HEADINGS).join(", ")
@@ -335,11 +337,10 @@ export const findHeading = ({
   const [firstMatch] = matches
 
   if (!firstMatch) {
-    const headingLabels = headings.map((heading) => `${"#".repeat(heading.level)} ${heading.text}`)
-    const availableHeadings =
-      headingLabels.length > 0
-        ? formatHeadingList({ lead: "Available headings", labels: headingLabels })
-        : "Available headings: (none)"
+    const availableHeadings = formatHeadingList({
+      lead: "Available headings",
+      labels: headings.map((heading) => `${"#".repeat(heading.level)} ${heading.text}`),
+    })
     throw new Error(`heading not found: "${searchText}". ${availableHeadings}`)
   }
 

@@ -1733,6 +1733,27 @@ kanban-plugin: board
       )
     })
 
+    it("says (none) when the heading is missing from a note with no headings", async () => {
+      const vault = await createVault()
+      const content = "- [ ] Existing task ^existing\n"
+      await writeTestNote(vault, "tasks.md", content)
+
+      await expect(
+        taskMutations.createTask(
+          {
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
+            vaultPath: vault,
+            path: "tasks.md",
+            description: "New task",
+            blockId: "new-task",
+            heading: "Missing",
+          },
+          logger,
+        ),
+      ).rejects.toThrow(new Error('heading "Missing" not found; available: (none)'))
+      expect(await readTestNote(vault, "tasks.md")).toBe(content)
+    })
+
     it("lists the first 30 headings and the total when the heading is missing from a note with 31", async () => {
       const vault = await createVault()
       const laneNames = numberedLaneNames(31)
