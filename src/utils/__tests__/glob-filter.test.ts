@@ -1,5 +1,5 @@
 import { Worker } from "node:worker_threads"
-import { describe, expect, it, vi } from "vitest"
+import { describe, expect, it, onTestFinished, vi } from "vitest"
 import { logger } from "../../logger.js"
 import { createGlobFilter } from "../glob-filter.js"
 
@@ -312,7 +312,7 @@ describe("createGlobFilter's worker limit", () => {
       throw new Error("thread creation failed")
     })
 
-    await rejectionOf(
+    const creationRejection = await rejectionOf(
       filterOneAtATime({ glob: "*.md", paths: VAULT_PATHS, timeoutMs: 2_000 }, createErrorLogger()),
     )
     const laterMatches = await filterOneAtATime(
@@ -320,6 +320,113 @@ describe("createGlobFilter's worker limit", () => {
       logger,
     )
 
+    expect(creationRejection).toEqual(
+      new Error("glob matching failed", { cause: new Error("thread creation failed") }),
+    )
     expect(laterMatches).toEqual(["a.md"])
   })
+
+  it("hands a freed worker to the oldest waiting call first", async () => {
+    const filterOneAtATime = createGlobFilter({ maxRunningWorkers: 1, maxWaitingCalls: 2 })
+    // One worker runs at a time, so the waiting calls finish in the order they got it
+    const finishOrder: string[] = []
+    const recordFinish = async (
+      callLabel: string,
+      pendingMatches: Promise<string[]>,
+    ): Promise<string[]> => {
+      const matches = await pendingMatches
+      finishOrder.push(callLabel)
+      return matches
+    }
+
+    const runningRejection = rejectionOf(
+      filterOneAtATime({ glob: SLOW_GLOB, paths: SLOW_GLOB_PATHS, timeoutMs: 300 }, logger),
+    )
+    const olderWaitingMatches = recordFinish(
+      "older waiting call",
+      filterOneAtATime({ glob: "*.md", paths: VAULT_PATHS, timeoutMs: 5_000 }, logger),
+    )
+    const newerWaitingMatches = recordFinish(
+      "newer waiting call",
+      filterOneAtATime({ glob: "Notes/*.md", paths: VAULT_PATHS, timeoutMs: 5_000 }, logger),
+    )
+
+    expect(await runningRejection).toEqual(new Error("glob matching timed out after 300 ms"))
+    expect(await Promise.all([olderWaitingMatches, newerWaitingMatches])).toEqual([
+      ["a.md"],
+      ["Notes/1-day.md", "Notes/x.md"],
+    ])
+    expect(finishOrder).toEqual(["older waiting call", "newer waiting call"])
+  }, 10_000)
+
+  it("keeps the limit after handing a freed worker to a waiting call", async () => {
+    const filterOneAtATime = createGlobFilter({ maxRunningWorkers: 1, maxWaitingCalls: 1 })
+    vi.mocked(Worker).mockClear()
+
+    const runningRejection = rejectionOf(
+      filterOneAtATime({ glob: SLOW_GLOB, paths: SLOW_GLOB_PATHS, timeoutMs: 300 }, logger),
+    )
+    const handedOverRejection = rejectionOf(
+      filterOneAtATime({ glob: SLOW_GLOB, paths: SLOW_GLOB_PATHS, timeoutMs: 1_500 }, logger),
+    )
+    expect(await runningRejection).toEqual(new Error("glob matching timed out after 300 ms"))
+
+    const laterMatches = filterOneAtATime(
+      { glob: "*.md", paths: VAULT_PATHS, timeoutMs: 5_000 },
+      logger,
+    )
+    await nextTurn()
+
+    expect(vi.mocked(Worker)).toHaveBeenCalledTimes(2)
+    expect(await handedOverRejection).toEqual(new Error("glob matching timed out after 1500 ms"))
+    expect(await laterMatches).toEqual(["a.md"])
+    expect(vi.mocked(Worker)).toHaveBeenCalledTimes(3)
+  }, 10_000)
+
+  it("removes only the call that stopped waiting from the queue", async () => {
+    const filterOneAtATime = createGlobFilter({ maxRunningWorkers: 1, maxWaitingCalls: 2 })
+
+    const runningRejection = rejectionOf(
+      filterOneAtATime({ glob: SLOW_GLOB, paths: SLOW_GLOB_PATHS, timeoutMs: 1_000 }, logger),
+    )
+    const stillWaitingMatches = filterOneAtATime(
+      { glob: "*.md", paths: VAULT_PATHS, timeoutMs: 5_000 },
+      logger,
+    )
+    const stoppedWaitingRejection = await rejectionOf(
+      filterOneAtATime({ glob: "*.md", paths: VAULT_PATHS, timeoutMs: 100 }, logger),
+    )
+
+    expect(stoppedWaitingRejection).toEqual(new Error("glob matching timed out after 100 ms"))
+    expect(await runningRejection).toEqual(new Error("glob matching timed out after 1000 ms"))
+    expect(await stillWaitingMatches).toEqual(["a.md"])
+  }, 10_000)
+
+  it("counts a waiting call's deadline from the call's start, not from its worker's start", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
+    onTestFinished(() => {
+      vi.useRealTimers()
+    })
+    const filterOneAtATime = createGlobFilter({ maxRunningWorkers: 1, maxWaitingCalls: 1 })
+    vi.mocked(Worker).mockClear()
+
+    const runningRejection = rejectionOf(
+      filterOneAtATime({ glob: SLOW_GLOB, paths: SLOW_GLOB_PATHS, timeoutMs: 1_000 }, logger),
+    )
+    const waitingRejection = rejectionOf(
+      filterOneAtATime({ glob: SLOW_GLOB, paths: SLOW_GLOB_PATHS, timeoutMs: 1_500 }, logger),
+    )
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(await runningRejection).toEqual(new Error("glob matching timed out after 1000 ms"))
+    await nextTurn()
+
+    // The waiting call's worker starts 1,000 ms into the call's 1,500 ms deadline
+    expect(vi.mocked(Worker)).toHaveBeenCalledTimes(2)
+    const waitingCallTerminate = vi.spyOn(latestWorker(), "terminate")
+
+    await vi.advanceTimersByTimeAsync(500)
+
+    expect(waitingCallTerminate).toHaveBeenCalledTimes(1)
+    expect(await waitingRejection).toEqual(new Error("glob matching timed out after 1500 ms"))
+  }, 10_000)
 })
