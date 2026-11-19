@@ -2399,6 +2399,33 @@ describe("note names in keyword search", () => {
 
     expect(results.map((result) => result.path)).toEqual(["Language/Cherokee.md"])
   })
+
+  // These queries have no name text, and an untitled note's only name is empty,
+  // so the exact-name check would boost that note if the query matched any row
+  it.each([
+    { label: "empty quotes", query: '""' },
+    { label: "quoted spaces", query: '"   "' },
+    { label: "only spaces", query: "   " },
+  ])("finds no note, untitled ones included, for a query of $label", ({ query }) => {
+    const untitledIndex = createSearchIndex(":memory:")
+    untitledIndex.upsertNote(
+      withBodyTags({
+        filePath: "Inbox/Untitled.md",
+        rawContent: '---\ntitle: ""\n---\n\nA trip with mom.\n',
+        fileStat: testStat(1000),
+      }),
+      logger,
+    )
+    const warnSpy = vi.spyOn(logger, "warn")
+    onTestFinished(() => warnSpy.mockRestore())
+
+    // The untitled note is searchable, so the empty result below comes from the query
+    const momResults = untitledIndex.fullTextSearch({ query: "mom" }, logger)
+    expect(momResults.map((result) => result.path)).toEqual(["Inbox/Untitled.md"])
+
+    expect(untitledIndex.fullTextSearch({ query }, logger)).toEqual([])
+    expect(warnSpy).not.toHaveBeenCalled()
+  })
 })
 
 describe("searchByTag", () => {
