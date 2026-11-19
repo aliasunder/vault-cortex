@@ -867,10 +867,6 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
     // don't clobber each other's entries (lost update).
     return withFileLock(memoryFilePath(params.vaultPath, params.file), async () => {
       const date = params.date ?? DateTime.now().toISODate()
-
-      if (date === null) {
-        throw new Error("DateTime.now().toISODate() returned null")
-      }
       const position = params.position ?? "top"
       const bullet = `- **${date}**: ${params.entry}`
 
