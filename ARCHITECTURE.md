@@ -133,8 +133,6 @@ The `obsidian-markdown/` parsers read text straight from vault files, so one cra
 - **Large canvases:** groups nest only while `content nodes × groups + groups²` stays at most 16,000,000 (2,800 groups with 2,800 nodes fit). A larger canvas renders flat, still listing every node, group label and connection.
 - **Body tags:** the tag parser can still slow quadratically, so it runs in a worker with a time limit (see **Body tags column** → Worker under [Property discovery + daily notes](#property-discovery--daily-notes)).
 
-`vault_list_notes` globs are matched in a worker thread with a time limit too: `utils/glob-filter.ts` starts one worker per call and stops it after `GLOB_MATCH_TIMEOUT_MS` (2 seconds, in `vault-operations/vault-filesystem.ts`), and the call returns an error.
-
 ## MCP Tools
 
 Common metadata on all discovery tools (`vault_search`, `vault_search_by_tag`, `vault_search_by_folder`, `vault_recent_notes`, `vault_search_by_property`, `vault_find_orphans` — introduced in the subsections below):
@@ -186,6 +184,8 @@ The edit tools differ in how they locate the lines they change — by heading, b
 - **`vault_insert_at_anchor`** — anchor-targeted; inserts content before or after the anchor line without removing it.
 
 The three anchor tools share one resolution rule: a short, case-sensitive substring locates a full line, ambiguity is an error, and `first_match` takes the first match instead.
+
+`vault_list_notes` matches its glob in a worker thread with a time limit: `utils/glob-filter.ts` starts one worker per call and stops it after `GLOB_MATCH_TIMEOUT_MS` (2 seconds, in `vault-operations/vault-filesystem.ts`), and the call returns an error.
 
 `vault_update_properties` merges properties — sets new keys, overwrites matching keys, deletes keys set to `null` — and keeps the body, adding only a missing final newline. With `replace: true` it replaces the whole properties block instead, without parsing the old one, so it can repair any block a merge refuses.
 

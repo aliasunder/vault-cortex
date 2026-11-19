@@ -1,10 +1,10 @@
 /**
  * Worker-thread entry that matches paths against a glob off the main thread.
  * `glob-filter.ts` starts one per call with `{ glob, paths, replyPort }` as
- * `workerData`, and this worker posts `{ matches }` on that port.
+ * `workerData`, and this worker posts `{ matches }` on that port. A throw here
+ * reaches `glob-filter.ts` as the worker's error, which fails only that call.
  */
-import { workerData } from "node:worker_threads"
-import type { MessagePort } from "node:worker_threads"
+import { MessagePort, workerData } from "node:worker_threads"
 import picomatch from "picomatch"
 
 type GlobRequest = { glob: string; paths: readonly string[]; replyPort: MessagePort }
@@ -13,7 +13,8 @@ const isGlobRequest = (data: unknown): data is GlobRequest => {
   if (typeof data !== "object" || data === null) return false
   if (!("glob" in data) || typeof data.glob !== "string") return false
   if (!("paths" in data) || !Array.isArray(data.paths)) return false
-  return "replyPort" in data && typeof data.replyPort === "object" && data.replyPort !== null
+  if (!data.paths.every((path: unknown) => typeof path === "string")) return false
+  return "replyPort" in data && data.replyPort instanceof MessagePort
 }
 
 if (!isGlobRequest(workerData))

@@ -8,7 +8,9 @@ import { describeError } from "./describe-error.js"
 /**
  * The worker entry beside this module. Compiled `dist` runs `.js` files, while
  * `tsx` and vitest run the `.ts` sources, so the entry takes this module's own
- * extension; under tsx the worker inherits the parent's `--import tsx`.
+ * extension. A `.ts` entry needs a TypeScript loader in the worker: under tsx
+ * the worker inherits the parent's `--import tsx`, and vitest's config passes
+ * the same flag.
  */
 const WORKER_ENTRY = new URL(
   `./glob-filter-worker${extname(fileURLToPath(import.meta.url))}`,
@@ -31,52 +33,46 @@ const outcomeFromReply = (message: unknown): GlobFilterOutcome => {
   return { kind: "failed", cause: new Error("glob worker sent a malformed reply") }
 }
 
-/** Resolves with the first of the worker's reply, its error, its exit and the
- *  deadline. A reply already queued on the port wins over any of the others,
- *  so a match that finished just before the deadline is never reported as a
- *  timeout. */
-const waitForOutcome = (params: {
+/** Resolves with the outcome of the worker's reply, its error, its exit or the
+ *  deadline, whichever comes first; a reply already queued on the port wins
+ *  over the others. */
+const waitForOutcome = async (params: {
   worker: Worker
-  replyPort: MessagePort
+  replyReceivingPort: MessagePort
   timeoutMs: number
 }): Promise<GlobFilterOutcome> => {
-  const { worker, replyPort, timeoutMs } = params
+  const { worker, replyReceivingPort, timeoutMs } = params
 
-  return new Promise((resolveOutcome) => {
-    // Set once, by whichever event comes first; later events find it set
-    let settled = false
-
-    const settle = (outcome: GlobFilterOutcome): void => {
-      if (settled) return
-      settled = true
-      clearTimeout(deadlineTimer)
-      replyPort.off("message", handleReply)
-      worker.off("exit", handleExit)
-
-      const queuedReply = receiveMessageOnPort(replyPort)
-      resolveOutcome(queuedReply ? outcomeFromReply(queuedReply.message) : outcome)
-    }
-
-    const handleReply = (message: unknown): void => {
-      settle(outcomeFromReply(message))
-    }
-    const handleExit = (exitCode: number): void => {
-      settle({ kind: "failed", cause: new Error(`glob worker exited with code ${exitCode}`) })
-    }
+  const replied = new Promise<GlobFilterOutcome>((resolveReply) => {
+    replyReceivingPort.once("message", (message: unknown) => {
+      resolveReply(outcomeFromReply(message))
+    })
+  })
+  const workerEnded = new Promise<GlobFilterOutcome>((resolveEnd) => {
     // A worker that dies on an uncaught error emits "error" before "exit"; with
     // no listener, Node rethrows it on the main thread and the server exits, so
     // this listener stays attached for the worker's whole life
-    const handleError = (error: Error): void => {
-      settle({ kind: "failed", cause: error })
-    }
-    const deadlineTimer = setTimeout(() => {
-      settle({ kind: "timed-out" })
-    }, timeoutMs)
-
-    replyPort.on("message", handleReply)
-    worker.on("error", handleError)
-    worker.once("exit", handleExit)
+    worker.on("error", (error) => {
+      resolveEnd({ kind: "failed", cause: error })
+    })
+    worker.once("exit", (exitCode) => {
+      resolveEnd({ kind: "failed", cause: new Error(`glob worker exited with code ${exitCode}`) })
+    })
   })
+  const { promise: deadlinePassed, resolve: passDeadline } =
+    Promise.withResolvers<GlobFilterOutcome>()
+  const deadlineTimer = setTimeout(() => {
+    passDeadline({ kind: "timed-out" })
+  }, timeoutMs)
+
+  const firstOutcome = await Promise.race([replied, workerEnded, deadlinePassed])
+  clearTimeout(deadlineTimer)
+
+  // A reply is still queued when another event was handled first:
+  // - the worker exits right after posting its one reply
+  // - the deadline comes due while the reply is in flight
+  const queuedReply = receiveMessageOnPort(replyReceivingPort)
+  return queuedReply ? outcomeFromReply(queuedReply.message) : firstOutcome
 }
 
 type WorkerStart =
@@ -102,23 +98,23 @@ const matchInWorker = async (params: {
   timeoutMs: number
 }): Promise<GlobFilterOutcome> => {
   const { glob, paths, timeoutMs } = params
-  const { port1: replyPort, port2: workerReplyPort } = new MessageChannel()
-  const workerStart = startGlobWorker({ glob, paths, replyPort: workerReplyPort })
+  const { port1: replyReceivingPort, port2: replySendingPort } = new MessageChannel()
+  const workerStart = startGlobWorker({ glob, paths, replyPort: replySendingPort })
 
   if (!workerStart.started) {
-    replyPort.close()
+    replyReceivingPort.close()
     return { kind: "failed", cause: workerStart.cause }
   }
 
   const { worker } = workerStart
-  // An idle worker never keeps the process alive; a call in flight still
-  // does, through its deadline timer
+  // The worker never holds the process open on its own; the deadline timer
+  // does that while the call waits
   worker.unref()
 
   try {
-    return await waitForOutcome({ worker, replyPort, timeoutMs })
+    return await waitForOutcome({ worker, replyReceivingPort, timeoutMs })
   } finally {
-    replyPort.close()
+    replyReceivingPort.close()
     await worker.terminate()
   }
 }
@@ -126,8 +122,8 @@ const matchInWorker = async (params: {
 /**
  * The paths `glob` matches, by picomatch, computed in a worker thread so a
  * glob that matches slowly never blocks the main thread.
- * - The deadline counts from the worker's start, start-up included. Past
- *   `timeoutMs`, the worker is terminated and the call rejects with
+ * - The `timeoutMs` deadline counts from the worker's start, start-up
+ *   included. Past it, the worker is terminated and the call rejects with
  *   `glob matching timed out after <timeoutMs> ms`.
  * - A worker that fails to start, errors, exits early or replies malformed
  *   rejects with `glob matching failed`, the original error as its `cause`,
@@ -144,6 +140,8 @@ export const filterPathsByGlob = async (
     case "matched":
       return outcome.matches
     case "timed-out":
+      // The caller's glob caused it, not a fault in the worker, so logging it
+      // is left to the caller
       throw new Error(`glob matching timed out after ${timeoutMs} ms`)
     case "failed":
       logger.error("glob matching failed", { error: describeError(outcome.cause) })

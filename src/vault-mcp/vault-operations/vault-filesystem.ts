@@ -926,10 +926,11 @@ const listVaultFilePaths = async (
 }
 
 /** A legitimate glob costs a worker's start-up (15–60 ms) plus matching (under
- *  15 ms over 50,000 paths), and 2 seconds is more than 30 times that. */
+ *  15 ms over 50,000 paths), and 2 seconds is more than 25 times that. */
 const GLOB_MATCH_TIMEOUT_MS = 2_000
 
-/** Lists .md files under a folder (or vault root). Supports glob filtering. */
+/** Lists .md files under a folder (or vault root), optionally keeping only the
+ *  notes whose path relative to that folder matches a glob. */
 const listNotes = async (
   params: {
     vaultPath: string
@@ -947,8 +948,7 @@ const listNotes = async (
     logger,
   )
 
-  // With a folder, the glob matches each path relative to that folder. The
-  // folder is re-derived from its resolved form so aliases ("Projects/",
+  // The folder is re-derived from its resolved form so aliases ("Projects/",
   // "./Projects") reduce to the same vault-relative prefix as the listed paths.
   const globBase = params.folder
     ? relative(resolve(params.vaultPath), resolveSafePath(params.vaultPath, params.folder))
@@ -966,23 +966,12 @@ const filterNotePathsByGlob = async (
   logger: Logger,
 ): Promise<string[]> => {
   const { glob, paths, globBase } = params
-  const candidates = paths.map((notePath) => ({
-    notePath,
-    relativePath: posix.relative(globBase, notePath),
-  }))
-  const matchedRelativePaths = new Set(
-    await filterPathsByGlob(
-      {
-        glob,
-        paths: candidates.map((candidate) => candidate.relativePath),
-        timeoutMs: GLOB_MATCH_TIMEOUT_MS,
-      },
-      logger,
-    ),
+  const relativePaths = paths.map((notePath) => relative(globBase, notePath))
+  const matchedRelativePaths = await filterPathsByGlob(
+    { glob, paths: relativePaths, timeoutMs: GLOB_MATCH_TIMEOUT_MS },
+    logger,
   )
-  return candidates
-    .filter((candidate) => matchedRelativePaths.has(candidate.relativePath))
-    .map((candidate) => candidate.notePath)
+  return matchedRelativePaths.map((relativePath) => join(globBase, relativePath))
 }
 
 /** Lists non-.md files (assets — images, canvases, PDFs, …) under a folder

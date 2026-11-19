@@ -234,8 +234,8 @@ The server, and the `:remote` image's setup mode, set these headers:
 
 - `POST /mcp` parses JSON up to 5 MB only after bearer validation, so a request
   without a valid token is refused before its body is read
-- `vault_list_notes` matches its glob in a worker thread stopped after 2
-  seconds, so no glob can hold the server's main thread
+- A `vault_list_notes` glob in a `/mcp` request body is matched in a worker
+  thread stopped after 2 seconds, so no glob can hold the server's main thread
 - A rejected request body produces one short warning without a stack, and
   the logger caps every logged string at 256 code points (error text and
   stack traces at 4,096)
