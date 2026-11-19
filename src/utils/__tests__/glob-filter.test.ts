@@ -147,9 +147,14 @@ describe("createGlobFilter", () => {
       logger,
     )
     // The worker replies and exits while the main thread is blocked, and the
-    // event loop then handles the exit before the reply. The deadline stays
-    // beyond the block, so the exit is the only event that competes
-    blockMainThread(3_000)
+    // event loop then handles the exit before the reply:
+    // - the block runs from an immediate callback, because the call starts its
+    //   worker only after its first await
+    // - the deadline stays beyond the block, so the exit is the only event
+    //   that competes
+    setImmediate(() => {
+      blockMainThread(3_000)
+    })
 
     expect(await pendingMatches).toEqual(["a.md"])
   }, 10_000)
