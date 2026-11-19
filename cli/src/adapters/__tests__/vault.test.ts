@@ -80,6 +80,20 @@ describe("validateVaultPath", () => {
     })
   })
 
+  it.each([
+    { label: "a line feed", lineBreak: String.fromCodePoint(0x0a) },
+    { label: "a carriage return", lineBreak: String.fromCodePoint(0x0d) },
+    { label: "a Unicode line separator", lineBreak: String.fromCodePoint(0x2028) },
+    { label: "a Unicode paragraph separator", lineBreak: String.fromCodePoint(0x2029) },
+  ])("rejects a path containing $label", ({ lineBreak }) => {
+    const validation = validateVaultPath(`/home/user/notes${lineBreak}MCP_AUTH_TOKEN=x`)
+
+    expect(validation).toEqual({
+      kind: "error",
+      message: "Vault path must not contain a line break.",
+    })
+  })
+
   it.skipIf(runsAsRoot)(
     "returns the does-not-exist error for a path behind a folder it cannot open",
     () => {

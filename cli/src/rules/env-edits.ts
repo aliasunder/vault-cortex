@@ -1,4 +1,4 @@
-import { parseEnvValues, readEnvValue } from "./env-values.js"
+import { assertSingleLineEnvValues, parseEnvValues, readEnvValue } from "./env-values.js"
 import { DEFAULT_PORT, isValidPort } from "./ports.js"
 
 /** The .env values that tell one install on a machine apart from another. */
@@ -32,8 +32,10 @@ const commentedLinePattern = (name: string): RegExp => new RegExp(`^# ${name}=.*
 export const applyOptionalSettings = (
   envContent: string,
   overrides: Record<string, string>,
-): string =>
-  Object.entries(overrides).reduce((content, [name, value]) => {
+): string => {
+  assertSingleLineEnvValues(overrides)
+
+  return Object.entries(overrides).reduce((content, [name, value]) => {
     // Fresh RegExp per use (the /g flag makes instances stateful via
     // lastIndex); function replacements avoid $-pattern interpretation in
     // values.
@@ -47,6 +49,7 @@ export const applyOptionalSettings = (
     }
     return `${content.trimEnd()}\n\n${name}=${value}\n`
   }, envContent)
+}
 
 /**
  * A PORT override moves the server, and the local quickstart derives

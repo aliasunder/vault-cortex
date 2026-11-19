@@ -8,6 +8,14 @@ import {
 } from "../env-edits.js"
 
 describe("applyOptionalSettings", () => {
+  it("refuses a value with a line break, so each setting stays on one line", () => {
+    expect(() =>
+      applyOptionalSettings("MEMORY_DIR=About Me\n", {
+        MEMORY_DIR: `Notes${String.fromCodePoint(0x0d)}MCP_AUTH_TOKEN=x`,
+      }),
+    ).toThrow(new Error("MEMORY_DIR must not contain a line break."))
+  })
+
   it("replaces the value of an active line", () => {
     const patched = applyOptionalSettings("A=1\nMEMORY_ENABLED=true\nB=2\n", {
       MEMORY_ENABLED: "false",

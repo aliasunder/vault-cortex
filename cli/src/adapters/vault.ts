@@ -17,6 +17,9 @@ export const expandTilde = (input: string, home: string = homedir()): string => 
   return input
 }
 
+/** Matches a line break, including the Unicode line and paragraph separators. */
+const LINE_BREAK = /[\r\n\u2028\u2029]/
+
 /**
  * Validates a candidate Obsidian vault path. A missing or non-directory
  * path is an error; a directory without a `.obsidian/` folder is only a
@@ -26,11 +29,16 @@ export const validateVaultPath = (input: string): VaultPathValidation => {
   const trimmed = input.trim()
 
   if (trimmed === "") return { kind: "error", message: "Vault path is required." }
-  if (/[*?[]/.test(trimmed))
+  // The path is written into .env as one line.
+  if (LINE_BREAK.test(trimmed)) {
+    return { kind: "error", message: "Vault path must not contain a line break." }
+  }
+  if (/[*?[]/.test(trimmed)) {
     return {
       kind: "error",
       message: "Vault path must not contain glob characters (*, ?, [).",
     }
+  }
 
   const absolutePath = resolve(expandTilde(trimmed))
 

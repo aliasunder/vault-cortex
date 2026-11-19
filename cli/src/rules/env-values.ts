@@ -16,6 +16,30 @@ export type EnvValues = ReadonlyMap<string, string>
 /** Matches every active (uncommented) assignment line, capturing the name and the raw value. */
 const ENV_ASSIGNMENT_LINES = /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/gm
 
+/**
+ * Matches a line break of any kind. parseEnvValues ends a line at the
+ * Unicode line and paragraph separators too, so those count.
+ */
+const ENV_LINE_BREAK = /[\r\n\u2028\u2029]/
+
+/**
+ * Throws when a value would not stay on its own .env line: a line break
+ * would split it into two lines. Callers check user input first with their own
+ * message; this stops any caller that does not.
+ */
+export const assertSingleLineEnvValues = (
+  values: Readonly<Record<string, string | undefined>>,
+): void => {
+  const multiLineSetting = Object.entries(values).find(([, value]) => {
+    if (!value) return false
+    return ENV_LINE_BREAK.test(value)
+  })
+
+  if (multiLineSetting) {
+    throw new Error(`${multiLineSetting[0]} must not contain a line break.`)
+  }
+}
+
 /** Matches a value wrapped in one pair of matching quotes, capturing the inside. */
 const SURROUNDING_QUOTES = /^(["'])(.*)\1$/
 

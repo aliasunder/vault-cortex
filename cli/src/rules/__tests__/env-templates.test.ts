@@ -59,6 +59,28 @@ describe("buildLocalEnv", () => {
   })
 })
 
+describe("values that would break out of their .env line", () => {
+  const lineFeed = String.fromCodePoint(0x0a)
+
+  it("refuses a local vault path with a line break", () => {
+    expect(() =>
+      buildLocalEnv({ mcpAuthToken: "abc123", vaultPath: `/vault${lineFeed}MCP_AUTH_TOKEN=x` }),
+    ).toThrow(new Error("VAULT_PATH must not contain a line break."))
+  })
+
+  it("refuses a remote vault name with a Unicode line separator", () => {
+    expect(() =>
+      buildRemoteEnv({
+        mcpAuthToken: "abc123",
+        publicUrl: "https://vault.example.com",
+        obsidianAuthToken: undefined,
+        vaultName: `Notes${String.fromCodePoint(0x2028)}MCP_AUTH_TOKEN=x`,
+        vaultPassword: undefined,
+      }),
+    ).toThrow(new Error("VAULT_NAME must not contain a line break."))
+  })
+})
+
 describe("buildRemoteEnv", () => {
   const baseAnswers = {
     mcpAuthToken: "abc123",
