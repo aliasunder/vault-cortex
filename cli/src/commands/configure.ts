@@ -48,21 +48,27 @@ export const runConfigure = async (flags: ConfigureFlags, deps: ConfigureDeps): 
   const pickedOverrides = await askOptionalSettings({ mode, envContent, portsInUse }, prompts)
 
   if (Object.keys(pickedOverrides).length === 0) {
-    // Covers both empty-overrides paths: nothing picked in the chooser, and
-    // picked-but-kept (an optionalText prompt left blank logs its own
-    // "Kept the current value" line, which this must not contradict).
+    // Nothing picked in the chooser and every pick kept both end here. A kept
+    // pick has already logged its own "Kept the current value" or "Left unset"
+    // line, so this message must not contradict it.
     prompts.log("No changes to apply.")
     prompts.outro("Done.")
     return 0
   }
 
-  const overrides = withPublicUrlOverride({ overrides: pickedOverrides, envContent })
+  // The .env may have been edited while the prompts were open, so it is read
+  // again and the new settings apply on top of what it holds now.
+  const currentEnvContent = envFile.read(envFilePath) ?? envContent
+  const overrides = withPublicUrlOverride({
+    overrides: pickedOverrides,
+    envContent: currentEnvContent,
+  })
   const changedNames = Object.keys(overrides)
-  envFile.replace(envFilePath, applyOptionalSettings(envContent, overrides))
+  envFile.replace(envFilePath, applyOptionalSettings(currentEnvContent, overrides))
   prompts.log(`Updated ${changedNames.join(", ")} in ${targetDir}/.env.`)
 
   const publicUrlWarning = describeStrandedPublicUrl({
-    envContent,
+    envContent: currentEnvContent,
     pickedOverrides,
     appliedOverrides: overrides,
   })

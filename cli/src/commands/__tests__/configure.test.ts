@@ -100,6 +100,39 @@ describe("runConfigure with picked settings", () => {
     ])
   })
 
+  it("applies the new setting on top of an edit made while the prompts were open", async () => {
+    const targetDir = makeTempTargetDir()
+    const envFilePath = writeLocalEnv(targetDir)
+    const editedEnv = `${LOCAL_ENV_CONTENT}SOME_EDIT=made-in-an-editor\n`
+    // The first Docker check runs after configure first reads .env, where an
+    // edit in another editor could land.
+    const editThenReportDown = vi
+      .fn<DockerRunner["daemonStatus"]>()
+      .mockImplementationOnce(() => {
+        writeFileSync(envFilePath, editedEnv)
+        return "not-running"
+      })
+      .mockReturnValue("not-running")
+    const scripted = createScriptedPrompts([
+      ["MEMORY_ENABLED"],
+      false, // disable the memory layer
+    ])
+
+    const exitCode = await runConfigure(
+      { dir: targetDir },
+      {
+        prompts: scripted.prompts,
+        docker: { ...dockerDown, daemonStatus: editThenReportDown },
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(readFileSync(envFilePath, "utf8")).toBe(
+      editedEnv.replace("MEMORY_ENABLED=true", "MEMORY_ENABLED=false"),
+    )
+  })
+
   it("asks Docker again before offering the restart, in case it stopped during the prompts", async () => {
     const targetDir = makeTempTargetDir()
     writeLocalEnv(targetDir)
