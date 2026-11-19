@@ -222,8 +222,9 @@ The server, and the `:remote` image's setup mode, set these headers:
   swapped in during the instant between the check and the delete
 - Memory shrink guard: the memory tools refuse a write that would remove
   more than half of a memory file's bytes, since a shrink that large almost
-  always comes from a bug or from a write planned on a stale copy of the
-  file, not from a legitimate edit. Other note tools have no such guard
+  always means a bug is erasing most of the file. An entry that really is
+  that large is removed with `vault_delete_span` or by hand. Other note
+  tools have no such guard
 - Memory idempotency guard: exact-bullet dedup prevents duplicates from
   retried writes after gateway timeouts
 - Memory line-break rejection: entry, date, and section reject `\r`/`\n`
