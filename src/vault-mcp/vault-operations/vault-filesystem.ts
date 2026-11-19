@@ -12,8 +12,8 @@ import {
 } from "node:fs/promises"
 import { randomUUID } from "node:crypto"
 import { join, dirname, relative, resolve, parse, posix, isAbsolute, sep } from "node:path"
-import picomatch from "picomatch"
 import { describeError } from "../../utils/describe-error.js"
+import { filterPathsByGlob } from "../../utils/glob-filter.js"
 import { filterValidSymlinks } from "../../utils/filter-valid-symlinks.js"
 import { fileExists, readFileOrNull, readdirOrNull, statOrNull } from "../../utils/fs.js"
 import { isErrnoException } from "../../utils/is-errno-exception.js"
@@ -925,6 +925,10 @@ const listVaultFilePaths = async (
   return visiblePaths.toSorted()
 }
 
+/** A legitimate glob costs a worker's start-up (15–60 ms) plus matching (under
+ *  15 ms over 50,000 paths), and 2 seconds is more than 30 times that. */
+const GLOB_MATCH_TIMEOUT_MS = 2_000
+
 /** Lists .md files under a folder (or vault root). Supports glob filtering. */
 const listNotes = async (
   params: {
@@ -949,12 +953,36 @@ const listNotes = async (
   const globBase = params.folder
     ? relative(resolve(params.vaultPath), resolveSafePath(params.vaultPath, params.folder))
     : ""
-  const isMatch = params.glob ? picomatch(params.glob) : undefined
-  const result = isMatch
-    ? paths.filter((notePath) => isMatch(posix.relative(globBase, notePath)))
+  const result = params.glob
+    ? await filterNotePathsByGlob({ glob: params.glob, paths, globBase }, logger)
     : paths
   logger.info("listed notes", { folder: params.folder, count: result.length })
   return result
+}
+
+/** The note paths whose path relative to `globBase` matches `glob`. */
+const filterNotePathsByGlob = async (
+  params: { glob: string; paths: readonly string[]; globBase: string },
+  logger: Logger,
+): Promise<string[]> => {
+  const { glob, paths, globBase } = params
+  const candidates = paths.map((notePath) => ({
+    notePath,
+    relativePath: posix.relative(globBase, notePath),
+  }))
+  const matchedRelativePaths = new Set(
+    await filterPathsByGlob(
+      {
+        glob,
+        paths: candidates.map((candidate) => candidate.relativePath),
+        timeoutMs: GLOB_MATCH_TIMEOUT_MS,
+      },
+      logger,
+    ),
+  )
+  return candidates
+    .filter((candidate) => matchedRelativePaths.has(candidate.relativePath))
+    .map((candidate) => candidate.notePath)
 }
 
 /** Lists non-.md files (assets — images, canvases, PDFs, …) under a folder
