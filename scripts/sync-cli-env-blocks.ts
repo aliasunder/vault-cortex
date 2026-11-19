@@ -105,7 +105,12 @@ for (const { envExample, blockName, constName, transform } of envSources) {
   const optionalSection = extractOptionalSection(exampleContent)
   const transformedSection = transform(optionalSection)
 
-  const escapedSection = transformedSection.replaceAll("`", "\\`")
+  // The section goes inside a template literal, where a backslash starts an
+  // escape, a backtick ends the literal and `${` starts an interpolation.
+  const escapedSection = transformedSection
+    .replaceAll("\\", "\\\\")
+    .replaceAll("`", "\\`")
+    .replaceAll("${", "\\${")
 
   const blockContent = `const ${constName} = \`${CLI_OPTIONAL_HEADER}${escapedSection}\`
 `
