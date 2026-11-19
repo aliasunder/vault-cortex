@@ -11,9 +11,10 @@ import {
   rmdir,
 } from "node:fs/promises"
 import { randomUUID } from "node:crypto"
+import { availableParallelism } from "node:os"
 import { join, dirname, relative, resolve, parse, posix, isAbsolute, sep } from "node:path"
 import { describeError } from "../../utils/describe-error.js"
-import { filterPathsByGlob } from "../../utils/glob-filter.js"
+import { createGlobFilter } from "../../utils/glob-filter.js"
 import { filterValidSymlinks } from "../../utils/filter-valid-symlinks.js"
 import { fileExists, readFileOrNull, readdirOrNull, statOrNull } from "../../utils/fs.js"
 import { isErrnoException } from "../../utils/is-errno-exception.js"
@@ -928,6 +929,10 @@ const listVaultFilePaths = async (
 /** A legitimate glob costs a worker's start-up (15–60 ms) plus matching (under
  *  15 ms over 50,000 paths), and 2 seconds is more than 25 times that. */
 const GLOB_MATCH_TIMEOUT_MS = 2_000
+
+/** Glob calls beyond one per CPU core wait for a running worker to finish, so
+ *  many calls at once cannot exhaust the server's memory. */
+const filterPathsByGlob = createGlobFilter({ maxRunningWorkers: availableParallelism() })
 
 /** Lists .md files under a folder (or vault root), optionally keeping only the
  *  notes whose path relative to that folder matches a glob. */

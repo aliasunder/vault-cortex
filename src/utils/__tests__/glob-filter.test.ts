@@ -1,7 +1,7 @@
 import { Worker } from "node:worker_threads"
 import { describe, expect, it, vi } from "vitest"
 import { logger } from "../../logger.js"
-import { filterPathsByGlob } from "../glob-filter.js"
+import { createGlobFilter } from "../glob-filter.js"
 
 // Real workers throughout. The spy lets a test reach the worker a call
 // started, make the next worker fail to start, or swap the code it runs
@@ -36,6 +36,9 @@ const blockMainThread = (milliseconds: number): void => {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, milliseconds)
 }
 
+/** Resolves on the event loop's next turn, after the work already queued. */
+const nextTurn = (): Promise<void> => new Promise((resolveTurn) => setImmediate(resolveTurn))
+
 /** Makes the next call's worker run `source` in place of the glob worker. It
  *  gets the call's own options, so the call's reply port still reaches it. */
 const replaceNextWorkerSource = (source: string): void => {
@@ -60,7 +63,10 @@ const VAULT_PATHS = [
 const SLOW_GLOB = "**/*a*a*a*a*a*b.md"
 const SLOW_GLOB_PATHS = [`${"a".repeat(160)}.md`]
 
-describe("filterPathsByGlob", () => {
+// The tests below run one call at a time, so this limit never makes one wait
+const filterPathsByGlob = createGlobFilter({ maxRunningWorkers: 2 })
+
+describe("createGlobFilter", () => {
   it.each([
     { label: "a top-level wildcard", glob: "*.md", expected: ["a.md"] },
     {
@@ -223,5 +229,68 @@ describe("filterPathsByGlob", () => {
     expect(requestLogger.error).toHaveBeenCalledWith("glob matching failed", {
       error: "[Error]: load failed",
     })
+  })
+})
+
+describe("createGlobFilter's worker limit", () => {
+  it("starts a waiting call's worker only after the running one ends", async () => {
+    const filterOneAtATime = createGlobFilter({ maxRunningWorkers: 1 })
+    vi.mocked(Worker).mockClear()
+
+    const runningRejection = rejectionOf(
+      filterOneAtATime({ glob: SLOW_GLOB, paths: SLOW_GLOB_PATHS, timeoutMs: 300 }, logger),
+    )
+    const waitingMatches = filterOneAtATime(
+      { glob: "*.md", paths: VAULT_PATHS, timeoutMs: 5_000 },
+      logger,
+    )
+    await nextTurn()
+
+    expect(vi.mocked(Worker)).toHaveBeenCalledTimes(1)
+    expect(await runningRejection).toEqual(new Error("glob matching timed out after 300 ms"))
+    expect(await waitingMatches).toEqual(["a.md"])
+    expect(vi.mocked(Worker)).toHaveBeenCalledTimes(2)
+  }, 10_000)
+
+  it("rejects a call still waiting at its deadline without starting its worker, and keeps the slot free for later calls", async () => {
+    const filterOneAtATime = createGlobFilter({ maxRunningWorkers: 1 })
+    vi.mocked(Worker).mockClear()
+
+    const runningRejection = rejectionOf(
+      filterOneAtATime({ glob: SLOW_GLOB, paths: SLOW_GLOB_PATHS, timeoutMs: 1_000 }, logger),
+    )
+    const waitingRejection = await rejectionOf(
+      filterOneAtATime({ glob: "*.md", paths: VAULT_PATHS, timeoutMs: 100 }, logger),
+    )
+
+    expect(waitingRejection).toEqual(new Error("glob matching timed out after 100 ms"))
+    expect(vi.mocked(Worker)).toHaveBeenCalledTimes(1)
+
+    await runningRejection
+    const laterMatches = await filterOneAtATime(
+      { glob: "Notes/*.md", paths: VAULT_PATHS, timeoutMs: 2_000 },
+      logger,
+    )
+
+    expect(laterMatches).toEqual(["Notes/1-day.md", "Notes/x.md"])
+  }, 10_000)
+
+  it("frees the slot when a worker cannot be created", async () => {
+    const filterOneAtATime = createGlobFilter({ maxRunningWorkers: 1 })
+    // A function expression, because an arrow function cannot be called with
+    // `new`
+    vi.mocked(Worker).mockImplementationOnce(function () {
+      throw new Error("thread creation failed")
+    })
+
+    await rejectionOf(
+      filterOneAtATime({ glob: "*.md", paths: VAULT_PATHS, timeoutMs: 2_000 }, createErrorLogger()),
+    )
+    const laterMatches = await filterOneAtATime(
+      { glob: "*.md", paths: VAULT_PATHS, timeoutMs: 2_000 },
+      logger,
+    )
+
+    expect(laterMatches).toEqual(["a.md"])
   })
 })
