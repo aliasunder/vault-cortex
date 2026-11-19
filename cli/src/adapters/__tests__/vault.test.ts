@@ -1,7 +1,7 @@
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { describe, expect, it, onTestFinished } from "vitest"
+import { describe, expect, it, onTestFinished, vi } from "vitest"
 
 import { runsAsRoot } from "../../../../src/__tests__/runs-as-root.js"
 import { expandTilde, validateVaultPath } from "../vault.js"
@@ -99,6 +99,18 @@ describe("validateVaultPath", () => {
     const validation = validateVaultPath(`/home/user/notes${lineBreak}MCP_AUTH_TOKEN=x`)
 
     expect(validation).toEqual({
+      kind: "error",
+      message: "Vault path must not contain a line break.",
+    })
+  })
+
+  it("rejects a relative path whose working folder holds a line break", () => {
+    vi.spyOn(process, "cwd").mockReturnValue(`/home/user/a${String.fromCodePoint(0x2028)}b`)
+    onTestFinished(() => {
+      vi.restoreAllMocks()
+    })
+
+    expect(validateVaultPath("notes")).toEqual({
       kind: "error",
       message: "Vault path must not contain a line break.",
     })

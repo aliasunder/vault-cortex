@@ -32,8 +32,12 @@ export const validateVaultPath = (input: string): VaultPathValidation => {
   const trimmed = input.trim()
 
   if (trimmed === "") return { kind: "error", message: "Vault path is required." }
+  // The checks below read the resolved path, which is what .env and the
+  // messages hold, so a relative path is checked along with the working folder.
+  const absolutePath = resolve(expandTilde(trimmed))
+
   // The path is written into .env as one line.
-  if (LINE_BREAK.test(trimmed)) {
+  if (LINE_BREAK.test(absolutePath)) {
     return { kind: "error", message: "Vault path must not contain a line break." }
   }
   if (/[*?[]/.test(trimmed)) {
@@ -42,9 +46,6 @@ export const validateVaultPath = (input: string): VaultPathValidation => {
       message: "Vault path must not contain glob characters (*, ?, [).",
     }
   }
-
-  const absolutePath = resolve(expandTilde(trimmed))
-
   // Each message below prints the path, and a terminal acts on a control
   // character instead of showing it.
   if (CONTROL_CHARACTER.test(absolutePath)) {
