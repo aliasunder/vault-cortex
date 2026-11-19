@@ -1,9 +1,9 @@
 import { execFileSync } from "node:child_process"
 import {
   chmodSync,
-  chownSync,
   closeSync,
   fchownSync,
+  lchownSync,
   lstatSync,
   mkdirSync,
   mkdtempSync,
@@ -36,7 +36,7 @@ afterEach(() => {
   vi.mocked(writeFileSync).mockReset()
   vi.mocked(renameSync).mockReset()
   vi.mocked(fchownSync).mockReset()
-  vi.mocked(chownSync).mockReset()
+  vi.mocked(lchownSync).mockReset()
   vi.mocked(closeSync).mockClear()
   vi.restoreAllMocks()
   vi.unstubAllEnvs()
@@ -364,7 +364,7 @@ describe("write edge cases", () => {
     vi.stubEnv("SUDO_UID", "4242")
     vi.stubEnv("SUDO_GID", "4343")
     // Only root may hand a file to another user, so these calls are skipped.
-    vi.mocked(chownSync).mockImplementation(() => undefined)
+    vi.mocked(lchownSync).mockImplementation(() => undefined)
     vi.mocked(fchownSync).mockImplementation(() => undefined)
 
     await envFile.write(
@@ -372,9 +372,9 @@ describe("write edge cases", () => {
       neverOverwrite,
     )
 
-    expect(chownSync).toHaveBeenCalledTimes(2)
-    expect(chownSync).toHaveBeenNthCalledWith(1, join(parentDir, "apps"), 4242, 4343)
-    expect(chownSync).toHaveBeenNthCalledWith(
+    expect(lchownSync).toHaveBeenCalledTimes(2)
+    expect(lchownSync).toHaveBeenNthCalledWith(1, join(parentDir, "apps"), 4242, 4343)
+    expect(lchownSync).toHaveBeenNthCalledWith(
       2,
       join(parentDir, "apps", "vault-cortex"),
       4242,
@@ -595,6 +595,18 @@ describe("folderOwnership", () => {
     () => {
       const folderPath = makeTempDir()
       execFileSync("/bin/chmod", ["+a", "everyone allow add_file", folderPath])
+
+      expect(envFile.folderOwnership(folderPath)?.aclAllowsAccess).toBe(true)
+    },
+  )
+
+  it.skipIf(process.platform !== "darwin")(
+    "reports an ACL entry the folder's .env kept after the folder was cleared",
+    () => {
+      const folderPath = makeTempDir()
+      execFileSync("/bin/chmod", ["+a", "everyone allow read,file_inherit", folderPath])
+      writeFileSync(join(folderPath, ".env"), "MCP_AUTH_TOKEN=old\n", { mode: 0o600 })
+      execFileSync("/bin/chmod", ["-N", folderPath])
 
       expect(envFile.folderOwnership(folderPath)?.aclAllowsAccess).toBe(true)
     },

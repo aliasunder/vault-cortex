@@ -438,7 +438,8 @@ server's own auth tokens) are handled:
   the file belongs to the user who ran sudo. `init` creates the install
   folder owner-only (0700), and on macOS without ACL entries. Every
   command refuses an install folder that another user owns, that every
-  user can change, or that on macOS has an ACL entry letting others in.
+  user can change, or that on macOS has (or whose `.env` has) an ACL
+  entry letting others in.
 - **Enforcement** — Gitleaks scans every PR and push to main for
   committed secrets (see [Automated Scanning](#automated-scanning)).
 

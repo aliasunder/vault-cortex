@@ -1,10 +1,10 @@
 import { execFileSync } from "node:child_process"
 import { randomUUID } from "node:crypto"
 import {
-  chownSync,
   closeSync,
   existsSync,
   fchownSync,
+  lchownSync,
   mkdirSync,
   openSync,
   readFileSync,
@@ -176,11 +176,13 @@ const createInstallFolder = (targetDir: string): void => {
   ]
   const sudoUser = findSudoUser()
 
+  // lchown and chmod -h act on the path itself: if something swapped a link in
+  // for a new folder, root changes the link, not the file it points to.
   for (const createdFolder of createdFolders) {
-    if (sudoUser) chownSync(createdFolder, sudoUser.uid, sudoUser.gid)
+    if (sudoUser) lchownSync(createdFolder, sudoUser.uid, sudoUser.gid)
     // chmod -N runs only on a folder that has entries, so a drive without ACLs never sees it.
     if (process.platform === "darwin" && ACL_ENTRY_LINE.test(listWithAcl(createdFolder))) {
-      execFileSync("/bin/chmod", ["-N", createdFolder])
+      execFileSync("/bin/chmod", ["-h", "-N", createdFolder])
     }
   }
 }
@@ -215,8 +217,17 @@ const write = async (
 type FolderOwnership = {
   ownerUid: number
   mode: number
-  /** True when an ACL entry lets someone in (macOS); files made inside take it on. */
+  /**
+   * True when an ACL entry on the folder or its .env lets someone in (macOS).
+   * Files made in the folder take its entries on, and a .env written there
+   * earlier keeps the entries it took then.
+   */
   aclAllowsAccess: boolean
+}
+
+/** True when the path's ACL lists an entry that lets someone in. */
+const aclAllowsAccessTo = (filePath: string): boolean => {
+  return ACL_ALLOW_LINE.test(listWithAcl(filePath))
 }
 
 /** Who owns a folder and who else it lets in, or undefined when it does not exist. */
@@ -224,8 +235,10 @@ const folderOwnership = (folderPath: string): FolderOwnership | undefined => {
   // existsSync is false for a path the CLI cannot reach, where statSync would throw.
   if (!existsSync(folderPath)) return undefined
   const { uid, mode } = statSync(folderPath)
+  const envFilePath = join(folderPath, ".env")
   const aclAllowsAccess =
-    process.platform === "darwin" && ACL_ALLOW_LINE.test(listWithAcl(folderPath))
+    process.platform === "darwin" &&
+    (aclAllowsAccessTo(folderPath) || (existsSync(envFilePath) && aclAllowsAccessTo(envFilePath)))
   return { ownerUid: uid, mode, aclAllowsAccess }
 }
 
