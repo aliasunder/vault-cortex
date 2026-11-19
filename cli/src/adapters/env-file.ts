@@ -55,14 +55,24 @@ const keepOwner = (params: { newFilePath: string; oldFilePath: string }): void =
 }
 
 /**
+ * Removes the temporary file when one was created. Without the check, a
+ * folder the CLI cannot search would fail the removal too, and that error
+ * would replace the one that explains what went wrong.
+ */
+const removeTempFile = (tempPath: string): void => {
+  if (existsSync(tempPath)) rmSync(tempPath)
+}
+
+/**
  * Writes .env as a new owner-only file renamed over the old one, never into
  * the old file:
  * - the new text is only ever in a file created owner-only;
  * - an interrupted write leaves the old file whole;
- * - a .env that is a symbolic link stays one, and the file it points to is replaced;
- * - the replaced file keeps its owner.
+ * - a .env that links to an existing file stays a link, and that file is replaced;
+ * - under sudo, the replaced file keeps its owner.
  * When the folder does not let the CLI create a file, it narrows an existing
- * .env to owner-only and rewrites it in place instead.
+ * .env to owner-only and rewrites it in place instead, and an interrupted
+ * write there can leave the file cut short.
  */
 const writeOwnerOnly = (envFilePath: string, envContent: string): void => {
   // realpathSync follows a symbolic link, so a linked .env is written where it points.
@@ -74,7 +84,7 @@ const writeOwnerOnly = (envFilePath: string, envContent: string): void => {
     writeFileSync(tempPath, envContent, { mode: ENV_FILE_MODE, flag: "wx" })
   } catch (error) {
     // A write that fails partway (a full disk) leaves part of the text behind.
-    rmSync(tempPath, { force: true })
+    removeTempFile(tempPath)
     if (!isFolderPermissionError(error) || !existsSync(destinationPath)) throw error
 
     // Narrowing the old file before writing keeps the new text out of a file others can read.
@@ -87,7 +97,7 @@ const writeOwnerOnly = (envFilePath: string, envContent: string): void => {
     keepOwner({ newFilePath: tempPath, oldFilePath: destinationPath })
     renameSync(tempPath, destinationPath)
   } catch (error) {
-    rmSync(tempPath, { force: true })
+    removeTempFile(tempPath)
     throw error
   }
 }

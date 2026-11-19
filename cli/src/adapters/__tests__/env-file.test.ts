@@ -8,6 +8,7 @@ import {
   openSync,
   readdirSync,
   readFileSync,
+  realpathSync,
   renameSync,
   rmSync,
   statSync,
@@ -36,6 +37,9 @@ afterEach(() => {
   vi.mocked(chownSync).mockReset()
   vi.restoreAllMocks()
 })
+
+/** Matches each character a regular expression gives a special meaning, for escaping a path. */
+const REGEX_SPECIAL_CHARACTER = /[.*+?^${}()|[\]\\]/g
 
 const neverOverwrite = async (): Promise<boolean> => false
 const alwaysOverwrite = async (): Promise<boolean> => true
@@ -292,18 +296,36 @@ describe("write edge cases", () => {
     const envPath = join(targetDir, ".env")
     writeFileSync(envPath, "MCP_AUTH_TOKEN=old\n", { mode: 0o600 })
     const { uid, gid } = statSync(envPath)
+    // The writer resolves the path, and macOS's temp folder sits behind a /var link.
+    const resolvedEnvPath = realpathSync(envPath).replace(REGEX_SPECIAL_CHARACTER, "\\$&")
     vi.spyOn(process, "getuid").mockReturnValue(0)
 
     envFile.replace(envPath, "MCP_AUTH_TOKEN=new\n")
 
     expect(chownSync).toHaveBeenCalledTimes(1)
     expect(chownSync).toHaveBeenCalledWith(
-      expect.stringMatching(/\/\.env\.[0-9a-f-]{36}\.tmp$/),
+      expect.stringMatching(new RegExp(`^${resolvedEnvPath}\\.[0-9a-f-]{36}\\.tmp$`)),
       uid,
       gid,
     )
     expect(readFileSync(envPath, "utf8")).toBe("MCP_AUTH_TOKEN=new\n")
   })
+
+  // Root ignores folder permissions, so the folder would not stop it.
+  it.skipIf(runsAsRoot)(
+    "reports the failed create, not a failed cleanup, in a folder it cannot search",
+    () => {
+      const targetDir = makeTempDir()
+      chmodSync(targetDir, 0o600)
+      onTestFinished(() => {
+        chmodSync(targetDir, 0o700)
+      })
+
+      expect(() => envFile.replace(join(targetDir, ".env"), "MCP_AUTH_TOKEN=new\n")).toThrow(
+        /^EACCES: permission denied, open '.*\.env\.[0-9a-f-]{36}\.tmp'$/,
+      )
+    },
+  )
 
   it("leaves the owner alone when the CLI runs as a normal user", () => {
     const envPath = join(makeTempDir(), ".env")
