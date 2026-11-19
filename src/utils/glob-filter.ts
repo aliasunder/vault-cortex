@@ -230,12 +230,12 @@ export const createGlobFilter = (limits: {
     switch (outcome.kind) {
       case "matched":
         return outcome.matches
-      // A timeout or a turned-away call comes from this call's glob or from the
-      // calls queued ahead of it, never from a fault in the worker, so logging it
-      // is left to the caller. Both keep the "glob matching timed out" prefix the
-      // tool's Errors entry names
+      // A timeout comes from this call's glob or from the calls queued ahead of
+      // it, never from a fault in the worker, so logging it is left to the caller
       case "timed-out":
         throw new Error(`glob matching timed out after ${timeoutMs} ms`)
+      // A full queue is no fault in the worker either. The error starts with "glob
+      // matching timed out", so a caller matching the timeout's prefix catches it too
       case "turned-away":
         throw new Error("glob matching timed out: too many glob calls are waiting")
       case "failed":
