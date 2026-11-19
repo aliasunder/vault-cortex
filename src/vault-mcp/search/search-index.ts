@@ -1676,9 +1676,11 @@ export const createSearchIndex = (
 
   /** Indexes a file and returns its source version, a token embedFileContent checks so that an
    *  embed of this content is dropped once a later write replaces it.
-   *  - Canvas JSON is linearized for FTS and parsed for graph links regardless of fileToolsEnabled.
+   *  - Canvas JSON is linearized for FTS, and its graph links are parsed regardless of
+   *    fileToolsEnabled.
    *  - An HTML page arrives as its source and is indexed as its visible text.
-   *  - Other files supply rendered text; FTS storage requires fileToolsEnabled and caps UTF-8 bytes. */
+   *  - Other files supply rendered text.
+   *  - FTS storage requires fileToolsEnabled and caps UTF-8 bytes. */
   const upsertFileContent = (
     params: {
       filePath: string
