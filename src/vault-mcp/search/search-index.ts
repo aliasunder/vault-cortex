@@ -553,13 +553,12 @@ export const createSearchIndex = (
   sqliteVec.load(db)
 
   // FTS5 doesn't support ALTER TABLE ADD COLUMN. When opening a warm database
-  // that lacks the metadata or names column, drop the table so the CREATE below
-  // rebuilds it with the new schema. rebuildFromVault repopulates on every startup.
+  // that lacks the names column, which every older schema lacks, drop the table
+  // so the CREATE below rebuilds it with the new schema. rebuildFromVault
+  // repopulates on every startup.
   const ftsColumns = db.prepare<unknown[], { name: string }>("PRAGMA table_info(notes_fts)").all()
-  const ftsColumnNames = new Set(ftsColumns.map((column) => column.name))
-  const hasCurrentFtsColumns = ftsColumnNames.has("metadata") && ftsColumnNames.has("names")
 
-  if (ftsColumns.length > 0 && !hasCurrentFtsColumns) {
+  if (ftsColumns.length > 0 && !ftsColumns.some((column) => column.name === "names")) {
     db.exec("DROP TABLE notes_fts")
   }
 

@@ -394,7 +394,7 @@ export const fullTextSearch = (
     // outscores every other returned row, and the scores descend in the order
     // the query sorted the rows, so a higher score still means a more relevant
     // result.
-    const bestRankScore = Math.max(0, ...rows.map((row) => row.rank_score))
+    const bestRankScore = Math.max(...rows.map((row) => row.rank_score))
 
     const results: SearchResult[] = rows.map((row) => {
       const score = row.is_exact_name ? row.rank_score + bestRankScore : row.rank_score
