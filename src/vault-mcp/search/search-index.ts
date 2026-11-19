@@ -1689,26 +1689,6 @@ export const createSearchIndex = (
     logger: Logger,
   ): symbol => {
     const isCanvas = isCanvasPath(params.filePath)
-    const contentToIndex = fileTextToIndexedText({
-      filePath: params.filePath,
-      fileText: params.rawContent,
-      fileBytes: params.fileStat.size,
-    })
-
-    const contentBytes = Buffer.byteLength(contentToIndex, "utf8")
-    const needsTruncation = contentBytes > MAX_INDEXED_CONTENT_BYTES
-    const truncatedContent = needsTruncation
-      ? getUtf8BytePrefix(contentToIndex, MAX_INDEXED_CONTENT_BYTES)
-      : contentToIndex
-
-    if (needsTruncation) {
-      logger.debug("truncated file content for FTS indexing", {
-        path: params.filePath,
-        originalBytes: contentBytes,
-        cappedBytes: MAX_INDEXED_CONTENT_BYTES,
-      })
-    }
-
     const canvasLinks = isCanvas
       ? extractCanvasLinks(params.rawContent)
       : { fileCardPaths: [], textCardLinks: [] }
@@ -1716,6 +1696,26 @@ export const createSearchIndex = (
     db.transaction(() => {
       // The FTS statements exist only when fileToolsEnabled is on.
       if (upsertFileContentStmt && deleteFileContentFtsStmt && insertFileContentFtsStmt) {
+        const contentToIndex = fileTextToIndexedText({
+          filePath: params.filePath,
+          fileText: params.rawContent,
+          fileBytes: params.fileStat.size,
+        })
+
+        const contentBytes = Buffer.byteLength(contentToIndex, "utf8")
+        const needsTruncation = contentBytes > MAX_INDEXED_CONTENT_BYTES
+        const truncatedContent = needsTruncation
+          ? getUtf8BytePrefix(contentToIndex, MAX_INDEXED_CONTENT_BYTES)
+          : contentToIndex
+
+        if (needsTruncation) {
+          logger.debug("truncated file content for FTS indexing", {
+            path: params.filePath,
+            originalBytes: contentBytes,
+            cappedBytes: MAX_INDEXED_CONTENT_BYTES,
+          })
+        }
+
         const title = basename(params.filePath, posix.extname(params.filePath))
         const upsertedRow = upsertFileContentStmt.get({
           path: params.filePath,
