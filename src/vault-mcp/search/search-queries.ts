@@ -346,8 +346,8 @@ export const fullTextSearch = (
   // without it they arrive in insertion order, which follows the directory
   // listing.
   //
-  // n.title is the note's title alone, while notes_fts.title holds its title
-  // and aliases, folded. snippet() takes its column by index, and 2 is the content column.
+  // n.title is the note's title alone, while notes_fts.title also holds its
+  // aliases. snippet() takes its column by index, and 2 is the content column.
   //
   // snippetTokens is interpolated as a coerced number rather than bound, so
   // queryParams lists every bound parameter.

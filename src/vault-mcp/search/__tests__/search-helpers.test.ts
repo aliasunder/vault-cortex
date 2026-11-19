@@ -6,7 +6,7 @@ import {
   isString,
   coerceToArray,
   buildFtsMetadataText,
-  buildFtsTitleText,
+  buildFtsNameText,
   buildChunkTitleLine,
   foldName,
   toNameLookupText,
@@ -25,9 +25,9 @@ import {
 } from "../search-helpers.js"
 import type { NoteRow, TaskRow } from "../search-index.js"
 
-/** The longest name foldName normalizes to NFC, owned here so a change to the
- *  production limit shows up as a failing test. */
-const NFC_NAME_LENGTH_LIMIT = 256
+/** The longest name that is normalized to NFC and checked for duplicates,
+ *  owned here so a change to the production limit shows up as a failing test. */
+const COMPARED_NAME_LENGTH_LIMIT = 256
 
 /** A name folding pass that grows with the square of a name this long runs for
  *  minutes; a linear one takes milliseconds. */
@@ -168,33 +168,62 @@ describe("buildFtsMetadataText", () => {
 
 // ── Note names ────────────────────────────────────────────────
 
-describe("buildFtsTitleText", () => {
-  it("puts the folded title, then each folded alias, on its own line", () => {
-    expect(buildFtsTitleText({ title: "Avery Quinn", aliases: ["Avery", "Mom"] })).toBe(
-      "avery quinn\navery\nmom",
-    )
+describe("buildFtsNameText", () => {
+  it("puts the title, then each alias, on its own line, as written and folded", () => {
+    expect(buildFtsNameText({ title: "Avery Quinn", aliases: ["Avery", "Mom"] })).toEqual({
+      titleText: "Avery Quinn\nAvery\nMom",
+      foldedNames: "avery quinn\navery\nmom",
+    })
   })
 
   it("drops an alias equal to the title or to an earlier alias, ignoring letter case", () => {
-    expect(buildFtsTitleText({ title: "Biscuit", aliases: ["Pup", "biscuit", "PUP"] })).toBe(
-      "biscuit\npup",
-    )
+    expect(buildFtsNameText({ title: "Biscuit", aliases: ["Pup", "biscuit", "PUP"] })).toEqual({
+      titleText: "Biscuit\nPup",
+      foldedNames: "biscuit\npup",
+    })
   })
 
-  it("is the folded title for a note without aliases", () => {
-    expect(buildFtsTitleText({ title: "Sam Carter", aliases: [] })).toBe("sam carter")
+  it("is the title alone for a note without aliases", () => {
+    expect(buildFtsNameText({ title: "Sam Carter", aliases: [] })).toEqual({
+      titleText: "Sam Carter",
+      foldedNames: "sam carter",
+    })
   })
 
   it("keeps a title or an alias that spans lines on one line, so it stays one name", () => {
     expect(
-      buildFtsTitleText({ title: "Sam\nCarter", aliases: ["Avery \r\n  Quinn", "sam carter"] }),
-    ).toBe("sam carter\navery quinn")
+      buildFtsNameText({ title: "Sam\nCarter", aliases: ["Avery \r\n  Quinn", "sam carter"] }),
+    ).toEqual({ titleText: "Sam Carter\nAvery Quinn", foldedNames: "sam carter\navery quinn" })
   })
 
   it("trims the line break a block scalar leaves at the end of a title", () => {
-    expect(buildFtsTitleText({ title: "Avery Quinn\n", aliases: ["avery quinn", "Mom"] })).toBe(
-      "avery quinn\nmom",
-    )
+    expect(buildFtsNameText({ title: "Avery Quinn\n", aliases: ["avery quinn", "Mom"] })).toEqual({
+      titleText: "Avery Quinn\nMom",
+      foldedNames: "avery quinn\nmom",
+    })
+  })
+
+  it("keeps a repeated alias longer than 256 code units, which skips the duplicate check", () => {
+    const longAlias = "x".repeat(COMPARED_NAME_LENGTH_LIMIT + 1)
+
+    expect(buildFtsNameText({ title: "Sam Carter", aliases: [longAlias, longAlias] })).toEqual({
+      titleText: `Sam Carter\n${longAlias}\n${longAlias}`,
+      foldedNames: `sam carter\n${longAlias}\n${longAlias}`,
+    })
+  })
+
+  it("drops a repeated alias of 256 code units", () => {
+    const longestCheckedAlias = "x".repeat(COMPARED_NAME_LENGTH_LIMIT)
+
+    expect(
+      buildFtsNameText({
+        title: "Sam Carter",
+        aliases: [longestCheckedAlias, longestCheckedAlias],
+      }),
+    ).toEqual({
+      titleText: `Sam Carter\n${longestCheckedAlias}`,
+      foldedNames: `sam carter\n${longestCheckedAlias}`,
+    })
   })
 })
 
@@ -227,18 +256,18 @@ describe("foldName", () => {
   })
 
   it("normalizes a name of 256 code units", () => {
-    const decomposedName = `E${String.fromCodePoint(0x0301)}${"x".repeat(NFC_NAME_LENGTH_LIMIT - 2)}`
+    const decomposedName = `E${String.fromCodePoint(0x0301)}${"x".repeat(COMPARED_NAME_LENGTH_LIMIT - 2)}`
 
     expect(foldName(decomposedName)).toBe(
-      `${String.fromCodePoint(0x00e9)}${"x".repeat(NFC_NAME_LENGTH_LIMIT - 2)}`,
+      `${String.fromCodePoint(0x00e9)}${"x".repeat(COMPARED_NAME_LENGTH_LIMIT - 2)}`,
     )
   })
 
   it("only lowercases a name of 257 code units", () => {
-    const decomposedName = `E${String.fromCodePoint(0x0301)}${"x".repeat(NFC_NAME_LENGTH_LIMIT - 1)}`
+    const decomposedName = `E${String.fromCodePoint(0x0301)}${"x".repeat(COMPARED_NAME_LENGTH_LIMIT - 1)}`
 
     expect(foldName(decomposedName)).toBe(
-      `e${String.fromCodePoint(0x0301)}${"x".repeat(NFC_NAME_LENGTH_LIMIT - 1)}`,
+      `e${String.fromCodePoint(0x0301)}${"x".repeat(COMPARED_NAME_LENGTH_LIMIT - 1)}`,
     )
   })
 })
@@ -256,13 +285,14 @@ describe("note names on long input", () => {
           "--input-type=module",
           "--eval",
           `
-      import { toNameLookupText, buildFtsTitleText, buildChunkTitleLine } from ${JSON.stringify(searchHelpersUrl)};
+      import { toNameLookupText, buildFtsNameText, buildChunkTitleLine } from ${JSON.stringify(searchHelpersUrl)};
       const spacedName = 'a' + ' '.repeat(${LONG_NAME_LENGTH}) + 'b';
       const markedName = 'a' + '\\u0316\\u0301'.repeat(${LONG_NAME_LENGTH / 2});
       const checks = [
         toNameLookupText(spacedName) === spacedName,
         toNameLookupText(markedName) === markedName,
-        buildFtsTitleText({ title: spacedName, aliases: [markedName] }) === spacedName + '\\n' + markedName,
+        buildFtsNameText({ title: spacedName, aliases: [markedName] }).titleText === spacedName + '\\n' + markedName,
+        buildFtsNameText({ title: spacedName, aliases: [markedName] }).foldedNames === spacedName + '\\n' + markedName,
         buildChunkTitleLine({ title: spacedName, aliases: [markedName] }) === spacedName + ' (also known as ' + markedName + ')',
       ];
       process.stdout.write(checks.join(','));
@@ -271,7 +301,7 @@ describe("note names on long input", () => {
         { encoding: "utf8", timeout: CHILD_DEADLINE_MS, killSignal: "SIGKILL" },
       )
 
-      expect(output).toBe("true,true,true,true")
+      expect(output).toBe("true,true,true,true,true")
     },
     CHILD_DEADLINE_MS + 5_000,
   )

@@ -221,13 +221,18 @@ export const buildFtsMetadataText = (frontmatter: Record<string, unknown>): stri
 // ── Note names ─────────────────────────────────────────────────
 
 /**
- * The longest name, in UTF-16 code units, that foldName normalizes to NFC.
+ * The longest name, in UTF-16 code units, that is normalized and checked for
+ * duplicates. Each check's cost grows faster than the name's length, so it is
+ * bounded per name:
  * - NFC sorts each run of combining marks, in time that grows with the square
- *   of the run's length, so the work is bounded per name.
- * - A file name is at most 255 bytes on common file systems, so every note's
- *   file name fits, and so do the titles and aliases of real vaults.
+ *   of the run's length;
+ * - V8 hashes a string longer than 16,383 characters by its length alone, so a
+ *   Set of many long names of one length compares each new name with all of them.
+ *
+ * A file name is at most 255 bytes on common file systems, so every note's file
+ * name fits, and so do the titles and aliases of real vaults.
  */
-const MAX_NFC_NAME_LENGTH = 256
+const MAX_COMPARED_NAME_LENGTH = 256
 
 /**
  * Folds a note name for comparison without letter case.
@@ -236,22 +241,22 @@ const MAX_NFC_NAME_LENGTH = 256
  * - NFC normalization first makes an accented letter stored as a base letter
  *   plus a combining mark (as some file systems save names) equal its
  *   single-character form, which is what a typed query holds. A name longer
- *   than MAX_NFC_NAME_LENGTH is compared without it.
+ *   than MAX_COMPARED_NAME_LENGTH is compared without it.
  */
 export const foldName = (name: string): string => {
-  const normalizedName = name.length > MAX_NFC_NAME_LENGTH ? name : name.normalize("NFC")
+  const normalizedName = name.length > MAX_COMPARED_NAME_LENGTH ? name : name.normalize("NFC")
   return normalizedName.toLowerCase()
 }
 
 /**
  * SQL expression over `notes_fts` that is 1 when the bound text equals a whole
- * line of the title column, and 0 otherwise. It binds `toNameLookupText(query)`.
- * - buildFtsTitleText writes each name folded, on a line of its own, so a
- *   search folds nothing per row.
+ * line of the names column, and 0 otherwise. It binds `toNameLookupText(query)`.
+ * - buildFtsNameText writes each name folded, on a line of its own, so a search
+ *   folds nothing per row.
  * - A newline on both sides of both strings limits `instr` to whole lines.
  */
 export const EXACT_NAME_MATCH_SQL =
-  "instr(char(10) || notes_fts.title || char(10), char(10) || ? || char(10)) > 0"
+  "instr(char(10) || notes_fts.names || char(10), char(10) || ? || char(10)) > 0"
 
 /** Matches a run of line breaks. */
 const LINE_BREAK_RUN_RE = /[\r\n]+/
@@ -261,7 +266,7 @@ const LINE_BREAK_RUN_RE = /[\r\n]+/
  * one space.
  * - A YAML block scalar can give a title or an alias several lines and a final
  *   line break.
- * - EXACT_NAME_MATCH_SQL compares the query with whole lines of the title
+ * - EXACT_NAME_MATCH_SQL compares the query with whole lines of the names
  *   column, so each name, and the query, must fill one line and nothing else.
  * - Splitting at line breaks keeps the work linear in the name's length; a
  *   regex that also takes the whitespace around each break backtracks through
@@ -289,34 +294,52 @@ export const toNameLookupText = (query: string): string => {
   return foldName(toSingleLineName(quotedPhrase ?? trimmedQuery))
 }
 
-/** The aliases that differ from the title and from each other, compared
- *  without letter case, in document order, each on a single line. */
-const findDistinctAliases = (params: {
+/** A note name on one line, and its folded form. */
+type NoteName = { singleLineName: string; foldedName: string }
+
+/**
+ * The title, then each alias that differs from it and from the aliases before
+ * it, compared without letter case, in document order. A name longer than
+ * MAX_COMPARED_NAME_LENGTH is kept without the duplicate check.
+ */
+const findDistinctNames = (params: {
   title: string
   aliases: ReadonlyArray<string>
-}): string[] => {
-  const seenNames = new Set([foldName(toSingleLineName(params.title))])
-  const distinctAliases: string[] = []
-  for (const alias of params.aliases) {
-    const singleLineAlias = toSingleLineName(alias)
-    const foldedAlias = foldName(singleLineAlias)
+}): NoteName[] => {
+  const seenFoldedNames = new Set<string>()
+  const distinctNames: NoteName[] = []
+  for (const name of [params.title, ...params.aliases]) {
+    const singleLineName = toSingleLineName(name)
+    const foldedName = foldName(singleLineName)
 
-    if (seenNames.has(foldedAlias)) continue
-    seenNames.add(foldedAlias)
-    distinctAliases.push(singleLineAlias)
+    if (singleLineName.length <= MAX_COMPARED_NAME_LENGTH) {
+      if (seenFoldedNames.has(foldedName)) continue
+      seenFoldedNames.add(foldedName)
+    }
+    distinctNames.push({ singleLineName, foldedName })
   }
-  return distinctAliases
+  return distinctNames
 }
 
-/** The FTS title column's text: the folded title, then each distinct alias
- *  folded, on its own line. EXACT_NAME_MATCH_SQL matches the query against
- *  these lines, and keyword matching is unchanged, because the FTS tokenizer
- *  folds letter case and accents itself. */
-export const buildFtsTitleText = (params: {
+/**
+ * The FTS row's two name columns. Each holds the title, then each distinct
+ * alias, one per line:
+ * - titleText holds the names as written, for keyword matching. The FTS
+ *   tokenizer folds letter case from an older Unicode version than
+ *   `toLowerCase`, so a lowercased copy of a name in some scripts (Cherokee,
+ *   Osage) would no longer match a query typed as the name is written;
+ * - foldedNames holds the same names folded, for EXACT_NAME_MATCH_SQL.
+ */
+export const buildFtsNameText = (params: {
   title: string
   aliases: ReadonlyArray<string>
-}): string => {
-  return [toSingleLineName(params.title), ...findDistinctAliases(params)].map(foldName).join("\n")
+}): { titleText: string; foldedNames: string } => {
+  const distinctNames = findDistinctNames(params)
+
+  return {
+    titleText: distinctNames.map((noteName) => noteName.singleLineName).join("\n"),
+    foldedNames: distinctNames.map((noteName) => noteName.foldedName).join("\n"),
+  }
 }
 
 /** The note's title line in every chunk of the note:
@@ -325,10 +348,11 @@ export const buildChunkTitleLine = (params: {
   title: string
   aliases: ReadonlyArray<string>
 }): string => {
-  const distinctAliases = findDistinctAliases(params)
+  const [titleName, ...aliasNames] = findDistinctNames(params)
 
-  if (distinctAliases.length === 0) return params.title
-  return `${toSingleLineName(params.title)} (also known as ${distinctAliases.join(", ")})`
+  if (!titleName || aliasNames.length === 0) return params.title
+  const aliasList = aliasNames.map((aliasName) => aliasName.singleLineName).join(", ")
+  return `${titleName.singleLineName} (also known as ${aliasList})`
 }
 
 // ── Row mappers ────────────────────────────────────────────────

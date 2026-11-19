@@ -2131,6 +2131,41 @@ describe("metadata search", () => {
     const results = warmIndex.fullTextSearch({ query: "xeriscaping" }, logger)
     expect(results.map((result) => result.path)).toEqual(["garden/layout.md"])
   })
+
+  it("warm-DB migration: FTS names column is added to a database that has metadata", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "warm-fts-names-"))
+    onTestFinished(() => rm(dir, { recursive: true }))
+    const dbPath = join(dir, "search.db")
+    const legacyDb = new Database(dbPath)
+    legacyDb.exec(`
+      CREATE VIRTUAL TABLE notes_fts USING fts5(
+        path UNINDEXED, title, content, metadata, tokenize='porter unicode61'
+      );
+    `)
+    legacyDb.close()
+
+    const warmIndex = createSearchIndex(dbPath)
+    warmIndex.upsertNote(
+      withBodyTags({
+        filePath: "People/Avery Quinn.md",
+        rawContent: "---\ntitle: Avery Quinn\naliases: [Mom]\n---\n\nLives near the coast.\n",
+        fileStat: testStat(1000),
+      }),
+      logger,
+    )
+    warmIndex.upsertNote(
+      withBodyTags({
+        filePath: "Trips/Plan.md",
+        rawContent:
+          "---\ntitle: Plan\n---\n\nMom and the trip, mom and the trip, the trip with mom.\n",
+        fileStat: testStat(1000),
+      }),
+      logger,
+    )
+
+    const results = warmIndex.fullTextSearch({ query: "Mom" }, logger)
+    expect(results.map((result) => result.path)).toEqual(["People/Avery Quinn.md", "Trips/Plan.md"])
+  })
 })
 
 describe("note names in keyword search", () => {
@@ -2326,6 +2361,24 @@ describe("note names in keyword search", () => {
     const results = createNamesIndex().fullTextSearch({ query: "session\nlog" }, logger)
 
     expect(results.map((result) => result.path)).toEqual(["Trips/Session log.md", "Logs/Daily.md"])
+  })
+
+  it("finds a title in Cherokee capitals by a keyword typed in the same capitals", () => {
+    // The tokenizer folds case from an older Unicode version than toLowerCase,
+    // so a lowercased copy of this title would not match the query
+    const cherokeeIndex = createSearchIndex(":memory:")
+    cherokeeIndex.upsertNote(
+      withBodyTags({
+        filePath: "Language/Cherokee.md",
+        rawContent: "---\ntitle: ᏣᎳᎩ ᎦᏬᏂᎯᏍᏗ\n---\n\nThe syllabary has eighty-five letters.\n",
+        fileStat: testStat(1000),
+      }),
+      logger,
+    )
+
+    const results = cherokeeIndex.fullTextSearch({ query: "ᏣᎳᎩ" }, logger)
+
+    expect(results.map((result) => result.path)).toEqual(["Language/Cherokee.md"])
   })
 })
 

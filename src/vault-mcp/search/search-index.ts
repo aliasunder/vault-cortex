@@ -43,7 +43,7 @@ import {
   coerceToArray,
   buildChunkTitleLine,
   buildFtsMetadataText,
-  buildFtsTitleText,
+  buildFtsNameText,
   escapeLikeWildcards,
   foldTag,
   NOTE_METADATA_COLUMNS_SQL,
@@ -553,11 +553,13 @@ export const createSearchIndex = (
   sqliteVec.load(db)
 
   // FTS5 doesn't support ALTER TABLE ADD COLUMN. When opening a warm database
-  // that lacks the metadata column, drop the table so the CREATE below rebuilds
-  // it with the new schema. rebuildFromVault repopulates on every startup.
+  // that lacks the metadata or names column, drop the table so the CREATE below
+  // rebuilds it with the new schema. rebuildFromVault repopulates on every startup.
   const ftsColumns = db.prepare<unknown[], { name: string }>("PRAGMA table_info(notes_fts)").all()
+  const ftsColumnNames = new Set(ftsColumns.map((column) => column.name))
+  const hasCurrentFtsColumns = ftsColumnNames.has("metadata") && ftsColumnNames.has("names")
 
-  if (ftsColumns.length > 0 && !ftsColumns.some((column) => column.name === "metadata")) {
+  if (ftsColumns.length > 0 && !hasCurrentFtsColumns) {
     db.exec("DROP TABLE notes_fts")
   }
 
@@ -590,9 +592,11 @@ export const createSearchIndex = (
     );
 
     -- A search match joins back to its notes row by path. UNINDEXED keeps
-    -- path out of keyword matching and saves index space.
+    -- path out of keyword matching and saves index space. names holds the
+    -- folded names EXACT_NAME_MATCH_SQL compares, and is UNINDEXED for the
+    -- same reasons.
     CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
-      path UNINDEXED, title, content, metadata, tokenize='porter unicode61'
+      path UNINDEXED, title, content, metadata, names UNINDEXED, tokenize='porter unicode61'
     );
 
     -- One row per link text in a source, so two spellings that reach one file
@@ -870,8 +874,8 @@ export const createSearchIndex = (
     RETURNING rowid
   `)
   const deleteFtsStmt = db.prepare<[number]>(`DELETE FROM notes_fts WHERE rowid = ?`)
-  const insertFtsStmt = db.prepare<[number, string, string, string, string]>(
-    `INSERT INTO notes_fts (rowid, path, title, content, metadata) VALUES (?, ?, ?, ?, ?)`,
+  const insertFtsStmt = db.prepare<[number, string, string, string, string, string]>(
+    `INSERT INTO notes_fts (rowid, path, title, content, metadata, names) VALUES (?, ?, ?, ?, ?, ?)`,
   )
   const removeNotesStmt = db.prepare<[string], { rowid: number }>(
     `DELETE FROM notes WHERE path = ? RETURNING rowid`,
@@ -1989,7 +1993,7 @@ export const createSearchIndex = (
     const metadataText = buildFtsMetadataText(frontmatter)
     // The FTS title column holds the aliases beside the title, so an alias match
     // ranks like a title match; the notes row keeps the title alone
-    const ftsTitleText = buildFtsTitleText({
+    const { titleText: ftsTitleText, foldedNames: ftsFoldedNames } = buildFtsNameText({
       title: note.title,
       aliases: parseFrontmatterAliases(frontmatter),
     })
@@ -2033,7 +2037,14 @@ export const createSearchIndex = (
       // RETURNING yields the inserted or updated row on every upsert.
       if (!upsertedNoteRow) throw new Error(`note upsert returned no row: ${note.path}`)
       deleteFtsStmt.run(upsertedNoteRow.rowid)
-      insertFtsStmt.run(upsertedNoteRow.rowid, note.path, ftsTitleText, note.content, metadataText)
+      insertFtsStmt.run(
+        upsertedNoteRow.rowid,
+        note.path,
+        ftsTitleText,
+        note.content,
+        metadataText,
+        ftsFoldedNames,
+      )
 
       deleteTasksStmt.run(note.path)
       // Line→blockId lookup so each child can resolve its parent's
