@@ -185,7 +185,7 @@ The edit tools differ in how they locate the lines they change — by heading, b
 
 The three anchor tools share one resolution rule: a short, case-sensitive substring locates a full line, ambiguity is an error, and `first_match` takes the first match instead.
 
-`vault_list_notes` matches its glob in a worker thread with a time limit: `utils/glob-filter.ts` starts one worker per call and stops it after `GLOB_MATCH_TIMEOUT_MS` (2 seconds, in `vault-operations/vault-filesystem.ts`), and the call returns an error.
+`vault_list_notes` matches its glob in a worker thread with a time limit: `utils/glob-filter.ts` starts one worker per call and stops a worker still matching after `GLOB_MATCH_TIMEOUT_MS` (2 seconds, in `vault-operations/vault-filesystem.ts`), and that call returns an error.
 
 `vault_update_properties` merges properties — sets new keys, overwrites matching keys, deletes keys set to `null` — and keeps the body, adding only a missing final newline. With `replace: true` it replaces the whole properties block instead, without parsing the old one, so it can repair any block a merge refuses.
 
