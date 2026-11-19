@@ -39,9 +39,21 @@ export const registerSearchTools = ({
   logger: sessionLogger,
   config,
 }: ToolRegistrationContext): void => {
+  // Different tools edit the two tag fields, so every description that
+  // returns notes says which field is which
+  const tagsPropertyEditorClause = whenToolEnabledText(
+    "vault_update_properties",
+    "; vault_update_properties edits it",
+  )
+  const bodyTagsEditorClause = whenToolEnabledText(
+    "vault_replace_in_note",
+    "; vault_replace_in_note edits them",
+  )
+  const tagsFieldsText = `tags (the tags property${tagsPropertyEditorClause}), body_tags (#tags in the note's text, one per spelling${bodyTagsEditorClause}; absent when none)`
+
   // These parts read the same with or without embeddings, so both
   // vault_search description variants share them
-  const searchSyntaxText = `Unquoted terms use implicit AND with stemming ("running" also matches "run"); wrap in double quotes for exact phrases; punctuated terms (vault-cortex, deploy/local) are matched as exact adjacent-word phrases.`
+  const searchSyntaxText = `Unquoted terms use implicit AND with stemming ("running" also matches "run"); wrap in double quotes for exact phrases; punctuated terms (vault-cortex, deploy/local) are matched as exact adjacent-word phrases; *, ^, parentheses and colons instead split a term into separate words.`
 
   // File-content search applies only the folder filter, so hybrid search
   // drops file results whenever any other filter is set
@@ -55,18 +67,6 @@ export const registerSearchTools = ({
 - related: every listed link must appear in the related property, written as it is there, brackets and alias included
 - properties: keys and text values match exactly, letter case included; values compare by exact type — pass a number as a number, not "4". Exception: true and false compare as 1 and 0, so true or 1 matches a checked checkbox and the number 1. A list property matches when any element equals the value.
 - created / modified: bounds compare whole calendar days in the server's time zone (returned created and modified values show its UTC offset). A note whose created property is missing or not an ISO date never matches a created filter`
-
-  // Different tools edit the two tag fields, so every description that
-  // returns notes says which field is which
-  const tagsPropertyEditorClause = whenToolEnabledText(
-    "vault_update_properties",
-    "; vault_update_properties edits it",
-  )
-  const bodyTagsEditorClause = whenToolEnabledText(
-    "vault_replace_in_note",
-    "; vault_replace_in_note edits them",
-  )
-  const tagsFieldsText = `tags (the tags property${tagsPropertyEditorClause}), body_tags (#tags in the note's text, one per spelling${bodyTagsEditorClause}; absent when none)`
 
   const searchSharedExamples = `Example: vault_search({ query: "kubernetes networking", filters: { tags: ["reference"] } })
 Example: vault_search({ query: "meeting notes", filters: { type: "meeting", folder: "Work" } })
@@ -110,24 +110,22 @@ Example: vault_search({ query: "decision", filters: { modified: { after: "2026-0
     : `kind is always "note".`
   const searchResultDetailsText = `${searchResultKindText} created is omitted, not null, when a result has none; type is null when the result has no type property; bytes is the on-disk size. With include_leading_callout, each result also carries leading_callout (the opening callout, { type, title, body }) when present.`
 
+  const droppedQuerySyntaxText =
+    "the uppercase words AND, OR and NOT (searched as terms in other spellings or inside double quotes), and punctuation such as *, ^, parentheses and colons, are dropped"
+
   // The vector leg embeds the raw query, so an all-operator query still
   // returns semantic neighbours while embeddings are on — unless the query
   // embedding fails, when only the keyword leg runs and finds nothing
-  const emptiedQueryText = config.embeddingEnabled
-    ? {
-        stage: "keyword matching",
-        outcome:
-          'a query left with no terms is matched by meaning only, or finds nothing when search_mode is "fts"',
-      }
-    : {
-        stage: "matching",
-        outcome: "a query left with no terms returns no results",
-      }
+  const malformedQueryLine = config.embeddingEnabled
+    ? `- Malformed query syntax never throws: ${droppedQuerySyntaxText} before keyword matching; a query left with no terms is matched by meaning only, or finds nothing when search_mode is "fts".`
+    : `- Malformed query syntax never throws: ${droppedQuerySyntaxText} before matching; a query left with no terms returns no results.`
 
   // Each kind has a keyword leg, and with embeddings a semantic leg too, so a
   // fused result holds at most twice the per-leg cap of each kind
-  const describeCapExtent = (perKind: number): string => {
-    return config.fileToolsEnabled ? `${perKind} notes and ${perKind} files` : `${perKind} notes`
+  const describeCapExtent = (perKindCap: number): string => {
+    return config.fileToolsEnabled
+      ? `${perKindCap} notes and ${perKindCap} files`
+      : `${perKindCap} notes`
   }
   const keywordCapExtent = describeCapExtent(SEARCH_LEG_ROW_CAP)
   const hybridCapExtent = describeCapExtent(SEARCH_LEG_ROW_CAP * 2)
@@ -135,7 +133,7 @@ Example: vault_search({ query: "decision", filters: { modified: { after: "2026-0
     ? `With search_mode "fts", at most ${keywordCapExtent} come back; with "hybrid", at most ${hybridCapExtent}.`
     : `At most ${keywordCapExtent} come back.`
   const searchBehaviorLine = `Behavior: ${INDEX_LAG_LEAD}. No matches returns an empty results array with total 0, not an error. ${resultCapSentence}${fileContentLimitsSentence}
-- Malformed query syntax never throws: the words AND, OR, NOT and NEAR in any letter case, and punctuation such as *, ^, parentheses and colons, are dropped before ${emptiedQueryText.stage}; ${emptiedQueryText.outcome}.`
+${malformedQueryLine}`
   const searchErrorsSection = `Errors:
 - "invalid created.on date: …" or "… is not a calendar date" (any created/modified bound) — pass a real calendar date in YYYY-MM-DD form
 - "tag must not be empty …" — a tags entry is only "#"; pass the tag name
@@ -427,6 +425,8 @@ Returns: ${describeNoteMetadataResult(tagsFieldsText)} Newest first by the sort_
       : "",
   ])
 
+  // With the memory layer off the server never creates the memory folder, so
+  // the examples name a generic folder instead
   registerTool(
     TOOL_NAMES.VAULT_SEARCH_BY_FOLDER,
     {
@@ -694,7 +694,7 @@ Returns: ${describeNoteMetadataResult(tagsFieldsText)} Sorted by most recently m
     TOOL_NAMES.VAULT_GET_BACKLINKS,
     {
       title: "Get Backlinks",
-      description: `Find all notes and canvases that link to a given note or canvas — captures [[wikilinks]], [markdown](links), ![[embeds]], wikilinks inside properties (e.g. related:), and canvas cards that embed the file. Heading anchors ([[note#heading]]) and aliases ([[note|alias]]) resolve as backlinks to the base note. Links inside code blocks are ignored; a note linking to itself appears in its own backlinks.
+      description: `Find all notes and canvases that link to a given note or canvas — captures [[wikilinks]], [markdown](links), ![[embeds]], wikilinks inside properties (e.g. related:), and canvas cards: a link typed in a text card, or a file card showing the file. Heading anchors ([[note#heading]]) and aliases ([[note|alias]]) resolve as backlinks to the base note. Links inside code blocks are ignored; a note linking to itself appears in its own backlinks.
 
 Example: vault_get_backlinks({ path: "Projects/vault-cortex.md" })
 Example: vault_get_backlinks({ path: "Diagrams/architecture.canvas" })
@@ -753,7 +753,7 @@ ${INDEX_ENGINE_ERROR_ENTRY}`,
     TOOL_NAMES.VAULT_GET_OUTGOING_LINKS,
     {
       title: "Get Outgoing Links",
-      description: `Find all notes and files a given note or canvas links to. For notes: [[wikilinks]], [markdown](links), ![[embeds]], and wikilinks inside properties (e.g. related:). For canvas files: file nodes, not links inside text cards. Links inside code blocks are ignored; self-links are included. Each target is listed once, however often the note links to it.
+      description: `Find all notes and files a given note or canvas links to. For notes: [[wikilinks]], [markdown](links), ![[embeds]], and wikilinks inside properties (e.g. related:). For canvas files: links typed in text cards, and file cards by their exact path. Links inside code blocks are ignored; self-links are included. Each target is listed once, however often the note links to it.
 
 Example: vault_get_outgoing_links({ path: "Projects/vault-cortex.md" })
 Example: vault_get_outgoing_links({ path: "Diagrams/architecture.canvas" })
@@ -762,7 +762,7 @@ When to use: Navigating the graph forward, auditing broken links in one note or 
 
 Behavior: ${INDEX_LAG_LEAD}. A path that does not exist, or one in a dot-prefixed folder, returns an empty result (count 0), not an error, just as a note with no outbound links does; if you expected links, ${linkEmptyResultRemedy}.
 
-Returns: JSON with path, outgoing_links (array of { path, title, exists, kind, bytes, daily_note_forward_ref } sorted by target path), and count. A target's path is the vault-relative path the link resolved to; a broken link's path is its target text without any #heading or |alias, with a markdown link's %-escapes decoded. When exists is true, kind "note" is a markdown note${whenToolEnabledText("vault_read_note", " readable via vault_read_note")} and kind "file" a non-markdown file (.canvas, image, PDF)${fileReadableClause}; when exists is false the link is broken and kind is "note" even for a path like "diagram.png". title is null for files and broken links. daily_note_forward_ref is true on a broken link into the daily notes folder (a daily note not yet created, not breakage) and false otherwise, including when Obsidian's Daily Notes folder setting is the vault root or blank. bytes is the on-disk size (null for broken links)${fileBytesClause}.
+Returns: JSON with path, outgoing_links (array of { path, title, exists, kind, bytes, daily_note_forward_ref } sorted by target path), and count. A target's path is the vault-relative path the link resolved to; a broken link's path is its target text without any #heading or |alias, with a markdown link's %-escapes decoded. When exists is true, kind "note" is a markdown note${whenToolEnabledText("vault_read_note", " readable via vault_read_note")} and kind "file" a non-markdown file (.canvas, image, PDF)${fileReadableClause}; when exists is false the link is broken and kind is "note" even for a path like "diagram.png". title is null for files and broken links. daily_note_forward_ref is true on a broken link to a daily note not yet created: one into a dedicated daily notes folder, or a bare date written in the daily note format; false otherwise. bytes is the on-disk size (null for broken links)${fileBytesClause}.
 
 Errors:
 ${LINK_GRAPH_EXTENSION_ERROR_ENTRY}
@@ -785,6 +785,8 @@ ${INDEX_ENGINE_ERROR_ENTRY}`,
       return safeHandler(
         reqLogger,
         async () => {
+          // Read on every call, so a Daily Notes folder changed in Obsidian
+          // applies without a restart
           const dailyNotesConfig = await readDailyNotesConfig(
             {
               vaultPath,
@@ -793,7 +795,11 @@ ${INDEX_ENGINE_ERROR_ENTRY}`,
             reqLogger,
           )
           return search.getOutgoingLinks(
-            { path, dailyNotesFolder: dailyNotesConfig.dedicatedFolder },
+            {
+              path,
+              dailyNotesFolder: dailyNotesConfig.dedicatedFolder,
+              dailyNotesFormat: dailyNotesConfig.format,
+            },
             reqLogger,
           )
         },
@@ -814,14 +820,19 @@ ${INDEX_ENGINE_ERROR_ENTRY}`,
   const orphanDefaultsText = config.orphanExcludeFoldersOverride
     ? {
         folders: JSON.stringify(config.orphanExcludeFoldersOverride),
-        dailyFolderLine: "",
+        dailyFolderClause: "",
       }
     : {
         folders: `the daily notes folder (none when Obsidian's Daily Notes folder setting is the vault root or blank), "Templates", ${JSON.stringify(config.memoryDir)}`,
-        dailyFolderLine: isToolEnabled("vault_get_daily_note")
+        dailyFolderClause: isToolEnabled("vault_get_daily_note")
           ? " (when the vault has a daily notes folder, vault_get_daily_note's path starts with it)"
           : "",
       }
+
+  // SQLite's expression depth limit (1000) caps how many folders the orphan
+  // query can exclude. Each folder adds one level, and the rest of the query
+  // takes the other 6.
+  const maxOrphanExcludeFolders = 994
 
   const findOrphansAlternativesLine = formatServedSentencesLine([
     whenToolEnabledText(
@@ -842,13 +853,13 @@ Example: vault_find_orphans({ exclude_folders: ["Templates", "Archive"], limit: 
 When to use: Vault maintenance — surfacing notes to integrate into the graph.${whenToolEnabledText("vault_patch_note", " Link an orphan by mentioning it from a relevant note with vault_patch_note.")}${findOrphansAlternativesLine}
 
 Parameters:
-- exclude_folders replaces the defaults — list a default yourself to keep it${orphanDefaultsText.dailyFolderLine}. Pass [] for no exclusions. Each entry names ${INDEX_FOLDER_SCOPE_CLAUSE}. Excluded notes are left out of the results; links from them still count as incoming links.
+- exclude_folders replaces the defaults — list a default yourself to keep it${orphanDefaultsText.dailyFolderClause}. Pass [] for no exclusions. Each entry names ${INDEX_FOLDER_SCOPE_CLAUSE}. Excluded notes are left out of the results; links from them still count as incoming links.
 - limit applies after exclusions and sorting; ${LIMIT_TRUNCATION_CLAUSE}.
 
 Behavior: ${INDEX_LAG_LEAD}. An empty array means no orphans were found (after exclusions), not an error.
 
 Errors:
-- "too many excluded folders" — pass at most 994 exclude_folders entries, then retry.
+- "too many excluded folders" — pass at most ${maxOrphanExcludeFolders} exclude_folders entries, then retry.
 ${INDEX_ERROR_ENTRY}
 
 Returns: ${describeNoteMetadataResult(tagsFieldsText)} Sorted by most recently modified.`,

@@ -34,6 +34,11 @@ export type DockerRunParams = {
   instanceName: string
   envFilePath: string
   port: number
+  /**
+   * The .env's BIND_ADDRESS: the host address Docker publishes the port on.
+   * Empty publishes on every address, IPv4 and IPv6.
+   */
+  bindAddress: string
   /** Host vault path — local mode only (bind mount). */
   vaultPath?: string
 }
@@ -140,8 +145,11 @@ const HEALTH_CMD = `node -e "fetch('http://127.0.0.1:${CONTAINER_PORT}/healthz')
  * testable without spawning processes.
  */
 export const buildDockerRunArgs = (params: DockerRunParams): string[] => {
-  const { mode, instanceName, envFilePath, port, vaultPath } = params
+  const { mode, instanceName, envFilePath, port, bindAddress, vaultPath } = params
   const image = imageForMode(mode)
+  const publishedPort = bindAddress
+    ? `${bindAddress}:${port}:${CONTAINER_PORT}`
+    : `${port}:${CONTAINER_PORT}`
 
   const args = [
     "run",
@@ -154,7 +162,7 @@ export const buildDockerRunArgs = (params: DockerRunParams): string[] => {
     envFilePath,
     ...CONTAINER_ENV_OVERRIDES.flatMap((override) => ["-e", override]),
     "-p",
-    `${port}:${CONTAINER_PORT}`,
+    publishedPort,
   ]
 
   if (mode === "local") {
@@ -251,8 +259,12 @@ export const parseContainerImage = (params: {
 
 /**
  * Go template that prints a container's name, then each host port it
- * publishes: "/work 8001". PortBindings is the container's run setting, so a
- * stopped container's ports print too.
+ * publishes: "/work 8001".
+ * - PortBindings is the container's run setting, so a stopped container's
+ *   ports print too.
+ * - The bind address is left out, so a port counts as taken whatever address
+ *   it is published on: a port published on every address also blocks it on
+ *   127.0.0.1, where a local install publishes by default.
  */
 const PUBLISHED_PORTS_FORMAT =
   "{{.Name}}{{range $containerPort, $bindings := .HostConfig.PortBindings}}{{range $bindings}} {{.HostPort}}{{end}}{{end}}"

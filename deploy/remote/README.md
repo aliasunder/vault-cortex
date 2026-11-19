@@ -132,7 +132,10 @@ for when you have neither Node.js nor Compose, invoke a different runtime
 directly (swap `docker` for `podman` or `nerdctl`), or want the raw
 invocation for your own automation. The same `.env` file works, and the
 flags mirror the Compose file, volume names included, so your data carries
-over if you ever switch between methods:
+over if you ever switch between methods. The command's `-p 8000:8000`
+publishes on every address, so `BIND_ADDRESS` in `.env` has no effect here.
+For a server behind a tunnel or reverse proxy, pass `-p 127.0.0.1:8000:8000`
+instead, or use the CLI or Compose, which read `BIND_ADDRESS`:
 
 ```bash
 docker run -d --name vault-cortex \
@@ -165,8 +168,11 @@ directory
 The CLI's `init` always creates the three-volume layout, so single-volume
 mode is set up with `docker run` or through a hosting platform. The same
 `.env` file works; the command sets `LOG_DIR` explicitly because the
-`.env.example` default, `/data/logs`, falls outside the volume. On a plain
-Docker host the complete command is:
+`.env.example` default, `/data/logs`, falls outside the volume. The
+command's `-p 8000:8000` publishes on every address, so `BIND_ADDRESS` in
+`.env` has no effect here. For a server behind a tunnel or reverse proxy,
+pass `-p 127.0.0.1:8000:8000` instead. On a plain Docker host the complete
+command is:
 
 ```bash
 docker run -d --name vault-cortex \

@@ -76,6 +76,7 @@ server.
   one.
 - Keeps the install's port, unless you change it with `--port` or in the
   optional settings.
+- Keeps the address the install's port is published on (`BIND_ADDRESS`).
 
 **Running a second vault** on the same machine:
 

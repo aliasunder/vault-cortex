@@ -78,7 +78,7 @@ scripts/ # Dev and ops helpers in TypeScript (not shipped in Docker); most open 
   obsidian-tag-oracle.ts, generate-body-tag-vectors.ts, compare-body-tags-random.ts # Check body tags against Obsidian's own parser (see "Upgrading remark-parse")
 cli/src/ # npx vault-cortex CLI, run on the host: bin (entry) → main (wiring) → program (Commander), the only loose files; layers under "CLI layering"
   adapters/ # The outside world: docker, prompts, env-file (.env read and write), vault, token
-  rules/ # Decisions and text, with no file, Docker or prompt I/O: env-values (.env parse and typed getters), env-edits (.env text edits), ports, messages, env-templates, node-version
+  rules/ # Decisions and text, with no file, Docker or prompt I/O: env-values (.env parse and typed getters), env-edits (.env text edits), ports, bind-address, messages, env-templates, node-version
   steps/ # Workflow pieces commands compose: deployment, container-start, port-prompt, instance-identity, optional-settings, obsidian-sign-in
   commands/ # One module per command: init, configure, upgrade, get-sync-token; lifecycle holds start, restart, logs, and down
   __tests__/integration/ # Interactive flows through node-pty in a real PTY: pty-harness, the cli-pty tests, and a fake docker binary in fixtures/
@@ -315,7 +315,7 @@ only loose files.
 | Layer       | Holds                                                                                                                                                       | May import at runtime        |
 | ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------- |
 | `adapters/` | The outside world: Docker, the terminal prompts, `.env` file I/O, vault path, token                                                                         | nothing internal             |
-| `rules/`    | Decisions and text, with no file, Docker or prompt I/O: `.env` parsing, typed getters and text edits, ports, messages, templates                            | other rules                  |
+| `rules/`    | Decisions and text, with no file, Docker or prompt I/O: `.env` parsing, typed getters and text edits, ports, bind addresses, messages, templates            | other rules                  |
 | `steps/`    | Workflow pieces commands compose: deployment checks, the container start, the free-port question, instance identity, the settings chooser, Obsidian sign-in | rules, adapters, other steps |
 | `commands/` | One module per command (`lifecycle` holds start, restart, logs and down)                                                                                    | steps, rules, adapters       |
 
@@ -943,6 +943,10 @@ Two naming layers — MCP (JSON wire format) and TypeScript (internal):
   `src/__tests__/runs-as-root.ts`. CI runs it as a normal user. To run
   these tests from a root shell, such as a cloud session, use
   `npm run test:as-nobody`; it takes the same arguments as `vitest run`.
+- Vitest prints a test's console output, `src/logger.ts`'s lines included,
+  only when that test fails (`silent: "passed-only"`, with the log lines
+  routed to the console by `src/__tests__/helpers/route-log-lines-to-console.ts`).
+  To see a passing test's output, run `npm test -- <file> --silent=false`.
 - Tests read as a behavioral spec: one focused `it()` per behavior, named
   so a failure identifies the regressed behavior without reading the
   body, and matching what is asserted. For every guard or invariant,

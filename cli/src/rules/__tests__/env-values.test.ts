@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest"
 import {
   detectMode,
   parseEnvValues,
+  readEnvBindAddress,
   readEnvInstanceName,
   readEnvObsidianToken,
   readEnvPort,
@@ -93,6 +94,107 @@ describe("readEnvPort", () => {
       expect(readEnvPort(parseEnvValues(`PORT=9000\nPORT=${portValue}\n`))).toEqual({
         kind: "invalid",
         message: `PORT "${reportedValue}" is not a valid port — use a whole number between 1 and 65535, with no leading zero.`,
+      })
+    },
+  )
+})
+
+describe("readEnvBindAddress", () => {
+  it.each([
+    { label: "loopback in local mode", mode: "local" as const, bindAddress: "127.0.0.1" },
+    { label: "no address in remote mode", mode: "remote" as const, bindAddress: "" },
+  ])("defaults to $label when .env has no BIND_ADDRESS line", ({ mode, bindAddress }) => {
+    expect(readEnvBindAddress(parseEnvValues("MCP_AUTH_TOKEN=abc\n"), mode)).toEqual({
+      kind: "ok",
+      bindAddress,
+    })
+  })
+
+  it.each([
+    { label: "only present as a comment", content: "MCP_AUTH_TOKEN=abc\n# BIND_ADDRESS=0.0.0.0\n" },
+    { label: "empty on its last line", content: "BIND_ADDRESS=0.0.0.0\nBIND_ADDRESS=\n" },
+  ])("uses the mode's default when BIND_ADDRESS is $label", ({ content }) => {
+    const envValues = parseEnvValues(content)
+
+    expect(readEnvBindAddress(envValues, "local")).toEqual({ kind: "ok", bindAddress: "127.0.0.1" })
+    expect(readEnvBindAddress(envValues, "remote")).toEqual({ kind: "ok", bindAddress: "" })
+  })
+
+  it.each([
+    {
+      label: "every address in local mode",
+      mode: "local" as const,
+      envValue: "0.0.0.0",
+      bindAddress: "0.0.0.0",
+    },
+    {
+      label: "loopback in remote mode",
+      mode: "remote" as const,
+      envValue: "127.0.0.1",
+      bindAddress: "127.0.0.1",
+    },
+    {
+      label: "the IPv4 wildcard in remote mode",
+      mode: "remote" as const,
+      envValue: "0.0.0.0",
+      bindAddress: "0.0.0.0",
+    },
+    {
+      label: "a quoted address",
+      mode: "local" as const,
+      envValue: '"192.168.1.20"',
+      bindAddress: "192.168.1.20",
+    },
+    {
+      label: "a bracketed IPv6 address",
+      mode: "local" as const,
+      envValue: "[::1]",
+      bindAddress: "[::1]",
+    },
+  ])("returns $label set in .env", ({ mode, envValue, bindAddress }) => {
+    const envValues = parseEnvValues(`MCP_AUTH_TOKEN=abc\nBIND_ADDRESS=${envValue}\n`)
+
+    expect(readEnvBindAddress(envValues, mode)).toEqual({ kind: "ok", bindAddress })
+  })
+
+  it("takes the last active BIND_ADDRESS line, as docker --env-file does", () => {
+    const envValues = parseEnvValues(
+      "BIND_ADDRESS=0.0.0.0\nMCP_AUTH_TOKEN=abc\nBIND_ADDRESS=127.0.0.1\n",
+    )
+
+    expect(readEnvBindAddress(envValues, "remote")).toEqual({
+      kind: "ok",
+      bindAddress: "127.0.0.1",
+    })
+  })
+
+  it.each([
+    { label: "a hostname", envValue: "localhost", reportedValue: "localhost" },
+    { label: "a bare IPv6 address", envValue: "::1", reportedValue: "::1" },
+    {
+      label: "a zone-scoped IPv6 address",
+      envValue: "[fe80::1%eth0]",
+      reportedValue: "[fe80::1%eth0]",
+    },
+    {
+      label: "an address with a port",
+      envValue: "127.0.0.1:8000",
+      reportedValue: "127.0.0.1:8000",
+    },
+    { label: "an incomplete IPv4 address", envValue: "192.168.1", reportedValue: "192.168.1" },
+    {
+      label: "a quoted value padded with spaces",
+      envValue: '" 127.0.0.1 "',
+      reportedValue: " 127.0.0.1 ",
+    },
+  ])(
+    "reports $label as an invalid address instead of using the default",
+    ({ envValue, reportedValue }) => {
+      const envValues = parseEnvValues(`BIND_ADDRESS=0.0.0.0\nBIND_ADDRESS=${envValue}\n`)
+
+      expect(readEnvBindAddress(envValues, "local")).toEqual({
+        kind: "invalid",
+        message: `BIND_ADDRESS "${reportedValue}" is not an address Docker can publish on — use an IPv4 address such as 127.0.0.1 or 0.0.0.0, or an IPv6 address in brackets such as [::1].`,
       })
     },
   )

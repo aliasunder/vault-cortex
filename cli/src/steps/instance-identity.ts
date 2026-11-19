@@ -13,8 +13,10 @@ import {
   describeInvalidInstanceName,
   parseEnvValues,
   readEnvValue,
+  validatePublicUrl,
 } from "../rules/env-values.js"
-import type { InstanceIdentity } from "../rules/env-edits.js"
+import { describeInvalidEnvBindAddress, isValidBindAddress } from "../rules/bind-address.js"
+import { withPublicUrlOverride, type InstanceIdentity } from "../rules/env-edits.js"
 import { describeEnvFix, vaultCortexCommand } from "../rules/messages.js"
 import {
   DEFAULT_PORT,
@@ -46,11 +48,13 @@ type InstanceIdentityResult =
 /**
  * Identity lines an existing install keeps through a re-run of init. A local
  * PUBLIC_URL is the OAuth issuer and follows its port; a remote one is asked
- * again in the same run, so it is not carried.
+ * again in the same run, so it is not carried. BIND_ADDRESS is kept too,
+ * because a carried network PUBLIC_URL needs it and a reset could publish the
+ * server wider than the user chose.
  */
 const CARRIED_SETTINGS: Readonly<Record<Mode, ReadonlyArray<string>>> = {
-  local: ["INSTANCE_NAME", "PORT", "PUBLIC_URL"],
-  remote: ["INSTANCE_NAME", "PORT", "DEVICE_NAME"],
+  local: ["INSTANCE_NAME", "PORT", "BIND_ADDRESS", "PUBLIC_URL"],
+  remote: ["INSTANCE_NAME", "PORT", "BIND_ADDRESS", "DEVICE_NAME"],
 }
 
 const readCarriedIdentity = (envContent: string, mode: Mode): Record<string, string> => {
@@ -208,10 +212,10 @@ const chooseInUseNameAction = async (
 
 /**
  * Decides this install's name and port before init writes .env:
- * - a re-run over an existing .env keeps its name and port, plus a local
- *   PUBLIC_URL or a remote DEVICE_NAME (`carried`), and exits when the name
- *   or port is invalid (--port replaces the port) or --instance-name gives a
- *   different name;
+ * - a re-run over an existing .env keeps its name, port and BIND_ADDRESS, plus
+ *   a local PUBLIC_URL or a remote DEVICE_NAME (`carried`), and exits when the
+ *   name, port, BIND_ADDRESS or PUBLIC_URL is invalid (--port replaces the
+ *   port) or --instance-name gives a different name;
  * - --instance-name and --port set them directly;
  * - a new install whose name is already in use on the machine asks for its own
  *   name and port, or confirms reuse of the existing data for the same vault.
@@ -269,6 +273,34 @@ export const resolveInstanceIdentity = async (
 
     if (carriedPortError && !flags.port) {
       prompts.error(describeEnvFix({ problem: carriedPortError, targetDir }))
+      return { kind: "exit" }
+    }
+    // The same holds for a kept bind address, which no flag replaces. Without
+    // this check, start refuses it only after the overwrite has already
+    // replaced the old .env and its token.
+    const carriedBindAddressError =
+      carried.BIND_ADDRESS && !isValidBindAddress(carried.BIND_ADDRESS)
+        ? describeInvalidEnvBindAddress(carried.BIND_ADDRESS)
+        : undefined
+
+    if (carriedBindAddressError) {
+      prompts.error(describeEnvFix({ problem: carriedBindAddressError, targetDir }))
+      return { kind: "exit" }
+    }
+    // The same holds for a kept local PUBLIC_URL, because the server refuses
+    // to boot on a malformed one. --port replaces a localhost one, even
+    // http://localhost:80a beside PORT=80a, so that one is not checked.
+    const publicUrlFollowsFlagPort = Boolean(
+      withPublicUrlOverride({ overrides: flagOverrides, envContent: existingEnvContent })
+        .PUBLIC_URL,
+    )
+    const carriedPublicUrlValidation =
+      carried.PUBLIC_URL && !publicUrlFollowsFlagPort
+        ? validatePublicUrl(carried.PUBLIC_URL)
+        : undefined
+
+    if (carriedPublicUrlValidation?.kind === "error") {
+      prompts.error(describeEnvFix({ problem: carriedPublicUrlValidation.message, targetDir }))
       return { kind: "exit" }
     }
     // Renaming here would leave the old container running and could point

@@ -1,6 +1,7 @@
 import { pollHealth, probeHealth, type DockerRunner } from "../adapters/docker.js"
 import { envFile } from "../adapters/env-file.js"
 import type { Prompts } from "../adapters/prompts.js"
+import { hostHealthUrl } from "../rules/bind-address.js"
 import {
   buildContainerRemovalFailedMessage,
   healthPollTimeoutMs,
@@ -66,7 +67,7 @@ const start = async (
 ): Promise<StartStatus> => {
   const { deployment, instanceContainer, healthWaitLabel = DEFAULT_HEALTH_WAIT_LABEL } = params
   const { prompts, docker, fetchFn } = deps
-  const { mode, instanceName, envFilePath, port } = deployment
+  const { mode, instanceName, envFilePath, port, bindAddress } = deployment
 
   // `docker rm -f` on a missing container exits non-zero on engines < 23,
   // so the bare return value can't distinguish "nothing to remove" from a
@@ -87,6 +88,7 @@ const start = async (
     instanceName,
     envFilePath,
     port,
+    bindAddress,
     vaultPath: deployment.vaultPath,
   })
 
@@ -98,7 +100,10 @@ const start = async (
   const spinner = prompts.spinner()
   spinner.start(healthWaitLabel)
   const timeoutMs = healthPollTimeoutMs(mode)
-  const healthy = await pollHealth({ url: `http://127.0.0.1:${port}/healthz`, timeoutMs }, fetchFn)
+  const healthy = await pollHealth(
+    { url: hostHealthUrl({ bindAddress, port }), timeoutMs },
+    fetchFn,
+  )
 
   if (!healthy) {
     spinner.stop(healthTimeoutMessage({ mode, timeoutMs, instanceName }))
@@ -107,8 +112,9 @@ const start = async (
   spinner.stop("Server is up — health check passed.")
 
   // Informational only — the container is confirmed healthy above, so the
-  // public-URL result never changes the outcome. A local PUBLIC_URL is the
-  // localhost address the health check just reached, so only remote probes it.
+  // public-URL result never changes the outcome. A local PUBLIC_URL names
+  // this machine, where the health check just reached the server, so only
+  // remote probes it.
   if (mode === "remote") await reportPublicUrlProbe(deployment.publicUrl, { prompts, fetchFn })
   return "running"
 }

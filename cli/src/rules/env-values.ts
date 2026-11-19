@@ -1,4 +1,9 @@
 import type { Mode } from "../adapters/docker.js"
+import {
+  DEFAULT_BIND_ADDRESSES,
+  describeInvalidEnvBindAddress,
+  isValidBindAddress,
+} from "./bind-address.js"
 import { DEFAULT_PORT, describeInvalidEnvPort, isValidPort } from "./ports.js"
 
 /**
@@ -71,6 +76,26 @@ export const readEnvPort = (envValues: EnvValues): PortRead => {
     return { kind: "invalid", message: describeInvalidEnvPort(portValue) }
   }
   return { kind: "ok", port: Number(portValue) }
+}
+
+export type BindAddressRead =
+  { kind: "ok"; bindAddress: string } | { kind: "invalid"; message: string }
+
+/**
+ * Reads the host address to publish the port on:
+ * - a missing line or empty value means the mode's default, which is empty
+ *   (no address) for a remote install;
+ * - any other value that is not an address is reported, never corrected,
+ *   because a guess could publish the server wider than the user meant.
+ */
+export const readEnvBindAddress = (envValues: EnvValues, mode: Mode): BindAddressRead => {
+  const bindAddress = readEnvValue(envValues, "BIND_ADDRESS")
+
+  if (!bindAddress) return { kind: "ok", bindAddress: DEFAULT_BIND_ADDRESSES[mode] }
+  if (!isValidBindAddress(bindAddress)) {
+    return { kind: "invalid", message: describeInvalidEnvBindAddress(bindAddress) }
+  }
+  return { kind: "ok", bindAddress }
 }
 
 /** Returns why a candidate instance name is invalid, or undefined when it is valid. */

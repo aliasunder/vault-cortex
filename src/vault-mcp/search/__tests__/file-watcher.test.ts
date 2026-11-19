@@ -66,6 +66,9 @@ let index: SearchIndex
 
 type WatcherOptions = NonNullable<Parameters<typeof watchVaultAndBuildIndex>[0]["watcherOptions"]>
 
+/** Obsidian's default daily-note format; no link in these tests is a bare date. */
+const DEFAULT_DAILY_NOTES_FORMAT = "YYYY-MM-DD"
+
 /** Starts the watcher with the startup rebuild stubbed to find nothing, so the
  *  only indexing a test sees comes from the watcher's own events and rescans,
  *  including for files the test wrote before starting it. */
@@ -627,7 +630,12 @@ describe("file-watcher — file content indexing", () => {
       await waitFor(() => upsertSpy.mock.calls.length > 0)
 
       // Plan.md is never written, so the card is a link to a missing note
-      expect(fileIndex.getOutgoingLinks({ path: "Board.Canvas" }, logger)).toEqual([
+      expect(
+        fileIndex.getOutgoingLinks(
+          { path: "Board.Canvas", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
+          logger,
+        ),
+      ).toEqual([
         {
           path: "Plan.md",
           title: null,
@@ -641,7 +649,12 @@ describe("file-watcher — file content indexing", () => {
       await unlink(join(vault, "Board.Canvas"))
       await waitFor(() => removeSpy.mock.calls.length > 0)
 
-      expect(fileIndex.getOutgoingLinks({ path: "Board.Canvas" }, logger)).toEqual([])
+      expect(
+        fileIndex.getOutgoingLinks(
+          { path: "Board.Canvas", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
+          logger,
+        ),
+      ).toEqual([])
     },
   )
 
@@ -852,6 +865,46 @@ describe("file watcher — obsolete events and embedding queues", () => {
     expect(database.prepare("SELECT path FROM file_content").all()).toEqual([])
     expect(errorSpy).toHaveBeenCalledTimes(1)
   })
+
+  it.each([
+    { label: "an attachment", fileName: "B.png", fileContent: "png", linkLine: "![[B.png]]" },
+    {
+      label: "a canvas",
+      fileName: "Board.canvas",
+      fileContent: JSON.stringify({ nodes: [], edges: [] }),
+      linkLine: "[[Board]]",
+    },
+  ])(
+    "moves a link off $label it removes to the remaining file with that name",
+    async ({ fileName, fileContent, linkLine }) => {
+      const { testVault, search, fire } = await createControlledWatcher()
+      // The link resolves to the shorter path while both files exist.
+      const shorterPath = `a/${fileName}`
+      const longerPath = `zzzz-long/${fileName}`
+      await mkdir(join(testVault, "a"))
+      await mkdir(join(testVault, "zzzz-long"))
+      await writeFile(join(testVault, shorterPath), fileContent)
+      await writeFile(join(testVault, longerPath), fileContent)
+      await writeFile(join(testVault, "source.md"), `# Source\n\n${linkLine}\n`)
+      for (const filePath of [shorterPath, longerPath, "source.md"]) {
+        await fire("add", filePath)
+      }
+      const linkFromSource = () => {
+        const outgoingLinks = search.getOutgoingLinks(
+          { path: "source.md", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
+          logger,
+        )
+        return outgoingLinks.map((link) => ({ path: link.path, exists: link.exists }))
+      }
+      const linkBeforeRemoval = linkFromSource()
+
+      await unlink(join(testVault, shorterPath))
+      await fire("unlink", shorterPath)
+
+      expect(linkBeforeRemoval).toEqual([{ path: shorterPath, exists: true }])
+      expect(linkFromSource()).toEqual([{ path: longerPath, exists: true }])
+    },
+  )
 
   it("reports both independent unlink failures and recovers on a later event", async () => {
     const { testVault, search, database, fire } = await createControlledWatcher()
@@ -2486,7 +2539,7 @@ describe("watchVaultAndBuildIndex — changes during startup", HELD_BATCH_TIMEOU
     expect(notePaths()).toEqual([])
   })
 
-  it("removes a renamed note before reading its new path, so incoming links follow", async () => {
+  it("points incoming links at a renamed note whose add and deletion were held", async () => {
     const { testVault, search, fire, startup, finishRebuild } = await createControlledStartup({
       seedNotes: { "B.md": "old home\n", "source.md": "points at [[B]]\n" },
     })
@@ -2494,7 +2547,10 @@ describe("watchVaultAndBuildIndex — changes during startup", HELD_BATCH_TIMEOU
     await writeFile(join(testVault, "folder", "B.md"), "new home\n")
     await writeFile(join(testVault, "source.md"), "points at [[B]]\n")
     const linkFromSource = () => {
-      const outgoingLinks = search.getOutgoingLinks({ path: "source.md" }, logger)
+      const outgoingLinks = search.getOutgoingLinks(
+        { path: "source.md", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
+        logger,
+      )
       return outgoingLinks.map((link) => ({ path: link.path, exists: link.exists }))
     }
     expect(linkFromSource()).toEqual([{ path: "B.md", exists: true }])
@@ -2507,7 +2563,7 @@ describe("watchVaultAndBuildIndex — changes during startup", HELD_BATCH_TIMEOU
     expect(linkFromSource()).toEqual([{ path: "folder/B.md", exists: true }])
   })
 
-  it("removes a renamed note's old path before reading its new one when the old path's latest held event is a change", async () => {
+  it("removes a renamed note's old path whose latest held event is a change, so incoming links follow", async () => {
     const { testVault, search, fire, startup, finishRebuild } = await createControlledStartup({
       seedNotes: { "B.md": "old home\n", "source.md": "points at [[B]]\n" },
     })
@@ -2515,7 +2571,10 @@ describe("watchVaultAndBuildIndex — changes during startup", HELD_BATCH_TIMEOU
     await writeFile(join(testVault, "folder", "B.md"), "new home\n")
     await writeFile(join(testVault, "source.md"), "points at [[B]]\n")
     const linkFromSource = () => {
-      const outgoingLinks = search.getOutgoingLinks({ path: "source.md" }, logger)
+      const outgoingLinks = search.getOutgoingLinks(
+        { path: "source.md", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
+        logger,
+      )
       return outgoingLinks.map((link) => ({ path: link.path, exists: link.exists }))
     }
     expect(linkFromSource()).toEqual([{ path: "B.md", exists: true }])
@@ -2545,7 +2604,10 @@ describe("watchVaultAndBuildIndex — changes during startup", HELD_BATCH_TIMEOU
       await writeFile(join(testVault, "source.md"), "points at [[B]]\n")
       const listingGate = await gateRootListing(testVault)
       const linkFromSource = () => {
-        const outgoingLinks = search.getOutgoingLinks({ path: "source.md" }, logger)
+        const outgoingLinks = search.getOutgoingLinks(
+          { path: "source.md", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
+          logger,
+        )
         return outgoingLinks.map((link) => ({ path: link.path, exists: link.exists }))
       }
       expect(linkFromSource()).toEqual([{ path: "B.md", exists: true }])

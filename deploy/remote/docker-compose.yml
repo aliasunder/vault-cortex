@@ -90,7 +90,10 @@ services:
       - mcp_data:/data
       - obsidian_config:/home/obsidian/.config
     ports:
-      - "0.0.0.0:${PORT:-8000}:8000"
+      # Published on every address, IPv4 and IPv6, while BIND_ADDRESS is empty.
+      # Set BIND_ADDRESS=127.0.0.1 in .env once a tunnel or reverse proxy on
+      # this machine fronts the server.
+      - "${BIND_ADDRESS:+${BIND_ADDRESS}:}${PORT:-8000}:8000"
     # start_period covers the s6 init chain (Obsidian login + sync-setup +
     # first vault sync, run to completion when it succeeds) that runs before
     # the MCP server boots.

@@ -30,6 +30,11 @@ type ServerHandle = {
   cleanup: () => Promise<void>
 }
 
+/** An override set to undefined leaves that variable out of the child's
+ *  environment (spawn skips undefined values), so a test can boot the server
+ *  with a setting unset. */
+type ServerEnvOverrides = Record<string, string | undefined>
+
 type SpawnedServer = {
   child: ChildProcess
   vaultPath: string
@@ -81,14 +86,16 @@ const buildServerEnv = (
   port: number,
   vaultPath: string,
   dataDir: string,
-  overrides: Record<string, string>,
-): Record<string, string> => ({
+  overrides: ServerEnvOverrides,
+): ServerEnvOverrides => ({
   VAULT_PATH: vaultPath,
   MCP_AUTH_TOKEN: AUTH_TOKEN,
   PUBLIC_URL: `http://127.0.0.1:${port}`,
   INDEX_DB_PATH: join(dataDir, "search.db"),
   EMBEDDING_ENABLED: "false",
   PORT: String(port),
+  // Pinned rather than left to the server's default, so test servers stay on
+  // loopback even if that default changes.
   HOST: "127.0.0.1",
   PATH: process.env.PATH ?? "",
   HOME: process.env.HOME ?? "",
@@ -99,7 +106,7 @@ const buildServerEnv = (
 /** Copy the fixture vault to a tempdir and spawn the server process. */
 const spawnServerProcess = async (
   port: number,
-  envOverrides: Record<string, string>,
+  envOverrides: ServerEnvOverrides,
 ): Promise<SpawnedServer> => {
   const vaultPath = await mkdtemp(join(tmpdir(), "vc-integ-vault-"))
   await cp(FIXTURE_VAULT, vaultPath, { recursive: true })
@@ -216,7 +223,7 @@ const pollHealthz = async (port: number, timeoutMs: number): Promise<void> => {
 /** Boot the real server against a copy of the fixture vault. */
 export const startServer = async (
   port: number,
-  envOverrides: Record<string, string> = {},
+  envOverrides: ServerEnvOverrides = {},
 ): Promise<ServerHandle> => {
   const { child, vaultPath, dataDir, stdout, stderr, started } = await spawnServerProcess(
     port,
@@ -278,7 +285,7 @@ export const startServer = async (
  *  sent to one still running after 10 s. */
 export const startServerExpectingFailure = async (
   port: number,
-  envOverrides: Record<string, string> = {},
+  envOverrides: ServerEnvOverrides = {},
 ): Promise<{ exitCode: number | null; stderr: string }> => {
   const { child, vaultPath, dataDir, stderr } = await spawnServerProcess(port, envOverrides)
 

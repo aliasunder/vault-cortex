@@ -135,7 +135,7 @@ mechanism-level detail.
 ### Injection
 
 - **SQL:** all queries use parameterized statements.
-  `sanitizeFtsQuery()` strips FTS5 metacharacters and reserved words.
+  `sanitizeFtsQuery()` strips FTS5 metacharacters and the uppercase reserved words.
   `escapeLikeWildcards()` escapes `\`, `%`, `_` in LIKE clauses
 - **Prompt (tag breakout):** `escapeVaultContentClosingTag()` prevents
   vault content from breaking out of the `<vault-content>` data boundary
@@ -269,6 +269,12 @@ The server, and the `:remote` image's setup mode, set these headers:
   layer-cache bust in CI keeps patches current between base image rebuilds
 - Graceful shutdown: SIGTERM handler drains in-flight requests (10s
   timeout) before exiting
+- Loopback by default: the local installs (the CLI, the local Compose file
+  and the MCP Registry entry) publish the server's port on the host's
+  loopback address only, and the server listens on 127.0.0.1 when `HOST` is
+  unset. For the local CLI and Compose installs, the `BIND_ADDRESS` setting
+  in `.env` chooses the published address and defaults to 127.0.0.1; remote
+  installs leave it empty by default and publish on every address
 
 ### Setup mode (remote image)
 

@@ -1,5 +1,41 @@
 # Changelog
 
+## [0.57.6] — 2026-11-15
+
+### Bug Fixes
+
+- **links:** Re-resolve links when a file is added or removed (#776)
+- **canvas:** Index links typed in Canvas text cards and store file cards by exact path (#775)
+- **links:** Count a bare daily-note date link as a forward reference (#774)
+- **links:** Resolve links that differ from their file only in letter case (#772)
+- **search:** Keep lowercase and, or, not and near as search terms (#762)
+- **server:** Listen on loopback by default and publish local installs on this machine only (#770)
+
+### Maintenance
+
+- **deps:** Bump express-rate-limit from 8.7.3 to 8.7.4 in the production group across 1 directory (#791)
+
+## [0.57.5] — 2026-11-13
+
+### Maintenance
+
+- **deps:** Bump hono from 4.13.13 to 4.13.18 (#790)
+
+### Other Changes
+
+- Print server log lines only for failing tests (#788)
+- **parsers:** Check linear growth instead of fixed wall-clock ceilings in the timing tests (#787)
+
+## [0.57.4] — 2026-11-13
+
+### Bug Fixes
+
+- **tasks:** Refuse a task update whose expected description differs (#777)
+
+### Maintenance
+
+- **deps:** Bump @hono/node-server from 2.1.5 to 2.1.8 (#789)
+
 ## [0.57.3] — 2026-11-12
 
 ### Bug Fixes

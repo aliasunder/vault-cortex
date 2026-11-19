@@ -6,9 +6,21 @@ import { describe, expect, it } from "vitest"
 import { parseHeadings, type HeadingInfo } from "../headings.js"
 import * as lineParsers from "../lines.js"
 import { tasks } from "../tasks.js"
+import {
+  CHILD_DEADLINE_MS,
+  CHILD_TEST_TIMEOUT_MS,
+  LINEAR_GROWTH_ALLOWANCE,
+} from "./helpers/linear-timing.js"
 
-/** Allows scheduling noise across the full input range. */
-const LINEAR_GROWTH_ALLOWANCE = 2
+/**
+ * Below this many milliseconds a median is mostly scheduling noise, so it sets
+ * no tighter growth bound. It is lower than the 25 ms in tasks-linear and
+ * tasks-clear-linear, because a 25 ms floor would let a quadratic slowdown pass:
+ * - The traversal fixture's smallest median sits near 10 ms on a fast laptop.
+ * - A 25 ms floor would set the bound at 200 ms, above a quadratic slowdown's
+ *   165 ms.
+ */
+const TIMING_FLOOR_MS = 10
 
 type HeadingParser = (lines: readonly string[]) => HeadingInfo[]
 
@@ -112,7 +124,7 @@ describe("heading traversal compatibility", () => {
         })
       }
     }
-  })
+  }, 30_000)
 
   it.each([
     { newline: "\n", label: "LF" },
@@ -171,17 +183,19 @@ describe("heading traversal compatibility", () => {
     ])
   })
 
-  it("bounds closing-hash and complete heading-task traversal adversaries in a child", () => {
-    const headingsUrl = new URL("../headings.ts", import.meta.url).href
-    const tasksUrl = new URL("../tasks.ts", import.meta.url).href
-    const output = execFileSync(
-      process.execPath,
-      [
-        "--import",
-        "tsx",
-        "--input-type=module",
-        "--eval",
-        `
+  it(
+    "bounds closing-hash and complete heading-task traversal adversaries in a child",
+    () => {
+      const headingsUrl = new URL("../headings.ts", import.meta.url).href
+      const tasksUrl = new URL("../tasks.ts", import.meta.url).href
+      const output = execFileSync(
+        process.execPath,
+        [
+          "--import",
+          "tsx",
+          "--input-type=module",
+          "--eval",
+          `
       import assert from 'node:assert/strict';
       import { parseHeadings } from ${JSON.stringify(headingsUrl)};
       import { tasks } from ${JSON.stringify(tasksUrl)};
@@ -201,19 +215,31 @@ describe("heading traversal compatibility", () => {
           const samples=Array.from({length:5},()=>{const start=performance.now();check();return performance.now()-start}).toSorted((a,b)=>a-b);
           medians.push(samples[2]);
         }
-        assert.ok(medians.every(value=>value<1000),variant+' exceeded ceiling '+medians);
-        assert.ok(medians.at(-1)<=Math.max(10,medians[0])*(sizes.at(-1)/sizes[0])*${LINEAR_GROWTH_ALLOWANCE},variant+' scaled superlinearly '+medians);
+        assert.ok(medians.at(-1)<=Math.max(${TIMING_FLOOR_MS},medians[0])*(sizes.at(-1)/sizes[0])*${LINEAR_GROWTH_ALLOWANCE},variant+' scaled superlinearly '+medians);
         measurements.push({variant,sizes,medians});
       }
       process.stdout.write(JSON.stringify(measurements));
     `,
-      ],
-      { encoding: "utf8", timeout: 30_000, killSignal: "SIGKILL" },
-    )
+        ],
+        { encoding: "utf8", timeout: CHILD_DEADLINE_MS, killSignal: "SIGKILL" },
+      )
 
-    expect(
-      JSON.parse(output).map((measurement: { variant: string }) => measurement.variant),
-    ).toEqual(["closing", "traversal"])
-    process.stdout.write(`Heading parser timings ${output}\n`)
-  }, 35_000)
+      const measurements: unknown = JSON.parse(output)
+
+      expect(measurements).toEqual([
+        {
+          variant: "closing",
+          sizes: [25_000, 50_000, 100_000],
+          medians: [expect.any(Number), expect.any(Number), expect.any(Number)],
+        },
+        {
+          variant: "traversal",
+          sizes: [16_000, 32_000, 64_000],
+          medians: [expect.any(Number), expect.any(Number), expect.any(Number)],
+        },
+      ])
+      process.stdout.write(`Heading parser timings ${output}\n`)
+    },
+    CHILD_TEST_TIMEOUT_MS,
+  )
 })

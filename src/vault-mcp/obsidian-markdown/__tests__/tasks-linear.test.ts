@@ -6,9 +6,12 @@ import ts from "typescript"
 import { describe, expect, it } from "vitest"
 import { tasks } from "../tasks.js"
 import { createScannerDocuments } from "./helpers/link-scanner-corpus.js"
+import {
+  CHILD_DEADLINE_MS,
+  CHILD_TEST_TIMEOUT_MS,
+  LINEAR_GROWTH_ALLOWANCE,
+} from "./helpers/linear-timing.js"
 
-/** Allows scheduling noise across the full input range. */
-const LINEAR_GROWTH_ALLOWANCE = 2
 /** Below this many milliseconds a median is mostly scheduling noise, so it sets no tighter growth bound. */
 const TIMING_FLOOR_MS = 25
 
@@ -192,18 +195,20 @@ describe("task recognizer compatibility", () => {
       })
     }
     expect(grammar.trailingTags("#a\t#b #a")).toEqual(["#a", "#b", "#a"])
-  })
+  }, 30_000)
 
-  it("bounds deduplication with tens of thousands of trailing description tags", () => {
-    const parserUrl = new URL("../tasks.ts", import.meta.url).href
-    const output = execFileSync(
-      process.execPath,
-      [
-        "--import",
-        "tsx",
-        "--input-type=module",
-        "--eval",
-        `
+  it(
+    "bounds deduplication with tens of thousands of trailing description tags",
+    () => {
+      const parserUrl = new URL("../tasks.ts", import.meta.url).href
+      const output = execFileSync(
+        process.execPath,
+        [
+          "--import",
+          "tsx",
+          "--input-type=module",
+          "--eval",
+          `
       import assert from 'node:assert/strict';
       import { tasks } from ${JSON.stringify(parserUrl)};
       const sizes=[20000,40000,80000];
@@ -215,20 +220,21 @@ describe("task recognizer compatibility", () => {
         const samples=Array.from({length:5},()=>{const start=performance.now();check();return performance.now()-start;}).toSorted((a,b)=>a-b);
         medians.push(samples[2]);
       }
-      assert.ok(medians.every(value=>value<500),'trailing tag deduplication exceeded ceiling '+medians);
       assert.ok(medians.at(-1)<=Math.max(${TIMING_FLOOR_MS},medians[0])*(sizes.at(-1)/sizes[0])*${LINEAR_GROWTH_ALLOWANCE},'trailing tag deduplication scaled superlinearly '+medians);
       process.stdout.write(JSON.stringify({sizes,medians}));
     `,
-      ],
-      { encoding: "utf8", timeout: 10_000, killSignal: "SIGKILL" },
-    )
+        ],
+        { encoding: "utf8", timeout: CHILD_DEADLINE_MS, killSignal: "SIGKILL" },
+      )
 
-    expect(JSON.parse(output)).toEqual({
-      sizes: [20000, 40000, 80000],
-      medians: [expect.any(Number), expect.any(Number), expect.any(Number)],
-    })
-    process.stdout.write(`Trailing tag deduplication timings ${output}\n`)
-  }, 15_000)
+      expect(JSON.parse(output)).toEqual({
+        sizes: [20000, 40000, 80000],
+        medians: [expect.any(Number), expect.any(Number), expect.any(Number)],
+      })
+      process.stdout.write(`Trailing tag deduplication timings ${output}\n`)
+    },
+    CHILD_TEST_TIMEOUT_MS,
+  )
 
   it("preserves metadata boundaries over fixed-seed bodies and every literal task fixture", () => {
     const grammar = readGrammar()
@@ -390,23 +396,27 @@ describe("task recognizer compatibility", () => {
     expect(grammar.metadataStart("#📅2026-01-02 (repeat:: every day)")).toBe(1)
   })
 
-  it("bounds task edits whose hashtags each pack hundreds of signifiers", () => {
-    const parserUrl = new URL("../tasks.ts", import.meta.url).href
-    const output = execFileSync(
-      process.execPath,
-      [
-        "--import",
-        "tsx",
-        "--input-type=module",
-        "--eval",
-        `
+  it(
+    "bounds task edits whose hashtags each pack hundreds of signifiers",
+    () => {
+      const parserUrl = new URL("../tasks.ts", import.meta.url).href
+      const output = execFileSync(
+        process.execPath,
+        [
+          "--import",
+          "tsx",
+          "--input-type=module",
+          "--eval",
+          `
         import assert from 'node:assert/strict';
         import { tasks } from ${JSON.stringify(parserUrl)};
         const config = {taskFormat:'emoji',setDoneDate:true,setCancelledDate:true};
         const sizes = [120,240,480];
+        const lineLengths = [];
         const medians = [];
         for (const size of sizes) {
           const taskLine = '- [ ] ' + Array.from({length:size},()=> '#'+ '📅'.repeat(size+2)).join(' ');
+          lineLengths.push(taskLine.length);
           const check = () => {
             assert.equal(tasks.updateTaskLineTaskId({taskLine,taskId:'probe',config}),taskLine+' 🆔 probe');
             assert.deepEqual(tasks.diffTaskRoundTrip({taskLine,priorTaskLine:taskLine,submitted:{}}),[]);
@@ -415,30 +425,36 @@ describe("task recognizer compatibility", () => {
           const samples = Array.from({length:3},()=>{const start=performance.now();check();return performance.now()-start;}).toSorted((a,b)=>a-b);
           medians.push(samples[1]);
         }
-        assert.ok(medians.every(value=>value<1000),'packed hashtag edits exceeded ceiling '+medians);
+        // Size sets both the hashtag count and each hashtag's length, so the line grows with
+        // the square of size and the growth bound follows the line's length instead.
+        assert.ok(medians.at(-1)<=Math.max(${TIMING_FLOOR_MS},medians[0])*(lineLengths.at(-1)/lineLengths[0])*${LINEAR_GROWTH_ALLOWANCE},'packed hashtag edits scaled superlinearly '+medians);
         process.stdout.write(JSON.stringify({sizes,medians}));
         `,
-      ],
-      { encoding: "utf8", timeout: 10_000, killSignal: "SIGKILL" },
-    )
+        ],
+        { encoding: "utf8", timeout: CHILD_DEADLINE_MS, killSignal: "SIGKILL" },
+      )
 
-    expect(JSON.parse(output)).toEqual({
-      sizes: [120, 240, 480],
-      medians: [expect.any(Number), expect.any(Number), expect.any(Number)],
-    })
-    process.stdout.write(`Packed hashtag edit timings ${output}\n`)
-  }, 15_000)
+      expect(JSON.parse(output)).toEqual({
+        sizes: [120, 240, 480],
+        medians: [expect.any(Number), expect.any(Number), expect.any(Number)],
+      })
+      process.stdout.write(`Packed hashtag edit timings ${output}\n`)
+    },
+    CHILD_TEST_TIMEOUT_MS,
+  )
 
-  it("bounds signifier-dense task edits and their growth in a child process", () => {
-    const parserUrl = new URL("../tasks.ts", import.meta.url).href
-    const output = execFileSync(
-      process.execPath,
-      [
-        "--import",
-        "tsx",
-        "--input-type=module",
-        "--eval",
-        `
+  it(
+    "bounds signifier-dense task edits and their growth in a child process",
+    () => {
+      const parserUrl = new URL("../tasks.ts", import.meta.url).href
+      const output = execFileSync(
+        process.execPath,
+        [
+          "--import",
+          "tsx",
+          "--input-type=module",
+          "--eval",
+          `
         import assert from 'node:assert/strict';
         import { tasks } from ${JSON.stringify(parserUrl)};
         const config = {taskFormat:'emoji',setDoneDate:true,setCancelledDate:true};
@@ -455,21 +471,22 @@ describe("task recognizer compatibility", () => {
           const samples = Array.from({length:5}, () => {const start=performance.now();check();return performance.now()-start;}).toSorted((first,second)=>first-second);
           medians.push(samples[2]);
         }
-        assert.ok(medians.every(value => value < 250), 'dense edits exceeded 250ms ' + medians);
         assert.ok(medians.at(-1) <= Math.max(${TIMING_FLOOR_MS},medians[0])*(sizes.at(-1)/sizes[0])*${LINEAR_GROWTH_ALLOWANCE}, 'dense edits scaled superlinearly ' + medians);
         process.stdout.write(JSON.stringify({sizes,medians}));
       `,
-      ],
-      { encoding: "utf8", timeout: 10_000, killSignal: "SIGKILL" },
-    )
-    const measurements: unknown = JSON.parse(output)
+        ],
+        { encoding: "utf8", timeout: CHILD_DEADLINE_MS, killSignal: "SIGKILL" },
+      )
+      const measurements: unknown = JSON.parse(output)
 
-    expect(measurements).toEqual({
-      sizes: [1000, 2000, 4000, 5000],
-      medians: [expect.any(Number), expect.any(Number), expect.any(Number), expect.any(Number)],
-    })
-    process.stdout.write(`Task metadata edit timings ${output}\n`)
-  }, 15_000)
+      expect(measurements).toEqual({
+        sizes: [1000, 2000, 4000, 5000],
+        medians: [expect.any(Number), expect.any(Number), expect.any(Number), expect.any(Number)],
+      })
+      process.stdout.write(`Task metadata edit timings ${output}\n`)
+    },
+    CHILD_TEST_TIMEOUT_MS,
+  )
 
   it("preserves Dataview field spans and consumed captures over fixed-seed variants", () => {
     const grammar = readGrammar()
@@ -523,7 +540,7 @@ describe("task recognizer compatibility", () => {
         })
       }
     }
-  })
+  }, 30_000)
 
   it("preserves emoji recurrence spans and consumed captures over fixed-seed variants", () => {
     const grammar = readGrammar()
@@ -543,7 +560,7 @@ describe("task recognizer compatibility", () => {
         match: consumedMatch(oldEmoji.exec(input)),
       })
     }
-  })
+  }, 30_000)
 
   it("compares real Dataview dependency fields with the frozen suffix grammar", () => {
     const grammar = readGrammar()
@@ -629,16 +646,18 @@ describe("task recognizer compatibility", () => {
     ).toEqual([])
   })
 
-  it("bounds task, recurrence and Dataview adversaries in a child process", () => {
-    const parserUrl = new URL("../tasks.ts", import.meta.url).href
-    const output = execFileSync(
-      process.execPath,
-      [
-        "--import",
-        "tsx",
-        "--input-type=module",
-        "--eval",
-        `
+  it(
+    "bounds task, recurrence and Dataview adversaries in a child process",
+    () => {
+      const parserUrl = new URL("../tasks.ts", import.meta.url).href
+      const output = execFileSync(
+        process.execPath,
+        [
+          "--import",
+          "tsx",
+          "--input-type=module",
+          "--eval",
+          `
       import assert from 'node:assert/strict';
       import { tasks } from ${JSON.stringify(parserUrl)};
       const fixtures = [
@@ -663,44 +682,45 @@ describe("task recognizer compatibility", () => {
           const samples = Array.from({length:5}, () => { const start=performance.now(); check(); return performance.now()-start; }).toSorted((first,second)=>first-second);
           medians.push(samples[2]);
         }
-        assert.ok(medians.every(value => value < 250), fixture.name + ' exceeded 250ms ' + medians);
         assert.ok(medians.at(-1) <= Math.max(${TIMING_FLOOR_MS},medians[0])*(fixture.sizes.at(-1)/fixture.sizes[0])*${LINEAR_GROWTH_ALLOWANCE}, fixture.name + ' scaled superlinearly ' + medians);
         measurements.push({name:fixture.name,sizes:fixture.sizes,medians});
       }
       process.stdout.write(JSON.stringify(measurements));
     `,
-      ],
-      { encoding: "utf8", timeout: 30_000, killSignal: "SIGKILL" },
-    )
-    const measurements: unknown = JSON.parse(output)
+        ],
+        { encoding: "utf8", timeout: CHILD_DEADLINE_MS, killSignal: "SIGKILL" },
+      )
+      const measurements: unknown = JSON.parse(output)
 
-    expect(measurements).toEqual([
-      {
-        name: "task-u2028",
-        sizes: [10_000, 20_000, 40_000],
-        medians: [expect.any(Number), expect.any(Number), expect.any(Number)],
-      },
-      {
-        name: "task-u2029",
-        sizes: [10_000, 20_000, 40_000],
-        medians: [expect.any(Number), expect.any(Number), expect.any(Number)],
-      },
-      {
-        name: "emoji-recurrence",
-        sizes: [20_000, 40_000, 80_000],
-        medians: [expect.any(Number), expect.any(Number), expect.any(Number)],
-      },
-      {
-        name: "dataview-recurrence",
-        sizes: [1_000, 2_000, 4_000],
-        medians: [expect.any(Number), expect.any(Number), expect.any(Number)],
-      },
-      {
-        name: "dataview-lookahead",
-        sizes: [25_000, 50_000, 100_000],
-        medians: [expect.any(Number), expect.any(Number), expect.any(Number)],
-      },
-    ])
-    process.stdout.write(`Task parser timings ${output}\n`)
-  }, 35_000)
+      expect(measurements).toEqual([
+        {
+          name: "task-u2028",
+          sizes: [10_000, 20_000, 40_000],
+          medians: [expect.any(Number), expect.any(Number), expect.any(Number)],
+        },
+        {
+          name: "task-u2029",
+          sizes: [10_000, 20_000, 40_000],
+          medians: [expect.any(Number), expect.any(Number), expect.any(Number)],
+        },
+        {
+          name: "emoji-recurrence",
+          sizes: [20_000, 40_000, 80_000],
+          medians: [expect.any(Number), expect.any(Number), expect.any(Number)],
+        },
+        {
+          name: "dataview-recurrence",
+          sizes: [1_000, 2_000, 4_000],
+          medians: [expect.any(Number), expect.any(Number), expect.any(Number)],
+        },
+        {
+          name: "dataview-lookahead",
+          sizes: [25_000, 50_000, 100_000],
+          medians: [expect.any(Number), expect.any(Number), expect.any(Number)],
+        },
+      ])
+      process.stdout.write(`Task parser timings ${output}\n`)
+    },
+    CHILD_TEST_TIMEOUT_MS,
+  )
 })

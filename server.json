@@ -3,7 +3,7 @@
   "name": "io.github.aliasunder/vault-cortex",
   "title": "Vault Cortex",
   "description": "Standalone MCP server for Obsidian vaults — hybrid search, notes & files, memory, tasks, OAuth 2.1",
-  "version": "0.57.3",
+  "version": "0.57.6",
   "websiteUrl": "https://github.com/aliasunder/vault-cortex",
   "repository": {
     "url": "https://github.com/aliasunder/vault-cortex",
@@ -13,14 +13,14 @@
   "packages": [
     {
       "registryType": "oci",
-      "identifier": "ghcr.io/aliasunder/vault-cortex:0.57.3",
+      "identifier": "ghcr.io/aliasunder/vault-cortex:0.57.6",
       "runtimeHint": "docker",
       "runtimeArguments": [
         {
           "type": "named",
           "name": "-p",
-          "description": "Publish the container's port 8000 on the host.",
-          "value": "8000:8000"
+          "description": "Publish the container's port 8000 on the host's loopback address, so only this machine can reach it. Use 8000:8000 to reach it from other machines.",
+          "value": "127.0.0.1:8000:8000"
         },
         {
           "type": "named",

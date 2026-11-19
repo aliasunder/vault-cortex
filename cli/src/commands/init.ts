@@ -395,8 +395,8 @@ const runLocalInit = async (flags: InitFlags, deps: InitDeps): Promise<number> =
   }
 
   // When an existing .env was kept, this run's generated token was never
-  // saved — the connect message must point at the token (and PORT) actually
-  // on disk, or a pasted token fails auth with no hint why.
+  // saved — the connect message must point at the token (and PUBLIC_URL)
+  // actually on disk, or a pasted token fails auth with no hint why.
   const tokenWritten = isEnvWritten(writeStatus)
 
   if (tokenWritten) prompts.log("Generated MCP auth token (saved to .env).")
@@ -407,7 +407,7 @@ const runLocalInit = async (flags: InitFlags, deps: InitDeps): Promise<number> =
   const deployment = resolveDeployment(targetDir, prompts)
 
   if (!deployment) return 1
-  const { instanceName, port } = deployment
+  const { instanceName, publicUrl } = deployment
 
   // --yes is for scripts/CI, so it never starts Docker.
   const startStatus: StartStatus = flags.yes
@@ -419,7 +419,7 @@ const runLocalInit = async (flags: InitFlags, deps: InitDeps): Promise<number> =
       instanceName,
       token,
       startStatus,
-      port,
+      publicUrl,
       tokenWritten,
     }),
   )

@@ -4,13 +4,16 @@ import { isVaultCortexImage, type DockerRunner, type Mode } from "../adapters/do
 import { envFile } from "../adapters/env-file.js"
 import type { Prompts } from "../adapters/prompts.js"
 import { expandTilde } from "../adapters/vault.js"
+import { describeStrandedLoopbackPublicUrl } from "../rules/bind-address.js"
 import {
   detectMode,
   parseEnvValues,
+  readEnvBindAddress,
   readEnvInstanceName,
   readEnvPort,
   readEnvPublicUrl,
   readEnvVaultPath,
+  validatePublicUrl,
   type EnvValues,
 } from "../rules/env-values.js"
 import {
@@ -27,6 +30,8 @@ export type Deployment = {
   targetDir: string
   envFilePath: string
   port: number
+  /** The host address Docker publishes the port on; empty publishes on every address. */
+  bindAddress: string
   /** Present only in local mode. */
   vaultPath?: string
   /** PUBLIC_URL without trailing slashes, so a path appends to it directly. */
@@ -100,8 +105,10 @@ const missingPublicUrlFix = (mode: Mode, port: number): string => {
 
 /**
  * Resolves --dir to the on-disk deployment and validates its .env for a
- * container start: mode detection, PORT, VAULT_PATH (local), and PUBLIC_URL.
- * Reports each failure via prompts.error and returns undefined.
+ * container start: mode detection, PORT, BIND_ADDRESS, VAULT_PATH (local), and
+ * PUBLIC_URL (present, and a bare http(s) origin as the server requires).
+ * Reports each failure via prompts.error and returns undefined, and warns
+ * when BIND_ADDRESS leaves a loopback PUBLIC_URL unreachable.
  * Shared by init, start, restart, upgrade and configure so their precondition checks can't drift.
  */
 export const resolveDeployment = (
@@ -120,6 +127,13 @@ export const resolveDeployment = (
     return undefined
   }
   const { port } = portRead
+  const bindAddressRead = readEnvBindAddress(envValues, mode)
+
+  if (bindAddressRead.kind === "invalid") {
+    prompts.error(describeEnvFix({ problem: bindAddressRead.message, targetDir }))
+    return undefined
+  }
+  const { bindAddress } = bindAddressRead
   const vaultPath = mode === "local" ? readEnvVaultPath(envValues) : undefined
 
   if (mode === "local" && !vaultPath) {
@@ -141,7 +155,24 @@ export const resolveDeployment = (
     prompts.error(`${envFix}\n${missingPublicUrlFix(mode, port)}`)
     return undefined
   }
-  return { mode, instanceName, targetDir, envFilePath, port, vaultPath, publicUrl }
+  // The server refuses to boot on a PUBLIC_URL that is not a bare http(s)
+  // origin, so a container started with one restarts until the health poll
+  // gives up.
+  const publicUrlValidation = validatePublicUrl(publicUrl)
+
+  if (publicUrlValidation.kind === "error") {
+    prompts.error(describeEnvFix({ problem: publicUrlValidation.message, targetDir }))
+    return undefined
+  }
+  const strandedPublicUrlWarning = describeStrandedLoopbackPublicUrl({
+    targetDir,
+    port,
+    bindAddress,
+    publicUrl,
+  })
+
+  if (strandedPublicUrlWarning) prompts.warn(strandedPublicUrlWarning)
+  return { mode, instanceName, targetDir, envFilePath, port, bindAddress, vaultPath, publicUrl }
 }
 
 /**

@@ -212,8 +212,8 @@ To remove a single entry from a memory file, use `vault_delete_memory`.
 `vault_move_note` moves or renames a note and rewrites every link across the vault that resolves to it, mirroring Obsidian's built-in rename:
 
 - **Every link form:** wikilinks (including aliases, heading anchors, and embeds), markdown links, and frontmatter links, resolved with the same logic as the link-graph tools
-- **Canvas files:** links in text cards are rewritten like note links; the link index does not record them, so the move finds them with its own scan ([File I/O safety](#file-io-safety)). A file card that opens the moved note gets the note's new path, because Obsidian opens a file card by its exact path; an edited Canvas is saved in Obsidian's own `.canvas` layout
-- **Minimal rewrites:** apart from Canvas file cards, a link is rewritten only when leaving it unchanged would break it
+- **Canvas files:** links in text cards are rewritten like note links. A file card that opens the moved note gets the note's new path. Obsidian opens a file card by its exact path, so a card that names the note any other way is left as it is. An edited Canvas is saved in Obsidian's own `.canvas` layout
+- **Minimal rewrites:** a link is rewritten only when leaving it unchanged would break it, or would keep the old letter case after the note's file name changes
 - **Guardrails:** refuses to overwrite an existing destination, and blocks moves out of or into protected folders
 
 Both `vault_delete_note` and `vault_move_note` support `prune_empty_folders` to clean up parent directories left empty by the operation.
@@ -276,7 +276,11 @@ Every tag input (`tag` on `vault_search_by_tag` and `vault_list_tasks`, the `tag
 - **Blank folder in the file:** Obsidian's new-note location (`newFileLocation: "folder"` plus `newFileFolderPath` in `.obsidian/app.json`), otherwise the vault root
 - **Missing file:** takes the fallbacks
 - **Unparseable file:** takes the fallbacks and logs a `warn`
-- **Shared folder:** a vault-root or blank folder setting puts daily notes beside other notes, so it adds no folder to the delete and move guard, the orphan exclusion, or forward-reference handling (broken links into the daily folder, flagged `daily_note_forward_ref` by `vault_get_outgoing_links` and left out of `vault-orientation`'s broken-link count)
+- **Month and weekday names:** a format with `MMMM` or `dddd` writes and matches them in English, whatever Obsidian's app language is
+- **Forward references:** a broken link to a daily note not yet created is flagged `daily_note_forward_ref` by `vault_get_outgoing_links` and left out of `vault-orientation`'s broken-link count. Two rules find one:
+  - **Into the daily folder:** the target starts with the daily folder, in any letter case, as a link resolves once its note exists
+  - **Bare date:** the target has no folder, and its name, less a trailing `.md`, is a date written exactly as the format's file-name part writes it, ignoring letter case; that part must hold a year plus a month and day, or a day of the year
+- **Shared folder:** a vault-root or blank folder setting puts daily notes beside other notes, so it adds no folder to the delete and move guard, the orphan exclusion, or the forward-reference folder rule; the bare-date rule still applies
 
 ### Memory
 
@@ -337,12 +341,21 @@ whole files/sections, or date-scoped entries across them with `on_or_after`;
 
 Link queries use a `links` table populated during indexing:
 
-- **Sources:** `[[wikilink]]` and `[text](target)` / `![alt](target)` markdown links in the note body (fence-aware parsing skips code blocks), plus `[[wikilink]]`s in frontmatter property values (e.g. `related:`). Canvas `file`-type node references are also extracted as links — text-node `[[wikilink]]`s are not. Markdown links to any vault target — notes (`.md`), images, PDFs, extensionless paths — are recognized; external URLs are excluded by URI-scheme detection.
-- **Resolution:** Each target is resolved against all known note paths covering Obsidian's three "New link format" modes:
+- **Sources:** `[[wikilink]]` and `[text](target)` / `![alt](target)` markdown links in the note body (fence-aware parsing skips code blocks), plus `[[wikilink]]`s in frontmatter property values (e.g. `related:`). A Canvas contributes two kinds of link: each file card, stored as the exact vault path it names, and the links typed in its text cards, read with the note-body grammar and resolved like a note's links. Markdown links to any vault target — notes (`.md`), images, PDFs, extensionless paths — are recognized; external URLs are excluded by URI-scheme detection.
+- **Resolution:** Each target other than a Canvas file card is resolved against all known note paths covering Obsidian's three "New link format" modes:
   1. Exact vault-relative path (path from vault folder)
   2. Path relative to the linking note (path from current file, including upward `../`)
   3. Basename (shortest-path-first for ambiguous basenames)
+- **Letter case:** Obsidian resolves a link whatever its letter case, so `[[real]]` and `[[folder/real]]` reach `Folder/Real.md`. Resolution walks the three tiers in the link's own letter case first, and walks them again with letter case folded only when every tier misses. A folded match returns the stored path, and backlinks, orphans and `vault_move_note` all follow it.
+  - Note links fold every letter (`toLowerCase`), so `[[éclair]]` reaches `Éclair.md`. Notes are tried before files, so `[[photo]]` reaches `Photo.md` rather than `photo.png`.
+  - File links fold ASCII letters only, because the index resolves them in SQL (`COLLATE NOCASE`) and the in-memory twin must pick the same file; `![[éclair.png]]` stays broken beside `Éclair.png`. Their path-suffix tiers query with `LIKE`, which ignores ASCII letter case, so those tiers fold in the first walk too: `![[photo.png]]` reaches the shorter `A/Photo.PNG` rather than `B/sub/photo.png`.
+  - Two notes whose paths differ only in letter case, possible on a case-sensitive filesystem, each keep the links written in their own spelling; a third spelling goes to the shortest path, then byte order. This is the server's own rule, not a statement of Obsidian's behaviour.
 - **Non-markdown files:** Targets that don't resolve to a note are checked against a `non_md_files` table (populated during rebuild, maintained by the file watcher). Both wikilinks and markdown-style links to `.canvas`, `.base`, images, PDFs, and other non-markdown files resolve as `kind: "file"` instead of being counted as broken.
+- **Stored rows:** Each row keeps the link's text as written and its kind: a link typed in a note or a Canvas text card, or a Canvas file card. One note can hold two spellings that reach the same file (`[[../B]]` and `[[B]]`); each keeps its own row, and the link queries list the file once.
+- **Re-resolution:** When the file watcher adds or removes a file, the affected links re-resolve from their text, so a renamed file's links end where a rebuild would put them, whichever of the rename's two events arrives first:
+  - Adding a file new to the index re-resolves, by the rules above, the links whose last path segment names it: a note by its name without `.md` in any letter case, a non-markdown file by its full name or its name without the extension in ASCII letter case. A link that already reached another file moves to the new one when the new file now ranks first.
+  - Removing a file re-resolves the links that pointed at it against the remaining files; a link that matches none becomes broken.
+  - Editing an existing file re-resolves nothing, and a Canvas file card always keeps the exact path it names.
 - **Outgoing links:** `vault_get_outgoing_links` returns a `kind` discriminator (`"note"` or `"file"`) plus each target's byte size (`bytes` — from the notes table for notes, from `non_md_files` for files), so clients can route notes to `vault_read_note` and files to `vault_read_file` with size awareness. A broken link keeps the target text the index stored: its original letter case, and for a markdown link, its `%`-escapes decoded.
 - **Orphans:** `vault_find_orphans` and `vault-orientation` resolve default exclusions on each invocation: the daily notes folder (resolved as [Daily notes](#property-discovery--daily-notes) describes), `Templates`, and the memory dir.
   - `ORPHAN_EXCLUDE_FOLDERS` replaces that list; a tool call's `exclude_folders` replaces it for that call.
@@ -360,7 +373,7 @@ Link queries use a `links` table populated during indexing:
 `vault_read_file` reads non-markdown vault files, dispatching on the file's kind to the most useful representation per type. `obsidian-markdown/file-kinds.ts` maps the lowercased extension to a kind, so `Report.PDF` is a PDF. Reads, indexing, the note mover and the link tools take every non-markdown file's kind from it:
 
 1. **Images** (`.png`/`.jpg`/`.jpeg`/`.gif`/`.webp`) return an MCP `image` content block plus a one-line metadata text block: the path, the delivered format, dimensions and bytes, and, when the image was recompressed, its original dimensions and bytes. A shared fit-to-byte-budget pipeline (`utils/fit-image-to-byte-budget.ts`, built on sharp) makes oversized images deliverable: EXIF auto-orient → resize long edge to ≤1568px → walk a fixed quality ladder (JPEG via mozjpeg for opaque images, WebP for alpha — PNG has no quality knob) → shrink dimensions by √(budget/actual) if the ladder floor still exceeds the budget. Deterministic and terminating (bounded attempts, 64px floor); sharp's default `limitInputPixels` stays active as the decompression-bomb guard. The budget (`MAX_IMAGE_OUTPUT_BYTES`, default 48 KiB binary) is sized for the tightest mainstream client cap.
-2. **Canvas** (`.canvas`) linearizes to markdown via the pure `obsidian-markdown/canvas.ts` parser ([JSON Canvas 1.0](https://jsoncanvas.org)): group membership by spatial rect containment within the [nesting limit](#note-content-parsers) (innermost group wins; equal rects tiebreak deterministically by id), nodes in reading order (y, then x), and an edge list with node ids resolved to display names. Lenient parsing — unknown properties ignored, malformed entries skipped. `raw: true` skips the linearizer and returns the JSON source verbatim for full structural fidelity. Canvas content is also FTS-indexed (linearized text in `file_content` + `file_content_fts` tables, gated behind `FILE_TOOLS_ENABLED`) so canvas files appear in `vault_search` results with `kind: "file"`. Canvas `file`-type node references are extracted unconditionally into the `links` table for graph queries regardless of the feature gate.
+2. **Canvas** (`.canvas`) linearizes to markdown via the pure `obsidian-markdown/canvas.ts` parser ([JSON Canvas 1.0](https://jsoncanvas.org)): group membership by spatial rect containment within the [nesting limit](#note-content-parsers) (innermost group wins; equal rects tiebreak deterministically by id), nodes in reading order (y, then x), and an edge list with node ids resolved to display names. Lenient parsing — unknown properties ignored, malformed entries skipped. `raw: true` skips the linearizer and returns the JSON source verbatim for full structural fidelity. Canvas content is also FTS-indexed (linearized text in `file_content` + `file_content_fts` tables, gated behind `FILE_TOOLS_ENABLED`) so canvas files appear in `vault_search` results with `kind: "file"`. Canvas file cards and the links typed in text cards are extracted unconditionally into the `links` table for graph queries regardless of the feature gate.
 3. **Text formats** (`.svg`/`.json`/`.txt`/`.csv`/`.xml`/`.log`/`.yaml`/`.yml`/`.base`) pass through as text, without a leading byte-order mark, capped at a fixed 100 KiB output size (explicit error over silent truncation). They skip the NUL-byte check in item 5, so a NUL-padded log still reads. `start_line`/`limit` page any text result — text files, canvas renditions, PDF-extracted text — as a 1-based line window preceded by a window-metadata block stating the range, total line count, and next `start_line`; the cap applies to the window, and an unpaged read is byte-exact apart from that mark.
 4. **PDFs** (`.pdf`) return structured markdown reconstructed from layout-aware extraction (`unpdf`, based on Mozilla's PDF.js):
    - A document metadata header (title, page count, link count)
@@ -390,7 +403,7 @@ Search indexes file content in the `file_content` + `file_content_fts` tables, c
 
 | Kind                         | Indexed text                                                                                                                                                                                                             | Embedded |
 | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------- |
-| Canvas                       | Linearized outline; file cards also go to the link graph (see Canvas above)                                                                                                                                              | Yes      |
+| Canvas                       | Linearized outline; file cards and text-card links also go to the link graph (see Canvas above)                                                                                                                          | Yes      |
 | PDF                          | Text from `obsidian-markdown/pdf.ts`, up to 100 KiB or 500 pages, extracted by the PDF child after the server listens; a scanned PDF, one over `MAX_FILE_BYTES` or one whose extraction fails is found by file name only | Yes      |
 | Text formats (item 3)        | The file's first 100 KiB, which is all indexing reads; bytes that are not UTF-8 are replaced rather than refused                                                                                                         | Yes      |
 | HTML (`.html`/`.htm`)        | The text a browser shows, from `obsidian-markdown/html.ts`; a page over 16 MiB is found by file name only                                                                                                                | Yes      |
@@ -417,11 +430,11 @@ How extracted text reaches the index, and when, is under [Indexing](#indexing).
 
 ### Tasks
 
-| Tool                | Input                                                                                                                                                                                                             | Annotation       |
-| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------- |
-| `vault_list_tasks`  | `status?, due?, scheduled?, start?, created?, done?, cancelled?, priority?, folder?, tag?, heading?, path?, top_level_only?, sort_by?, sort_direction?, limit?`                                                   | readOnlyHint     |
-| `vault_create_task` | `path, description, block_id?, heading?, parent_block_id?, parent_line?, position?, priority?, recurrence?, on_completion?, due?, scheduled?, start?, task_id?, depends_on?, subtasks?, format?`                  | !destructiveHint |
-| `vault_update_task` | `path, block_id?, line?, status?, priority?, recurrence?, on_completion?, description?, due?, scheduled?, start?, created?, task_id?, depends_on?, add_subtasks?, assign_block_id?, heading?, position?, format?` | destructiveHint  |
+| Tool                | Input                                                                                                                                                                                                                                    | Annotation       |
+| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------- |
+| `vault_list_tasks`  | `status?, due?, scheduled?, start?, created?, done?, cancelled?, priority?, folder?, tag?, heading?, path?, top_level_only?, sort_by?, sort_direction?, limit?`                                                                          | readOnlyHint     |
+| `vault_create_task` | `path, description, block_id?, heading?, parent_block_id?, parent_line?, position?, priority?, recurrence?, on_completion?, due?, scheduled?, start?, task_id?, depends_on?, subtasks?, format?`                                         | !destructiveHint |
+| `vault_update_task` | `path, block_id?, line?, expected_description?, status?, priority?, recurrence?, on_completion?, description?, due?, scheduled?, start?, created?, task_id?, depends_on?, add_subtasks?, assign_block_id?, heading?, position?, format?` | destructiveHint  |
 
 A `tasks` table in the same SQLite database stores checkbox task lines, parsed by the pure `obsidian-markdown/tasks.ts` grammar — a reimplementation of the [Tasks plugin](https://publish.obsidian.md/tasks/)'s own parser:
 
@@ -460,6 +473,8 @@ Four design choices shape the query surface:
 - **Heading moves and position** — `heading` moves the task and its indented sub-items to another section; on a Kanban board that is a lane move, but any note with headings works. `position` (`"top"`, `"bottom"`, or a 1-based integer) selects where within the target heading the card lands; without a `heading`, it triggers a same-lane reorder (rejected when the task sits above the first heading or the lane's heading name is duplicated). A sub-task (depth > 0) never moves or reorders: an explicit `heading` or `position` is rejected, and `status: "done"` changes its checkbox in place.
 - **`add_subtasks`** — appends checklist items under the task's existing ones.
 - **Block IDs** — `assign_block_id` adds or replaces the line's ID, and `null` removes it. On a Kanban board, no new ID goes on an indented line, for the reason given above: `assign_block_id` is refused there, as is any edit that would leave the line ending in a new `^id`, such as a description ending in one with no fields after it. A checklist item ending in a `^id` is refused under any card on a board.
+
+`vault_update_task` takes an optional `expected_description` and refuses the update, before any change, when the located task's description differs from it. The caller copies that value from `vault_list_tasks`, or from an earlier update result's `description` or `next_occurrence.description`; all three come from the parser the check uses, so a line number left stale by another write is caught whenever it now points at a task with different text.
 
 Both tools refuse a `block_id` found at the end of more than one task line, as the task to update or as a new sub-task's parent, and list every matching line instead of acting on the first.
 
@@ -638,13 +653,16 @@ flowchart TD
     BT --> UP[upsertNote]
     UP --> FTS[Update FTS5]
     UP --> LK[Update Links]
+    UP --> RN[Re-resolve links\nnaming a new file]
     UP --> EM[embedAndStoreChunks]
     EM --> CH{Content\nhash match?}
     CH --> |unchanged| SK[Skip]
     CH --> |changed| EMB[Embed chunk\nbge-small q8]
     EMB --> VEC[Store in\nnote_vectors]
 
-    FW --> |non-PDF non-.md add/change| UFC[upsertFileContent]
+    FW --> |non-.md add/change| UNA[upsertNonMdFile]
+    UNA --> RN
+    FW --> |canvas or non-PDF\ncontent-indexed file add/change| UFC[upsertFileContent]
     FW --> |PDF add/change| PN[Publish Filename\nclear old text and vectors]
     PN --> PG
     PP --> FFTS
@@ -659,8 +677,11 @@ flowchart TD
     FW --> |.md delete| RM[removeNote]
     RM --> D1[Delete FTS + links]
     RM --> D2[Delete chunks + vectors]
+    RM --> RR[Re-resolve links\nto the deleted file]
 
-    FW --> |non-.md delete| RMF[removeFileContent]
+    FW --> |non-.md delete| RMN[removeNonMdFile]
+    RMN --> RR
+    FW --> |canvas or content-indexed\nfile delete| RMF[removeFileContent]
     RMF --> FD1[Delete FTS + links]
     RMF --> FD2[Delete file chunks + vectors]
 
@@ -1401,10 +1422,10 @@ Docker hardening, and durability seatbelts above.
     the user set to keep.
 - **Verify-then-preflight-then-commit move** (`note-mover.ts`): under the
   lock, `moveNote` first scans notes and Canvas files for backlinks the
-  search index missed (closing a lag race) or never records (links in
-  Canvas text cards). The scan skips a file it cannot read, or a Canvas
-  file whose JSON it cannot parse, with a warning, so such a file aborts
-  the move only when the index lists it as a backlink. A note whose
+  search index missed (closing a lag race). The scan skips a file it
+  cannot read, or a Canvas file whose JSON it cannot parse, with a
+  warning, so such a file aborts the move only when the index lists it as
+  a backlink. A note whose
   properties block is not valid YAML is scanned for its body links. When
   the scan finds new linking notes, the move releases the lock, adds them
   to the lock set and scans again, up to `MAX_BACKLINK_VERIFY_RETRIES` (3)
@@ -1470,7 +1491,7 @@ Docker hardening, and durability seatbelts above.
   SQL written in the code, and the one interpolated number (the snippet size)
   passes through `Number()`.
 - **`sanitizeFtsQuery()`** (`fts-query.ts`): strips FTS5 metacharacters
-  (`*^():`), reserved words (`AND`/`OR`/`NOT`/`NEAR`), and
+  (`*^():`), the uppercase reserved words (`AND`/`OR`/`NOT`), and
   compound-joiner punctuation so user input can never produce FTS5 syntax
   errors or operator injection.
 - **`escapeLikeWildcards()`** (`search-helpers.ts`): escapes `\`, `%`,
