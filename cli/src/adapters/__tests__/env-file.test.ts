@@ -1,14 +1,13 @@
 import {
   chmodSync,
-  chownSync,
   closeSync,
+  fchownSync,
   lstatSync,
   mkdirSync,
   mkdtempSync,
   openSync,
   readdirSync,
   readFileSync,
-  realpathSync,
   renameSync,
   rmSync,
   statSync,
@@ -34,12 +33,9 @@ afterEach(() => {
   vi.mocked(readFileSync).mockReset()
   vi.mocked(writeFileSync).mockReset()
   vi.mocked(renameSync).mockReset()
-  vi.mocked(chownSync).mockReset()
+  vi.mocked(fchownSync).mockReset()
   vi.restoreAllMocks()
 })
-
-/** Matches each character a regular expression gives a special meaning, for escaping a path. */
-const REGEX_SPECIAL_CHARACTER = /[.*+?^${}()|[\]\\]/g
 
 const neverOverwrite = async (): Promise<boolean> => false
 const alwaysOverwrite = async (): Promise<boolean> => true
@@ -222,7 +218,7 @@ describe("write permissions", () => {
 })
 
 describe("write edge cases", () => {
-  it("keeps a linked .env a link and replaces the file it points to", () => {
+  it("replaces a linked .env with a regular file, leaving the linked file as it was", () => {
     const installDir = makeTempDir()
     const linkedDir = makeTempDir()
     const linkedEnvPath = join(linkedDir, "shared.env")
@@ -232,10 +228,11 @@ describe("write edge cases", () => {
 
     envFile.replace(envPath, "MCP_AUTH_TOKEN=new\n")
 
-    expect(lstatSync(envPath).isSymbolicLink()).toBe(true)
-    expect(readFileSync(linkedEnvPath, "utf8")).toBe("MCP_AUTH_TOKEN=new\n")
-    expect(statSync(linkedEnvPath).mode & 0o777).toBe(0o600)
-    expect(readdirSync(linkedDir)).toEqual(["shared.env"])
+    expect(lstatSync(envPath).isFile()).toBe(true)
+    expect(readFileSync(envPath, "utf8")).toBe("MCP_AUTH_TOKEN=new\n")
+    expect(statSync(envPath).mode & 0o777).toBe(0o600)
+    expect(readFileSync(linkedEnvPath, "utf8")).toBe("MCP_AUTH_TOKEN=old\n")
+    expect(readdirSync(installDir)).toEqual([".env"])
   })
 
   it("removes the part-written new file when the write fails, keeping the old .env", () => {
@@ -291,23 +288,58 @@ describe("write edge cases", () => {
     },
   )
 
-  it("gives the new file the old file's owner when the CLI runs as root", () => {
+  // Root ignores folder permissions, so the folder would not stop it.
+  it.skipIf(runsAsRoot)(
+    "never writes through a linked .env when its folder does not allow a new file",
+    () => {
+      const targetDir = makeTempDir()
+      const linkedEnvPath = join(makeTempDir(), "shared.env")
+      writeFileSync(linkedEnvPath, "MCP_AUTH_TOKEN=old\n", { mode: 0o644 })
+      symlinkSync(linkedEnvPath, join(targetDir, ".env"))
+      chmodSync(targetDir, 0o500)
+      onTestFinished(() => {
+        chmodSync(targetDir, 0o700)
+      })
+
+      expect(() => envFile.replace(join(targetDir, ".env"), "MCP_AUTH_TOKEN=new\n")).toThrow(
+        /^EACCES: permission denied, open '.*\.env\.[0-9a-f-]{36}\.tmp'$/,
+      )
+      expect(readFileSync(linkedEnvPath, "utf8")).toBe("MCP_AUTH_TOKEN=old\n")
+      expect(statSync(linkedEnvPath).mode & 0o777).toBe(0o644)
+    },
+  )
+
+  // The CLI is not really root here, so the folder still refuses the new file.
+  it.skipIf(runsAsRoot)(
+    "never rewrites .env in place under sudo, even when its folder does not allow a new file",
+    () => {
+      const targetDir = makeTempDir()
+      const envPath = join(targetDir, ".env")
+      writeFileSync(envPath, "MCP_AUTH_TOKEN=old\n", { mode: 0o644 })
+      chmodSync(targetDir, 0o500)
+      onTestFinished(() => {
+        chmodSync(targetDir, 0o700)
+      })
+      vi.spyOn(process, "getuid").mockReturnValue(0)
+
+      expect(() => envFile.replace(envPath, "MCP_AUTH_TOKEN=new\n")).toThrow(
+        /^EACCES: permission denied, open '.*\.env\.[0-9a-f-]{36}\.tmp'$/,
+      )
+      expect(readFileSync(envPath, "utf8")).toBe("MCP_AUTH_TOKEN=old\n")
+    },
+  )
+
+  it("gives the new file the old .env's owner, through the open file, when the CLI runs as root", () => {
     const targetDir = makeTempDir()
     const envPath = join(targetDir, ".env")
     writeFileSync(envPath, "MCP_AUTH_TOKEN=old\n", { mode: 0o600 })
     const { uid, gid } = statSync(envPath)
-    // The writer resolves the path, and macOS's temp folder sits behind a /var link.
-    const resolvedEnvPath = realpathSync(envPath).replace(REGEX_SPECIAL_CHARACTER, "\\$&")
     vi.spyOn(process, "getuid").mockReturnValue(0)
 
     envFile.replace(envPath, "MCP_AUTH_TOKEN=new\n")
 
-    expect(chownSync).toHaveBeenCalledTimes(1)
-    expect(chownSync).toHaveBeenCalledWith(
-      expect.stringMatching(new RegExp(`^${resolvedEnvPath}\\.[0-9a-f-]{36}\\.tmp$`)),
-      uid,
-      gid,
-    )
+    expect(fchownSync).toHaveBeenCalledTimes(1)
+    expect(fchownSync).toHaveBeenCalledWith(expect.any(Number), uid, gid)
     expect(readFileSync(envPath, "utf8")).toBe("MCP_AUTH_TOKEN=new\n")
   })
 
@@ -334,7 +366,7 @@ describe("write edge cases", () => {
 
     envFile.replace(envPath, "MCP_AUTH_TOKEN=new\n")
 
-    expect(chownSync).not.toHaveBeenCalled()
+    expect(fchownSync).not.toHaveBeenCalled()
     expect(readFileSync(envPath, "utf8")).toBe("MCP_AUTH_TOKEN=new\n")
   })
 })

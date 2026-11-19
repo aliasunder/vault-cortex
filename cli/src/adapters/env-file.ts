@@ -1,14 +1,15 @@
 import { randomUUID } from "node:crypto"
 import {
   chmodSync,
-  chownSync,
+  closeSync,
   existsSync,
+  fchownSync,
+  lstatSync,
   mkdirSync,
+  openSync,
   readFileSync,
-  realpathSync,
   renameSync,
   rmSync,
-  statSync,
   writeFileSync,
 } from "node:fs"
 import { join } from "node:path"
@@ -44,14 +45,39 @@ const isFolderPermissionError = (error: unknown): boolean => {
   )
 }
 
+const runsAsRoot = (): boolean => process.getuid?.() === ROOT_UID
+
 /**
  * Under sudo the CLI runs as root, and the new file would belong to root;
- * this hands it to the old file's owner so they can still edit it.
+ * this hands it to the old .env's owner so they can still edit it. lstat
+ * reads the .env path itself, never a file a link points to.
  */
-const keepOwner = (params: { newFilePath: string; oldFilePath: string }): void => {
-  if (process.getuid?.() !== ROOT_UID || !existsSync(params.oldFilePath)) return
-  const { uid, gid } = statSync(params.oldFilePath)
-  chownSync(params.newFilePath, uid, gid)
+const keepOwner = (params: { newFile: number; oldFilePath: string }): void => {
+  if (!runsAsRoot()) return
+  const oldFileStats = lstatSync(params.oldFilePath, { throwIfNoEntry: false })
+
+  if (!oldFileStats) return
+  fchownSync(params.newFile, oldFileStats.uid, oldFileStats.gid)
+}
+
+/**
+ * Creates the temporary file owner-only and writes the text into it. Its
+ * owner is set through the open file, so no path is looked up twice.
+ */
+const writeTempFile = (params: {
+  tempPath: string
+  envFilePath: string
+  envContent: string
+}): void => {
+  // "wx" creates the file or fails, so it never writes into a file that exists.
+  const tempFile = openSync(params.tempPath, "wx", ENV_FILE_MODE)
+
+  try {
+    writeFileSync(tempFile, params.envContent)
+    keepOwner({ newFile: tempFile, oldFilePath: params.envFilePath })
+  } finally {
+    closeSync(tempFile)
+  }
 }
 
 /**
@@ -64,38 +90,48 @@ const removeTempFile = (tempPath: string): void => {
 }
 
 /**
+ * True when .env may be rewritten in place after its folder refused a new
+ * file: never under sudo, and only for a regular file, so the write is never
+ * sent through a link.
+ */
+const canRewriteInPlace = (params: { error: unknown; envFilePath: string }): boolean => {
+  if (!isFolderPermissionError(params.error) || runsAsRoot()) return false
+  // existsSync is false for a path the CLI cannot reach, where lstat would throw.
+  if (!existsSync(params.envFilePath)) return false
+  return lstatSync(params.envFilePath).isFile()
+}
+
+/**
  * Writes .env as a new owner-only file renamed over the old one, never into
  * the old file:
  * - the new text is only ever in a file created owner-only;
  * - an interrupted write leaves the old file whole;
- * - a .env that links to an existing file stays a link, and that file is replaced;
- * - under sudo, the replaced file keeps its owner.
- * When the folder does not let the CLI create a file, it narrows an existing
+ * - a .env that is a link is replaced by a regular file, and the file it
+ *   pointed to is left as it was;
+ * - under sudo, the new file gets the old .env's owner.
+ * When the folder does not let the CLI create a file, it narrows a regular
  * .env to owner-only and rewrites it in place instead, and an interrupted
  * write there can leave the file cut short.
  */
 const writeOwnerOnly = (envFilePath: string, envContent: string): void => {
-  // realpathSync follows a symbolic link, so a linked .env is written where it points.
-  const destinationPath = existsSync(envFilePath) ? realpathSync(envFilePath) : envFilePath
-  const tempPath = `${destinationPath}.${randomUUID()}.tmp`
+  const tempPath = `${envFilePath}.${randomUUID()}.tmp`
 
   try {
-    // "wx" creates the temporary file or fails, so it never writes into a file that exists.
-    writeFileSync(tempPath, envContent, { mode: ENV_FILE_MODE, flag: "wx" })
+    writeTempFile({ tempPath, envFilePath, envContent })
   } catch (error) {
     // A write that fails partway (a full disk) leaves part of the text behind.
     removeTempFile(tempPath)
-    if (!isFolderPermissionError(error) || !existsSync(destinationPath)) throw error
+    if (!canRewriteInPlace({ error, envFilePath })) throw error
 
     // Narrowing the old file before writing keeps the new text out of a file others can read.
-    chmodSync(destinationPath, ENV_FILE_MODE)
-    writeFileSync(destinationPath, envContent)
+    chmodSync(envFilePath, ENV_FILE_MODE)
+    writeFileSync(envFilePath, envContent)
     return
   }
 
   try {
-    keepOwner({ newFilePath: tempPath, oldFilePath: destinationPath })
-    renameSync(tempPath, destinationPath)
+    // rename replaces whatever is at the .env path, a link included, without following it.
+    renameSync(tempPath, envFilePath)
   } catch (error) {
     removeTempFile(tempPath)
     throw error
