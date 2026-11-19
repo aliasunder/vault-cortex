@@ -385,6 +385,7 @@ describe("createGlobFilter's worker limit", () => {
 
   it("removes only the call that stopped waiting from the queue", async () => {
     const filterOneAtATime = createGlobFilter({ maxRunningWorkers: 1, maxWaitingCalls: 2 })
+    vi.mocked(Worker).mockClear()
 
     const runningRejection = rejectionOf(
       filterOneAtATime({ glob: SLOW_GLOB, paths: SLOW_GLOB_PATHS, timeoutMs: 1_000 }, logger),
@@ -396,8 +397,11 @@ describe("createGlobFilter's worker limit", () => {
     const stoppedWaitingRejection = await rejectionOf(
       filterOneAtATime({ glob: "*.md", paths: VAULT_PATHS, timeoutMs: 100 }, logger),
     )
+    await nextTurn()
 
     expect(stoppedWaitingRejection).toEqual(new Error("glob matching timed out after 100 ms"))
+    // Leaving the queue gives no slot away, so the call still waiting has not started
+    expect(vi.mocked(Worker)).toHaveBeenCalledTimes(1)
     expect(await runningRejection).toEqual(new Error("glob matching timed out after 1000 ms"))
     expect(await stillWaitingMatches).toEqual(["a.md"])
   }, 10_000)
