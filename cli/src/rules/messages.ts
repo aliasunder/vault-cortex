@@ -378,7 +378,8 @@ ${nonOauthBlocks}
 ${sectionRule("Settings")}
 
 Adjust optional settings (memory layer and folder, daily notes
-folder and format, file tools, semantic search, port, timezone):
+folder and format, file tools, read-only mode, semantic search, port,
+timezone):
   ${vaultCortexCommand("configure", targetDir)}
 
 ${editEnvGuidance(targetDir)}
@@ -459,8 +460,8 @@ ${remoteHealthCheckBlock(`${publicUrl}/healthz`, startStatus)}
 ${sectionRule("Settings")}
 
 Adjust optional settings (memory layer and folder, daily notes
-folder and format, file tools, semantic search, port, timezone,
-sync direction):
+folder and format, file tools, read-only mode, semantic search, port,
+timezone, sync direction):
   ${vaultCortexCommand("configure", targetDir)}
 
 ${editEnvGuidance(targetDir)}

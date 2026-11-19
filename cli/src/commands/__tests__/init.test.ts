@@ -84,7 +84,7 @@ describe("runInit --yes (non-interactive local)", () => {
     expect(envContent).toMatch(/^MCP_AUTH_TOKEN=[0-9a-f]{64}$/m)
     expect(envContent).toContain(`VAULT_PATH=${vaultDir}\n`)
     expect(scripted.prints[0]).toContain(
-      "Adjust optional settings (memory layer and folder, daily notes\nfolder and format, file tools, semantic search, port, timezone):",
+      "Adjust optional settings (memory layer and folder, daily notes\nfolder and format, file tools, read-only mode, semantic search, port,\ntimezone):",
     )
   })
 

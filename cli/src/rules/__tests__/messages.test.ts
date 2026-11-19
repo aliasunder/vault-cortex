@@ -95,7 +95,8 @@ Smoke test:
 ${expectedSectionRule("Settings")}
 
 Adjust optional settings (memory layer and folder, daily notes
-folder and format, file tools, semantic search, port, timezone):
+folder and format, file tools, read-only mode, semantic search, port,
+timezone):
   npx vault-cortex@latest configure --dir "/home/user/vault-cortex"
 
 Or edit /home/user/vault-cortex/.env directly — change a value (uncommenting it
@@ -417,8 +418,8 @@ Smoke test:
 ${expectedSectionRule("Settings")}
 
 Adjust optional settings (memory layer and folder, daily notes
-folder and format, file tools, semantic search, port, timezone,
-sync direction):
+folder and format, file tools, read-only mode, semantic search, port,
+timezone, sync direction):
   npx vault-cortex@latest configure --dir "/srv/vault-cortex"
 
 Or edit /srv/vault-cortex/.env directly — change a value (uncommenting it
