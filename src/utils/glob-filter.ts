@@ -184,7 +184,7 @@ const matchInWorker = async (params: {
  *   worker and its start-up included. Past it, a running worker is terminated
  *   and the call rejects with `glob matching timed out after <timeoutMs> ms`.
  *   A call that finds `maxWaitingCalls` calls already waiting rejects with
- *   the same error at once, since it could not finish within the deadline.
+ *   the same error at once.
  * - A worker that fails to start, errors, exits early or replies malformed
  *   rejects with `glob matching failed`, the original error as its `cause`,
  *   and logs an error. The glob never falls back to the main thread.
@@ -234,7 +234,7 @@ export const createGlobFilter = (params: {
       case "matched":
         return outcome.matches
       case "timed-out":
-        // The call's glob, or its wait for a worker, caused it, not a fault in
+        // The call's glob, or the calls ahead of it, caused it, not a fault in
         // the worker, so logging it is left to the caller
         throw new Error(`glob matching timed out after ${timeoutMs} ms`)
       case "failed":
