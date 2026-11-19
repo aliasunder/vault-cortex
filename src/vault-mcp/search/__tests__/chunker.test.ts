@@ -1,5 +1,14 @@
+import { execFileSync } from "node:child_process"
 import { describe, it, expect } from "vitest"
+import { stripMarkdownSyntax } from "../../obsidian-markdown/plaintext.js"
 import { buildChunkMetadataPrefix, chunkContent } from "../chunker.js"
+
+/** A quadratic pass over input this long runs for minutes; a linear one takes
+ *  well under a second. */
+const LONG_RUN_LENGTH = 1_000_000
+
+/** Leaves room for the child's tsx start-up on a loaded machine. */
+const CHILD_DEADLINE_MS = 20_000
 
 /** Generate a string of approximately N whitespace-separated tokens. */
 const generateTokens = (count: number): string => {
@@ -10,6 +19,13 @@ const generateTokens = (count: number): string => {
  *  so each section's content is distinguishable in assertions. */
 const generateLabeledTokens = (count: number, label: string): string => {
   return Array.from({ length: count }, (_, i) => `${label}${i}`).join(" ")
+}
+
+/** Generate N distinct tokens of at most four characters each (a one-letter
+ *  label and a base-36 index), so a run of several hundred tokens stays under
+ *  the 2,000-character cut on each chunk prefix part. */
+const generateShortLabeledTokens = (count: number, label: string): string => {
+  return Array.from({ length: count }, (_, i) => `${label}${i.toString(36)}`).join(" ")
 }
 
 describe("chunkContent", () => {
@@ -505,7 +521,7 @@ describe("chunkContent", () => {
     })
 
     it("floors a section's budget at MIN_CHUNK_TOKENS when its heading path is huge", () => {
-      const hugeHeading = generateLabeledTokens(419, "heading")
+      const hugeHeading = generateShortLabeledTokens(419, "h")
       const smallBodyWords = generateLabeledTokens(120, "body").split(" ")
       const normalSection = generateLabeledTokens(400, "normal")
       const body = `## ${hugeHeading}\n${smallBodyWords.join(" ")}\n\n## Normal\n${normalSection}`
@@ -547,6 +563,44 @@ describe("chunkContent", () => {
         { index: 0, text: `Note\n\n${paragraphs.slice(0, 4).join("\n\n")}` },
         { index: 1, text: `Note\n\n${paragraphs.slice(4).join("\n\n")}` },
       ])
+    })
+
+    describe("a body that starts with an empty paragraph", () => {
+      // Three 300-token paragraphs against a 449-token budget → one chunk each
+      const firstParagraph = generateLabeledTokens(300, "first")
+      const secondParagraph = generateLabeledTokens(300, "second")
+      const thirdParagraph = generateLabeledTokens(300, "third")
+      const paragraphs = `${firstParagraph}\n\n${secondParagraph}\n\n${thirdParagraph}`
+      const chunksWithoutLeadingParagraph = [
+        { index: 0, text: `Note\n\n${firstParagraph}` },
+        { index: 1, text: `Note\n\n${secondParagraph}` },
+        { index: 2, text: `Note\n\n${thirdParagraph}` },
+      ]
+
+      it("drops the empty paragraph a leading comment leaves", () => {
+        const chunks = chunkContent({
+          noteTitle: "Note",
+          bodyContent: `%%hidden%%\n\n${paragraphs}`,
+        })
+
+        expect(chunks).toEqual(chunksWithoutLeadingParagraph)
+      })
+
+      it("drops the empty paragraph leading blank lines leave", () => {
+        const chunks = chunkContent({ noteTitle: "Note", bodyContent: `\n\n\n${paragraphs}` })
+
+        expect(chunks).toEqual(chunksWithoutLeadingParagraph)
+      })
+
+      it("keeps a leading paragraph of spaces with the first paragraph", () => {
+        const chunks = chunkContent({ noteTitle: "Note", bodyContent: `   \n\n${paragraphs}` })
+
+        expect(chunks).toEqual([
+          { index: 0, text: `Note\n\n   \n\n${firstParagraph}` },
+          { index: 1, text: `Note\n\n${secondParagraph}` },
+          { index: 2, text: `Note\n\n${thirdParagraph}` },
+        ])
+      })
     })
   })
 
@@ -657,7 +711,7 @@ describe("chunkContent", () => {
       // floor, but MIN_CHUNK_TOKENS (50) catches it. 120 body tokens at a
       // 50-token floor → 50 + 50 + 20, and the sub-MIN 20-token tail
       // merges backward → 2 chunks.
-      const hugePrefix = `Tags: ${generateTokens(419)}.`
+      const hugePrefix = `Tags: ${generateShortLabeledTokens(419, "t")}.`
       const bodyWords = generateTokens(120).split(" ")
 
       const chunks = chunkContent({
@@ -754,7 +808,7 @@ describe("chunkContent", () => {
     })
 
     it("keeps a single-segment path even when it exceeds the budget", () => {
-      const hugeName = generateLabeledTokens(400, "huge")
+      const hugeName = generateShortLabeledTokens(400, "u")
       const body = `## ${hugeName}\n\n${generateLabeledTokens(200, "body")}${trailSection}`
       const chunks = chunkContent({ noteTitle: "Note", bodyContent: body })
 
@@ -917,8 +971,8 @@ describe("chunkContent", () => {
       // 2 segments of ~400 tokens each. The full path exceeds the ~399
       // budget, and the loop drops the outer segment — the remaining
       // deepest segment alone still exceeds the budget but survives.
-      const outerName = generateLabeledTokens(400, "out")
-      const innerName = generateLabeledTokens(400, "inn")
+      const outerName = generateShortLabeledTokens(400, "o")
+      const innerName = generateShortLabeledTokens(400, "i")
       const body =
         `## ${outerName}\n\n${generateLabeledTokens(200, "a")}\n\n` +
         `### ${innerName}\n\n${generateLabeledTokens(200, "b")}` +
@@ -955,6 +1009,194 @@ describe("chunkContent", () => {
         "Section: Getting Started Guide > Installation Steps > Platform Requirements > macOS Specific Notes",
       )
     })
+  })
+
+  describe("prefix parts cut to 2,000 characters", () => {
+    const sectionsBody = `## Other\n${generateTokens(300)}`
+
+    it("cuts a long single-word heading in the Section line", () => {
+      const longHeading = "h".repeat(5_000)
+      const firstBody = generateLabeledTokens(300, "first")
+      const body = `## ${longHeading}\n${firstBody}\n\n${sectionsBody}`
+
+      const chunks = chunkContent({ noteTitle: "Note", bodyContent: body })
+
+      expect(chunks[0]).toEqual({
+        index: 0,
+        text: `Note\nSection: ${"h".repeat(2_000)}\n\n${firstBody}`,
+      })
+    })
+
+    it("cuts a long multi-word heading in the Section line", () => {
+      // The cut heading still passes the Section-line budget, so this section's
+      // body budget floors at 50 tokens; 40 words stay one fragment.
+      const longHeading = generateShortLabeledTokens(1_000, "h")
+      const firstBody = generateLabeledTokens(40, "first")
+      const body = `## ${longHeading}\n${firstBody}\n\n${sectionsBody}`
+
+      const chunks = chunkContent({ noteTitle: "Note", bodyContent: body })
+
+      expect(chunks[0]).toEqual({
+        index: 0,
+        text: `Note\nSection: ${longHeading.slice(0, 2_000)}\n\n${firstBody}`,
+      })
+    })
+
+    it("cuts a long title in every chunk prefix and keeps it whole in the table of contents", () => {
+      const longTitle = "t".repeat(5_000)
+      const firstBody = generateLabeledTokens(300, "first")
+      const otherBody = generateLabeledTokens(300, "other")
+      const body = `## First\n${firstBody}\n\n## Other\n${otherBody}`
+
+      const chunks = chunkContent({ noteTitle: longTitle, bodyContent: body })
+
+      const cutTitle = "t".repeat(2_000)
+      expect(chunks).toEqual([
+        { index: 0, text: `${cutTitle}\nSection: First\n\n${firstBody}` },
+        { index: 1, text: `${cutTitle}\nSection: Other\n\n${otherBody}` },
+        { index: 2, text: `${longTitle}\n\nFirst\nOther` },
+      ])
+    })
+
+    it("cuts a long metadata line in every chunk prefix", () => {
+      const longMetadata = `Tags: ${"m".repeat(5_000)}.`
+      const body = generateTokens(100)
+
+      const chunks = chunkContent({
+        noteTitle: "Note",
+        bodyContent: body,
+        metadataPrefix: longMetadata,
+      })
+
+      expect(chunks).toEqual([
+        { index: 0, text: `Note\n${longMetadata.slice(0, 2_000)}\n\n${body}` },
+      ])
+    })
+  })
+
+  describe("per-note chunk text limit", () => {
+    const totalChunkCharacters = (chunks: ReadonlyArray<{ text: string }>): number => {
+      return chunks.map((chunk) => chunk.text.length).reduce((sum, length) => sum + length, 0)
+    }
+
+    // 390 short words: under 2,000 characters, so the cut leaves it whole, and
+    // under the Section-line budget, so every child chunk repeats it.
+    const longAncestor = generateShortLabeledTokens(390, "a")
+    // A long title in short words: 1,000 tokens in 2,000 characters, so each
+    // chunk's body budget floors at 50 tokens behind a 2,000-character prefix.
+    const longWordyTitle = Array.from({ length: 1_000 }, () => "t").join(" ")
+
+    it("stops a note of many one-line sections under a long ancestor at 20 times its body", () => {
+      const childSections = Array.from({ length: 2_000 }, (_, i) => `## c${i}\nw${i}`).join("\n")
+      const body = `# ${longAncestor}\n${childSections}`
+
+      const chunks = chunkContent({ noteTitle: "Note", bodyContent: body })
+
+      // The table-of-contents chunk comes last and sits outside the limit.
+      const bodyChunks = chunks.slice(0, -1)
+      const bodyTexts = bodyChunks.map((chunk) => chunk.text)
+      expect(totalChunkCharacters(bodyChunks)).toBeLessThanOrEqual(
+        20 * stripMarkdownSyntax(body).length,
+      )
+      expect(bodyTexts.indexOf(`Note\nSection: ${longAncestor} > c0\n\nw0`)).toBeGreaterThan(-1)
+      expect(bodyTexts.indexOf(`Note\nSection: ${longAncestor} > c1999\n\nw1999`)).toBe(-1)
+      expect(chunks.at(-1)?.text.startsWith(`Note\n\n${longAncestor}\nc0\nc1\n`)).toBe(true)
+    })
+
+    it("stops a note with no headings at 20 times its body", () => {
+      const body = Array.from({ length: 10_000 }, () => "b").join(" ")
+
+      const chunks = chunkContent({ noteTitle: longWordyTitle, bodyContent: body })
+
+      expect(chunks[0]).toEqual({ index: 0, text: `${longWordyTitle}\n\n${body.slice(0, 99)}` })
+      expect(totalChunkCharacters(chunks)).toBeLessThanOrEqual(20 * body.length)
+    })
+
+    it("stops one heading over a long body at 20 times the body", () => {
+      const sectionBody = Array.from({ length: 10_000 }, () => "b").join(" ")
+      const body = `## Only\n${sectionBody}`
+
+      const chunks = chunkContent({ noteTitle: longWordyTitle, bodyContent: body })
+
+      // The 1,000-token title leaves no table-of-contents budget, so every
+      // chunk here is a body chunk under the limit.
+      expect(chunks[0]).toEqual({
+        index: 0,
+        text: `${longWordyTitle}\n\n${sectionBody.slice(0, 99)}`,
+      })
+      expect(totalChunkCharacters(chunks)).toBeLessThanOrEqual(
+        20 * stripMarkdownSyntax(body).length,
+      )
+    })
+
+    it("stops any note at 50 million characters of chunk text", () => {
+      const sectionBody = Array.from({ length: 1_500_000 }, () => "b").join(" ")
+      const body = `## Only\n${sectionBody}`
+
+      const chunks = chunkContent({ noteTitle: longWordyTitle, bodyContent: body })
+
+      expect(totalChunkCharacters(chunks)).toBeLessThanOrEqual(50_000_000)
+      expect(totalChunkCharacters(chunks)).toBeGreaterThan(49_000_000)
+    })
+
+    it("keeps a short note's one chunk when its title alone passes 20 times the body", () => {
+      const title = "t".repeat(2_000)
+
+      const chunks = chunkContent({ noteTitle: title, bodyContent: "A short body." })
+
+      expect(chunks).toEqual([{ index: 0, text: `${title}\n\nA short body.` }])
+    })
+  })
+
+  describe("linear time on long input", () => {
+    /** Runs a script that builds a note and checks chunkContent's output, in
+     *  a child process with a deadline; returns what the script printed. */
+    const runChunkerInChild = (script: string): string => {
+      const chunkerUrl = new URL("../chunker.ts", import.meta.url).href
+      return execFileSync(
+        process.execPath,
+        [
+          "--import",
+          "tsx",
+          "--input-type=module",
+          "--eval",
+          `import { chunkContent } from ${JSON.stringify(chunkerUrl)};\n${script}`,
+        ],
+        { encoding: "utf8", timeout: CHILD_DEADLINE_MS, killSignal: "SIGKILL" },
+      )
+    }
+
+    it(
+      "splits a note with a million whitespace-only paragraphs within a child deadline",
+      () => {
+        const output = runChunkerInChild(`
+          const words = Array.from({ length: 500 }, (_, i) => "w" + i).join(" ");
+          const bodyContent = words + " \\n\\n".repeat(${LONG_RUN_LENGTH}) + "tail";
+          const chunks = chunkContent({ noteTitle: "Note", bodyContent });
+          const firstChunkText = "Note\\n\\n" + words.split(" ").slice(0, 449).join(" ");
+          process.stdout.write(String(chunks[0].text === firstChunkText && chunks.at(-1).text.endsWith("tail")));
+        `)
+
+        expect(output).toBe("true")
+      },
+      CHILD_DEADLINE_MS + 5_000,
+    )
+
+    it(
+      "chunks many sections under a million-character ancestor heading within a child deadline",
+      () => {
+        const output = runChunkerInChild(`
+          const children = Array.from({ length: 20000 }, (_, i) => "## c" + i + "\\nw" + i).join("\\n");
+          const bodyContent = "# " + "a".repeat(${LONG_RUN_LENGTH}) + "\\n" + children;
+          const chunks = chunkContent({ noteTitle: "Note", bodyContent });
+          const firstChildText = "Note\\nSection: " + "a".repeat(2000) + " > c0\\n\\nw0";
+          process.stdout.write(String(chunks.some((chunk) => chunk.text === firstChildText)));
+        `)
+
+        expect(output).toBe("true")
+      },
+      CHILD_DEADLINE_MS + 5_000,
+    )
   })
 })
 

@@ -18,11 +18,16 @@
  *     with a sub-MIN trailing fragment merged backward into its
  *     predecessor
  *  7. A split that yields no fragments at all falls back to one
- *     whole-body chunk so the note never leaves the vector index */
+ *     whole-body chunk so the note never leaves the vector index
+ *  8. Each prefix part (title, metadata line, heading name) is cut to
+ *     MAX_CHUNK_PREFIX_PART_CHARACTERS, and a note's chunk text stops at its
+ *     limit (see MAX_CHUNK_TEXT_PER_BODY_CHARACTER), so the chunks stay
+ *     proportional to the note's length */
 
 import { parseHeadings, type HeadingInfo } from "../obsidian-markdown/headings.js"
 import { splitIntoLines } from "../obsidian-markdown/lines.js"
 import { stripMarkdownSyntax } from "../obsidian-markdown/plaintext.js"
+import { truncateToCodePointLimit } from "../../utils/truncate-to-code-point-limit.js"
 
 type NoteChunk = Readonly<{
   index: number
@@ -32,6 +37,26 @@ type NoteChunk = Readonly<{
 const CHUNK_THRESHOLD_TOKENS = 500
 const MAX_CHUNK_TOKENS = 450
 const MIN_CHUNK_TOKENS = 50
+
+/** Each prefix part (the note title, the metadata line, each heading name) is
+ *  cut to this many code points before it joins a chunk prefix. The embedding
+ *  model reads 512 tokens, about 2,000 characters of English, so prefix text
+ *  past this point leaves no body text in view. */
+const MAX_CHUNK_PREFIX_PART_CHARACTERS = 2_000
+
+// A note's chunk text stops at the smaller of the two bounds below; the first
+// chunk and the table-of-contents chunk are always kept.
+
+/** Real notes measure up to about 4.7 times their stripped body (a Kanban
+ *  board: each section is embedded in its own chunk and again in its
+ *  top-level aggregate, each with a prefix), so 20 leaves room above that
+ *  while keeping a note's chunk text, and the work to embed it, proportional
+ *  to the note's length. */
+const MAX_CHUNK_TEXT_PER_BODY_CHARACTER = 20
+
+/** Bounds a very large note's chunk text in memory; a real note at the densest
+ *  measured ratio needs a stripped body over 10 MB to reach it. */
+const MAX_NOTE_CHUNK_TEXT_CHARACTERS = 50_000_000
 
 /** Approximate token count via whitespace splitting — good enough for
  *  deciding chunk boundaries without loading a real tokenizer. */
@@ -59,22 +84,36 @@ const splitLargeText = (text: string, maxChunkTokens: number): string[] => {
 
   const paragraphs = text.split(/\n\n+/)
   const subChunks: string[] = []
-  // Accumulates paragraphs until the combined token count exceeds the limit
-  let currentChunk = ""
+  // The paragraphs of the chunk being built, joined with "\n\n" when it is
+  // pushed; a new list starts after each push.
+  let chunkParagraphs: string[] = []
+  // The word count of chunkParagraphs, kept as a running total: joining with
+  // "\n\n" never merges two words, so it always equals a recount of the joined
+  // text, and each paragraph is counted once.
+  let chunkTokens = 0
 
   for (const paragraph of paragraphs) {
-    const combined = currentChunk ? `${currentChunk}\n\n${paragraph}` : paragraph
+    const paragraphTokens = approximateTokenCount(paragraph)
+    const overflowsChunk =
+      chunkParagraphs.length > 0 && chunkTokens + paragraphTokens > maxChunkTokens
 
-    if (approximateTokenCount(combined) > maxChunkTokens && currentChunk) {
-      subChunks.push(currentChunk)
-      currentChunk = paragraph
-    } else {
-      currentChunk = combined
+    if (overflowsChunk) {
+      subChunks.push(chunkParagraphs.join("\n\n"))
+      chunkParagraphs = []
+      chunkTokens = 0
     }
+
+    // An empty paragraph (from "\n\n" at the start or end of the text) opens
+    // no chunk: as a chunk's first paragraph it would add a separator the
+    // text never had there.
+    if (paragraph === "" && chunkParagraphs.length === 0) continue
+
+    chunkParagraphs.push(paragraph)
+    chunkTokens += paragraphTokens
   }
 
-  if (currentChunk) {
-    subChunks.push(currentChunk)
+  if (chunkParagraphs.length > 0) {
+    subChunks.push(chunkParagraphs.join("\n\n"))
   }
 
   // Word-boundary split for any chunks still over the limit
@@ -105,13 +144,44 @@ const splitWithTrailingMerge = (text: string, maxChunkTokens: number): string[] 
   return [...fragments.slice(0, -2), `${precedingFragment}\n\n${trailingFragment}`]
 }
 
-/** Prefix each text fragment with the chunk prefix and assign sequential
- *  indices. */
-const toChunks = (fragments: string[], chunkPrefix: string): NoteChunk[] => {
-  return fragments.map((fragment, index) => ({
-    index,
-    text: `${chunkPrefix}\n\n${fragment}`.trim(),
-  }))
+const prefixFragment = (chunkPrefix: string, fragment: string): string => {
+  return `${chunkPrefix}\n\n${fragment}`.trim()
+}
+
+/** The chunk texts in order, up to the one that would take their total length
+ *  past maxCharacters; the first text is always kept. Texts are read one at a
+ *  time, so a lazy iterator never builds the texts past the limit. */
+const takeWithinCharacterLimit = (
+  chunkTexts: Iterable<string>,
+  maxCharacters: number,
+): string[] => {
+  const keptTexts: string[] = []
+  // The total length of keptTexts, threaded through the loop.
+  let keptCharacters = 0
+
+  for (const chunkText of chunkTexts) {
+    const passesLimit = keptCharacters + chunkText.length > maxCharacters
+
+    if (passesLimit && keptTexts.length > 0) break
+    keptTexts.push(chunkText)
+    keptCharacters += chunkText.length
+  }
+  return keptTexts
+}
+
+const indexChunks = (chunkTexts: readonly string[]): NoteChunk[] => {
+  return chunkTexts.map((text, index) => ({ index, text }))
+}
+
+/** Prefix each text fragment with the chunk prefix, within the note's chunk
+ *  text limit, and assign sequential indices. */
+const toChunks = (
+  fragments: readonly string[],
+  chunkPrefix: string,
+  maxChunkTextCharacters: number,
+): NoteChunk[] => {
+  const chunkTexts = fragments.values().map((fragment) => prefixFragment(chunkPrefix, fragment))
+  return indexChunks(takeWithinCharacterLimit(chunkTexts, maxChunkTextCharacters))
 }
 
 /** Chunk budget after subtracting the prefix's own token cost, floored at
@@ -223,7 +293,12 @@ const collectSectionSpans = (
 
     // Wikilinks and emphasis markers in heading text would inject raw [[ / **
     // tokens into Section lines and the TOC — strip to plain text once here.
-    const headingText = stripMarkdownSyntax(heading.text).trim()
+    // Cut once here too, so a long ancestor name is not copied in full into
+    // every descendant's Section line.
+    const headingText = truncateToCodePointLimit(
+      stripMarkdownSyntax(heading.text).trim(),
+      MAX_CHUNK_PREFIX_PART_CHARACTERS,
+    )
 
     // Empty-text segments (a bare `##` line) carry no vocabulary — skip them.
     const headingPath = [...ancestorStack.map((ancestor) => ancestor.text), headingText].filter(
@@ -314,7 +389,11 @@ const buildTableOfContentsText = (
  *  would push body tail content out of view. A short note (under
  *  CHUNK_THRESHOLD_TOKENS) without a metadata prefix is always one chunk,
  *  the title and then the stripped body; changing that form would change
- *  every such note's content hash and re-embed it. */
+ *  every such note's content hash and re-embed it.
+ *
+ *  Each prefix part is cut to MAX_CHUNK_PREFIX_PART_CHARACTERS, and the
+ *  chunks stop at the note's chunk text limit; the first chunk and the
+ *  table-of-contents chunk always stay. */
 export const chunkContent = (params: {
   noteTitle: string
   bodyContent: string
@@ -333,21 +412,35 @@ export const chunkContent = (params: {
   const sourceFileName = sourcePath?.split("/").at(-1)
   const tocTitle = sourceFileName && !sourceFileName.endsWith(".md") ? sourceFileName : noteTitle
 
-  const basePrefix = metadataPrefix ? `${noteTitle}\n${metadataPrefix}` : noteTitle
+  // The TOC title above keeps the full title: the TOC chunk is emitted once,
+  // so its length cannot multiply.
+  const prefixTitle = truncateToCodePointLimit(noteTitle, MAX_CHUNK_PREFIX_PART_CHARACTERS)
+  const prefixMetadata = metadataPrefix
+    ? truncateToCodePointLimit(metadataPrefix, MAX_CHUNK_PREFIX_PART_CHARACTERS)
+    : null
+  const basePrefix = prefixMetadata ? `${prefixTitle}\n${prefixMetadata}` : prefixTitle
 
   const strippedBody = stripMarkdownSyntax(bodyContent)
   const bodyTokenCount = approximateTokenCount(strippedBody)
+  const maxChunkTextCharacters = Math.min(
+    MAX_CHUNK_TEXT_PER_BODY_CHARACTER * strippedBody.length,
+    MAX_NOTE_CHUNK_TEXT_CHARACTERS,
+  )
 
   if (bodyTokenCount < CHUNK_THRESHOLD_TOKENS) {
     // Only a metadata prefix can split a short note; without one, the note
     // keeps the one-chunk form described above.
     const exceedsBudgetWithPrefix =
-      Boolean(metadataPrefix) && bodyTokenCount > budgetAfterPrefix(basePrefix)
+      Boolean(prefixMetadata) && bodyTokenCount > budgetAfterPrefix(basePrefix)
 
     if (!exceedsBudgetWithPrefix) {
-      return toChunks([strippedBody], basePrefix)
+      return toChunks([strippedBody], basePrefix, maxChunkTextCharacters)
     }
-    return toChunks(splitWithTrailingMerge(strippedBody, budgetAfterPrefix(basePrefix)), basePrefix)
+    return toChunks(
+      splitWithTrailingMerge(strippedBody, budgetAfterPrefix(basePrefix)),
+      basePrefix,
+      maxChunkTextCharacters,
+    )
   }
 
   const bodyLines = splitIntoLines(bodyContent)
@@ -355,7 +448,11 @@ export const chunkContent = (params: {
 
   // No headings — split at paragraph boundaries
   if (headings.length === 0) {
-    return toChunks(splitWithTrailingMerge(strippedBody, budgetAfterPrefix(basePrefix)), basePrefix)
+    return toChunks(
+      splitWithTrailingMerge(strippedBody, budgetAfterPrefix(basePrefix)),
+      basePrefix,
+      maxChunkTextCharacters,
+    )
   }
 
   const firstHeading = headings[0]
@@ -363,30 +460,37 @@ export const chunkContent = (params: {
   // noUncheckedIndexedAccess: length > 0 guarantees this, but TS
   // doesn't narrow array index access from a prior length check.
   if (!firstHeading) {
-    return toChunks(splitWithTrailingMerge(strippedBody, budgetAfterPrefix(basePrefix)), basePrefix)
+    return toChunks(
+      splitWithTrailingMerge(strippedBody, budgetAfterPrefix(basePrefix)),
+      basePrefix,
+      maxChunkTextCharacters,
+    )
   }
 
   // Preamble (content above the first heading) has no owning section, so it
   // keeps the base prefix (no Section line) and emits standalone at any size.
+  // The preamble and section texts are built lazily, so assembly stops at the
+  // note's chunk text limit before the texts past it exist.
   const preambleLines = bodyLines.slice(0, firstHeading.startLine)
   const preambleText = stripMarkdownSyntax(preambleLines.join("\n")).trim()
-  const preambleFragments = preambleText
-    ? splitWithTrailingMerge(preambleText, budgetAfterPrefix(basePrefix)).map(
-        (fragment) => `${basePrefix}\n\n${fragment}`,
-      )
-    : []
+  const preambleTexts = preambleText
+    ? splitWithTrailingMerge(preambleText, budgetAfterPrefix(basePrefix))
+        .values()
+        .map((fragment) => prefixFragment(basePrefix, fragment))
+    : [].values()
 
   // Total chunk budget minus the body-content floor (MIN), title, and
   // metadata leaves what is available for the Section-line ancestor path.
-  const titleTokens = approximateTokenCount(noteTitle)
-  const metadataTokens = metadataPrefix ? approximateTokenCount(metadataPrefix) : 0
+  const titleTokens = approximateTokenCount(prefixTitle)
+  const metadataTokens = prefixMetadata ? approximateTokenCount(prefixMetadata) : 0
   const sectionLineBudget = Math.max(
     MAX_CHUNK_TOKENS - MIN_CHUNK_TOKENS - titleTokens - metadataTokens,
     0,
   )
 
-  const sectionFragments = collectSectionSpans(headings, preambleText !== "").flatMap(
-    (sectionSpan) => {
+  const sectionTexts = collectSectionSpans(headings, preambleText !== "")
+    .values()
+    .flatMap((sectionSpan) => {
       const sectionSpanText = stripMarkdownSyntax(
         bodyLines.slice(sectionSpan.startLine, sectionSpan.endLine).join("\n"),
       ).trim()
@@ -400,20 +504,26 @@ export const chunkContent = (params: {
 
       const cappedPath = capHeadingPath(sectionSpan.headingPath, sectionLineBudget)
       const sectionLine = cappedPath.length > 0 ? `Section: ${cappedPath.join(" > ")}` : null
-      const sectionPrefix = [noteTitle, sectionLine, metadataPrefix].filter(Boolean).join("\n")
+      const sectionPrefix = [prefixTitle, sectionLine, prefixMetadata].filter(Boolean).join("\n")
 
-      return splitWithTrailingMerge(sectionSpanText, budgetAfterPrefix(sectionPrefix)).map(
-        (fragment) => `${sectionPrefix}\n\n${fragment}`,
-      )
-    },
+      return splitWithTrailingMerge(sectionSpanText, budgetAfterPrefix(sectionPrefix))
+        .values()
+        .map((fragment) => prefixFragment(sectionPrefix, fragment))
+    })
+
+  const bodyChunkTexts = takeWithinCharacterLimit(
+    [preambleTexts, sectionTexts].values().flatMap((chunkTexts) => chunkTexts),
+    maxChunkTextCharacters,
   )
 
   // The TOC chunk takes no metadata prefix — on a chunk this small the prefix
   // would dominate the token average, and notes of one type (e.g. Kanban
   // boards) would all share an identical Type/Tags line, collapsing exactly
-  // the note-vs-note discrimination this chunk exists to provide.
+  // the note-vs-note discrimination this chunk exists to provide. It sits
+  // outside the chunk text limit: it is emitted once, and it is the note's one
+  // short chunk for broad queries.
   const tableOfContentsText = buildTableOfContentsText(tocTitle, headings, folderSegments)
-  const tableOfContentsFragments = tableOfContentsText ? [tableOfContentsText] : []
+  const tableOfContentsTexts = tableOfContentsText ? [tableOfContentsText.trim()] : []
 
   // The TOC is emitted LAST: the reranker scores FTS-only candidates on
   // chunk index 0 as "title + intro" text, so whenever any body fragment
@@ -421,19 +531,16 @@ export const chunkContent = (params: {
   // whose sections are all empty emits the TOC as its only fragment —
   // there the heading list IS the note's content, so index 0 holding it
   // is the accurate representation.
-  const prefixedFragments = [...preambleFragments, ...sectionFragments, ...tableOfContentsFragments]
+  const chunkTexts = [...bodyChunkTexts, ...tableOfContentsTexts]
 
   // A note whose split yields nothing (every heading bare of text and body)
   // keeps the whole-body fallback so it never silently leaves the vector
   // index.
-  if (prefixedFragments.length === 0) {
-    return toChunks([strippedBody], basePrefix)
+  if (chunkTexts.length === 0) {
+    return toChunks([strippedBody], basePrefix, maxChunkTextCharacters)
   }
 
-  // Each fragment already carries its per-section prefix (sections have
+  // Each text already carries its per-section prefix (sections have
   // different prefixes), so toChunks' uniform-prefix join doesn't apply.
-  return prefixedFragments.map((fragmentText, index) => ({
-    index,
-    text: fragmentText.trim(),
-  }))
+  return indexChunks(chunkTexts)
 }
