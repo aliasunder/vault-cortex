@@ -220,12 +220,16 @@ const QUOTED_PHRASE_RE = /^"(?<phrase>[^"]*)"$/
 
 /** The folded text a query is compared with note names: the trimmed query, or
  *  the text inside the quotes when the whole query is one double-quoted phrase.
- *  Empty when the query has no text. */
+ *  Empty when the query has no text or spans lines. */
 export const toNameLookupText = (query: string): string => {
   const trimmedQuery = query.trim()
   const quotedPhrase = QUOTED_PHRASE_RE.exec(trimmedQuery)?.groups?.phrase
+  const nameText = quotedPhrase?.trim() ?? trimmedQuery
 
-  return foldName(quotedPhrase?.trim() ?? trimmedQuery)
+  // The title column puts one name on each line, so text spanning lines would
+  // equal two adjacent names rather than one
+  if (nameText.includes("\n")) return ""
+  return foldName(nameText)
 }
 
 /** The aliases that differ from the title and from each other, compared

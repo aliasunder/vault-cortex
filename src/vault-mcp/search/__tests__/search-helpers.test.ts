@@ -187,6 +187,7 @@ describe("toNameLookupText", () => {
     { label: "a query with a quoted part", query: '"Mom" trip', expected: '"mom" trip' },
     { label: "empty quotes", query: '""', expected: "" },
     { label: "whitespace only", query: "   ", expected: "" },
+    { label: "a query spanning lines", query: "Avery\nMom", expected: "" },
   ])("folds $label", ({ query, expected }) => {
     expect(toNameLookupText(query)).toBe(expected)
   })
