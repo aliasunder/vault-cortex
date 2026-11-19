@@ -104,6 +104,17 @@ describe("validateVaultPath", () => {
     })
   })
 
+  it.each([
+    { label: "an escape", controlCharacter: String.fromCodePoint(0x1b) },
+    { label: "a tab", controlCharacter: String.fromCodePoint(0x09) },
+    { label: "a C1 control character", controlCharacter: String.fromCodePoint(0x9b) },
+  ])("rejects a path containing $label", ({ controlCharacter }) => {
+    expect(validateVaultPath(`/home/user/no${controlCharacter}tes`)).toEqual({
+      kind: "error",
+      message: "Vault path must not contain a control character.",
+    })
+  })
+
   it.skipIf(runsAsRoot)(
     "returns the does-not-exist error for a path behind a folder it cannot open",
     () => {

@@ -20,6 +20,9 @@ export const expandTilde = (input: string, home: string = homedir()): string => 
 /** Matches a line break, including the Unicode line and paragraph separators. */
 const LINE_BREAK = /[\r\n\u2028\u2029]/
 
+/** Matches a control character, such as an escape or a tab. */
+const CONTROL_CHARACTER = /\p{Cc}/u
+
 /**
  * Validates a candidate Obsidian vault path. A missing or non-directory
  * path is an error; a directory without a `.obsidian/` folder is only a
@@ -42,6 +45,11 @@ export const validateVaultPath = (input: string): VaultPathValidation => {
 
   const absolutePath = resolve(expandTilde(trimmed))
 
+  // Each message below prints the path, and a terminal acts on a control
+  // character instead of showing it.
+  if (CONTROL_CHARACTER.test(absolutePath)) {
+    return { kind: "error", message: "Vault path must not contain a control character." }
+  }
   if (!existsSync(absolutePath)) {
     return { kind: "error", message: `Path does not exist: ${absolutePath}` }
   }
