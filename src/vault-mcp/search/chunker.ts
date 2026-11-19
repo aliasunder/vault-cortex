@@ -205,23 +205,38 @@ export const buildChunkMetadataPrefix = (params: {
   return parts.length > 0 ? parts.join(" ") : null
 }
 
+/** One heading name in a Section line, with its word count taken once, so
+ *  every descendant's Section line is sized without counting the name again. */
+type HeadingSegment = Readonly<{
+  text: string
+  tokens: number
+}>
+
+const SECTION_LABEL_TOKENS = approximateTokenCount("Section:")
+
+/** The word count of `Section: <segments joined with " > ">`: the label, each
+ *  segment, and one ">" between each pair. Each segment is trimmed text that
+ *  starts and ends with a word, so the separators never merge two words. */
+const sectionLineTokenCount = (segments: readonly HeadingSegment[]): number => {
+  const segmentTokens = segments
+    .map((segment) => segment.tokens)
+    .reduce((sum, tokens) => sum + tokens, 0)
+  return SECTION_LABEL_TOKENS + segmentTokens + segments.length - 1
+}
+
 /** Drop leading (outermost) ancestors when the assembled Section line
  *  would exceed a token budget, keeping the deepest segments — those
  *  carry the section's own vocabulary and are most useful for retrieval. */
 const capHeadingPath = (
-  headingPath: readonly string[],
+  headingPath: readonly HeadingSegment[],
   sectionLineBudget: number,
-): readonly string[] => {
+): readonly HeadingSegment[] => {
   // Suppress the Section line when the budget can't even hold the
   // "Section:" literal — a 1-2 token budget would add a prefix with
   // no retrievable path vocabulary.
-  const sectionLabelTokens = approximateTokenCount("Section:")
+  if (sectionLineBudget < SECTION_LABEL_TOKENS || headingPath.length === 0) return []
 
-  if (sectionLineBudget < sectionLabelTokens || headingPath.length === 0) return []
-
-  const sectionLineTokens = approximateTokenCount(`Section: ${headingPath.join(" > ")}`)
-
-  if (sectionLineTokens <= sectionLineBudget) return headingPath
+  if (sectionLineTokenCount(headingPath) <= sectionLineBudget) return headingPath
 
   const capped = [...headingPath]
   // The deepest segment survives even when it alone exceeds the budget,
@@ -229,7 +244,7 @@ const capHeadingPath = (
   // early return above suppresses the Section line entirely.
   while (capped.length > 1) {
     capped.shift()
-    if (approximateTokenCount(`Section: ${capped.join(" > ")}`) <= sectionLineBudget) break
+    if (sectionLineTokenCount(capped) <= sectionLineBudget) break
   }
   return capped
 }
@@ -238,7 +253,7 @@ const capHeadingPath = (
  *  own body for deeper ones — see collectSectionSpans) plus the
  *  ancestor-chain path that names it. */
 type SectionSpan = Readonly<{
-  headingPath: readonly string[]
+  headingPath: readonly HeadingSegment[]
   startLine: number
   endLine: number
 }>
@@ -280,7 +295,7 @@ const collectSectionSpans = (
     topLevelHeadingCount === 1 && headings[0]?.level === shallowestLevel && !preambleExists
 
   const sectionSpans: SectionSpan[] = []
-  const ancestorStack: { text: string; level: number }[] = []
+  const ancestorStack: { segment: HeadingSegment; level: number }[] = []
 
   headings.forEach((heading, headingIndex) => {
     // Pop siblings and descendants (same or deeper level) so the stack
@@ -299,11 +314,13 @@ const collectSectionSpans = (
       stripMarkdownSyntax(heading.text).trim(),
       MAX_CHUNK_PREFIX_PART_CHARACTERS,
     )
+    const headingSegment = { text: headingText, tokens: approximateTokenCount(headingText) }
 
     // Empty-text segments (a bare `##` line) carry no vocabulary — skip them.
-    const headingPath = [...ancestorStack.map((ancestor) => ancestor.text), headingText].filter(
-      (segment) => segment !== "",
-    )
+    const headingPath = [
+      ...ancestorStack.map((ancestor) => ancestor.segment),
+      headingSegment,
+    ].filter((segment) => segment.text !== "")
 
     // The next heading's startLine gives the disjoint boundary (own body
     // only); bodyEndLine would span the full subtree.
@@ -317,7 +334,7 @@ const collectSectionSpans = (
       startLine: heading.bodyStartLine,
       endLine: isTopLevelHeading ? heading.bodyEndLine : ownBodyEndLine,
     })
-    ancestorStack.push({ text: headingText, level: heading.level })
+    ancestorStack.push({ segment: headingSegment, level: heading.level })
   })
 
   return sectionSpans
@@ -503,7 +520,10 @@ export const chunkContent = (params: {
       if (!sectionSpanText) return []
 
       const cappedPath = capHeadingPath(sectionSpan.headingPath, sectionLineBudget)
-      const sectionLine = cappedPath.length > 0 ? `Section: ${cappedPath.join(" > ")}` : null
+      const sectionLine =
+        cappedPath.length > 0
+          ? `Section: ${cappedPath.map((segment) => segment.text).join(" > ")}`
+          : null
       const sectionPrefix = [prefixTitle, sectionLine, prefixMetadata].filter(Boolean).join("\n")
 
       return splitWithTrailingMerge(sectionSpanText, budgetAfterPrefix(sectionPrefix))

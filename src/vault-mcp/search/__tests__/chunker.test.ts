@@ -1197,6 +1197,24 @@ describe("chunkContent", () => {
       },
       CHILD_DEADLINE_MS + 5_000,
     )
+
+    it(
+      "chunks many sections under five long multi-word ancestor headings within a child deadline",
+      () => {
+        // Each ancestor name is a 2,000-character run of short words, so every
+        // section's Section line is cut down to the section's own name.
+        const output = runChunkerInChild(`
+          const ancestorName = Array.from({ length: 1000 }, () => "a").join(" ");
+          const ancestors = [1, 2, 3, 4, 5].map((level) => "#".repeat(level) + " " + ancestorName).join("\\n");
+          const sections = Array.from({ length: 100000 }, () => "###### z\\ny").join("\\n");
+          const chunks = chunkContent({ noteTitle: "Note", bodyContent: ancestors + "\\n" + sections });
+          process.stdout.write(String(chunks.some((chunk) => chunk.text === "Note\\nSection: z\\n\\ny")));
+        `)
+
+        expect(output).toBe("true")
+      },
+      CHILD_DEADLINE_MS + 5_000,
+    )
   })
 })
 
