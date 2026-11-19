@@ -53,9 +53,10 @@ const MAX_CHUNK_PREFIX_PART_CODE_POINTS = 2_000
  *  each chunk repeats its prefix, and a section below the top level is also
  *  embedded in its top-level aggregate. Prose measures under 3 times, a Kanban
  *  board about 4.7, and a note of one-line sections 7 to 14 as its title
- *  lengthens, so 20 leaves room above that while keeping a note's chunk text,
- *  and the work to embed it, proportional to the note's length. */
-const MAX_CHUNK_TEXT_PER_BODY_CHARACTER = 20
+ *  lengthens, reaching 50 only with a title of about 700 characters. 50
+ *  leaves room above those while keeping a note's chunk text, and the work to
+ *  embed it, proportional to the note's length. */
+const MAX_CHUNK_TEXT_PER_BODY_CHARACTER = 50
 
 /** Bounds a very large note's chunk text in memory; a real note at the densest
  *  measured ratio needs a stripped body over 3.5 MB to reach it. */

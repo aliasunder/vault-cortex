@@ -1142,13 +1142,13 @@ describe("chunkContent", () => {
     // each body budget floors at 50 tokens, and the body is one-letter words.
     const fiftyWordChunkText = `${longWordyTitle}\n\n${Array.from({ length: 50 }, () => "b").join(" ")}`
 
-    it("stops a note of many one-line sections under a long ancestor at 20 times its body", () => {
+    it("stops a note of many one-line sections under a long ancestor at 50 times its body", () => {
       const childCount = 2_000
       const childSections = Array.from({ length: childCount }, (_, i) => `## c${i}\nw${i}`).join(
         "\n",
       )
       const body = `# ${longAncestor}\n${childSections}`
-      const limit = 20 * stripMarkdownSyntax(body).length
+      const limit = 50 * stripMarkdownSyntax(body).length
 
       const chunks = chunkContent({ noteTitle: "Note", bodyContent: body })
 
@@ -1185,55 +1185,39 @@ describe("chunkContent", () => {
       expect(keptCharacters + (unlimitedTexts[keptCount]?.length ?? 0)).toBeGreaterThan(limit)
     })
 
-    it("stops a note with no headings at 20 times its body", () => {
-      const body = Array.from({ length: 10_000 }, () => "b").join(" ")
-      const keptCount = Math.floor((20 * body.length) / fiftyWordChunkText.length)
+    // Each note below has 1.5 million one-letter words under the long wordy
+    // title. Its chunks would total about 21 times its body, under the 50-times
+    // limit, but over 50 million characters, so the fixed bound applies. The
+    // chunks are compared as a count and their distinct texts, because a
+    // failing toEqual on the whole array would print 50 MB.
+    const millionWordBody = Array.from({ length: 1_500_000 }, () => "b").join(" ")
+    const keptAtFixedBound = Math.floor(50_000_000 / fiftyWordChunkText.length)
 
-      const chunks = chunkContent({ noteTitle: longWordyTitle, bodyContent: body })
+    it("stops a note with no headings at 50 million characters of chunk text", () => {
+      const chunks = chunkContent({ noteTitle: longWordyTitle, bodyContent: millionWordBody })
 
-      // Without the limit, the 10,000 words would make 200 chunks.
-      expect(keptCount).toBeLessThan(200)
-      expect(chunks).toEqual(
-        Array.from({ length: keptCount }, (_, index) => ({ index, text: fiftyWordChunkText })),
-      )
-    })
-
-    it("stops one heading over a long body at 20 times the body", () => {
-      const sectionBody = Array.from({ length: 10_000 }, () => "b").join(" ")
-      const body = `## Only\n${sectionBody}`
-      const keptCount = Math.floor(
-        (20 * stripMarkdownSyntax(body).length) / fiftyWordChunkText.length,
-      )
-
-      const chunks = chunkContent({ noteTitle: longWordyTitle, bodyContent: body })
-
-      // The 1,000-token title leaves no table-of-contents budget, so every
-      // chunk here is a body chunk under the limit. Without the limit, the
-      // 10,000 words would make 200 chunks.
-      expect(keptCount).toBeLessThan(200)
-      expect(chunks).toEqual(
-        Array.from({ length: keptCount }, (_, index) => ({ index, text: fiftyWordChunkText })),
-      )
-    })
-
-    it("stops any note at 50 million characters of chunk text", () => {
-      const sectionBody = Array.from({ length: 1_500_000 }, () => "b").join(" ")
-      const body = `## Only\n${sectionBody}`
-      const keptCount = Math.floor(50_000_000 / fiftyWordChunkText.length)
-
-      const chunks = chunkContent({ noteTitle: longWordyTitle, bodyContent: body })
-
-      // 20 times this body is over 50 million characters, so the fixed bound
-      // applies. The chunks are compared as a count and their distinct texts,
-      // because a failing toEqual on the whole array would print 50 MB.
-      expect(20 * stripMarkdownSyntax(body).length).toBeGreaterThan(50_000_000)
       expect({
         count: chunks.length,
         distinctTexts: [...new Set(chunks.map((chunk) => chunk.text))],
-      }).toEqual({ count: keptCount, distinctTexts: [fiftyWordChunkText] })
+      }).toEqual({ count: keptAtFixedBound, distinctTexts: [fiftyWordChunkText] })
     })
 
-    it("keeps a short note's one chunk when its title alone passes 20 times the body", () => {
+    it("stops one heading over a long body at 50 million characters of chunk text", () => {
+      const chunks = chunkContent({
+        noteTitle: longWordyTitle,
+        bodyContent: `## Only\n${millionWordBody}`,
+      })
+
+      // The 1,000-token title leaves no table-of-contents budget, so every
+      // chunk here is a body chunk counted against the bound one at a time,
+      // inside the one section.
+      expect({
+        count: chunks.length,
+        distinctTexts: [...new Set(chunks.map((chunk) => chunk.text))],
+      }).toEqual({ count: keptAtFixedBound, distinctTexts: [fiftyWordChunkText] })
+    })
+
+    it("keeps a short note's one chunk when its title alone passes 50 times the body", () => {
       const title = "t".repeat(2_000)
 
       const chunks = chunkContent({ noteTitle: title, bodyContent: "A short body." })
