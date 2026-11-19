@@ -615,6 +615,30 @@ describe("askOptionalSettings per-setting prompts", () => {
     expect(scripted.logs).toEqual(["Kept the current value (0)."])
   })
 
+  it("does not record a toggle confirmed on over a TRUE spelling", async () => {
+    const scripted = createScriptedPrompts([["MEMORY_ENABLED"], true])
+
+    const overrides = await askOptionalSettings(
+      { portsInUse: new Map(), mode: "local", envContent: "MEMORY_ENABLED=TRUE\n" },
+      scripted.prompts,
+    )
+
+    expect(overrides).toEqual({})
+    expect(scripted.logs).toEqual(["Kept the current value (TRUE)."])
+  })
+
+  it("records a confirmed toggle over a spelling the server rejects, so the line is repaired", async () => {
+    const scripted = createScriptedPrompts([["MEMORY_ENABLED"], true])
+
+    const overrides = await askOptionalSettings(
+      { portsInUse: new Map(), mode: "local", envContent: "MEMORY_ENABLED=yes\n" },
+      scripted.prompts,
+    )
+
+    expect(overrides).toEqual({ MEMORY_ENABLED: "true" })
+    expect(scripted.logs).toEqual([])
+  })
+
   it("records a toggle turned off over a 1 spelling", async () => {
     const scripted = createScriptedPrompts([["MEMORY_ENABLED"], false])
 

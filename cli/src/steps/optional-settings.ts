@@ -182,12 +182,22 @@ const OPTIONAL_SETTINGS: OptionalSetting[] = [
 const isEnabledToggleValue = (value: string | undefined): boolean =>
   !["false", "0"].includes((value ?? "").toLowerCase())
 
+/** The toggle spellings the server's env-var asBool accepts, in any case, and the state each means. */
+const TOGGLE_STATES: ReadonlyMap<string, string> = new Map([
+  ["true", "true"],
+  ["1", "true"],
+  ["false", "false"],
+  ["0", "false"],
+])
+
 /**
  * The value the server runs with for a setting, given its .env text, in the
  * spelling the setting's prompt returns:
  * - an unset or empty line means the setting's default, since Compose's
  *   `${VAR:-default}` and env-var's `.default()` both read an empty value as unset;
- * - a set toggle reads as "true" unless it says false or 0.
+ * - a toggle reads as "true" or "false" from any spelling the server accepts.
+ *   Any other spelling stops the server at boot, so it is returned as written:
+ *   it then matches no answer, and confirming the toggle rewrites the line.
  */
 const effectiveSettingValue = (
   setting: OptionalSetting,
@@ -195,7 +205,8 @@ const effectiveSettingValue = (
 ): string | undefined => {
   switch (setting.kind) {
     case "toggle":
-      return String(envText ? isEnabledToggleValue(envText) : (setting.defaultEnabled ?? true))
+      if (!envText) return String(setting.defaultEnabled ?? true)
+      return TOGGLE_STATES.get(envText.toLowerCase()) ?? envText
     case "port":
       return envText || String(DEFAULT_PORT)
     case "folder":
@@ -306,9 +317,14 @@ const askSettingValue = async (
   const { setting, currentValue, portsInUse } = params
   switch (setting.kind) {
     case "toggle": {
-      // Seeded from the value in effect, so an unset default-off toggle such
-      // as READONLY_MODE starts at "no".
-      const currentlyEnabled = effectiveSettingValue(setting, currentValue) === "true"
+      // An unset or empty var means the server default applies — seed the
+      // confirm from defaultEnabled, not from the enabled-unless-"false"
+      // heuristic (wrong for default-off toggles like READONLY_MODE).
+      // Empty string matters: `READONLY_MODE=` in .env is read as unset
+      // by Compose's `${VAR:-default}` and env-var's `.default()`.
+      const currentlyEnabled = !currentValue
+        ? (setting.defaultEnabled ?? true)
+        : isEnabledToggleValue(currentValue)
       const enabled = await prompts.confirm(setting.question, currentlyEnabled)
       return String(enabled)
     }
