@@ -534,11 +534,12 @@ export const chunkContent = (params: {
   const preambleText = stripMarkdownSyntax(
     bodyLines.slice(0, firstHeading.startLine).join("\n"),
   ).trim()
+  const preambleExists = Boolean(preambleText)
 
   // A section span is split only when it is reached. Assembly stops at the
   // first text past the note's chunk text limit, before any later span is
   // split or any later fragment is prefixed.
-  const sectionTexts = collectSectionSpans(headings, preambleText !== "")
+  const sectionTexts = collectSectionSpans(headings, preambleExists)
     .values()
     .flatMap((sectionSpan) => {
       const sectionSpanText = stripMarkdownSyntax(
