@@ -19,6 +19,12 @@ export const safeEqual = (a: string, b: string): boolean => {
 export const headerAsString = (value: string | string[] | undefined): string | undefined =>
   Array.isArray(value) ? value[0] : value
 
+/** Matches the run of slashes at the end of a path. The lookbehind lets a
+ *  match start only at the first slash of a run, so a long run of slashes
+ *  followed by another character is not rescanned from each of its slashes,
+ *  which takes time quadratic in the run's length. */
+const TRAILING_SLASH_RUN_PATTERN = /(?<!\/)\/+$/
+
 /**
  * An RFC 8707 resource identifier in the canonical form the MCP spec
  * defines for a server URI: lowercase scheme and host (URL parsing does
@@ -28,11 +34,7 @@ export const headerAsString = (value: string | string[] | undefined): string | u
  * https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization#canonical-server-uri
  */
 export const canonicalResourceUri = (resource: URL): string => {
-  // The lookbehind lets a match start only at the first slash of a run, so a
-  // client-sent path holding a long run of slashes followed by another
-  // character is not rescanned from each of its slashes, which takes time
-  // quadratic in the run's length.
-  const pathWithoutTrailingSlash = resource.pathname.replace(/(?<!\/)\/+$/, "")
+  const pathWithoutTrailingSlash = resource.pathname.replace(TRAILING_SLASH_RUN_PATTERN, "")
   return `${resource.origin}${pathWithoutTrailingSlash}`
 }
 

@@ -164,12 +164,16 @@ const parseLeadingCalloutJson = (json: string): LeadingCallout => {
 
 // ── Folder paths and LIKE patterns ────────────────────────────
 
+/** Matches the run of slashes at the end of a path. The lookbehind lets a
+ *  match start only at the first slash of a run, so a long run of slashes
+ *  followed by another character is not rescanned from each of its slashes,
+ *  which takes time quadratic in the run's length. */
+const TRAILING_SLASH_RUN_PATTERN = /(?<!\/)\/+$/
+
 /** Strips trailing slashes so folder paths produce clean LIKE patterns
- *  (e.g. `"Projects/"` → `"Projects"`, avoiding `Projects//%`). The
- *  lookbehind lets a match start only at the first slash of a run, so a long
- *  run of slashes followed by another character is not rescanned from each of
- *  its slashes, which takes time quadratic in the run's length. */
-export const stripTrailingSlashes = (folder: string): string => folder.replace(/(?<!\/)\/+$/, "")
+ *  (e.g. `"Projects/"` → `"Projects"`, avoiding `Projects//%`). */
+export const stripTrailingSlashes = (folder: string): string =>
+  folder.replace(TRAILING_SLASH_RUN_PATTERN, "")
 
 /** Escapes LIKE-wildcard characters (`\`, `%`, `_`) in a value so it is
  *  matched literally in a `LIKE ... ESCAPE '\'` clause. */

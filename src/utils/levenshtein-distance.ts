@@ -1,5 +1,5 @@
-/** Reads one computed cell, throwing instead of silently degrading if a
- *  band-index invariant ever breaks. */
+/** Reads one cell of a distance row, throwing instead of silently degrading
+ *  if an index ever falls outside the row. */
 const readCell = (row: readonly number[], columnIndex: number): number => {
   const cell = row[columnIndex]
 
@@ -9,8 +9,8 @@ const readCell = (row: readonly number[], columnIndex: number): number => {
 
 /**
  * Reports whether two strings are within `maxDistance` Levenshtein edits of
- * each other — single-character insertions, deletions or substitutions.
- * Case-sensitive: callers comparing case-insensitively fold case first.
+ * each other — insertions, deletions or substitutions of one UTF-16 code unit
+ * each. Case-sensitive: callers comparing case-insensitively fold case first.
  *
  * Only cells within `maxDistance` of the distance table's diagonal can hold a
  * value of `maxDistance` or less, so each row computes that band alone. The
@@ -29,50 +29,62 @@ export const isWithinEditDistance = (params: {
   const { first, second, maxDistance } = params
 
   if (first === second) return true
+
+  // Turning one string into the other takes at least as many edits as their
+  // length difference. Past this check, the last row's band also reaches
+  // column second.length, the cell the final read returns.
   if (Math.abs(first.length - second.length) > maxDistance) return false
 
   // Every distance above maxDistance is capped at this value: the answer only
   // depends on whether a cell exceeds maxDistance, never by how much.
-  const unreachable = maxDistance + 1
+  const overBudget = maxDistance + 1
 
-  const firstRow = Array.from({ length: second.length + 1 }, (unusedCell, columnIndex) => {
-    return Math.min(columnIndex, unreachable)
+  const bandForRow = (rowIndex: number): { start: number; end: number } => {
+    return {
+      start: Math.max(0, rowIndex - maxDistance),
+      end: Math.min(second.length, rowIndex + maxDistance),
+    }
+  }
+
+  // The walk keeps two rows of distances, each cell derived from the row
+  // above and the cell to its left, and swaps them after every row.
+  let previousRow = Array.from({ length: second.length + 1 }, (unusedCell, columnIndex) => {
+    return Math.min(columnIndex, overBudget)
   })
-  const scratchRow = Array.from({ length: second.length + 1 }, () => unreachable)
-
-  // The walk threads two rows of distances, each cell derived from the row
-  // above and the cell to its left, and swaps them after every row. A row
-  // writes only its band, so a read outside the previous row's band is treated
-  // as unreachable instead of trusting a cell left over from an older row.
-  let [previousRow, currentRow] = [firstRow, scratchRow]
+  let currentRow = Array.from({ length: second.length + 1 }, () => overBudget)
 
   for (let rowIndex = 1; rowIndex <= first.length; rowIndex++) {
-    const bandStart = Math.max(0, rowIndex - maxDistance)
-    const bandEnd = Math.min(second.length, rowIndex + maxDistance)
-    const previousBandEnd = rowIndex - 1 + maxDistance
+    const band = bandForRow(rowIndex)
+    const previousBand = bandForRow(rowIndex - 1)
 
     // The smallest distance in this row; once it passes maxDistance, no later
     // row can come back under it.
-    let rowMinimum = unreachable
+    let rowMinimum = overBudget
 
-    for (let columnIndex = bandStart; columnIndex <= bandEnd; columnIndex++) {
+    for (let columnIndex = band.start; columnIndex <= band.end; columnIndex++) {
       if (columnIndex === 0) {
-        currentRow[0] = Math.min(rowIndex, unreachable)
-        rowMinimum = Math.min(rowMinimum, readCell(currentRow, 0))
+        const emptyPrefixDistance = Math.min(rowIndex, overBudget)
+
+        currentRow[0] = emptyPrefixDistance
+        rowMinimum = Math.min(rowMinimum, emptyPrefixDistance)
         continue
       }
 
-      const deletionBase =
-        columnIndex <= previousBandEnd ? readCell(previousRow, columnIndex) : unreachable
-      const insertionBase =
-        columnIndex - 1 >= bandStart ? readCell(currentRow, columnIndex - 1) : unreachable
+      // A row writes only its band, so a cell outside a band still holds a
+      // value from an older row and counts as over budget instead. The
+      // previous row's band covers this row's band shifted one column left,
+      // so the substitution read always lands inside it.
+      const deletionInBand = columnIndex <= previousBand.end
+      const insertionInBand = columnIndex - 1 >= band.start
+      const deletionBase = deletionInBand ? readCell(previousRow, columnIndex) : overBudget
+      const insertionBase = insertionInBand ? readCell(currentRow, columnIndex - 1) : overBudget
       const substitutionBase = readCell(previousRow, columnIndex - 1)
       const substitutionCost = first[rowIndex - 1] === second[columnIndex - 1] ? 0 : 1
       const cellDistance = Math.min(
         deletionBase + 1,
         insertionBase + 1,
         substitutionBase + substitutionCost,
-        unreachable,
+        overBudget,
       )
 
       currentRow[columnIndex] = cellDistance
@@ -80,7 +92,10 @@ export const isWithinEditDistance = (params: {
     }
 
     if (rowMinimum > maxDistance) return false
-    ;[previousRow, currentRow] = [currentRow, previousRow]
+
+    const finishedRow = currentRow
+    currentRow = previousRow
+    previousRow = finishedRow
   }
 
   return readCell(previousRow, second.length) <= maxDistance
