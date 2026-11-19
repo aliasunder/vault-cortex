@@ -22,7 +22,6 @@ import {
   noteRowToSearchResult,
   escapeLikeWildcards,
   folderLikePattern,
-  stripTrailingSlashes,
   dayToEpochMsRange,
   normalizeTagQuery,
   nestedTagLikePattern,
@@ -31,6 +30,7 @@ import {
   NOTE_METADATA_COLUMNS_SQL,
 } from "./search-helpers.js"
 import type { FileContentFtsRow } from "./search-helpers.js"
+import { stripTrailingSlashes } from "../../utils/strip-trailing-slashes.js"
 import type {
   SearchResult,
   MemoryRecallEntry,
