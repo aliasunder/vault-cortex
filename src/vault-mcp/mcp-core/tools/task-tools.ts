@@ -40,8 +40,8 @@ export const registerTaskTools = ({
   // The heading-not-found Errors entry of both task write tools, given what
   // each one lists: vault_update_task leaves out headings inside the moving
   // task's own lines, since it cannot move a task under itself.
-  const describeHeadingNotFoundErrorEntry = (listedHeadings: string): string => {
-    return `- "heading "X" not found; available …" — the message lists ${listedHeadings}; ${HEADING_LIST_CAP_CLAUSE}${whenToolEnabledText("vault_read_note", "; vault_read_note with outline: true lists every heading")}`
+  const describeHeadingNotFoundErrorEntry = (listedHeadingsPhrase: string): string => {
+    return `- "heading "X" not found; available …" — the message lists ${listedHeadingsPhrase}; ${HEADING_LIST_CAP_CLAUSE}${whenToolEnabledText("vault_read_note", "; vault_read_note with outline: true lists every heading")}`
   }
 
   // ── vault_list_tasks ────────────────────────────────────────────

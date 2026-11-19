@@ -710,6 +710,22 @@ type NewTaskPlacement = {
   heading: string | undefined
 }
 
+/** The error both task write tools raise for a heading they cannot place a
+ *  task under; their tool descriptions quote its text. */
+const headingNotFoundError = ({
+  heading,
+  availableHeadings,
+}: {
+  heading: string
+  availableHeadings: readonly HeadingInfo[]
+}): Error => {
+  const headingList = formatHeadingList({
+    lead: "available",
+    labels: availableHeadings.map((headingInfo) => headingInfo.text),
+  })
+  return new Error(`heading "${heading}" not found; ${headingList}`)
+}
+
 /** Where a created task goes: under its parent's block, under a named
  *  heading, or at the end of the body. Kanban boards require a heading.
  *  Position is silently ignored for parent and no-heading cases. */
@@ -753,11 +769,7 @@ const resolveNewTaskPlacement = ({
     const targetHeading = headings.find((headingInfo) => headingInfo.text === heading)
 
     if (!targetHeading) {
-      const availableHeadings = formatHeadingList({
-        lead: "available",
-        labels: headings.map((headingInfo) => headingInfo.text),
-      })
-      throw new Error(`heading "${heading}" not found; ${availableHeadings}`)
+      throw headingNotFoundError({ heading, availableHeadings: headings })
     }
     if (typeof position === "number") {
       const matchCount = headings.filter((headingInfo) => headingInfo.text === heading).length
@@ -1019,11 +1031,16 @@ const moveTaskBlock = ({
     return heading.text === targetLane
   }).length
 
-  if (matchingHeadingCount > 1 && (isSameLane || typeof position === "number")) {
+  const targetLaneRepeats = matchingHeadingCount > 1
+
+  if (targetLaneRepeats && isSameLane) {
     throw new Error(
-      isSameLane
-        ? `cannot reorder within "${targetLane}" — the heading appears ${matchingHeadingCount} times; rename one section to make it unique`
-        : `cannot place at position ${String(position)} under "${targetLane}" — the heading appears ${matchingHeadingCount} times; rename one section to make it unique`,
+      `cannot reorder within "${targetLane}" — the heading appears ${matchingHeadingCount} times; rename one section to make it unique`,
+    )
+  }
+  if (targetLaneRepeats && typeof position === "number") {
+    throw new Error(
+      `cannot place at position ${position} under "${targetLane}" — the heading appears ${matchingHeadingCount} times; rename one section to make it unique`,
     )
   }
 
@@ -1142,7 +1159,7 @@ const appendSubtasks = ({
   taskLineIndex: number
   descriptions: readonly string[]
   bodyStartLine: number
-  statusRegistry: ReadonlyMap<string, StatusClassification> | undefined
+  statusRegistry: ReadonlyMap<string, StatusClassification>
 }): {
   lines: readonly string[]
   subtaskPositions: SubtaskPosition[]
@@ -1283,6 +1300,8 @@ const spawnIndexAfterSplices = ({
   laneMove?: { moveStart: number; movedBlockLength: number; insertAt: number } | undefined
   subtaskAppend?: { insertIndex: number; lineCount: number } | undefined
 }): number => {
+  // The spawn is never inside the moved block, so a spawn at or past moveStart
+  // sits below the block and moves up by its length when the block leaves.
   const indexAfterRemoval =
     !laneMove || spawnIndex < laneMove.moveStart
       ? spawnIndex
@@ -2228,8 +2247,8 @@ const deleteTaskOnCompletion = async (
   const headingBefore = headings.findLast((heading) => heading.startLine < taskLineIndex)
 
   // The task is gone from the written file, so this is the line it held
-  // just before removal: counted on the note as read, plus one for a spawn
-  // written above it.
+  // just before removal: counted on the note as read, with a spawn written
+  // above the task already counted in taskLineIndex.
   const deletedTaskLine = note.readBodyStartLine + taskLineIndex + 1
 
   logger.info("task deleted on completion", {
@@ -2298,11 +2317,7 @@ const resolveTargetLane = ({
 
     if (namedHeading) return namedHeading
 
-    const availableHeadings = formatHeadingList({
-      lead: "available",
-      labels: laneHeadings.map((heading) => heading.text),
-    })
-    throw new Error(`heading "${targetHeadingParam}" not found; ${availableHeadings}`)
+    throw headingNotFoundError({ heading: targetHeadingParam, availableHeadings: laneHeadings })
   }
 
   const autoDoneLane = status === "done" && isKanbanBoard && !isSubtask

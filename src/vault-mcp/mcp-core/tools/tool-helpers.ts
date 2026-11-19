@@ -282,7 +282,8 @@ export const INDEX_LAG_LEAD = "Results can lag a file change by a few seconds"
 export const INDEX_FOLDER_SCOPE_CLAUSE =
   'a whole folder, subfolders included: "Projects" covers "Projects/Archive" but not "ProjectsOld/", ignoring ASCII letter case'
 
-/** How a missing-heading error lists a long note's headings. */
+/** The end of a missing-heading Errors entry, after "the message lists
+ *  <headings>;": how the message shortens a long note's list. */
 export const HEADING_LIST_CAP_CLAUSE = `past ${MAX_LISTED_HEADINGS}, only the first ${MAX_LISTED_HEADINGS}, marked "(first ${MAX_LISTED_HEADINGS} of N)"`
 
 /** What a limit on an index-backed listing never tells the caller. */

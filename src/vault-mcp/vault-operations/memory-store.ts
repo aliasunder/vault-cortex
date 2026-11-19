@@ -345,8 +345,8 @@ const findNearMissSection = (
 }
 
 /** Comma-joined H2 headings for error messages, so a caller can self-correct
- *  without a second lookup call. Unlike the heading parser's "Available
- *  headings" list, it lists every section: memory files hold a few H2 sections. */
+ *  without a second lookup call. Unlike `formatHeadingList`, it lists every
+ *  section, since a memory file typically holds only a few H2 sections. */
 const listSectionHeadings = (sections: readonly ParsedSection[]): string => {
   const sectionHeadings = sections
     .filter((section) => section.level === 2)
@@ -867,6 +867,10 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
     // don't clobber each other's entries (lost update).
     return withFileLock(memoryFilePath(params.vaultPath, params.file), async () => {
       const date = params.date ?? DateTime.now().toISODate()
+
+      if (date === null) {
+        throw new Error("DateTime.now().toISODate() returned null")
+      }
       const position = params.position ?? "top"
       const bullet = `- **${date}**: ${params.entry}`
 
