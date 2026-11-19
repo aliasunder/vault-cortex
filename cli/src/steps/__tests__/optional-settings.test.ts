@@ -440,6 +440,18 @@ describe("askOptionalSettings per-setting prompts", () => {
     expect(scripted.logs).toEqual(["Left unset — the server uses UTC."])
   })
 
+  it("keeps a set timezone when its prompt gets only spaces", async () => {
+    const scripted = createScriptedPrompts([["TZ"], "   "])
+
+    const overrides = await askOptionalSettings(
+      { portsInUse: new Map(), mode: "local", envContent: "TZ=America/Toronto\n" },
+      scripted.prompts,
+    )
+
+    expect(overrides).toEqual({})
+    expect(scripted.logs).toEqual(["Kept the current value (America/Toronto)."])
+  })
+
   it("skips an unset daily notes folder left blank, writing nothing", async () => {
     const scripted = createScriptedPrompts([["DAILY_NOTES_FOLDER"], ""])
 

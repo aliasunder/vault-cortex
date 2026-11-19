@@ -254,7 +254,9 @@ During `init --mode remote`, this flow is offered automatically.
   [Docker Engine](https://docs.docker.com/engine/install/))
 - An install folder (`--dir`, `./vault-cortex` by default) that you own
   and that other users on the machine can't change: its `.env` holds your
-  server's token, so every command refuses any other folder
+  server's token, so every command refuses a folder another user owns,
+  every user can change, or (on macOS) shares with others through its
+  access list. `init` creates the folder owner-only.
 
 ## Docs
 

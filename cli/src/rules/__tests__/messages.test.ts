@@ -81,9 +81,15 @@ describe("describeUntrustedInstallFolder", () => {
   const targetDir = "/home/me/vault-cortex"
 
   it.each([
-    { label: "the user's own folder", folder: { ownerUid: 501, mode: 0o40755 } },
-    { label: "a folder root owns", folder: { ownerUid: 0, mode: 0o40755 } },
-    { label: "a folder only its group can also change", folder: { ownerUid: 501, mode: 0o40775 } },
+    {
+      label: "the user's own folder",
+      folder: { ownerUid: 501, mode: 0o40755, aclAllowsAccess: false },
+    },
+    { label: "a folder root owns", folder: { ownerUid: 0, mode: 0o40755, aclAllowsAccess: false } },
+    {
+      label: "a folder only its group can also change",
+      folder: { ownerUid: 501, mode: 0o40775, aclAllowsAccess: false },
+    },
     { label: "a folder that does not exist yet", folder: undefined },
   ])("accepts $label", ({ folder }) => {
     expect(
@@ -95,7 +101,7 @@ describe("describeUntrustedInstallFolder", () => {
     expect(
       describeUntrustedInstallFolder({
         targetDir,
-        folder: { ownerUid: 4242, mode: 0o40777 },
+        folder: { ownerUid: 4242, mode: 0o40777, aclAllowsAccess: false },
         trustedOwnerIds: undefined,
       }),
     ).toBeUndefined()
@@ -105,7 +111,7 @@ describe("describeUntrustedInstallFolder", () => {
     expect(
       describeUntrustedInstallFolder({
         targetDir,
-        folder: { ownerUid: 4242, mode: 0o40755 },
+        folder: { ownerUid: 4242, mode: 0o40755, aclAllowsAccess: false },
         trustedOwnerIds: [0, 501],
       }),
     ).toBe(
@@ -113,11 +119,23 @@ describe("describeUntrustedInstallFolder", () => {
     )
   })
 
+  it("refuses a folder whose access list lets other users in", () => {
+    expect(
+      describeUntrustedInstallFolder({
+        targetDir,
+        folder: { ownerUid: 501, mode: 0o40755, aclAllowsAccess: true },
+        trustedOwnerIds: [0, 501],
+      }),
+    ).toBe(
+      "/home/me/vault-cortex has access-list entries that let other users in, so the CLI won't use it. Remove them with chmod -N on the folder, or choose another folder with --dir.",
+    )
+  })
+
   it("refuses a folder every user can change", () => {
     expect(
       describeUntrustedInstallFolder({
         targetDir,
-        folder: { ownerUid: 501, mode: 0o40777 },
+        folder: { ownerUid: 501, mode: 0o40777, aclAllowsAccess: false },
         trustedOwnerIds: [0, 501],
       }),
     ).toBe(

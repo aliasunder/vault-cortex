@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process"
 import { randomUUID } from "node:crypto"
 import {
+  chownSync,
   closeSync,
   existsSync,
   fchownSync,
@@ -12,7 +13,7 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs"
-import { join } from "node:path"
+import { join, relative, sep } from "node:path"
 
 export type EnvWriteStatus = "created" | "unchanged" | "overwritten" | "kept"
 
@@ -65,22 +66,15 @@ const giveToSudoUser = (newFile: number): void => {
   fchownSync(newFile, sudoUser.uid, sudoUser.gid)
 }
 
-/** Matches a line of `ls -le` output that lists an ACL entry, such as " 0: group:everyone allow read". */
+/** Matches a line of `ls -led` output that lists an ACL entry, such as " 0: group:everyone allow read". */
 const ACL_ENTRY_LINE = /^ \d+: /m
 
-/**
- * On macOS a new file takes "allow" ACL entries from its folder, and those
- * grant access that the 0600 mode does not show. This removes them from the
- * still-empty temporary file. Linux masks such entries with the mode given at
- * creation, so it needs no step.
- */
-const removeInheritedAcl = (filePath: string): void => {
-  if (process.platform !== "darwin") return
-  const listing = execFileSync("/bin/ls", ["-le", filePath], { encoding: "utf8" })
+/** Matches a line of `ls -led` output that lists an ACL entry granting access. */
+const ACL_ALLOW_LINE = /^ \d+: .* allow /m
 
-  // chmod -N runs only on a file that has entries, so a drive without ACLs never sees it.
-  if (!ACL_ENTRY_LINE.test(listing)) return
-  execFileSync("/bin/chmod", ["-N", filePath])
+/** The `ls -led` listing of a path, which on macOS includes its ACL entries. */
+const listWithAcl = (filePath: string): string => {
+  return execFileSync("/bin/ls", ["-led", filePath], { encoding: "utf8" })
 }
 
 /**
@@ -92,7 +86,6 @@ const writeTempFile = (params: { tempPath: string; envContent: string }): void =
   const tempFile = openSync(params.tempPath, "wx", ENV_FILE_MODE)
 
   try {
-    removeInheritedAcl(params.tempPath)
     writeFileSync(tempFile, params.envContent)
     giveToSudoUser(tempFile)
   } finally {
@@ -112,8 +105,7 @@ const removeTempFile = (tempPath: string): void => {
 /**
  * Writes .env as a new owner-only file renamed over the old one, never into
  * the old file:
- * - the new text is only ever in a file created owner-only, and on macOS
- *   without the ACL entries its folder passes down;
+ * - the new text is only ever in a file created owner-only;
  * - an interrupted write leaves the old file whole;
  * - a .env that is a link is replaced by a regular file, and the file it
  *   pointed to is left as it was;
@@ -163,6 +155,37 @@ const stripQuotedValues = (envFilePath: string): boolean => {
 }
 
 /**
+ * Folders init creates are owner-only whatever the umask, so a new install
+ * folder passes the install-folder check.
+ */
+const INSTALL_FOLDER_MODE = 0o700
+
+/**
+ * Creates targetDir and any missing folders above it. Under sudo each new
+ * folder goes to the user who ran sudo, and on macOS each loses the ACL
+ * entries its parent passed down, while it is still empty.
+ */
+const createInstallFolder = (targetDir: string): void => {
+  const firstCreatedFolder = mkdirSync(targetDir, { recursive: true, mode: INSTALL_FOLDER_MODE })
+
+  if (!firstCreatedFolder) return
+  const nestedNames = relative(firstCreatedFolder, targetDir).split(sep).filter(Boolean)
+  const createdFolders = [
+    firstCreatedFolder,
+    ...nestedNames.map((_, index) => join(firstCreatedFolder, ...nestedNames.slice(0, index + 1))),
+  ]
+  const sudoUser = findSudoUser()
+
+  for (const createdFolder of createdFolders) {
+    if (sudoUser) chownSync(createdFolder, sudoUser.uid, sudoUser.gid)
+    // chmod -N runs only on a folder that has entries, so a drive without ACLs never sees it.
+    if (process.platform === "darwin" && ACL_ENTRY_LINE.test(listWithAcl(createdFolder))) {
+      execFileSync("/bin/chmod", ["-N", createdFolder])
+    }
+  }
+}
+
+/**
  * Writes .env into targetDir (created if missing), readable by its owner
  * only. An existing .env is never overwritten silently: identical content is
  * skipped, and differing content defers to the resolveConflict callback
@@ -173,7 +196,7 @@ const write = async (
   resolveConflict: () => Promise<boolean>,
 ): Promise<EnvWriteStatus> => {
   const { targetDir, envContent } = params
-  mkdirSync(targetDir, { recursive: true })
+  createInstallFolder(targetDir)
   const envFilePath = join(targetDir, ".env")
   const existingContent = read(envFilePath)
 
@@ -189,14 +212,21 @@ const write = async (
   return "overwritten"
 }
 
-type FolderOwnership = { ownerUid: number; mode: number }
+type FolderOwnership = {
+  ownerUid: number
+  mode: number
+  /** True when an ACL entry lets someone in (macOS); files made inside take it on. */
+  aclAllowsAccess: boolean
+}
 
-/** Who owns a folder and its permission bits, or undefined when it does not exist. */
+/** Who owns a folder and who else it lets in, or undefined when it does not exist. */
 const folderOwnership = (folderPath: string): FolderOwnership | undefined => {
   // existsSync is false for a path the CLI cannot reach, where statSync would throw.
   if (!existsSync(folderPath)) return undefined
   const { uid, mode } = statSync(folderPath)
-  return { ownerUid: uid, mode }
+  const aclAllowsAccess =
+    process.platform === "darwin" && ACL_ALLOW_LINE.test(listWithAcl(folderPath))
+  return { ownerUid: uid, mode, aclAllowsAccess }
 }
 
 /**
@@ -213,7 +243,7 @@ const trustedOwnerIds = (): ReadonlyArray<number> | undefined => {
 
 /**
  * Reads and writes a deployment's .env file, and reports who owns the
- * folder holding it; parseEnvValues in env-values.ts parses what read returns.
+ * folder holding it and who else it lets in; parseEnvValues in env-values.ts parses what read returns.
  */
 export const envFile = {
   folderOwnership,

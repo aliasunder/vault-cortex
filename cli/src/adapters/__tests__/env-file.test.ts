@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process"
 import {
   chmodSync,
+  chownSync,
   closeSync,
   fchownSync,
   lstatSync,
@@ -35,6 +36,7 @@ afterEach(() => {
   vi.mocked(writeFileSync).mockReset()
   vi.mocked(renameSync).mockReset()
   vi.mocked(fchownSync).mockReset()
+  vi.mocked(chownSync).mockReset()
   vi.mocked(closeSync).mockClear()
   vi.restoreAllMocks()
   vi.unstubAllEnvs()
@@ -315,21 +317,70 @@ describe("write edge cases", () => {
   )
 
   it.skipIf(process.platform !== "darwin")(
-    "removes the read access a macOS folder's ACL would pass down to .env",
-    () => {
-      const targetDir = makeTempDir()
-      execFileSync("/bin/chmod", ["+a", "everyone allow read,file_inherit", targetDir])
-      const envPath = join(targetDir, ".env")
+    "creates a new install folder without the ACL entries its parent passes down",
+    async () => {
+      const parentDir = makeTempDir()
+      execFileSync("/bin/chmod", [
+        "+a",
+        "everyone allow read,list,file_inherit,directory_inherit",
+        parentDir,
+      ])
+      const targetDir = join(parentDir, "vault-cortex")
+      const listAcl = (listedPath: string): string[] => {
+        return execFileSync("/bin/ls", ["-led", listedPath], { encoding: "utf8" })
+          .trimEnd()
+          .split("\n")
+          .slice(1)
+      }
+      // Without the CLI's step, a folder made here takes the parent's entries.
+      const plainFolder = join(parentDir, "plain")
+      mkdirSync(plainFolder)
+      expect(listAcl(plainFolder)).toEqual([
+        " 0: group:everyone inherited allow list,file_inherit,directory_inherit",
+      ])
 
-      envFile.replace(envPath, "MCP_AUTH_TOKEN=new\n")
+      await envFile.write({ targetDir, envContent: "MCP_AUTH_TOKEN=new\n" }, neverOverwrite)
 
-      const listingLines = execFileSync("/bin/ls", ["-le", envPath], { encoding: "utf8" })
-        .trimEnd()
-        .split("\n")
-      expect(listingLines).toHaveLength(1)
-      expect(readFileSync(envPath, "utf8")).toBe("MCP_AUTH_TOKEN=new\n")
+      expect(listAcl(targetDir)).toEqual([])
+      expect(listAcl(join(targetDir, ".env"))).toEqual([])
     },
   )
+
+  it("creates a new install folder owner-only whatever the umask", async () => {
+    const targetDir = join(makeTempDir(), "vault-cortex")
+    const previousUmask = process.umask(0o000)
+    onTestFinished(() => {
+      process.umask(previousUmask)
+    })
+
+    await envFile.write({ targetDir, envContent: "MCP_AUTH_TOKEN=new\n" }, neverOverwrite)
+
+    expect(statSync(targetDir).mode & 0o777).toBe(0o700)
+  })
+
+  it("gives each folder it creates under sudo to the user who ran sudo", async () => {
+    const parentDir = makeTempDir()
+    vi.spyOn(process, "getuid").mockReturnValue(0)
+    vi.stubEnv("SUDO_UID", "4242")
+    vi.stubEnv("SUDO_GID", "4343")
+    // Only root may hand a file to another user, so these calls are skipped.
+    vi.mocked(chownSync).mockImplementation(() => undefined)
+    vi.mocked(fchownSync).mockImplementation(() => undefined)
+
+    await envFile.write(
+      { targetDir: join(parentDir, "apps", "vault-cortex"), envContent: "MCP_AUTH_TOKEN=new\n" },
+      neverOverwrite,
+    )
+
+    expect(chownSync).toHaveBeenCalledTimes(2)
+    expect(chownSync).toHaveBeenNthCalledWith(1, join(parentDir, "apps"), 4242, 4343)
+    expect(chownSync).toHaveBeenNthCalledWith(
+      2,
+      join(parentDir, "apps", "vault-cortex"),
+      4242,
+      4343,
+    )
+  })
 
   it("gives the new file to the user who ran sudo, not to the owner of the .env path", () => {
     const envPath = join(makeTempDir(), ".env")
@@ -532,7 +583,28 @@ describe("folderOwnership", () => {
     chmodSync(folderPath, 0o750)
     const { uid } = statSync(folderPath)
 
-    expect(envFile.folderOwnership(folderPath)).toEqual({ ownerUid: uid, mode: 0o40750 })
+    expect(envFile.folderOwnership(folderPath)).toEqual({
+      ownerUid: uid,
+      mode: 0o40750,
+      aclAllowsAccess: false,
+    })
+  })
+
+  it.skipIf(process.platform !== "darwin")(
+    "reports an ACL entry that lets someone into the folder",
+    () => {
+      const folderPath = makeTempDir()
+      execFileSync("/bin/chmod", ["+a", "everyone allow add_file", folderPath])
+
+      expect(envFile.folderOwnership(folderPath)?.aclAllowsAccess).toBe(true)
+    },
+  )
+
+  it.skipIf(process.platform !== "darwin")("does not count an ACL entry that only denies", () => {
+    const folderPath = makeTempDir()
+    execFileSync("/bin/chmod", ["+a", "everyone deny add_file", folderPath])
+
+    expect(envFile.folderOwnership(folderPath)?.aclAllowsAccess).toBe(false)
   })
 
   it("returns undefined for a folder that does not exist", () => {

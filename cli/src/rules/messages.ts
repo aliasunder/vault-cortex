@@ -201,12 +201,13 @@ const OTHERS_WRITE_BIT = 0o002
 /**
  * The refusal for an install folder someone else controls. Its .env holds the
  * server's token and decides what the container mounts, so the CLI trusts it
- * only in a folder that root or the user it acts for owns, and that not every
- * user can change. A folder that does not exist yet has nothing to check.
+ * only in a folder that root or the user it acts for owns, that not every user
+ * can change, and that on macOS lets no one else in through its access list.
+ * A folder that does not exist yet has nothing to check.
  */
 export const describeUntrustedInstallFolder = (params: {
   targetDir: string
-  folder: { ownerUid: number; mode: number } | undefined
+  folder: { ownerUid: number; mode: number; aclAllowsAccess: boolean } | undefined
   /** Undefined where folders have no Unix owner (Windows). */
   trustedOwnerIds: ReadonlyArray<number> | undefined
 }): string | undefined => {
@@ -218,6 +219,10 @@ export const describeUntrustedInstallFolder = (params: {
   }
   if ((folder.mode & OTHERS_WRITE_BIT) !== 0) {
     return `Every user on this machine can change ${targetDir}, so the CLI won't use it. Remove other users' write permission from it, or choose another folder with --dir.`
+  }
+  // macOS gives each new file in the folder its "allow" entries, so they would reach .env.
+  if (folder.aclAllowsAccess) {
+    return `${targetDir} has access-list entries that let other users in, so the CLI won't use it. Remove them with chmod -N on the folder, or choose another folder with --dir.`
   }
   return undefined
 }

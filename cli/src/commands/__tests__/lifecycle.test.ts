@@ -98,7 +98,11 @@ describe("runDown", () => {
     const targetDir = makeTempTargetDir("vault-cli-down-")
     writeLocalEnv(targetDir)
     // Tests cannot hand a folder to another user, so its owner is reported as one.
-    vi.spyOn(envFile, "folderOwnership").mockReturnValueOnce({ ownerUid: 4242, mode: 0o40755 })
+    vi.spyOn(envFile, "folderOwnership").mockReturnValueOnce({
+      ownerUid: 4242,
+      mode: 0o40755,
+      aclAllowsAccess: false,
+    })
     onTestFinished(() => {
       vi.restoreAllMocks()
     })

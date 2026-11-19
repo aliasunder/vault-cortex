@@ -433,11 +433,12 @@ server's own auth tokens) are handled:
   container (a plain `docker restart` keeps the old value). Any
   suspected exposure triggers immediate rotation.
 - **The CLI's `.env`** — the `npx vault-cortex` CLI writes `.env` as a
-  new file only its owner can read (mode 0600, and on macOS with any ACL
-  entries inherited from the folder removed), then renames it into place,
-  so a `.env` that is a link becomes a regular file. Under sudo, the file
-  belongs to the user who ran sudo. Every command refuses an install
-  folder that another user owns or that every user can change.
+  new file only its owner can read (mode 0600), then renames it into
+  place, so a `.env` that is a link becomes a regular file. Under sudo,
+  the file belongs to the user who ran sudo. `init` creates the install
+  folder owner-only (0700), and on macOS without ACL entries. Every
+  command refuses an install folder that another user owns, that every
+  user can change, or that on macOS has an ACL entry letting others in.
 - **Enforcement** — Gitleaks scans every PR and push to main for
   committed secrets (see [Automated Scanning](#automated-scanning)).
 

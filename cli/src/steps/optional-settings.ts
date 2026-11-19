@@ -239,22 +239,23 @@ const isValidTimezone = (value: string): boolean => {
 }
 
 /**
- * Re-prompts until the answer is a zone the runtime recognizes. An empty
- * answer, which a set timezone never gives because the prompt defaults to it,
- * leaves TZ unset.
+ * Re-prompts until the answer is a zone the runtime recognizes. A blank
+ * answer keeps the current timezone, or leaves TZ unset when there is none.
  */
 const askTimezone = async (
   currentValue: string | undefined,
   prompts: Prompts,
 ): Promise<string | undefined> => {
-  const answer = (
+  const typedAnswer = (
     await prompts.text("Your IANA timezone:", {
       defaultValue: currentValue,
       placeholder: "America/New_York",
     })
   ).trim()
+  // The prompt applies its default only to an empty answer, so spaces alone fall back here.
+  const answer = typedAnswer || currentValue
 
-  if (answer === "") {
+  if (!answer) {
     prompts.log("Left unset — the server uses UTC.")
     return undefined
   }
