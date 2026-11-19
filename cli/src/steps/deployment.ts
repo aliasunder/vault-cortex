@@ -20,6 +20,7 @@ import {
   buildDaemonUnavailableMessage,
   describeEnvFix,
   describeUnprintableInstallFolder,
+  describeUntrustedInstallFolder,
   vaultCortexCommand,
 } from "../rules/messages.js"
 
@@ -51,6 +52,21 @@ export const resolveTargetDir = (requestedDir: string = DEFAULT_TARGET_DIR): str
   return resolve(expandTilde(requestedDir))
 }
 
+/**
+ * Why an install folder can't be used, or undefined when it can. Every
+ * command checks this before it reads or writes the folder's .env.
+ */
+export const describeInstallFolderProblem = (targetDir: string): string | undefined => {
+  return (
+    describeUnprintableInstallFolder(targetDir) ??
+    describeUntrustedInstallFolder({
+      targetDir,
+      folder: envFile.folderOwnership(targetDir),
+      trustedOwnerIds: envFile.trustedOwnerIds(),
+    })
+  )
+}
+
 type InitializedDir = {
   targetDir: string
   envFilePath: string
@@ -73,10 +89,10 @@ export const requireInitializedDir = (
   prompts: Prompts,
 ): InitializedDir | undefined => {
   const targetDir = resolveTargetDir(requestedDir)
-  const unprintableFolder = describeUnprintableInstallFolder(targetDir)
+  const installFolderProblem = describeInstallFolderProblem(targetDir)
 
-  if (unprintableFolder) {
-    prompts.error(unprintableFolder)
+  if (installFolderProblem) {
+    prompts.error(installFolderProblem)
     return undefined
   }
   const envFilePath = join(targetDir, ".env")

@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process"
 import {
   chmodSync,
   closeSync,
@@ -34,7 +35,6 @@ afterEach(() => {
   vi.mocked(writeFileSync).mockReset()
   vi.mocked(renameSync).mockReset()
   vi.mocked(fchownSync).mockReset()
-  vi.mocked(lstatSync).mockReset()
   vi.mocked(closeSync).mockClear()
   vi.restoreAllMocks()
   vi.unstubAllEnvs()
@@ -276,27 +276,7 @@ describe("write edge cases", () => {
 
   // Root ignores folder permissions, so the folder would not stop it.
   it.skipIf(runsAsRoot)(
-    "rewrites .env in place, owner-only, when its folder does not allow a new file",
-    () => {
-      const targetDir = makeTempDir()
-      const envPath = join(targetDir, ".env")
-      writeFileSync(envPath, "MCP_AUTH_TOKEN=old\n", { mode: 0o644 })
-      chmodSync(targetDir, 0o500)
-      onTestFinished(() => {
-        chmodSync(targetDir, 0o700)
-      })
-
-      envFile.replace(envPath, "MCP_AUTH_TOKEN=new\n")
-
-      expect(readFileSync(envPath, "utf8")).toBe("MCP_AUTH_TOKEN=new\n")
-      expect(statSync(envPath).mode & 0o777).toBe(0o600)
-      expect(readdirSync(targetDir)).toEqual([".env"])
-    },
-  )
-
-  // Root ignores folder permissions, so the folder would not stop it.
-  it.skipIf(runsAsRoot)(
-    "never writes through a linked .env when its folder does not allow a new file",
+    "fails with the folder's error, leaving a linked .env's file as it was, when its folder allows no new file",
     () => {
       const targetDir = makeTempDir()
       const linkedEnvPath = join(makeTempDir(), "shared.env")
@@ -315,23 +295,39 @@ describe("write edge cases", () => {
     },
   )
 
-  // The CLI is not really root here, so the folder still refuses the new file.
+  // Root ignores folder permissions, so the folder would not stop it.
   it.skipIf(runsAsRoot)(
-    "never rewrites .env in place under sudo, even when its folder does not allow a new file",
+    "fails with the folder's error, leaving .env as it was, when its folder allows no new file",
     () => {
       const targetDir = makeTempDir()
       const envPath = join(targetDir, ".env")
-      writeFileSync(envPath, "MCP_AUTH_TOKEN=old\n", { mode: 0o644 })
+      writeFileSync(envPath, "MCP_AUTH_TOKEN=old\n", { mode: 0o600 })
       chmodSync(targetDir, 0o500)
       onTestFinished(() => {
         chmodSync(targetDir, 0o700)
       })
-      vi.spyOn(process, "getuid").mockReturnValue(0)
 
       expect(() => envFile.replace(envPath, "MCP_AUTH_TOKEN=new\n")).toThrow(
         /^EACCES: permission denied, open '.*\.env\.[0-9a-f-]{36}\.tmp'$/,
       )
       expect(readFileSync(envPath, "utf8")).toBe("MCP_AUTH_TOKEN=old\n")
+    },
+  )
+
+  it.skipIf(process.platform !== "darwin")(
+    "removes the read access a macOS folder's ACL would pass down to .env",
+    () => {
+      const targetDir = makeTempDir()
+      execFileSync("/bin/chmod", ["+a", "everyone allow read,file_inherit", targetDir])
+      const envPath = join(targetDir, ".env")
+
+      envFile.replace(envPath, "MCP_AUTH_TOKEN=new\n")
+
+      const listingLines = execFileSync("/bin/ls", ["-le", envPath], { encoding: "utf8" })
+        .trimEnd()
+        .split("\n")
+      expect(listingLines).toHaveLength(1)
+      expect(readFileSync(envPath, "utf8")).toBe("MCP_AUTH_TOKEN=new\n")
     },
   )
 
@@ -365,26 +361,6 @@ describe("write edge cases", () => {
 
     expect(fchownSync).not.toHaveBeenCalled()
     expect(readFileSync(envPath, "utf8")).toBe("MCP_AUTH_TOKEN=new\n")
-  })
-
-  // Root ignores folder permissions, so the folder would not stop it.
-  it.skipIf(runsAsRoot)("refuses a link put at the .env path after the regular-file check", () => {
-    const targetDir = makeTempDir()
-    const linkedEnvPath = join(makeTempDir(), "shared.env")
-    writeFileSync(linkedEnvPath, "MCP_AUTH_TOKEN=old\n", { mode: 0o644 })
-    symlinkSync(linkedEnvPath, join(targetDir, ".env"))
-    chmodSync(targetDir, 0o500)
-    onTestFinished(() => {
-      chmodSync(targetDir, 0o700)
-    })
-    // The check sees the linked file, as it would before the link was put there.
-    vi.mocked(lstatSync).mockImplementationOnce((checkedPath) => statSync(checkedPath))
-
-    expect(() => envFile.replace(join(targetDir, ".env"), "MCP_AUTH_TOKEN=new\n")).toThrow(
-      /^ELOOP: /,
-    )
-    expect(readFileSync(linkedEnvPath, "utf8")).toBe("MCP_AUTH_TOKEN=old\n")
-    expect(statSync(linkedEnvPath).mode & 0o777).toBe(0o644)
   })
 
   // Root ignores folder permissions, so the folder would not stop it.
@@ -547,5 +523,53 @@ describe("stripQuotedValues permissions", () => {
     expect(result).toBe(true)
     expect(readFileSync(envPath, "utf8")).toBe("VAULT_NAME=My Vault\n")
     expect(statSync(envPath).mode & 0o777).toBe(0o600)
+  })
+})
+
+describe("folderOwnership", () => {
+  it("returns the owner and permission bits of an existing folder", () => {
+    const folderPath = makeTempDir()
+    chmodSync(folderPath, 0o750)
+    const { uid } = statSync(folderPath)
+
+    expect(envFile.folderOwnership(folderPath)).toEqual({ ownerUid: uid, mode: 0o40750 })
+  })
+
+  it("returns undefined for a folder that does not exist", () => {
+    expect(envFile.folderOwnership(join(makeTempDir(), "missing"))).toBeUndefined()
+  })
+})
+
+describe("trustedOwnerIds", () => {
+  it("trusts root and the user running the CLI", () => {
+    vi.spyOn(process, "getuid").mockReturnValue(501)
+
+    expect(envFile.trustedOwnerIds()).toEqual([0, 501])
+  })
+
+  it("trusts root and the user who ran sudo, under sudo", () => {
+    vi.spyOn(process, "getuid").mockReturnValue(0)
+    vi.stubEnv("SUDO_UID", "501")
+    vi.stubEnv("SUDO_GID", "20")
+
+    expect(envFile.trustedOwnerIds()).toEqual([0, 501])
+  })
+
+  it("trusts only root when running as root without sudo ids", () => {
+    vi.spyOn(process, "getuid").mockReturnValue(0)
+    vi.stubEnv("SUDO_UID", "")
+
+    expect(envFile.trustedOwnerIds()).toEqual([0, 0])
+  })
+
+  it("returns undefined where processes have no Unix user id", () => {
+    // Windows has no process.getuid at all.
+    const realGetuid = process.getuid
+    process.getuid = undefined
+    onTestFinished(() => {
+      process.getuid = realGetuid
+    })
+
+    expect(envFile.trustedOwnerIds()).toBeUndefined()
   })
 })

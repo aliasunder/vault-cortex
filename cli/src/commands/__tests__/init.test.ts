@@ -1,4 +1,12 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { describe, expect, it, onTestFinished, vi } from "vitest"
@@ -1129,6 +1137,31 @@ describe("runInit re-init guard", () => {
     expect(scripted.asked).toEqual([])
     expect(readFileSync(join(targetDir, ".env"), "utf8")).toBe(existingEnv)
     expect(dockerRun).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    {
+      label: "local",
+      flags: (vaultDir: string) => ({ mode: "local" as const, vaultPath: vaultDir }),
+    },
+    { label: "remote", flags: () => ({ mode: "remote" as const }) },
+  ])("stops $label init on an install folder every user can change", async ({ flags }) => {
+    const targetDir = makeTargetDir()
+    mkdirSync(targetDir)
+    chmodSync(targetDir, 0o777)
+    const scripted = createScriptedPrompts([])
+
+    const exitCode = await runInit(
+      { ...flags(makeVault()), dir: targetDir },
+      { prompts: scripted.prompts, docker: dockerReadyEmptyHost, fetchFn: fetchNever },
+    )
+
+    expect(exitCode).toBe(1)
+    expect(scripted.errors).toEqual([
+      `Every user on this machine can change ${targetDir}, so the CLI won't use it. Remove other users' write permission from it, or choose another folder with --dir.`,
+    ])
+    expect(scripted.asked).toEqual([])
+    expect(existsSync(join(targetDir, ".env"))).toBe(false)
   })
 
   it.each([

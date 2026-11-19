@@ -6,6 +6,7 @@ import {
   buildLocalConnectMessage,
   buildRemoteConnectMessage,
   describeUnprintableInstallFolder,
+  describeUntrustedInstallFolder,
   healthPollTimeoutMs,
   healthTimeoutMessage,
   vaultCortexCommand,
@@ -73,6 +74,55 @@ describe("vaultCortexCommand", () => {
     })
 
     expect(shellOutput).toBe(folderPath)
+  })
+})
+
+describe("describeUntrustedInstallFolder", () => {
+  const targetDir = "/home/me/vault-cortex"
+
+  it.each([
+    { label: "the user's own folder", folder: { ownerUid: 501, mode: 0o40755 } },
+    { label: "a folder root owns", folder: { ownerUid: 0, mode: 0o40755 } },
+    { label: "a folder only its group can also change", folder: { ownerUid: 501, mode: 0o40775 } },
+    { label: "a folder that does not exist yet", folder: undefined },
+  ])("accepts $label", ({ folder }) => {
+    expect(
+      describeUntrustedInstallFolder({ targetDir, folder, trustedOwnerIds: [0, 501] }),
+    ).toBeUndefined()
+  })
+
+  it("accepts any folder where files have no Unix owner", () => {
+    expect(
+      describeUntrustedInstallFolder({
+        targetDir,
+        folder: { ownerUid: 4242, mode: 0o40777 },
+        trustedOwnerIds: undefined,
+      }),
+    ).toBeUndefined()
+  })
+
+  it("refuses a folder another user owns", () => {
+    expect(
+      describeUntrustedInstallFolder({
+        targetDir,
+        folder: { ownerUid: 4242, mode: 0o40755 },
+        trustedOwnerIds: [0, 501],
+      }),
+    ).toBe(
+      "/home/me/vault-cortex belongs to another user, and the CLI uses only an install folder that you or root own. Choose a folder of your own with --dir.",
+    )
+  })
+
+  it("refuses a folder every user can change", () => {
+    expect(
+      describeUntrustedInstallFolder({
+        targetDir,
+        folder: { ownerUid: 501, mode: 0o40777 },
+        trustedOwnerIds: [0, 501],
+      }),
+    ).toBe(
+      "Every user on this machine can change /home/me/vault-cortex, so the CLI won't use it. Remove other users' write permission from it, or choose another folder with --dir.",
+    )
   })
 })
 

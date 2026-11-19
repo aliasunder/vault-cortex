@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { describe, expect, it, onTestFinished, vi } from "vitest"
@@ -74,6 +74,44 @@ describe("runDown", () => {
     expect(exitCode).toBe(1)
     expect(scripted.errors).toEqual([
       "The install folder's path contains a control character, which a terminal cannot show. Choose another folder with --dir.",
+    ])
+  })
+
+  it("exits 1 when every user can change the install folder", async () => {
+    const targetDir = makeTempTargetDir("vault-cli-down-")
+    writeLocalEnv(targetDir)
+    chmodSync(targetDir, 0o777)
+    const scripted = createScriptedPrompts()
+
+    const exitCode = await runDown(
+      { dir: targetDir },
+      { prompts: scripted.prompts, docker: dockerReady },
+    )
+
+    expect(exitCode).toBe(1)
+    expect(scripted.errors).toEqual([
+      `Every user on this machine can change ${targetDir}, so the CLI won't use it. Remove other users' write permission from it, or choose another folder with --dir.`,
+    ])
+  })
+
+  it("exits 1 when another user owns the install folder", async () => {
+    const targetDir = makeTempTargetDir("vault-cli-down-")
+    writeLocalEnv(targetDir)
+    // Tests cannot hand a folder to another user, so its owner is reported as one.
+    vi.spyOn(envFile, "folderOwnership").mockReturnValueOnce({ ownerUid: 4242, mode: 0o40755 })
+    onTestFinished(() => {
+      vi.restoreAllMocks()
+    })
+    const scripted = createScriptedPrompts()
+
+    const exitCode = await runDown(
+      { dir: targetDir },
+      { prompts: scripted.prompts, docker: dockerReady },
+    )
+
+    expect(exitCode).toBe(1)
+    expect(scripted.errors).toEqual([
+      `${targetDir} belongs to another user, and the CLI uses only an install folder that you or root own. Choose a folder of your own with --dir.`,
     ])
   })
 

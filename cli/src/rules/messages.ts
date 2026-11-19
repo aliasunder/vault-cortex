@@ -195,6 +195,33 @@ export const describeUnprintableInstallFolder = (targetDir: string): string | un
   return "The install folder's path contains a control character, which a terminal cannot show. Choose another folder with --dir."
 }
 
+/** The permission bit that lets every user on the machine change a folder's contents. */
+const OTHERS_WRITE_BIT = 0o002
+
+/**
+ * The refusal for an install folder someone else controls. Its .env holds the
+ * server's token and decides what the container mounts, so the CLI trusts it
+ * only in a folder that root or the user it acts for owns, and that not every
+ * user can change. A folder that does not exist yet has nothing to check.
+ */
+export const describeUntrustedInstallFolder = (params: {
+  targetDir: string
+  folder: { ownerUid: number; mode: number } | undefined
+  /** Undefined where folders have no Unix owner (Windows). */
+  trustedOwnerIds: ReadonlyArray<number> | undefined
+}): string | undefined => {
+  const { targetDir, folder, trustedOwnerIds } = params
+
+  if (!folder || !trustedOwnerIds) return undefined
+  if (!trustedOwnerIds.includes(folder.ownerUid)) {
+    return `${targetDir} belongs to another user, and the CLI uses only an install folder that you or root own. Choose a folder of your own with --dir.`
+  }
+  if ((folder.mode & OTHERS_WRITE_BIT) !== 0) {
+    return `Every user on this machine can change ${targetDir}, so the CLI won't use it. Remove other users' write permission from it, or choose another folder with --dir.`
+  }
+  return undefined
+}
+
 /** A problem in a .env value, with where to fix it. */
 export const describeEnvFix = (params: { problem: string; targetDir: string }): string => {
   return `${params.problem} Fix it in ${params.targetDir}/.env.`

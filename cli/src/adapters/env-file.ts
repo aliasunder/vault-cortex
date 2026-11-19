@@ -1,17 +1,15 @@
+import { execFileSync } from "node:child_process"
 import { randomUUID } from "node:crypto"
 import {
   closeSync,
-  constants,
   existsSync,
-  fchmodSync,
   fchownSync,
-  ftruncateSync,
-  lstatSync,
   mkdirSync,
   openSync,
   readFileSync,
   renameSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from "node:fs"
 import { join } from "node:path"
@@ -40,13 +38,6 @@ const read = (envFilePath: string): string | undefined => {
 
 const ROOT_UID = 0
 
-/** True for the errors a folder gives when it does not let the CLI create a file in it. */
-const isFolderPermissionError = (error: unknown): boolean => {
-  return (
-    error instanceof Error && "code" in error && (error.code === "EACCES" || error.code === "EPERM")
-  )
-}
-
 const runsAsRoot = (): boolean => process.getuid?.() === ROOT_UID
 
 /** Matches a user or group id as sudo writes it into SUDO_UID and SUDO_GID. */
@@ -74,6 +65,24 @@ const giveToSudoUser = (newFile: number): void => {
   fchownSync(newFile, sudoUser.uid, sudoUser.gid)
 }
 
+/** Matches a line of `ls -le` output that lists an ACL entry, such as " 0: group:everyone allow read". */
+const ACL_ENTRY_LINE = /^ \d+: /m
+
+/**
+ * On macOS a new file takes "allow" ACL entries from its folder, and those
+ * grant access that the 0600 mode does not show. This removes them from the
+ * still-empty temporary file. Linux masks such entries with the mode given at
+ * creation, so it needs no step.
+ */
+const removeInheritedAcl = (filePath: string): void => {
+  if (process.platform !== "darwin") return
+  const listing = execFileSync("/bin/ls", ["-le", filePath], { encoding: "utf8" })
+
+  // chmod -N runs only on a file that has entries, so a drive without ACLs never sees it.
+  if (!ACL_ENTRY_LINE.test(listing)) return
+  execFileSync("/bin/chmod", ["-N", filePath])
+}
+
 /**
  * Creates the temporary file owner-only and writes the text into it. Its
  * owner is set through the open file, so no path is looked up twice.
@@ -83,6 +92,7 @@ const writeTempFile = (params: { tempPath: string; envContent: string }): void =
   const tempFile = openSync(params.tempPath, "wx", ENV_FILE_MODE)
 
   try {
+    removeInheritedAcl(params.tempPath)
     writeFileSync(tempFile, params.envContent)
     giveToSudoUser(tempFile)
   } finally {
@@ -100,46 +110,14 @@ const removeTempFile = (tempPath: string): void => {
 }
 
 /**
- * True when .env may be rewritten in place after its folder refused a new
- * file: never under sudo, and only for a regular file, so the write is never
- * sent through a link.
- */
-const canRewriteInPlace = (params: { error: unknown; envFilePath: string }): boolean => {
-  if (!isFolderPermissionError(params.error) || runsAsRoot()) return false
-  // existsSync is false for a path the CLI cannot reach, where lstat would throw.
-  if (!existsSync(params.envFilePath)) return false
-  return lstatSync(params.envFilePath).isFile()
-}
-
-/**
- * Rewrites a regular .env in place:
- * - O_NOFOLLOW refuses a link put at the path after canRewriteInPlace looked;
- * - the mode is narrowed before the text goes in, so the text never sits in
- *   a file others can read.
- */
-const rewriteInPlace = (envFilePath: string, envContent: string): void => {
-  const envFileHandle = openSync(envFilePath, constants.O_WRONLY | constants.O_NOFOLLOW)
-
-  try {
-    fchmodSync(envFileHandle, ENV_FILE_MODE)
-    ftruncateSync(envFileHandle)
-    writeFileSync(envFileHandle, envContent)
-  } finally {
-    closeSync(envFileHandle)
-  }
-}
-
-/**
  * Writes .env as a new owner-only file renamed over the old one, never into
  * the old file:
- * - the new text is only ever in a file created owner-only;
+ * - the new text is only ever in a file created owner-only, and on macOS
+ *   without the ACL entries its folder passes down;
  * - an interrupted write leaves the old file whole;
  * - a .env that is a link is replaced by a regular file, and the file it
  *   pointed to is left as it was;
  * - under sudo, the new file belongs to the user who ran sudo.
- * When the folder does not let the CLI create a file, it narrows a regular
- * .env to owner-only and rewrites it in place instead, and an interrupted
- * write there can leave the file cut short.
  */
 const writeOwnerOnly = (envFilePath: string, envContent: string): void => {
   const tempPath = `${envFilePath}.${randomUUID()}.tmp`
@@ -149,9 +127,7 @@ const writeOwnerOnly = (envFilePath: string, envContent: string): void => {
   } catch (error) {
     // A write that fails partway (a full disk) leaves part of the text behind.
     removeTempFile(tempPath)
-    if (!canRewriteInPlace({ error, envFilePath })) throw error
-    rewriteInPlace(envFilePath, envContent)
-    return
+    throw error
   }
 
   try {
@@ -213,10 +189,37 @@ const write = async (
   return "overwritten"
 }
 
-/** Reads and writes a deployment's .env file; parseEnvValues in env-values.ts parses what read returns. */
+type FolderOwnership = { ownerUid: number; mode: number }
+
+/** Who owns a folder and its permission bits, or undefined when it does not exist. */
+const folderOwnership = (folderPath: string): FolderOwnership | undefined => {
+  // existsSync is false for a path the CLI cannot reach, where statSync would throw.
+  if (!existsSync(folderPath)) return undefined
+  const { uid, mode } = statSync(folderPath)
+  return { ownerUid: uid, mode }
+}
+
+/**
+ * The user ids an install folder may belong to: root, and the user the CLI
+ * acts for (under sudo, the user who ran sudo). Undefined on Windows, where
+ * files have no Unix owner.
+ */
+const trustedOwnerIds = (): ReadonlyArray<number> | undefined => {
+  const processUid = process.getuid?.()
+
+  if (processUid === undefined) return undefined
+  return [ROOT_UID, findSudoUser()?.uid ?? processUid]
+}
+
+/**
+ * Reads and writes a deployment's .env file, and reports who owns the
+ * folder holding it; parseEnvValues in env-values.ts parses what read returns.
+ */
 export const envFile = {
+  folderOwnership,
   read,
   replace,
   stripQuotedValues,
+  trustedOwnerIds,
   write,
 }

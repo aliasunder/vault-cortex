@@ -4,8 +4,8 @@ import { envFile } from "../adapters/env-file.js"
 import type { Prompts } from "../adapters/prompts.js"
 import { applyOptionalSettings } from "../rules/env-edits.js"
 import { parseEnvValues } from "../rules/env-values.js"
-import { describeUnprintableInstallFolder, startServerLine } from "../rules/messages.js"
-import { resolveTargetDir } from "../steps/deployment.js"
+import { startServerLine } from "../rules/messages.js"
+import { describeInstallFolderProblem, resolveTargetDir } from "../steps/deployment.js"
 import { captureObsidianToken } from "../steps/obsidian-sign-in.js"
 
 export type GetSyncTokenFlags = {
@@ -57,7 +57,7 @@ const writeSyncToken = async (targetDir: string, deps: GetSyncTokenDeps): Promis
   const { prompts } = deps
   const envFilePath = join(targetDir, ".env")
   const targetDirProblem =
-    describeUnprintableInstallFolder(targetDir) ??
+    describeInstallFolderProblem(targetDir) ??
     (holdsTokenLine(envFile.read(envFilePath)) ? undefined : describeMissingTokenLine(envFilePath))
 
   if (targetDirProblem) {

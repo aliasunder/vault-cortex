@@ -1,4 +1,5 @@
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -150,6 +151,26 @@ describe("runGetSyncToken subcommand", () => {
     expect(exitCode).toBe(1)
     expect(scripted.errors).toEqual([
       "The install folder's path contains a control character, which a terminal cannot show. Choose another folder with --dir.",
+    ])
+    expect(scripted.asked).toEqual([])
+    expect(readFileSync(join(targetDir, ".env"), "utf8")).toBe(remoteEnv)
+  })
+
+  it("exits 1 before the sign-in when every user can change the --dir folder", async () => {
+    const targetDir = makeTempTargetDir()
+    const remoteEnv = "MCP_AUTH_TOKEN=abc\nOBSIDIAN_AUTH_TOKEN=old-token\n"
+    writeFileSync(join(targetDir, ".env"), remoteEnv)
+    chmodSync(targetDir, 0o777)
+    const scripted = createScriptedPrompts(["user@example.com", "password"])
+
+    const exitCode = await runGetSyncToken(
+      { dir: targetDir },
+      { prompts: scripted.prompts, fetchFn: fetchSigninSuccess("new-sync-token") },
+    )
+
+    expect(exitCode).toBe(1)
+    expect(scripted.errors).toEqual([
+      `Every user on this machine can change ${targetDir}, so the CLI won't use it. Remove other users' write permission from it, or choose another folder with --dir.`,
     ])
     expect(scripted.asked).toEqual([])
     expect(readFileSync(join(targetDir, ".env"), "utf8")).toBe(remoteEnv)
