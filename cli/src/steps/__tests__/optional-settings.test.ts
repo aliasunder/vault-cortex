@@ -397,6 +397,18 @@ describe("askOptionalSettings per-setting prompts", () => {
     expect(overrides).toEqual({ SYNC_MODE: "bidirectional" })
   })
 
+  it("seeds the SYNC_MODE select with the default when the line is empty", async () => {
+    const scripted = createScriptedPrompts([["SYNC_MODE"], "pull-only"])
+
+    const overrides = await askOptionalSettings(
+      { portsInUse: new Map(), mode: "remote", envContent: "SYNC_MODE=\n" },
+      scripted.prompts,
+    )
+
+    expect(scripted.selectCalls.map(({ initialValue }) => initialValue)).toEqual(["bidirectional"])
+    expect(overrides).toEqual({ SYNC_MODE: "pull-only" })
+  })
+
   it("re-prompts on an unknown timezone until a recognized one is given", async () => {
     const scripted = createScriptedPrompts([
       ["TZ"],

@@ -173,15 +173,6 @@ const OPTIONAL_SETTINGS: OptionalSetting[] = [
   },
 ]
 
-/**
- * True unless the .env value is an explicit "off" spelling — env-var's asBool
- * accepts 0/1 alongside true/false. An absent or unrecognized value falls to
- * the server default, declared per-toggle via defaultEnabled (enabled unless
- * stated otherwise).
- */
-const isEnabledToggleValue = (value: string | undefined): boolean =>
-  !["false", "0"].includes((value ?? "").toLowerCase())
-
 /** The toggle spellings the server's env-var asBool accepts, in any case, and the state each means. */
 const TOGGLE_STATES: ReadonlyMap<string, string> = new Map([
   ["true", "true"],
@@ -190,19 +181,21 @@ const TOGGLE_STATES: ReadonlyMap<string, string> = new Map([
   ["0", "false"],
 ])
 
+/** The setting kinds the server gives a default, so an unset line still has a value. */
+type DefaultedSetting = Extract<OptionalSetting, { kind: "toggle" | "port" | "folder" | "choice" }>
+
 /**
- * The value the server runs with for a setting, given its .env text, in the
- * spelling the setting's prompt returns:
- * - an unset or empty line means the setting's default, since Compose's
- *   `${VAR:-default}` and env-var's `.default()` both read an empty value as unset;
- * - a toggle reads as "true" or "false" from any spelling the server accepts.
+ * The value the server runs with for a defaulted setting, given its .env text,
+ * in the spelling the setting's prompt returns. Prompts start from it, and an
+ * answer equal to it is not a change.
+ * - An unset or empty line means the setting's default, since Compose's
+ *   `${VAR:-default}` and env-var's `.default()` both read an empty value as unset.
+ * - A toggle reads as "true" or "false" from any spelling the server accepts.
  *   Any other spelling stops the server at boot, so it is returned as written:
- *   it then matches no answer, and confirming the toggle rewrites the line.
+ *   it then matches no answer, so confirming the toggle rewrites the line, and
+ *   the confirm starts at "yes".
  */
-const effectiveSettingValue = (
-  setting: OptionalSetting,
-  envText: string | undefined,
-): string | undefined => {
+const defaultedSettingValue = (setting: DefaultedSetting, envText: string | undefined): string => {
   switch (setting.kind) {
     case "toggle":
       if (!envText) return String(setting.defaultEnabled ?? true)
@@ -212,6 +205,20 @@ const effectiveSettingValue = (
     case "folder":
     case "choice":
       return envText || setting.defaultValue
+  }
+}
+
+/** The value the server runs with for any setting; one with no default is its .env text. */
+const effectiveSettingValue = (
+  setting: OptionalSetting,
+  envText: string | undefined,
+): string | undefined => {
+  switch (setting.kind) {
+    case "toggle":
+    case "port":
+    case "folder":
+    case "choice":
+      return defaultedSettingValue(setting, envText)
     case "timezone":
     case "optionalText":
       return envText
@@ -251,17 +258,17 @@ const askTimezone = async (currentValue: string | undefined, prompts: Prompts): 
 const askFolder = async (
   params: {
     question: string
-    currentValue: string | undefined
-    defaultValue: string
+    /** The folder the server uses now, which an empty answer keeps. */
+    effectiveFolder: string
+    defaultFolder: string
   },
   prompts: Prompts,
 ): Promise<string> => {
-  const { question, currentValue, defaultValue } = params
+  const { question, effectiveFolder, defaultFolder } = params
   const answer = (
     await prompts.text(question, {
-      // An empty .env value leaves the server's default folder in effect.
-      defaultValue: currentValue || defaultValue,
-      placeholder: defaultValue,
+      defaultValue: effectiveFolder,
+      placeholder: defaultFolder,
     })
   ).trim()
 
@@ -317,20 +324,13 @@ const askSettingValue = async (
   const { setting, currentValue, portsInUse } = params
   switch (setting.kind) {
     case "toggle": {
-      // An unset or empty var means the server default applies — seed the
-      // confirm from defaultEnabled, not from the enabled-unless-"false"
-      // heuristic (wrong for default-off toggles like READONLY_MODE).
-      // Empty string matters: `READONLY_MODE=` in .env is read as unset
-      // by Compose's `${VAR:-default}` and env-var's `.default()`.
-      const currentlyEnabled = !currentValue
-        ? (setting.defaultEnabled ?? true)
-        : isEnabledToggleValue(currentValue)
+      const currentlyEnabled = defaultedSettingValue(setting, currentValue) !== "false"
       const enabled = await prompts.confirm(setting.question, currentlyEnabled)
       return String(enabled)
     }
     case "port":
       return askFreePort(
-        { suggestedPort: effectiveSettingValue(setting, currentValue), portsInUse },
+        { suggestedPort: defaultedSettingValue(setting, currentValue), portsInUse },
         prompts,
       )
     case "timezone":
@@ -339,8 +339,8 @@ const askSettingValue = async (
       return askFolder(
         {
           question: setting.question,
-          currentValue,
-          defaultValue: setting.defaultValue,
+          effectiveFolder: defaultedSettingValue(setting, currentValue),
+          defaultFolder: setting.defaultValue,
         },
         prompts,
       )
@@ -365,7 +365,11 @@ const askSettingValue = async (
       return value
     }
     case "choice":
-      return prompts.select(setting.question, setting.choices, currentValue ?? setting.defaultValue)
+      return prompts.select(
+        setting.question,
+        setting.choices,
+        defaultedSettingValue(setting, currentValue),
+      )
   }
 }
 
@@ -397,10 +401,13 @@ export const askOptionalSettings = async (
     const requiredToggle = OPTIONAL_SETTINGS.find(
       (candidate) => candidate.name === setting.requiresToggle,
     )
-    const dependencyNote =
-      requiredToggle && !isEnabledToggleValue(readEnvValue(envValues, requiredToggle.name))
-        ? ` · not used while ${requiredToggle.label} is off`
-        : ""
+    const requiredToggleOff =
+      requiredToggle &&
+      effectiveSettingValue(requiredToggle, readEnvValue(envValues, requiredToggle.name)) ===
+        "false"
+    const dependencyNote = requiredToggleOff
+      ? ` · not used while ${requiredToggle.label} is off`
+      : ""
     return {
       value: setting.name,
       label: setting.label,
