@@ -69,8 +69,8 @@ See the [full Quick Start guide](https://github.com/aliasunder/vault-cortex#quic
 |  | `vault_write_note` | Create a note (fails if it already exists; set `overwrite` to replace) |
 |  | `vault_patch_note` | Append, prepend, insert or replace by heading; replacing subsections needs `include_children` |
 |  | `vault_replace_in_note` | Find-and-replace text in a note (first match or `replace_all_occurrences`) |
-|  | `vault_delete_span` | Delete a block of lines found by short text from its first and last lines |
-|  | `vault_replace_span` | Replace a block of lines found by short text from its first and last lines |
+|  | `vault_delete_span` | Delete a line or a block of lines, found by short text from its first (and last) line |
+|  | `vault_replace_span` | Replace a line or a block of lines, found by short text from its first (and last) line |
 |  | `vault_insert_at_anchor` | Insert content before or after a line found by a short piece of its text |
 |  | `vault_list_notes` | List notes with optional glob/folder filter |
 |  | `vault_delete_note` | Delete a note — trashed per the vault's setting, permanent under Sync (protected paths enforced) |

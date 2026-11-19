@@ -221,9 +221,9 @@ The server, and the `:remote` image's setup mode, set these headers:
   note restored by hand and trashed again within a minute, or a file
   swapped in during the instant between the check and the delete
 - Memory shrink guard: the memory tools refuse a write that would remove
-  more than half of a memory file's bytes, since that almost always means
-  the file changed on disk after the copy the write was based on. Other
-  note tools have no such guard
+  more than half of a memory file's bytes, since a shrink that large almost
+  always comes from a bug or from a write planned on a stale copy of the
+  file, not from a legitimate edit. Other note tools have no such guard
 - Memory idempotency guard: exact-bullet dedup prevents duplicates from
   retried writes after gateway timeouts
 - Memory line-break rejection: entry, date, and section reject `\r`/`\n`
