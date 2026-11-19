@@ -858,16 +858,26 @@ describe("chunkContent", () => {
         metadataPrefix: hugeMetadata,
       })
 
-      // All section chunks lose their Section line because the prefix
-      // already exhausts the budget — verify both Heading and Trail sections
-      const bodyChunks = chunks.filter((chunk) => chunk.text.includes("body0"))
-      const trailChunks = chunks.filter((chunk) => chunk.text.includes("trail0"))
-
-      expect(bodyChunks.length).toBeGreaterThan(0)
-      expect(trailChunks.length).toBeGreaterThan(0)
-      for (const chunk of [...bodyChunks, ...trailChunks]) {
-        expect(sectionLineOf(chunk.text)).toBeNull()
+      // The 401-token title and metadata leave a zero Section-line budget, so
+      // both sections' chunks carry only the title and metadata, and each body
+      // budget floors at 50 tokens: Heading's 600 words make 12 chunks and
+      // Trail's 100 make 2.
+      const fiftyWordRuns = (words: readonly string[]): string[] => {
+        return Array.from({ length: words.length / 50 }, (_, run) => {
+          return words.slice(run * 50, (run + 1) * 50).join(" ")
+        })
       }
+      const sectionRuns = [
+        ...fiftyWordRuns(generateLabeledTokens(600, "body").split(" ")),
+        ...fiftyWordRuns(generateLabeledTokens(100, "trail").split(" ")),
+      ]
+      expect(chunks).toEqual([
+        ...sectionRuns.map((run, index) => ({
+          index,
+          text: `${hugeTitle}\n${hugeMetadata}\n\n${run}`,
+        })),
+        { index: sectionRuns.length, text: `${hugeTitle}\n\nHeading\nTrail` },
+      ])
     })
 
     it("yields a body budget above the floor when the cap drops ancestors", () => {
@@ -879,12 +889,13 @@ describe("chunkContent", () => {
       const name2 = generateLabeledTokens(120, "n2")
       const name3 = generateLabeledTokens(120, "n3")
       const name4 = generateLabeledTokens(120, "n4")
+      const leafWords = generateLabeledTokens(300, "leaf").split(" ")
 
       const body =
         `## ${name1}\n\n${generateLabeledTokens(100, "a")}\n\n` +
         `### ${name2}\n\n${generateLabeledTokens(100, "b")}\n\n` +
         `#### ${name3}\n\n${generateLabeledTokens(100, "c")}\n\n` +
-        `##### ${name4}\n\n${generateLabeledTokens(300, "leaf")}` +
+        `##### ${name4}\n\n${leafWords.join(" ")}` +
         trailSection
 
       const chunks = chunkContent({ noteTitle: "N", bodyContent: body })
@@ -894,14 +905,11 @@ describe("chunkContent", () => {
       if (!deepestChunk) {
         throw new Error("expected deepest chunk not found")
       }
-      expect(sectionLineOf(deepestChunk.text)).toBe(`Section: ${name2} > ${name3} > ${name4}`)
-
-      // The body portion carries more than MIN_CHUNK_TOKENS (50) tokens
-      const bodyStart = deepestChunk.text.indexOf("leaf0")
-      const bodyText = deepestChunk.text.slice(bodyStart)
-      const bodyTokens = bodyText.split(/\s+/).filter(Boolean).length
-
-      expect(bodyTokens).toBeGreaterThan(50)
+      // The capped prefix costs 364 tokens (1 for the title, 363 for the
+      // Section line), leaving an 86-token body budget, above the 50 floor.
+      expect(deepestChunk.text).toBe(
+        `N\nSection: ${name2} > ${name3} > ${name4}\n\n${leafWords.slice(0, 86).join(" ")}`,
+      )
     })
 
     it("tightens the section-line budget when a metadata prefix is present", () => {
@@ -941,15 +949,11 @@ describe("chunkContent", () => {
     })
 
     it("preserves the full path when the section line fits exactly at the budget", () => {
-      // Budget = 450 - 50 - 1 (title "N") = 399. A path whose Section
-      // line is exactly 399 tokens must survive unchanged — a regression
-      // tightening the <= to < would drop the outermost ancestor.
-      const outerName = generateLabeledTokens(196, "ex")
-      const innerName = generateLabeledTokens(196, "ey")
-      // "Section:" (1) + 196 + " > " (1) + 196 = 394 ... need exactly 399.
-      // Adjust: 197 + 197 + 1 (Section:) + 1 (separator) = 396. Still under.
-      // Use 198 + 198 + 1 + 1 = 398. Close. Let the test assert the path
-      // survives at the boundary region rather than engineering exact equality.
+      // Budget = 450 - 50 - 1 (title "N") = 399. "Section:" (1) + 198 +
+      // ">" (1) + 199 = 399 tokens exactly, so the path must survive
+      // unchanged; tightening the <= to < would drop the outer ancestor.
+      const outerName = generateLabeledTokens(198, "ex")
+      const innerName = generateLabeledTokens(199, "ey")
       const body =
         `## ${outerName}\n\n${generateLabeledTokens(200, "a")}\n\n` +
         `### ${innerName}\n\n${generateLabeledTokens(200, "b")}` +
