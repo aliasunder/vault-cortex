@@ -279,12 +279,12 @@ const decodeBasicHtmlEntities = (text: string): string => {
   })
 }
 
-/** Matches the canonical "(newest first)" suffix at the end of a section
- *  name, with any surrounding whitespace. The lookbehind lets a match start
- *  only at the first whitespace character of a run, or at the "(" when no
- *  whitespace precedes it, so a long whitespace run is not rescanned from
- *  each of its characters, which takes time quadratic in the run's length. */
-const NEWEST_FIRST_SUFFIX_PATTERN = /(?<!\s)\s*\(newest first\)\s*$/i
+/** Matches the canonical "(newest first)" suffix, and any whitespace after
+ *  it, at the end of a section name. Whitespace before the suffix is left to
+ *  sectionComparisonForm's trim: matching it here would let a match start at
+ *  every character of a long whitespace run, which takes time quadratic in
+ *  the run's length. */
+const NEWEST_FIRST_SUFFIX_PATTERN = /\(newest first\)\s*$/i
 
 /** Canonical comparison form for near-duplicate detection: entity decoding,
  *  case folding, whitespace collapsing, and the "(newest first)" suffix
