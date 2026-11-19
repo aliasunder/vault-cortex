@@ -18,10 +18,10 @@ const resolvePath = (repoRelative: string): string => fileURLToPath(new URL(repo
 
 /** Header prepended to each optional block in the CLI-generated .env. */
 const CLI_OPTIONAL_HEADER = `# Optional ──────────────────────────────────────────────────
-# To change a setting: run "npx vault-cortex@latest configure", or edit
-# its value here (uncommenting it first if needed) and apply with
-# "npx vault-cortex@latest restart" (plain docker restart does not
-# re-read this file).
+# To change a setting: run "npx vault-cortex@latest configure --dir
+# <this folder>", or edit its value here (uncommenting it first if
+# needed) and apply with "npx vault-cortex@latest restart --dir
+# <this folder>" (plain docker restart does not re-read this file).
 
 `
 

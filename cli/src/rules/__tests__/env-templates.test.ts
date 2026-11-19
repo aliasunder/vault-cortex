@@ -51,10 +51,10 @@ describe("buildLocalEnv", () => {
     // The whole wrapped header as one literal (comment continuation lines
     // included) — a first-line-only fragment would tolerate drift in the rest.
     expect(env).toContain(
-      'To change a setting: run "npx vault-cortex@latest configure", or edit\n' +
-        "# its value here (uncommenting it first if needed) and apply with\n" +
-        '# "npx vault-cortex@latest restart" (plain docker restart does not\n' +
-        "# re-read this file).",
+      'To change a setting: run "npx vault-cortex@latest configure --dir\n' +
+        '# <this folder>", or edit its value here (uncommenting it first if\n' +
+        '# needed) and apply with "npx vault-cortex@latest restart --dir\n' +
+        '# <this folder>" (plain docker restart does not re-read this file).',
     )
   })
 })
@@ -97,7 +97,7 @@ describe("buildRemoteEnv", () => {
     expect(env).toContain(
       "# Obsidian Sync auth token. Leave empty to sign in on the server's sign-in\n" +
         "# page at your PUBLIC_URL once it starts (over HTTPS), or generate one with:\n" +
-        "#   npx vault-cortex@latest get-sync-token\n" +
+        '#   npx vault-cortex@latest get-sync-token --dir "<this folder>"\n' +
         "OBSIDIAN_AUTH_TOKEN=\n",
     )
   })
@@ -130,10 +130,10 @@ describe("buildRemoteEnv", () => {
     // The whole wrapped header as one literal (comment continuation lines
     // included) — a first-line-only fragment would tolerate drift in the rest.
     expect(env).toContain(
-      'To change a setting: run "npx vault-cortex@latest configure", or edit\n' +
-        "# its value here (uncommenting it first if needed) and apply with\n" +
-        '# "npx vault-cortex@latest restart" (plain docker restart does not\n' +
-        "# re-read this file).",
+      'To change a setting: run "npx vault-cortex@latest configure --dir\n' +
+        '# <this folder>", or edit its value here (uncommenting it first if\n' +
+        '# needed) and apply with "npx vault-cortex@latest restart --dir\n' +
+        '# <this folder>" (plain docker restart does not re-read this file).',
     )
   })
 })
