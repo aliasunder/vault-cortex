@@ -132,7 +132,8 @@ const OPTIONAL_SETTINGS: OptionalSetting[] = [
     kind: "toggle",
     name: "EMBEDDING_ENABLED",
     label: "Semantic search",
-    question: "Enable semantic search embeddings (finds notes by meaning, built in the background after startup)?",
+    question:
+      "Enable semantic search embeddings (finds notes by meaning, built in the background after startup)?",
   },
   { kind: "port", name: "PORT", label: "Host port" },
   { kind: "timezone", name: "TZ", label: "Timezone" },
