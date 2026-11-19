@@ -183,6 +183,31 @@ const isEnabledToggleValue = (value: string | undefined): boolean =>
   !["false", "0"].includes((value ?? "").toLowerCase())
 
 /**
+ * The value the server runs with for a setting, given its .env text, in the
+ * spelling the setting's prompt returns:
+ * - an unset or empty line means the setting's default, since Compose's
+ *   `${VAR:-default}` and env-var's `.default()` both read an empty value as unset;
+ * - a set toggle reads as "true" unless it says false or 0.
+ */
+const effectiveSettingValue = (
+  setting: OptionalSetting,
+  envText: string | undefined,
+): string | undefined => {
+  switch (setting.kind) {
+    case "toggle":
+      return String(envText ? isEnabledToggleValue(envText) : (setting.defaultEnabled ?? true))
+    case "port":
+      return envText || String(DEFAULT_PORT)
+    case "folder":
+    case "choice":
+      return envText || setting.defaultValue
+    case "timezone":
+    case "optionalText":
+      return envText
+  }
+}
+
+/**
  * The engine's own IANA zone validation: Intl.DateTimeFormat throws a
  * RangeError for an unknown timeZone, so no hand-rolled zone list to drift.
  */
@@ -281,21 +306,15 @@ const askSettingValue = async (
   const { setting, currentValue, portsInUse } = params
   switch (setting.kind) {
     case "toggle": {
-      // An unset or empty var means the server default applies — seed the
-      // confirm from defaultEnabled, not from the enabled-unless-"false"
-      // heuristic (wrong for default-off toggles like READONLY_MODE).
-      // Empty string matters: `READONLY_MODE=` in .env is read as unset
-      // by Compose's `${VAR:-default}` and env-var's `.default()`.
-      const currentlyEnabled = !currentValue
-        ? (setting.defaultEnabled ?? true)
-        : isEnabledToggleValue(currentValue)
+      // Seeded from the value in effect, so an unset default-off toggle such
+      // as READONLY_MODE starts at "no".
+      const currentlyEnabled = effectiveSettingValue(setting, currentValue) === "true"
       const enabled = await prompts.confirm(setting.question, currentlyEnabled)
       return String(enabled)
     }
     case "port":
-      // An empty PORT= line leaves the default port in effect, as readEnvPort reads it.
       return askFreePort(
-        { suggestedPort: currentValue || String(DEFAULT_PORT), portsInUse },
+        { suggestedPort: effectiveSettingValue(setting, currentValue), portsInUse },
         prompts,
       )
     case "timezone":
@@ -380,9 +399,9 @@ export const askOptionalSettings = async (
 
   // Answers are gathered one at a time in the curated order, so the record
   // builds up inside a plain loop. A blank optionalText answer writes nothing,
-  // and an answer equal to the current value is not a change, because
-  // recording it would make the caller rewrite the file and offer a restart
-  // for a byte-identical .env.
+  // and an answer the server reads the same as the current line is not a
+  // change, because recording it would make the caller rewrite the file and
+  // offer a restart for a setting that did not change.
   const overrides: Record<string, string> = {}
   for (const setting of offeredSettings) {
     if (!pickedNames.includes(setting.name)) continue
@@ -390,8 +409,8 @@ export const askOptionalSettings = async (
     const value = await askSettingValue({ setting, currentValue, portsInUse }, prompts)
 
     if (!value) continue
-    if (value === currentValue) {
-      prompts.log(`Kept the current value (${currentValue}).`)
+    if (value === effectiveSettingValue(setting, currentValue)) {
+      prompts.log(`Kept the current value (${currentValue || value}).`)
       continue
     }
     overrides[setting.name] = value

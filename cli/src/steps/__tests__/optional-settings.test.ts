@@ -306,8 +306,10 @@ describe("askOptionalSettings per-setting prompts", () => {
         scripted.prompts,
       )
 
+      // The default the server already reads is not a change, so nothing is recorded.
       expect(scripted.errors).toEqual([])
-      expect(overrides).toEqual({ MEMORY_DIR: "About Me" })
+      expect(overrides).toEqual({})
+      expect(scripted.logs).toEqual(["Kept the current value (About Me)."])
     },
   )
 
@@ -326,7 +328,7 @@ describe("askOptionalSettings per-setting prompts", () => {
     expect(overrides).toEqual({ MEMORY_DIR: "Notes" })
   })
 
-  it("uses the default port on an empty submission", async () => {
+  it("keeps the default port on an empty submission when no PORT line exists", async () => {
     const scripted = createScriptedPrompts([["PORT"], ""])
 
     const overrides = await askOptionalSettings(
@@ -334,7 +336,8 @@ describe("askOptionalSettings per-setting prompts", () => {
       scripted.prompts,
     )
 
-    expect(overrides).toEqual({ PORT: "8000" })
+    expect(overrides).toEqual({})
+    expect(scripted.logs).toEqual(["Kept the current value (8000)."])
   })
 
   it("offers the default port when the PORT line is empty", async () => {
@@ -348,7 +351,8 @@ describe("askOptionalSettings per-setting prompts", () => {
     expect(scripted.textCalls).toEqual([
       { message: "Host port for the server:", defaultValue: "8000", placeholder: "8000" },
     ])
-    expect(overrides).toEqual({ PORT: "8000" })
+    expect(overrides).toEqual({})
+    expect(scripted.logs).toEqual(["Kept the current value (8000)."])
   })
 
   it("offers the default port when the PORT line is not a port", async () => {
@@ -587,9 +591,7 @@ describe("askOptionalSettings per-setting prompts", () => {
     expect(scripted.logs).toEqual(["Kept the current value (true)."])
   })
 
-  it("records a toggle confirmed at its default when the var is unset", async () => {
-    // An unset var means the server default; writing it out explicitly is a
-    // change to the file, so it is recorded.
+  it("does not record a toggle confirmed at its default when the var is unset", async () => {
     const scripted = createScriptedPrompts([["MEMORY_ENABLED"], true])
 
     const overrides = await askOptionalSettings(
@@ -597,7 +599,31 @@ describe("askOptionalSettings per-setting prompts", () => {
       scripted.prompts,
     )
 
-    expect(overrides).toEqual({ MEMORY_ENABLED: "true" })
+    expect(overrides).toEqual({})
+    expect(scripted.logs).toEqual(["Kept the current value (true)."])
+  })
+
+  it("does not record a toggle confirmed off over a 0 spelling", async () => {
+    const scripted = createScriptedPrompts([["MEMORY_ENABLED"], false])
+
+    const overrides = await askOptionalSettings(
+      { portsInUse: new Map(), mode: "local", envContent: "MEMORY_ENABLED=0\n" },
+      scripted.prompts,
+    )
+
+    expect(overrides).toEqual({})
+    expect(scripted.logs).toEqual(["Kept the current value (0)."])
+  })
+
+  it("records a toggle turned off over a 1 spelling", async () => {
+    const scripted = createScriptedPrompts([["MEMORY_ENABLED"], false])
+
+    const overrides = await askOptionalSettings(
+      { portsInUse: new Map(), mode: "local", envContent: "MEMORY_ENABLED=1\n" },
+      scripted.prompts,
+    )
+
+    expect(overrides).toEqual({ MEMORY_ENABLED: "false" })
     expect(scripted.logs).toEqual([])
   })
 
