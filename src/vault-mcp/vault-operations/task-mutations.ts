@@ -1212,8 +1212,6 @@ const describeNoNextOccurrence = (
   outcome: NoNextOccurrence,
 ): { reason: string; advisory?: string | undefined } => {
   switch (outcome.kind) {
-    // A refusal never quotes this reason, because assertUpdateTaskParams
-    // refuses nextBlockId without status "done".
     case "not-completing":
       return { reason: "the update does not complete the task" }
     case "already-done":
@@ -1901,7 +1899,6 @@ const assertUpdateTaskParams = (params: UpdateTaskParams): void => {
     dependsOn,
     addSubtasks,
     assignBlockId,
-    nextBlockId,
   } = params
 
   const identifierCount = [blockId, line].filter(Boolean).length
@@ -1955,15 +1952,10 @@ const assertUpdateTaskParams = (params: UpdateTaskParams): void => {
     throw new Error("description must be a single line")
   }
 
+  // An empty nextBlockId reaches validateBlockId's grammar check later; an
+  // empty assignBlockId is refused here only to point the caller to null.
   if (assignBlockId === "") {
     throw new Error("assignBlockId cannot be empty (use null to remove the id)")
-  }
-
-  // The id names the next occurrence, which only a completion creates.
-  // validateBlockId's grammar check refuses an empty id later; assignBlockId
-  // refuses its own here only to point the caller to null.
-  if (nextBlockId !== undefined && status !== "done") {
-    throw new Error('nextBlockId requires status "done"')
   }
 
   if (addSubtasks?.length === 0) {

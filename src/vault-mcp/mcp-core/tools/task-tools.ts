@@ -537,7 +537,7 @@ ${PATH_SAFETY_ERROR_ENTRY}
 ${TASK_HEADING_NOT_FOUND_ERROR_ENTRY}
 - "multiple done lanes detected" / "no done lane detected" — status "done" on a Kanban board with more than one lane whose first line is **Complete**, or with none and no "Done" heading; pass heading to pick the lane
 - "blockId ... already exists" / "blockId ... contains invalid characters" — assign_block_id and next_block_id must be unique in the note and match [a-zA-Z0-9-]+
-- "nextBlockId requires status" / "nextBlockId was given, but" — next_block_id needs a completion that creates a next occurrence; drop it otherwise
+- "nextBlockId was given, but" — next_block_id needs a completion that creates a next occurrence; drop it otherwise
 - "assignBlockId is not allowed" / "nextBlockId is not allowed" / "description ends in a block ID" / "subtask ... ends in a block ID" — a new ^id on an indented line of a Kanban board; leave the line without an id and target it by line, and drop any trailing ^id from the text
 ${TASK_DATE_ERROR_ENTRY}
 - "description cannot be empty" / "addSubtasks cannot contain an empty item" / "description must be a single line" / "addSubtasks items must be a single line" — pass visible text on a single line

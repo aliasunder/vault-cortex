@@ -6496,7 +6496,8 @@ describe("naming the next occurrence's block id", () => {
       label: "a status other than done",
       note: RECURRING_NOTE,
       update: { blockId: "water-plants", status: "in_progress", nextBlockId: "next" },
-      message: 'nextBlockId requires status "done"',
+      message:
+        "nextBlockId was given, but this update creates no next occurrence: the update does not complete the task",
     },
     {
       label: "a task that is already done",

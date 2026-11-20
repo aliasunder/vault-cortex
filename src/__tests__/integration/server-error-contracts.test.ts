@@ -2968,7 +2968,10 @@ describe("task errors", () => {
         next_block_id: "alpha-next",
       },
     })
-    expectToolError(result, 'nextBlockId requires status "done"')
+    expectToolError(
+      result,
+      "nextBlockId was given, but this update creates no next occurrence: the update does not complete the task",
+    )
   })
 
   it("vault_update_task with next_block_id on a task that is not recurring", async () => {
