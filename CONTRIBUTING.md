@@ -251,14 +251,18 @@ merge even when the body is dropped. The `BREAKING CHANGE:` footer is preferred
 because it carries the descriptive line; the label and `!` only flag that a change
 is breaking.
 
+CLI release notes (`.github/scripts/generate-cli-notes.sh`) list commit
+subjects only, with no ⚠ section, so a breaking change to `cli/` carries the
+`!` marker in its PR title, which becomes the squash subject.
+
 The committed tool-surface baseline
 (`src/vault-mcp/mcp-core/__tests__/__snapshots__/tool-surface/`) is the
 byte-level record of the MCP wire surface. A PR that changes tool schemas,
 descriptions, prompts, or server instructions regenerates it with
 `npm run snapshot:update`, and the baseline diff is where reviewers judge
-whether the change is breaking. The baseline captured at each release commit is
-the regression reference for the
-[v1.0.0 stability contract](./ROADMAP.md#v100--a-stability-contract).
+whether the change is breaking, against the covered surfaces in
+[VERSIONING.md](./VERSIONING.md). The baseline captured at each release
+commit is the regression reference for the next.
 
 `tool-surface-snapshot.test.ts`, which checks the baseline, also caps the tool
 list's size, because some clients load every tool definition into each

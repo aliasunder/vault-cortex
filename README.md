@@ -566,6 +566,11 @@ npx skills add aliasunder/agent-skills --skill obsidian-vault
 Planned work, what's being explored, and explicit non-goals live in
 [ROADMAP.md](./ROADMAP.md).
 
+## Versioning
+
+[VERSIONING.md](./VERSIONING.md) says which changes count as breaking, how
+they are announced, and how the server and CLI versions relate.
+
 ---
 
 ## Acknowledgments
