@@ -1500,6 +1500,94 @@ describe("heading not found", () => {
     })
     expectToolError(result, 'heading not found: "No Such Heading"')
   })
+
+  describe("in a note with 40 headings", () => {
+    const laneNames = Array.from({ length: 40 }, (_, index) => `Lane ${index + 1}`)
+    const firstThirtyLaneNames = laneNames.slice(0, 30)
+
+    /** Writes a note of 40 H2 headings, the first holding one task, and
+     *  removes it when the test ends. */
+    const writeLongNote = async (notePath: string): Promise<void> => {
+      const content = laneNames
+        .map((laneName, index) => {
+          return index === 0
+            ? `## ${laneName}\n\n- [ ] Probe task ^probe-task\n`
+            : `## ${laneName}\n`
+        })
+        .join("\n")
+      const fullPath = join(serverVaultPath, notePath)
+      await writeFile(fullPath, content)
+      onTestFinished(async () => {
+        await rm(fullPath, { force: true })
+      })
+    }
+
+    it("vault_read_note lists the first 30 headings and the total", async () => {
+      await writeLongNote("long-headings-read.md")
+
+      const result = await callTool({
+        client,
+        name: "vault_read_note",
+        args: { path: "long-headings-read.md", heading: "Missing" },
+      })
+
+      const listedHeadings = firstThirtyLaneNames.map((laneName) => `## ${laneName}`).join(", ")
+      expect(result).toEqual({
+        content: [
+          {
+            type: "text",
+            text: `[Error]: heading not found: "Missing". Available headings (first 30 of 40): ${listedHeadings}`,
+          },
+        ],
+        isError: true,
+      })
+    })
+
+    it("vault_create_task lists the first 30 headings and the total", async () => {
+      await writeLongNote("long-headings-create.md")
+
+      const result = await callTool({
+        client,
+        name: "vault_create_task",
+        args: {
+          path: "long-headings-create.md",
+          description: "New task",
+          block_id: "new-probe-task",
+          heading: "Missing",
+        },
+      })
+
+      expect(result).toEqual({
+        content: [
+          {
+            type: "text",
+            text: `[Error]: heading "Missing" not found; available (first 30 of 40): ${firstThirtyLaneNames.join(", ")}`,
+          },
+        ],
+        isError: true,
+      })
+    })
+
+    it("vault_update_task lists the first 30 headings and the total", async () => {
+      await writeLongNote("long-headings-update.md")
+
+      const result = await callTool({
+        client,
+        name: "vault_update_task",
+        args: { path: "long-headings-update.md", block_id: "probe-task", heading: "Missing" },
+      })
+
+      expect(result).toEqual({
+        content: [
+          {
+            type: "text",
+            text: `[Error]: heading "Missing" not found; available (first 30 of 40): ${firstThirtyLaneNames.join(", ")}`,
+          },
+        ],
+        isError: true,
+      })
+    })
+  })
 })
 
 // ── Ambiguous heading ────────────────────────────────────────
