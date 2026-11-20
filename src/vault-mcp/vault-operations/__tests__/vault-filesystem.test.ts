@@ -496,8 +496,8 @@ const pathTooLongError = (path: string): Error => {
 describe("over-long paths", () => {
   const longestAcceptedPath = `${"a".repeat(LONGEST_ACCEPTED_PATH_BYTES - 3)}.md`
   const oneByteTooLongPath = `${"a".repeat(LONGEST_ACCEPTED_PATH_BYTES - 2)}.md`
-  // 4,105 bytes that normalize to "x.md": 100 + 800 × 5 + 5
-  const paddedPath = `${"a".repeat(100)}${"/b/..".repeat(800)}/x.md`
+  // 4,108 bytes that normalize to "x.md": 100 + 800 × 5 + 8
+  const paddedPath = `${"a".repeat(100)}${"/b/..".repeat(800)}/../x.md`
 
   it("resolveSafePath resolves a path of exactly 4,095 bytes", () => {
     expect(resolveSafePath(vault, longestAcceptedPath)).toBe(join(vault, longestAcceptedPath))
@@ -513,6 +513,14 @@ describe("over-long paths", () => {
     const absolutePath = `/${oneByteTooLongPath}`
 
     expect(() => resolveSafePath(vault, absolutePath)).toThrow(
+      new Error(`absolute path blocked: "${absolutePath}" must be vault-relative`),
+    )
+  })
+
+  it("resolveVaultRelativePath keeps the absolute-path message for an over-long absolute path", () => {
+    const absolutePath = `/${oneByteTooLongPath}`
+
+    expect(() => resolveVaultRelativePath({ vaultPath: vault, notePath: absolutePath })).toThrow(
       new Error(`absolute path blocked: "${absolutePath}" must be vault-relative`),
     )
   })

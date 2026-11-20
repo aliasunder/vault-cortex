@@ -298,6 +298,22 @@ describe("PDF extraction child", () => {
     })
     expect(spawn).not.toHaveBeenCalled()
   }, 15_000)
+
+  it("keeps the absolute-path refusal for an over-long absolute path, before starting a child", async () => {
+    const vaultPath = await mkdtemp(join(tmpdir(), "probe-pdf-absolute-long-path-"))
+    const extractor = createPdfExtractor({ vaultPath, maxFileBytes: 1_000_000 })
+    onTestFinished(async () => {
+      await extractor.close()
+      await rm(vaultPath, { recursive: true, force: true })
+    })
+    // 4,097 bytes, over the length limit and absolute
+    const absoluteLongPath = `/${"a".repeat(4092)}.pdf`
+
+    await expect(extractor.readText({ path: absoluteLongPath }, logger)).rejects.toThrow(
+      new Error(`absolute path blocked: "${absoluteLongPath}" must be vault-relative`),
+    )
+    expect(spawn).not.toHaveBeenCalled()
+  }, 15_000)
 })
 
 describe("PDF extraction ownership", () => {

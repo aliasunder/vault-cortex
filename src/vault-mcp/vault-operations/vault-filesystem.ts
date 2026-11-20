@@ -55,6 +55,17 @@ import type { Logger } from "../../logger.js"
 export const toVaultRelativePath = (input: string): string =>
   posix.normalize(input.replace(/\\/g, "/"))
 
+/** Throws on an absolute path. Vault paths are relative to the vault root,
+ *  Obsidian's only form, so an absolute one is refused even when it lands
+ *  inside the vault:
+ *  - accepting it would tie behavior to the deployment's mount point;
+ *  - a vault root whose name shadows a top-level folder (root "/vault",
+ *    folder "vault/") would let one leading slash select the wrong file. */
+export const assertRelativePath = (notePath: string): void => {
+  if (!posix.isAbsolute(notePath)) return
+  throw new Error(`absolute path blocked: "${notePath}" must be vault-relative`)
+}
+
 /** Resolves a note path within the vault. It throws on:
  *  - absolute paths;
  *  - paths longer than any filesystem accepts;
@@ -65,15 +76,7 @@ export const toVaultRelativePath = (input: string): string =>
  *  Internal ".obsidian/" config readers deliberately bypass this via direct
  *  readFile. */
 export const resolveSafePath = (vaultPath: string, notePath: string): string => {
-  // Vault paths are relative to the vault root — Obsidian has no other
-  // form. An absolute input is rejected even when it lands inside the vault,
-  // because accepting it would tie behavior to the deployment's mount point,
-  // and a vault root whose name shadows a top-level folder (root "/vault",
-  // folder "vault/") would let one leading slash silently select the wrong
-  // file.
-  if (posix.isAbsolute(notePath)) {
-    throw new Error(`absolute path blocked: "${notePath}" must be vault-relative`)
-  }
+  assertRelativePath(notePath)
 
   // resolve() below costs more than linear time on some crafted inputs, as
   // does the case-folding that callers apply to its result (the write-lock
@@ -114,9 +117,13 @@ export const resolveVaultRelativePath = (params: {
   vaultPath: string
   notePath: string
 }): string => {
+  // The absolute-path check comes first, as in resolveSafePath, so an
+  // absolute path gets that refusal whatever its length.
+  assertRelativePath(params.notePath)
+
   // Normalizing costs more than linear time on some crafted inputs, so the
   // length check runs on the input as sent, before toVaultRelativePath.
-  // resolveSafePath repeats it for its own direct callers.
+  // resolveSafePath repeats both checks for its own direct callers.
   assertPathWithinMaxLength(params.notePath)
 
   const normalizedInput = toVaultRelativePath(params.notePath)

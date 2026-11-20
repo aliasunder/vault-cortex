@@ -985,8 +985,8 @@ describe("filesystem errors name the path vault-relative and carry their remedy"
   })
 
   it("vault_delete_note on a padded path longer than any filesystem accepts, quoted as sent", async () => {
-    // 4,105 bytes that normalize to "x.md"
-    const paddedPath = `${"a".repeat(100)}${"/b/..".repeat(800)}/x.md`
+    // 4,108 bytes that normalize to "x.md"
+    const paddedPath = `${"a".repeat(100)}${"/b/..".repeat(800)}/../x.md`
 
     const result = await callTool({ client, name: "vault_delete_note", args: { path: paddedPath } })
     expect(result).toEqual({
