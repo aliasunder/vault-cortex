@@ -251,6 +251,10 @@ merge even when the body is dropped. The `BREAKING CHANGE:` footer is preferred
 because it carries the descriptive line; the label and `!` only flag that a change
 is breaking.
 
+CLI release notes (`.github/scripts/generate-cli-notes.sh`) list commit
+subjects only, with no ⚠ section, so a breaking change to `cli/` carries the
+`!` marker in its PR title, which becomes the squash subject.
+
 The committed tool-surface baseline
 (`src/vault-mcp/mcp-core/__tests__/__snapshots__/tool-surface/`) is the
 byte-level record of the MCP wire surface. A PR that changes tool schemas,
