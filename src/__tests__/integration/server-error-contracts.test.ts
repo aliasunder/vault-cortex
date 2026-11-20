@@ -964,6 +964,8 @@ describe("filesystem errors name the path vault-relative and carry their remedy"
   // 4,096 bytes, one more than the longest path Linux accepts (PATH_MAX less
   // its terminating NUL), so the server refuses it before any filesystem call
   const pathOverLimit = `${"a".repeat(4096 - 3)}.md`
+  // "About Me/" (9 bytes) + name + ".md" (3 bytes) makes 4,096 bytes
+  const memoryNameOverLimit = "a".repeat(4096 - 12)
 
   it("vault_write_note on a path longer than any filesystem accepts", async () => {
     const result = await callTool({
@@ -999,19 +1001,55 @@ describe("filesystem errors name the path vault-relative and carry their remedy"
   })
 
   it("vault_update_memory on a file name whose memory path is longer than any filesystem accepts", async () => {
-    // "About Me/" (9 bytes) + name + ".md" (3 bytes) makes 4,096 bytes
-    const longName = "a".repeat(4096 - 12)
-
     const result = await callTool({
       client,
       name: "vault_update_memory",
-      args: { file: longName, section: "Notes (newest first)", entry: "refused" },
+      args: { file: memoryNameOverLimit, section: "Notes (newest first)", entry: "refused" },
     })
     expect(result).toEqual({
       content: [
         {
           type: "text",
-          text: `[Error]: ENAMETOOLONG: name too long, 'About Me/${longName}.md'. ${PATH_TOO_LONG_REMEDY}`,
+          text: `[Error]: ENAMETOOLONG: name too long, 'About Me/${memoryNameOverLimit}.md'. ${PATH_TOO_LONG_REMEDY}`,
+        },
+      ],
+      isError: true,
+    })
+  })
+
+  it("vault_delete_memory on a file name whose memory path is longer than any filesystem accepts", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_delete_memory",
+      args: { file: memoryNameOverLimit, section: "Notes", date: "2026-01-01", entry: "refused" },
+    })
+    expect(result).toEqual({
+      content: [
+        {
+          type: "text",
+          text: `[Error]: ENAMETOOLONG: name too long, 'About Me/${memoryNameOverLimit}.md'. ${PATH_TOO_LONG_REMEDY}`,
+        },
+      ],
+      isError: true,
+    })
+  })
+
+  it.each([
+    {
+      label: "an old_path",
+      args: { old_path: pathOverLimit, new_path: "Moved.md" },
+    },
+    {
+      label: "a new_path",
+      args: { old_path: "Orphan Note.md", new_path: pathOverLimit },
+    },
+  ])("vault_move_note on $label longer than any filesystem accepts", async ({ args }) => {
+    const result = await callTool({ client, name: "vault_move_note", args })
+    expect(result).toEqual({
+      content: [
+        {
+          type: "text",
+          text: `[Error]: ENAMETOOLONG: name too long, '${pathOverLimit}'. ${PATH_TOO_LONG_REMEDY}`,
         },
       ],
       isError: true,
