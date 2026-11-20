@@ -12,7 +12,9 @@ notes below describe what the maintainer uses.
 
 - **Authentication and authorization** — OAuth 2.1 (Authorization Code + PKCE),
   per-client secrets (`client_secret_post`), JWT tokens (HS256), static bearer
-  token fallback, Express middleware (defense in depth)
+  token fallback, all checked by Express middleware on every protected
+  request. Only the maintainer's reference deployment adds a second check in
+  front of it (see [Reference deployment](#reference-deployment-maintainers-iac--not-required-by-adopters))
 - **Express server** — handles MCP protocol messages, OAuth flows, and the
   consent page. On the `:remote` image it also serves the `/setup` sign-in
   page until a working Sync token is on the volume (see
@@ -22,9 +24,9 @@ notes below describe what the maintainer uses.
 - **File system access** — vault reads and writes. Path traversal is blocked by
   `resolveSafePath()` (resolve + prefix check), and hidden paths (any
   dot-prefixed segment, e.g. `.obsidian/`) are rejected for every read and
-  write. Protected paths prevent deletion of sensitive folders, and
-  `READONLY_MODE=true` removes every vault-writing tool from the server
-  entirely
+  write. Notes in protected folders (`PROTECTED_PATHS`) can't be deleted or
+  moved, no note can be moved into one, and `READONLY_MODE=true` removes
+  every vault-writing tool from the server entirely
 - **Docker image** — two targets from one Dockerfile: `local` (`:latest`,
   tini + MCP server) and `remote` (`:remote`, s6-overlay supervising
   obsidian-sync + MCP server in a single container, sharing a `/vault`
