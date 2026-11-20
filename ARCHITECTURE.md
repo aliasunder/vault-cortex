@@ -1374,7 +1374,7 @@ Docker hardening, and durability seatbelts above.
   - hidden: Obsidian Sync and the file watcher skip dot-prefixed names,
     so neither opens it;
   - 41 bytes whatever the note's name, so a note named near the
-    filesystem's limit still saves;
+    filesystem's per-name limit still saves;
   - on the note's filesystem, so the rename (or the hard link of an
     exclusive create, below) stays atomic.
 
