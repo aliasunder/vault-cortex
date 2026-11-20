@@ -11053,6 +11053,39 @@ describe("canvas file content and links", () => {
       ])
     })
 
+    it("reports an empty folder for a file at the vault root, as for a root note", async () => {
+      const fileIndex = createSearchIndex(":memory:", undefined, undefined, {
+        fileToolsEnabled: true,
+      })
+      fileIndex.upsertNote(
+        withBodyTags({
+          filePath: "plan.md",
+          rawContent: "# Plan\n\nThe architecture deployment plan.\n",
+          fileStat: testStat(1000),
+        }),
+        logger,
+      )
+      fileIndex.upsertNonMdFile("arch.canvas", 500)
+      fileIndex.upsertFileContent(
+        {
+          filePath: "arch.canvas",
+          rawContent: CANVAS_WITH_FILE_NODES,
+          fileStat: testStat(5000, 500),
+        },
+        logger,
+      )
+
+      const { results } = await fileIndex.hybridSearch({ query: "architecture deployment" }, logger)
+      const foldersByPath = results
+        .map(({ path, folder }) => ({ path, folder }))
+        .toSorted((left, right) => left.path.localeCompare(right.path))
+
+      expect(foldersByPath).toEqual([
+        { path: "arch.canvas", folder: "" },
+        { path: "plan.md", folder: "" },
+      ])
+    })
+
     it("canvas file-node references appear as backlinks", () => {
       const fileIndex = createSearchIndex(":memory:", undefined, undefined, {
         fileToolsEnabled: true,
@@ -11182,6 +11215,15 @@ describe("canvas file content and links", () => {
     })
 
     it("canvas content is NOT indexed into FTS without fileToolsEnabled", async () => {
+      // The note matching the same query shows the search ran and returns hits.
+      index.upsertNote(
+        withBodyTags({
+          filePath: "Notes/plan.md",
+          rawContent: "# Plan\n\nThe architecture deployment plan.\n",
+          fileStat: testStat(1000),
+        }),
+        logger,
+      )
       index.upsertNonMdFile("Diagrams/arch.canvas", 500)
       index.upsertFileContent(
         {
@@ -11191,9 +11233,69 @@ describe("canvas file content and links", () => {
         },
         logger,
       )
+
       const { results } = await index.hybridSearch({ query: "architecture deployment" }, logger)
-      const canvasResult = results.find((result) => result.path === "Diagrams/arch.canvas")
-      expect(canvasResult).toBeUndefined()
+
+      expect(results.map((result) => result.path)).toEqual(["Notes/plan.md"])
+    })
+
+    it("does not log the FTS byte cap for an oversized canvas without fileToolsEnabled", () => {
+      const debugSpy = vi.spyOn(logger, "debug").mockImplementation(() => {})
+      onTestFinished(() => debugSpy.mockRestore())
+      // The text card alone is about 140KB, past the 100KB FTS cap.
+      const oversizedCanvas = JSON.stringify({
+        nodes: [
+          {
+            id: "t1",
+            type: "text",
+            x: 0,
+            y: 0,
+            width: 200,
+            height: 100,
+            text: "filler ".repeat(20_000),
+          },
+          {
+            id: "f1",
+            type: "file",
+            x: 300,
+            y: 0,
+            width: 400,
+            height: 200,
+            file: "Projects/vault-cortex.md",
+          },
+        ],
+        edges: [],
+      })
+      index.upsertNote(
+        withBodyTags({
+          filePath: "Projects/vault-cortex.md",
+          rawContent: "# vault-cortex\n\nProject note.\n",
+          fileStat: testStat(1000),
+        }),
+        logger,
+      )
+      index.upsertNonMdFile("Diagrams/big.canvas", oversizedCanvas.length)
+      index.upsertFileContent(
+        {
+          filePath: "Diagrams/big.canvas",
+          rawContent: oversizedCanvas,
+          fileStat: testStat(5000, oversizedCanvas.length),
+        },
+        logger,
+      )
+
+      // The canvas's file card became a backlink, so the upsert ran.
+      expect(
+        index
+          .getBacklinks({ path: "Projects/vault-cortex.md" }, logger)
+          .map((backlink) => backlink.path),
+      ).toEqual(["Diagrams/big.canvas"])
+
+      // The message alone shows the cap ran, so any payload counts.
+      expect(debugSpy).not.toHaveBeenCalledWith(
+        "truncated file content for FTS indexing",
+        expect.anything(),
+      )
     })
   })
 
