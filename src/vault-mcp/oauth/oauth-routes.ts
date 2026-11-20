@@ -29,7 +29,7 @@ type OAuthRoutesOptions = {
 
 // The largest registration a real client has stored is under 500 bytes. The
 // cap matches the consent-request cap (MAX_PENDING_REQUEST_PARAMS_BYTES).
-const REGISTRATION_BODY_LIMIT = "8kb"
+const REGISTRATION_BODY_LIMIT_BYTES = 8 * 1024
 
 export const createOAuthRoutes = ({
   authToken,
@@ -130,11 +130,13 @@ export const createOAuthRoutes = ({
   router.use("/authorize", createAuthorizeGuard({ trustForwardedHops, logger: routeLogger }))
 
   // Ahead of the SDK's /register handler, whose own JSON parser accepts 100 KB
-  // and whose metadata schema caps no field. The SDK's parser finds the body
-  // already read and keeps it. /register needs no sign-in, so without the cap
-  // anyone could make the server parse 100 KB per registration. What is
-  // stored has its own cap (MAX_STORED_CLIENT_BYTES in oauth-provider.ts).
-  router.post("/register", express.json({ limit: REGISTRATION_BODY_LIMIT }))
+  // and whose metadata schema caps no field:
+  // - /register needs no sign-in, so without the cap anyone could make the
+  //   server parse 100 KB per registration.
+  // - The SDK's parser finds the body already read and keeps it.
+  // - A larger body reaches http-error-middleware.ts, which answers 413.
+  // - What is stored has its own cap (MAX_STORED_CLIENT_BYTES in oauth-provider.ts).
+  router.post("/register", express.json({ limit: REGISTRATION_BODY_LIMIT_BYTES }))
 
   // SDK-managed OAuth routes — /.well-known/*, /authorize, /token, /register, /revoke
   router.use(

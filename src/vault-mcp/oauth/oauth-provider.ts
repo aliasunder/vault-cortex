@@ -54,12 +54,13 @@ const PENDING_REQUEST_TTL_S = 10 * 60
 // send under 2 KB, and a JWT used as `state` can reach about 4 KB. Without
 // the cap, anyone could make a held request keep up to 100 KB, the default
 // body limit of the express.urlencoded parsers on /authorize.
-const MAX_PENDING_REQUEST_PARAMS_BYTES = 8192
-// Caps the UTF-8 size of a stored client registration. /register's body cap
-// (REGISTRATION_BODY_LIMIT in oauth-routes.ts) limits what is parsed, and the
-// stored form of a parsed body can be longer than the body, so storage has its
-// own cap. The extra 1 KB over the body cap covers the credentials
-// registerClient adds (under 300 bytes). Real clients store under 500 bytes.
+const MAX_PENDING_REQUEST_PARAMS_BYTES = 8 * 1024
+// Caps the UTF-8 size of a stored client registration:
+// - /register's body cap (REGISTRATION_BODY_LIMIT_BYTES in oauth-routes.ts)
+//   limits what is parsed, and the stored form of a parsed body can be longer
+//   than the body, so storage has its own cap.
+// - The extra 1 KB over the body cap covers the credentials registerClient
+//   adds (under 300 bytes). Real clients store under 500 bytes.
 const MAX_STORED_CLIENT_BYTES = 9 * 1024
 // Every rejected code gets this one message, so a code issued to another
 // client looks the same as an unknown one.
@@ -139,8 +140,10 @@ const addSignedInAtColumnAndMarkExistingClients = (db: Database.Database, logger
       .prepare("SELECT 1 FROM pragma_table_info('clients') WHERE name = 'signed_in_at'")
       .get()
 
+    // A database created by initDb's CREATE TABLE already has the column.
     if (hasSignedInAt) return 0
     db.exec("ALTER TABLE clients ADD COLUMN signed_in_at INTEGER")
+
     // Every row is marked because the old schema cannot tell which clients
     // signed in: one whose tokens were already purged looks like one that
     // never did.
@@ -186,6 +189,7 @@ const initDb = (dbPath: string, logger: Logger): Database.Database => {
       revoked_at INTEGER NOT NULL
     );
   `)
+
   // Migration for DBs created before sliding expiry: add expires_at
   // with DEFAULT 0 so any pre-migration row is treated as expired on
   // first read. Accepted trade-off — a one-time forced re-auth for any
@@ -214,9 +218,9 @@ const initDb = (dbPath: string, logger: Logger): Database.Database => {
     logger.warn("oauth_unreadable_clients_deleted", { deletedUnreadableClientCount })
   }
 
-  // Lets the sweep, which runs before every /register, read only the rows it
-  // deletes instead of parsing every registration that never signed in. It is
-  // created after:
+  // Lets the sweep, which runs before each registration is stored, read only
+  // the rows it deletes instead of parsing every registration that never
+  // signed in. It is created after:
   // - the migration, because its condition names signed_in_at;
   // - the delete above, because SQLite cannot build it over a row its JSON
   //   parser refuses.
@@ -263,6 +267,7 @@ class SqliteClientsStore implements OAuthRegisteredClientsStore {
         AND ${CLIENT_ISSUED_AT_EXPRESSION} < ?
     `)
     this.jsonValidStmt = db.prepare("SELECT json_valid(?) AS valid")
+
     // createOAuthProvider builds the store once per boot, so this is the
     // boot's sweep. registerClient runs the only other one.
     this.sweepNeverSignedInClients()
@@ -310,6 +315,9 @@ class SqliteClientsStore implements OAuthRegisteredClientsStore {
     return { ...parsed, token_endpoint_auth_method: "client_secret_post" }
   }
 
+  /** Overwrites the credentials the SDK's handler generated. Every client gets
+   *  a secret that never expires, including one that registered with
+   *  token_endpoint_auth_method "none", for which the SDK generates no secret. */
   registerClient(
     client: Omit<OAuthClientInformationFull, "client_id" | "client_id_issued_at">,
   ): OAuthClientInformationFull {
@@ -323,6 +331,7 @@ class SqliteClientsStore implements OAuthRegisteredClientsStore {
       client_secret_expires_at: 0,
     }
     const serializedClient = JSON.stringify(full)
+
     // The cap counts UTF-8 bytes, which is what SQLite stores. String length
     // counts UTF-16 units, so it would undercount any character beyond ASCII.
     const storedBytes = Buffer.byteLength(serializedClient)
@@ -337,17 +346,23 @@ class SqliteClientsStore implements OAuthRegisteredClientsStore {
     // - the SDK accepts any JSON as jwks, a client's inline public keys
     //   (https://www.rfc-editor.org/rfc/rfc7591#section-2);
     // - the INSERT below would fail on such JSON with a raw SQLite error,
-    //   which the SDK answers with a 500;
+    //   which the SDK answers with a 500, not the 400 it sends for
+    //   InvalidClientMetadataError;
+    // - the size cap above does not stop such JSON, since 1,001 levels fit in
+    //   about 2 KB;
     // - asking SQLite itself keeps this check exact.
-    const readableBySqlite = this.jsonValidStmt.get(serializedClient)?.valid === 1
+    const jsonValidRow = this.jsonValidStmt.get(serializedClient)
+
+    if (!jsonValidRow) throw new Error("SELECT json_valid returned no row")
+    const readableBySqlite = jsonValidRow.valid === 1
 
     if (!readableBySqlite) {
       this.logger.warn("oauth_client_registration_refused", { reason: "unreadable_json" })
       throw new InvalidClientMetadataError("Client metadata is nested too deeply to store")
     }
 
-    // The /register rate limit bounds how fast rows arrive; sweeping on each
-    // registration bounds how long the ones that never sign in stay.
+    // The /register rate limit bounds how fast rows arrive; sweeping before
+    // each insert bounds how long the ones that never sign in stay.
     this.sweepNeverSignedInClients()
     this.insertClientStmt.run(full.client_id, serializedClient)
     this.logger.info("oauth_client_registered", {
@@ -375,11 +390,13 @@ export const createOAuthProvider = ({
   const db = initDb(dbPath, oauthLogger)
   const store = new SqliteClientsStore(db, oauthLogger)
   const pendingRequests = new Map<string, StoredPendingRequest>()
+
   // Only a consent approved with MCP_AUTH_TOKEN adds a code, so this Map
   // grows only with the owner's own unredeemed sign-ins. Unlike
   // pendingRequests, it needs no purge of expired entries.
   const authCodes = new Map<string, StoredAuthCode>()
   const { issuer, audience } = tokenBindingForServer(serverUrl)
+
   // The root discovery document (/.well-known/oauth-protected-resource,
   // served by the SDK) advertises the server URL itself as its resource
   // identifier, so a client that discovers there sends this value.
@@ -452,6 +469,7 @@ export const createOAuthProvider = ({
   >(
     "INSERT OR IGNORE INTO consumed_refresh_tokens (token, client_id, expires_at) VALUES (@storageKey, @clientId, @expiresAt)",
   )
+
   // The expires_at bound makes an expired replay a plain invalid_grant no
   // matter when the purge last ran — past the token's own expiry no
   // legitimate holder exists, so there is no grant left to protect.
@@ -470,6 +488,7 @@ export const createOAuthProvider = ({
   const deleteClientConsumedTokensStmt = db.prepare<[string]>(
     "DELETE FROM consumed_refresh_tokens WHERE client_id = ?",
   )
+
   // revoked_clients is a mint-time cutoff, not a ban: only access tokens
   // with iat strictly before revoked_at are rejected, so a re-consented
   // client keeps working under the same client_id.
@@ -676,6 +695,7 @@ export const createOAuthProvider = ({
       // arrive; purging on each one, refused or not, keeps expired requests
       // from piling up.
       purgeExpiredPendingRequests()
+
       // Thrown before anything is sent. The SDK's handler turns the error
       // into an error=invalid_target redirect, which the /authorize guard
       // (authorize-guard.ts) answers with a 400 instead.
@@ -804,6 +824,7 @@ export const createOAuthProvider = ({
       resource?: URL,
     ): Promise<OAuthTokens> {
       const clientId = client.client_id
+
       // Checked before the refresh token is consumed, for the same reason
       // as the code exchange: a wrong resource must not consume the token.
       assertResourceIsThisServer(resource, clientId)
@@ -876,6 +897,7 @@ export const createOAuthProvider = ({
     async verifyAccessToken(token: string): Promise<AuthInfo> {
       if (safeEqual(token, authToken)) {
         oauthLogger.debug("oauth_token_verified", { method: "static" })
+
         // The static token never expires, but the SDK's requireBearerAuth
         // rejects any AuthInfo without a numeric expiresAt ("Token has no
         // expiration time"). Hand it a far-future timestamp so the static
@@ -948,6 +970,7 @@ export const createOAuthProvider = ({
         purgeExpiredRevocations()
         insertRevokedTokenStmt.run(request.token, DateTime.now().toUnixInteger())
       }
+
       // Logged from what the revoke matched, not the client's hint.
       const revokedTokenType = (): string => {
         if (isValidAccessToken) return "access_token"
@@ -993,7 +1016,7 @@ export const createOAuthProvider = ({
 
     // The consent route looked the request up earlier in the same synchronous
     // handler, so this runs only when the TTL lapses between the two lookups.
-    // The error middleware then answers 500.
+    // http-error-middleware.ts then answers 500.
     if (!pending) {
       reqLogger.warn("oauth_consent_approve_failed", {
         reason: "no_pending_request",
