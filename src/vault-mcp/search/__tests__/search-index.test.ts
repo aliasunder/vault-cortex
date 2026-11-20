@@ -4843,8 +4843,16 @@ describe("rebuildFromVault deferred PDF content", () => {
         .prepare("SELECT chunk_text FROM file_content_chunks WHERE file_path = ?")
         .all("Healthy.PDF"),
     ).toEqual([{ chunk_text: "Healthy\n\nSecond healthyamber" }])
-    // The failed delete rolled back, so the vector still has its chunk
+    // The failed delete rolled back, so the chunk still has its vector
     expect(fixture.targetChunks()).toEqual([{ chunk_text: "Report\n\nOld oldquartz" }])
+    expect(
+      fixture.database
+        .prepare(
+          `SELECT COUNT(*) AS count FROM file_content_vectors
+           WHERE chunk_id IN (SELECT id FROM file_content_chunks WHERE file_path = ?)`,
+        )
+        .get(fixture.path),
+    ).toEqual({ count: 1 })
   })
 
   it.each([{ outcome: "newer edit" }, { outcome: "unlink" }])(
@@ -10833,6 +10841,37 @@ describe("vectors reused by chunk text", () => {
       expect(fixture.vectorCount()).toBe(rowsAfter.length)
       const { stored, expected } = vectorsAgainstText(rowsAfter)
       expect(stored).toEqual(expected)
+    },
+  )
+
+  it.each(sourceKinds)(
+    "$label: a failed stale-tail delete keeps every chunk row's vector",
+    async ({ sourceKind }) => {
+      const fixture = await createEmbeddingRaceIndex(sourceKind, createTextVectorEmbedder())
+      await saveAndEmbed(fixture, noteOf(["alpha", "beta", "gamma", "delta", "epsilon"]))
+      const chunkTable = sourceKind === "note" ? "note_chunks" : "file_content_chunks"
+      const chunkRowCount = (): unknown => {
+        return fixture.inspect.prepare(`SELECT COUNT(*) AS count FROM ${chunkTable}`).get()
+      }
+      const chunkRowsBefore = chunkRowCount()
+      fixture.inspect.exec(`
+        CREATE TRIGGER reject_stale_tail_delete BEFORE DELETE ON ${chunkTable}
+        BEGIN
+          SELECT RAISE(ABORT, 'controlled stale tail delete failure');
+        END;
+      `)
+
+      await expect(
+        saveAndEmbed(fixture, noteOf(["alpha", "beta", "gamma", "delta"])),
+        // A SqliteError also carries its stack, so only its code and message are matched
+      ).rejects.toMatchObject({
+        code: "SQLITE_CONSTRAINT_TRIGGER",
+        message: "controlled stale tail delete failure",
+      })
+
+      // The vector delete rolled back with the failed chunk delete
+      expect(chunkRowCount()).toEqual(chunkRowsBefore)
+      expect(chunkRowCount()).toEqual({ count: fixture.vectorCount() })
     },
   )
 })
