@@ -11,9 +11,10 @@ import {
   rmdir,
 } from "node:fs/promises"
 import { randomUUID } from "node:crypto"
+import { availableParallelism } from "node:os"
 import { join, dirname, relative, resolve, parse, posix, isAbsolute, sep } from "node:path"
-import picomatch from "picomatch"
 import { describeError } from "../../utils/describe-error.js"
+import { createGlobFilter } from "../../utils/glob-filter.js"
 import { filterValidSymlinks } from "../../utils/filter-valid-symlinks.js"
 import { fileExists, readFileOrNull, readdirOrNull, statOrNull } from "../../utils/fs.js"
 import { isErrnoException } from "../../utils/is-errno-exception.js"
@@ -925,7 +926,40 @@ const listVaultFilePaths = async (
   return visiblePaths.toSorted()
 }
 
-/** Lists .md files under a folder (or vault root). Supports glob filtering. */
+/** A legitimate glob costs a worker's start-up (15–60 ms) plus matching (under
+ *  15 ms over 50,000 paths), and 2 seconds is more than 25 times that. */
+const GLOB_MATCH_TIMEOUT_MS = 2_000
+
+/** One glob worker per CPU core, and never more than four: four already
+ *  match far faster than clients send globs, and the ceiling bounds memory on
+ *  machines that report many cores. */
+const MAX_GLOB_WORKERS = Math.min(availableParallelism(), 4)
+
+/** Each waiting glob call holds its vault listing, so only a few wait per
+ *  worker; a call beyond them fails at once instead of adding to the queue. */
+const MAX_WAITING_GLOB_CALLS = 4 * MAX_GLOB_WORKERS
+
+const filterPathsByGlob = createGlobFilter({
+  maxRunningWorkers: MAX_GLOB_WORKERS,
+  maxWaitingCalls: MAX_WAITING_GLOB_CALLS,
+})
+
+/** The note paths whose path relative to `globBase` matches `glob`. */
+const filterNotePathsByGlob = async (
+  params: { glob: string; paths: readonly string[]; globBase: string },
+  logger: Logger,
+): Promise<string[]> => {
+  const { glob, paths, globBase } = params
+  const relativePaths = paths.map((notePath) => relative(globBase, notePath))
+  const matchedRelativePaths = await filterPathsByGlob(
+    { glob, paths: relativePaths, timeoutMs: GLOB_MATCH_TIMEOUT_MS },
+    logger,
+  )
+  return matchedRelativePaths.map((relativePath) => join(globBase, relativePath))
+}
+
+/** Lists .md files under a folder (or vault root), optionally keeping only the
+ *  notes whose path relative to that folder matches a glob. */
 const listNotes = async (
   params: {
     vaultPath: string
@@ -943,15 +977,13 @@ const listNotes = async (
     logger,
   )
 
-  // With a folder, the glob matches each path relative to that folder. The
-  // folder is re-derived from its resolved form so aliases ("Projects/",
+  // The folder is re-derived from its resolved form so aliases ("Projects/",
   // "./Projects") reduce to the same vault-relative prefix as the listed paths.
   const globBase = params.folder
     ? relative(resolve(params.vaultPath), resolveSafePath(params.vaultPath, params.folder))
     : ""
-  const isMatch = params.glob ? picomatch(params.glob) : undefined
-  const result = isMatch
-    ? paths.filter((notePath) => isMatch(posix.relative(globBase, notePath)))
+  const result = params.glob
+    ? await filterNotePathsByGlob({ glob: params.glob, paths, globBase }, logger)
     : paths
   logger.info("listed notes", { folder: params.folder, count: result.length })
   return result

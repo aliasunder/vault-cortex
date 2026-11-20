@@ -536,6 +536,54 @@ describe("findHeading", () => {
     )
   })
 
+  describe("the list of available headings", () => {
+    /** `count` H2 lines, "## Heading 1" through "## Heading <count>". */
+    const numberedHeadingLines = (count: number): string[] => {
+      return Array.from({ length: count }, (_, index) => `## Heading ${index + 1}`)
+    }
+
+    /** A call, for `toThrow`, that looks up "Missing" among `count` numbered headings. */
+    const findMissingHeadingAmong = (count: number): (() => void) => {
+      return () => {
+        findHeading({
+          headings: parseHeadings(numberedHeadingLines(count)),
+          text: "Missing",
+          bodyStartFileLine: 0,
+        })
+      }
+    }
+
+    it("says (none) when the note has no headings", () => {
+      expect(findMissingHeadingAmong(0)).toThrow(
+        new Error('heading not found: "Missing". Available headings: (none)'),
+      )
+    })
+
+    it("lists all 30 headings with no count when the note has exactly 30", () => {
+      expect(findMissingHeadingAmong(30)).toThrow(
+        new Error(
+          `heading not found: "Missing". Available headings: ${numberedHeadingLines(30).join(", ")}`,
+        ),
+      )
+    })
+
+    it("lists the first 30 headings and the total when the note has 31", () => {
+      expect(findMissingHeadingAmong(31)).toThrow(
+        new Error(
+          `heading not found: "Missing". Available headings (first 30 of 31): ${numberedHeadingLines(30).join(", ")}`,
+        ),
+      )
+    })
+
+    it("lists the first 30 headings and the total when the note has 202", () => {
+      expect(findMissingHeadingAmong(202)).toThrow(
+        new Error(
+          `heading not found: "Missing". Available headings (first 30 of 202): ${numberedHeadingLines(30).join(", ")}`,
+        ),
+      )
+    })
+  })
+
   it("throws ambiguous when more than one heading matches", () => {
     expect(() => findHeading({ headings, text: "Active", bodyStartFileLine: 0 })).toThrow(
       new Error(
@@ -640,6 +688,11 @@ describe("findTrailingCommentBlockStart", () => {
   it("returns lines.length when the last block has content after it", () => {
     const lines = ["%% comment %%", "content after"]
     expect(findTrailingCommentBlockStart(lines)).toBe(2)
+  })
+
+  it("returns lines.length when a multi-line block's closing line continues with text", () => {
+    const lines = ["## Notes", "Content", "", "%%", "settings", "%% visible text"]
+    expect(findTrailingCommentBlockStart(lines)).toBe(6)
   })
 
   it("absorbs blank lines preceding the trailing block", () => {

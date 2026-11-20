@@ -7,6 +7,7 @@ import {
   CONCURRENT_WRITE_RETRY_ERROR_ENTRY,
   dateFilterSchema,
   FILESYSTEM_ERROR_ENTRY,
+  HEADING_LIST_CAP_CLAUSE,
   INDEX_ERROR_ENTRY,
   RETRY_REREAD_CLAUSE,
   describePropertiesBlockErrorEntry,
@@ -18,8 +19,6 @@ import {
 import { taskMutations } from "../../vault-operations/task-mutations.js"
 
 // Errors entries vault_create_task and vault_update_task share word for word.
-const TASK_HEADING_NOT_FOUND_ERROR_ENTRY =
-  '- "heading "X" not found; available: ..." — the message lists the note\'s headings'
 const TASK_ID_CHARACTERS_ERROR_ENTRY =
   '- "taskId ... contains invalid characters" / "dependsOn entry ... contains invalid characters" — the message names the allowed characters'
 const RECURRENCE_RULE_ERROR_ENTRY =
@@ -37,6 +36,13 @@ export const registerTaskTools = ({
 }: ToolRegistrationContext): void => {
   // The note-not-found Errors entry of both task write tools.
   const noteNotFoundErrorEntry = `- "note not found" — path does not exist; check the path${whenToolEnabledText("vault_list_notes", " with vault_list_notes")}`
+
+  // The heading-not-found Errors entry of both task write tools, given what
+  // each one lists: vault_update_task leaves out headings inside the moving
+  // task's own lines, since it cannot move a task under itself.
+  const describeHeadingNotFoundErrorEntry = (listedHeadingsPhrase: string): string => {
+    return `- "heading "X" not found; available …" — the message lists ${listedHeadingsPhrase}; ${HEADING_LIST_CAP_CLAUSE}${whenToolEnabledText("vault_read_note", "; vault_read_note with outline: true lists every heading")}`
+  }
 
   // ── vault_list_tasks ────────────────────────────────────────────
 
@@ -269,7 +275,7 @@ ${noteNotFoundErrorEntry}
 ${NOTE_EXTENSION_ERROR_ENTRY}
 ${PATH_SAFETY_ERROR_ENTRY}
 - "heading required for Kanban boards" — pass heading with the target lane
-${TASK_HEADING_NOT_FOUND_ERROR_ENTRY}
+${describeHeadingNotFoundErrorEntry("the note's headings")}
 - "cannot place at position P under "X" — the heading appears N times" — integer position on a note with duplicate heading names; use "top" or "bottom" (they place under the first match), or rename one section to make it unique
 - "parent task not found" — parent_block_id or parent_line doesn't resolve to a task outside a fenced code block or %% %% comment; re-read the parent's block_id or line${whenToolEnabledText("vault_list_tasks", " with vault_list_tasks")}
 - "parent task ambiguous" — more than one task line ends in that ^id (the message lists their line numbers); pass parent_line instead
@@ -534,7 +540,7 @@ ${PATH_SAFETY_ERROR_ENTRY}
 - "cannot move a sub-task to a heading" / "cannot reposition a sub-task" — a heading or position on a task nested under another task${whenToolEnabledText("vault_list_tasks", " (depth > 0 in vault_list_tasks)")}; sub-tasks move with their parent, so move or reposition the parent instead
 - "cannot reorder a task that sits above the first heading" — position without a heading on a task before the first section heading; the message names the fix
 - "cannot reorder within "X" — the heading appears N times" / "cannot place at position P under "X" — the heading appears N times" — the heading name is duplicated in the note: the task's own heading for a reorder in place, the one in heading for a move; for a cross-lane move use "top" or "bottom" (they place under the first match), or rename one section to make it unique
-${TASK_HEADING_NOT_FOUND_ERROR_ENTRY}
+${describeHeadingNotFoundErrorEntry("the headings it can move to")}
 - "multiple done lanes detected" / "no done lane detected" — status "done" on a Kanban board with more than one lane whose first line is **Complete**, or with none and no "Done" heading; pass heading to pick the lane
 - "blockId ... already exists" / "blockId ... contains invalid characters" — assign_block_id and next_block_id must be unique in the note and match [a-zA-Z0-9-]+
 - "nextBlockId was given, but" — next_block_id needs a completion that creates a next occurrence; drop it otherwise
