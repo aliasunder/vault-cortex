@@ -565,6 +565,25 @@ describe("readAssetContent — UTF-8 text decoding", () => {
     ).rejects.toThrow(new Error('not valid UTF-8: "latin1.csv" cannot be returned as text'))
   })
 
+  // The JSON stays parseable, so a decoder that substituted U+FFFD would return
+  // the Canvas instead of refusing
+  it.each([
+    { label: "an outline read", raw: false },
+    { label: "a raw read", raw: true },
+  ])("refuses a Canvas that is not UTF-8 on $label", async ({ raw }) => {
+    // 0xE9 is "é" in Latin-1 and never a complete UTF-8 sequence
+    const buffer = Buffer.concat([
+      Buffer.from('{"nodes":[{"id":"t1","type":"text","text":"caf', "utf8"),
+      Buffer.from([0xe9]),
+      Buffer.from('","x":0,"y":0,"width":200,"height":100}],"edges":[]}', "utf8"),
+    ])
+    stubReadAsset({ buffer, extension: ".canvas" })
+
+    await expect(
+      assetOperations.readAssetContent({ ...defaultParams, path: "latin1.canvas", raw }, logger),
+    ).rejects.toThrow(new Error('not valid UTF-8: "latin1.canvas" cannot be returned as text'))
+  })
+
   it("keeps reading a log that opens with NUL bytes, since the dedicated text formats skip the NUL check", async () => {
     const buffer = Buffer.concat([Buffer.alloc(4), Buffer.from("boot ok\n", "utf8")])
     stubReadAsset({ buffer, extension: ".log" })
