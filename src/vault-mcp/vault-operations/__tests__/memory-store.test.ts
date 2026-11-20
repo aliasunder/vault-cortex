@@ -1589,6 +1589,47 @@ describe("updateMemory near-duplicate section guard", () => {
     expect(await readFile(join(vault, "About Me/Principles.md"), "utf8")).toBe(contentBefore)
   })
 
+  // The near-miss comparison strips the "(newest first)" suffix and only then
+  // trims, so the extra spaces in front of the suffix fall away. A
+  // three-character name has no edit budget: if the trim ran first, the space
+  // left behind would make the names differ and a duplicate section would be
+  // created.
+  it("rejects a short name with extra spaces before its suffix as a near miss", async () => {
+    const emptyVault = await mkdtemp(join(tmpdir(), "suffix-spacing-sections-"))
+    onTestFinished(async () => {
+      await rm(emptyVault, { recursive: true })
+    })
+    await updateMemory(
+      {
+        vaultPath: emptyVault,
+        file: "Notes",
+        section: "Tax",
+        entry: "Three-character section",
+        date: "2026-07-31",
+      },
+      logger,
+    )
+    const contentBefore = await readFile(join(emptyVault, "About Me/Notes.md"), "utf8")
+
+    await expect(
+      updateMemory(
+        {
+          vaultPath: emptyVault,
+          file: "Notes",
+          section: "Tax   (newest first)",
+          entry: "Spaced suffix",
+          date: "2026-07-31",
+        },
+        logger,
+      ),
+    ).rejects.toThrow(
+      new Error(
+        'section not created: "Tax   (newest first)" is nearly identical to existing section "Tax (newest first)". Existing sections: Tax (newest first)',
+      ),
+    )
+    expect(await readFile(join(emptyVault, "About Me/Notes.md"), "utf8")).toBe(contentBefore)
+  })
+
   it("still creates a genuinely distinct new section", async () => {
     const outcome = await updateMemory(
       {
