@@ -368,8 +368,7 @@ while the owner decides are bounded:
 - **Readable** — a registration the database cannot read back (JSON
   nested more than 1,000 levels deep) is refused with
   `invalid_client_metadata`, and boot deletes any that an earlier version
-  stored and that never signed in, so no stored registration can stop the
-  sweep, later registrations or the server's boot
+  stored and that never signed in
 
 ### Symlink safety
 
