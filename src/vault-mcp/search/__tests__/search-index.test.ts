@@ -4349,6 +4349,39 @@ describe("rebuildFromVault deferred PDF content", () => {
     expect(fixture.embedder.embedText).toHaveBeenCalledTimes(2)
   })
 
+  it("embeds nothing for a PDF whose text is unchanged on a second rebuild", async () => {
+    const fixture = await createPdfRebuildFixture()
+    const targetChunkIds = () => {
+      return fixture.database
+        .prepare("SELECT id FROM file_content_chunks WHERE file_path = ?")
+        .all(fixture.path)
+    }
+    const chunkIdsBeforeRebuild = targetChunkIds()
+    fixture.extractForIndex.mockResolvedValue({
+      status: "extracted",
+      result: { text: "Old oldquartz", totalPages: 1 },
+    })
+    const rebuilt = await fixture.rebuild()
+    await rebuilt.embedding
+    fixture.embedder.embedText.mockClear()
+    fixture.embedder.embedBatch.mockClear()
+    fixture.startIndexing()
+    await rebuilt.pdfPass
+
+    expect(fixture.extractForIndex).toHaveBeenCalledExactlyOnceWith({ path: fixture.path }, logger)
+    expect(fixture.fileRows()).toEqual([
+      { path: fixture.path, content: "Old oldquartz", bytes: 18 },
+      { path: "decoy.txt", content: "Decoy controlsun", bytes: 16 },
+    ])
+    expect(fixture.embedder.embedText).not.toHaveBeenCalled()
+    expect(fixture.embedder.embedBatch).not.toHaveBeenCalled()
+    expect(targetChunkIds()).toEqual(chunkIdsBeforeRebuild)
+    expect(fixture.targetChunks()).toEqual([{ chunk_text: "Report\n\nOld oldquartz" }])
+    expect(
+      fixture.database.prepare("SELECT COUNT(*) AS count FROM file_content_vectors").get(),
+    ).toEqual({ count: 2 })
+  })
+
   it("skips deferred extraction after a failed PDF placeholder write and continues other PDFs", async () => {
     const fixture = await createPdfRebuildFixture()
     await writeFile(join(fixture.vaultPath, "Healthy.PDF"), "healthy disk bytes")
@@ -4385,7 +4418,7 @@ describe("rebuildFromVault deferred PDF content", () => {
     expect(fixture.targetChunks()).toEqual([])
   })
 
-  it("keeps a failed PDF publication filename-only and indexes the remaining PDFs", async () => {
+  it("keeps a failed PDF publication filename-only without its vectors and indexes the remaining PDFs", async () => {
     const fixture = await createPdfRebuildFixture()
     await writeFile(join(fixture.vaultPath, "Survivor.PDF"), "healthy disk bytes")
     fixture.database.exec(`
@@ -4403,6 +4436,7 @@ describe("rebuildFromVault deferred PDF content", () => {
     })
     const rebuilt = await fixture.rebuild()
     await rebuilt.embedding
+    expect(fixture.targetChunks()).toEqual([{ chunk_text: "Report\n\nOld oldquartz" }])
 
     fixture.startIndexing()
     await rebuilt.pdfPass
@@ -4433,7 +4467,7 @@ describe("rebuildFromVault deferred PDF content", () => {
     ])
   })
 
-  it("clears persisted old text and vectors before extraction and awaits the fresh PDF embedding", async () => {
+  it("answers from a PDF's kept vectors while its text is pending, then re-embeds its changed chunk", async () => {
     const fixture = await createPdfRebuildFixture()
     const extraction = Promise.withResolvers<PdfTextResult>()
     const extractionStarted = Promise.withResolvers<undefined>()
@@ -4458,14 +4492,19 @@ describe("rebuildFromVault deferred PDF content", () => {
     ])
     expect(fixture.keywordPaths("Report")).toEqual([{ path: "Report.PDF" }])
     expect(fixture.keywordPaths("oldquartz")).toEqual([])
-    expect(fixture.targetChunks()).toEqual([])
+    expect(fixture.targetChunks()).toEqual([{ chunk_text: "Report\n\nOld oldquartz" }])
     expect(
       fixture.database.prepare("SELECT COUNT(*) AS count FROM file_content_vectors").get(),
-    ).toEqual({ count: 1 })
-    const pendingResult = await fixture.search.hybridSearch({ query: "futuremeaning" }, logger)
+    ).toEqual({ count: 2 })
+    // Keyword search has no PDF text yet, so this hit comes from the kept vector alone.
+    const pendingResult = await fixture.search.hybridSearch(
+      { query: "oldquartz", limit: 1 },
+      logger,
+    )
     expect(pendingResult.results.map(({ path, snippet }) => ({ path, snippet }))).toEqual([
-      { path: "decoy.txt", snippet: "decoy Decoy controlsun" },
+      { path: fixture.path, snippet: "Report Old oldquartz" },
     ])
+    fixture.embedder.embedText.mockClear()
     const completed = vi.fn()
     fixture.startIndexing()
     const pass = rebuilt.pdfPass
@@ -4486,14 +4525,18 @@ describe("rebuildFromVault deferred PDF content", () => {
     await embeddingStarted.promise
     expect(completed).not.toHaveBeenCalled()
     expect(fixture.keywordPaths("newcobalt")).toEqual([{ path: fixture.path }])
-    expect(fixture.targetChunks()).toEqual([])
+    expect(fixture.targetChunks()).toEqual([{ chunk_text: "Report\n\nOld oldquartz" }])
     embedding.resolve(fixture.vectorFor("newcobalt"))
     await pass
+    expect(fixture.embedder.embedText).toHaveBeenCalledExactlyOnceWith("Report\n\nNew newcobalt")
     expect(fixture.fileRows()).toEqual([
       { path: "Report.PDF", content: "New newcobalt", bytes: 18 },
       { path: "decoy.txt", content: "Decoy controlsun", bytes: 16 },
     ])
     expect(fixture.targetChunks()).toEqual([{ chunk_text: "Report\n\nNew newcobalt" }])
+    expect(
+      fixture.database.prepare("SELECT COUNT(*) AS count FROM file_content_vectors").get(),
+    ).toEqual({ count: 2 })
     const freshResult = await fixture.search.hybridSearch(
       { query: "futuremeaning", limit: 1 },
       logger,
@@ -4517,7 +4560,10 @@ describe("rebuildFromVault deferred PDF content", () => {
       const rebuilt = await fixture.rebuild(maxFileBytes)
       await rebuilt.embedding
       expect(fixture.extractForIndex).not.toHaveBeenCalled()
-      expect(fixture.targetChunks()).toEqual([])
+      // Over the cap, the PDF will never get text, so the rebuild drops its vectors at once
+      expect(fixture.targetChunks()).toEqual(
+        extracted ? [{ chunk_text: "Report\n\nOld oldquartz" }] : [],
+      )
       expect(fixture.keywordPaths("oldquartz")).toEqual([])
       fixture.startIndexing()
       await rebuilt.pdfPass
@@ -4527,13 +4573,16 @@ describe("rebuildFromVault deferred PDF content", () => {
         { path: "decoy.txt", content: "Decoy controlsun", bytes: 16 },
       ])
       expect(fixture.keywordPaths("Report")).toEqual([{ path: fixture.path }])
+      expect(fixture.targetChunks()).toEqual(
+        extracted ? [{ chunk_text: "Report\n\nNew newcobalt" }] : [],
+      )
       expect(
         fixture.database.prepare("SELECT COUNT(*) AS count FROM file_content_vectors").get(),
       ).toEqual({ count: extracted ? 2 : 1 })
     },
   )
 
-  it("keeps a rebuild PDF whose extraction was cancelled filename-only without warning", async () => {
+  it("keeps a rebuild PDF whose extraction was cancelled filename-only with its vectors, without warning", async () => {
     const fixture = await createPdfRebuildFixture()
     const warnSpy = vi.spyOn(logger, "warn")
     onTestFinished(() => warnSpy.mockRestore())
@@ -4549,10 +4598,13 @@ describe("rebuildFromVault deferred PDF content", () => {
       { path: fixture.path, content: "", bytes: 18 },
       { path: "decoy.txt", content: "Decoy controlsun", bytes: 16 },
     ])
-    expect(fixture.targetChunks()).toEqual([])
+    expect(fixture.targetChunks()).toEqual([{ chunk_text: "Report\n\nOld oldquartz" }])
+    expect(
+      fixture.database.prepare("SELECT COUNT(*) AS count FROM file_content_vectors").get(),
+    ).toEqual({ count: 2 })
   })
 
-  it("leaves a resource-budget failure filename-only without restoring persisted text or vectors", async () => {
+  it("keeps a PDF's vectors while extraction is pending and removes them when it fails its resource budget", async () => {
     const fixture = await createPdfRebuildFixture()
     const warnSpy = vi.spyOn(logger, "warn")
     onTestFinished(() => warnSpy.mockRestore())
@@ -4573,14 +4625,14 @@ describe("rebuildFromVault deferred PDF content", () => {
     const rebuilt = await fixture.rebuild()
     await rebuilt.embedding
     expect(fixture.keywordPaths("oldquartz")).toEqual([])
-    expect(fixture.targetChunks()).toEqual([])
+    expect(fixture.targetChunks()).toEqual([{ chunk_text: "Report\n\nOld oldquartz" }])
     fixture.startIndexing()
     const pass = rebuilt.pdfPass
     pendingPasses.push(pass)
     await started.promise
     expect(fixture.keywordPaths("Report")).toEqual([{ path: fixture.path }])
     expect(fixture.keywordPaths("oldquartz")).toEqual([])
-    expect(fixture.targetChunks()).toEqual([])
+    expect(fixture.targetChunks()).toEqual([{ chunk_text: "Report\n\nOld oldquartz" }])
     extraction.reject(failure)
     await pass
     expect(warnSpy).toHaveBeenCalledExactlyOnceWith("PDF content pass could not index file", {
@@ -4699,6 +4751,58 @@ describe("rebuildFromVault deferred PDF content", () => {
       )
     },
   )
+  it("keeps a newer watcher write's vectors when extraction of the rebuild's version fails", async () => {
+    const fixture = await createPdfRebuildFixture()
+    const warnSpy = vi.spyOn(logger, "warn")
+    onTestFinished(() => warnSpy.mockRestore())
+    const extraction = Promise.withResolvers<PdfTextResult>()
+    const started = Promise.withResolvers<undefined>()
+    const pendingPasses: Promise<unknown>[] = []
+    onTestFinished(async () => {
+      extraction.resolve({ text: "", totalPages: 1 })
+      await Promise.allSettled(pendingPasses)
+    })
+    fixture.extractForIndex.mockImplementation(async () => {
+      started.resolve(undefined)
+      return { status: "extracted", result: await extraction.promise }
+    })
+    const rebuilt = await fixture.rebuild()
+    await rebuilt.embedding
+    fixture.startIndexing()
+    const pass = rebuilt.pdfPass
+    pendingPasses.push(pass)
+    await started.promise
+    fixture.search.removeFileContent({ filePath: fixture.path }, logger)
+    const sourceVersion = fixture.search.upsertFileContent(
+      {
+        filePath: fixture.path,
+        rawContent: "Newer newcobalt",
+        fileStat: testStat(2000, 16),
+      },
+      logger,
+    )
+    await fixture.search.embedFileContent({ filePath: fixture.path, sourceVersion }, logger)
+    expect(fixture.targetChunks()).toEqual([{ chunk_text: "Report\n\nNewer newcobalt" }])
+
+    extraction.reject(
+      Object.assign(new Error("controlled extraction budget"), { pdfFailure: "pdf-resource" }),
+    )
+    await pass
+
+    expect(warnSpy).toHaveBeenCalledExactlyOnceWith("PDF content pass could not index file", {
+      path: fixture.path,
+      error: "[Error]: controlled extraction budget",
+    })
+    expect(fixture.fileRows()).toEqual([
+      { path: fixture.path, content: "Newer newcobalt", bytes: 16 },
+      { path: "decoy.txt", content: "Decoy controlsun", bytes: 16 },
+    ])
+    expect(fixture.targetChunks()).toEqual([{ chunk_text: "Report\n\nNewer newcobalt" }])
+    expect(
+      fixture.database.prepare("SELECT COUNT(*) AS count FROM file_content_vectors").get(),
+    ).toEqual({ count: 2 })
+  })
+
   it.each([{ outcome: "newer edit" }, { outcome: "unlink" }])(
     "rejects a delayed PDF embedding after a $outcome",
     async ({ outcome }) => {

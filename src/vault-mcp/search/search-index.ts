@@ -28,8 +28,7 @@ import type { StatusClassification, TaskPriority, TaskStatus } from "../obsidian
 import { contentHash, type Embedder } from "./embedder.js"
 import type { Reranker } from "./reranker.js"
 import { buildChunkMetadataPrefix, chunkContent } from "./chunker.js"
-import type { PdfExtractor } from "../vault-operations/pdf-extractor.js"
-import type { PdfTextResult } from "../obsidian-markdown/pdf.js"
+import type { PdfExtractor, PdfIndexExtraction } from "../vault-operations/pdf-extractor.js"
 import { caseFoldPath } from "../../utils/case-fold-path.js"
 import { describeError, describeErrorForLog } from "../../utils/describe-error.js"
 import { filterValidSymlinks } from "../../utils/filter-valid-symlinks.js"
@@ -1802,17 +1801,24 @@ export const createSearchIndex = (
     return sourceVersion
   }
 
+  /** Removes a file's chunks and their vectors. The vectors go first, because
+   *  their delete finds them through the chunk rows. */
+  const removeFileChunksAndVectors = (filePath: string): void => {
+    if (!deleteFileVectorsForPathStmt || !deleteFileChunksForPathStmt) return
+
+    db.transaction(() => {
+      deleteFileVectorsForPathStmt.run(filePath)
+      deleteFileChunksForPathStmt.run(filePath)
+    })()
+  }
+
   /** Removes a file's FTS content, graph links, chunks and vectors, invalidating pending embeds. */
   const removeFileContent = (params: { filePath: string }, logger: Logger): void => {
     db.transaction(() => {
       const deletedRow = deleteFileContentStmt?.get(params.filePath)
 
       if (deletedRow) deleteFileContentFtsStmt?.run(deletedRow.rowid)
-
-      if (deleteFileVectorsForPathStmt && deleteFileChunksForPathStmt) {
-        deleteFileVectorsForPathStmt.run(params.filePath)
-        deleteFileChunksForPathStmt.run(params.filePath)
-      }
+      removeFileChunksAndVectors(params.filePath)
       deleteLinksStmt.run(params.filePath)
     })()
     sourceVersions.delete(params.filePath)
@@ -2851,8 +2857,9 @@ export const createSearchIndex = (
     })
     const canvasContents = canvasContentResults.filter((entry) => entry !== null)
 
-    // A PDF is found by name from this write on; its old text, chunks and vectors are removed at
-    // the same time, so nothing stale answers until the PDF pass publishes its text.
+    // A PDF is found by name from this write on, and keyword search finds its text again once the
+    // PDF pass publishes it. Its chunks and vectors are kept, so semantic search answers from them
+    // meanwhile and the pass re-embeds only chunks whose text changed.
     const pdfsAwaitingText = nonMarkdownFileStats
       .filter((file) => fileToolsEnabled && getFileKind(file.relativePath) === "pdf")
       .map((file) => ({
@@ -3072,8 +3079,12 @@ export const createSearchIndex = (
         for (const fileEntry of allFileContents) {
           try {
             const isPdf = getFileKind(fileEntry.relativePath) === "pdf"
+            // The PDF pass never extracts a PDF over the byte cap, so it stays
+            // name-only and its kept chunks and vectors would answer for text it
+            // no longer has.
+            const pdfOverByteCap = isPdf && fileEntry.sizeBytes > maxFileBytes
 
-            if (isPdf) removeFileContent({ filePath: fileEntry.relativePath }, logger)
+            if (pdfOverByteCap) removeFileContent({ filePath: fileEntry.relativePath }, logger)
             const sourceVersion = upsertFileContent(
               {
                 filePath: fileEntry.relativePath,
@@ -3209,8 +3220,6 @@ export const createSearchIndex = (
             // even when filesForEmbedding is empty (mirroring the note-side cleanup).
             const canCleanUpFileVectors =
               fileContentVectorEnabled &&
-              deleteFileVectorsForPathStmt &&
-              deleteFileChunksForPathStmt &&
               selectAllFileContentPathsStmt &&
               selectAllFileChunkPathsStmt
 
@@ -3230,8 +3239,7 @@ export const createSearchIndex = (
 
               if (deletedFilePaths.length > 0) {
                 for (const path of deletedFilePaths) {
-                  deleteFileVectorsForPathStmt.run(path)
-                  deleteFileChunksForPathStmt.run(path)
+                  removeFileChunksAndVectors(path)
                 }
                 logger.info("cleaned up vectors for deleted files", {
                   count: deletedFilePaths.length,
@@ -3367,24 +3375,19 @@ export const createSearchIndex = (
 
     type PdfAwaitingText = (typeof pdfsAwaitingText)[number]
 
-    /** The PDF's index text, or null when the job was cancelled or failed; a failure is logged. */
-    const extractPdfTextForIndex = async (file: PdfAwaitingText): Promise<PdfTextResult | null> => {
+    /** The extractor's outcome, or "failed" when extraction threw, which is logged. */
+    const extractPdfTextForIndex = async (
+      file: PdfAwaitingText,
+    ): Promise<PdfIndexExtraction | { status: "failed" }> => {
       try {
-        const extraction = await pdfExtractor.extractForIndex({ path: file.relativePath }, logger)
-
-        switch (extraction.status) {
-          case "extracted":
-            return extraction.result
-          case "cancelled":
-            return null
-        }
+        return await pdfExtractor.extractForIndex({ path: file.relativePath }, logger)
       } catch (error) {
         // describeErrorForLog keeps the cause, which carries the child's own reason.
         logger.warn("PDF content pass could not index file", {
           path: file.relativePath,
           ...describeErrorForLog(error),
         })
-        return null
+        return { status: "failed" }
       }
     }
 
@@ -3437,13 +3440,30 @@ export const createSearchIndex = (
           continue
         }
         if (!nameOnlyRowIsCurrent()) continue
-        const result = await extractPdfTextForIndex(file)
+        const extraction = await extractPdfTextForIndex(file)
 
-        if (!result) continue
+        // No await separates this check from the removals below, so a newer watcher write
+        // keeps its own chunks and vectors.
         if (!nameOnlyRowIsCurrent()) continue
-        const publishedVersion = publishPdfText(file, result.text)
+        // A PDF that ends name-only loses the chunks and vectors the rebuild kept, so they
+        // cannot answer for text that search no longer has.
+        switch (extraction.status) {
+          // A request is cancelled at shutdown or by a newer request for the path. The next boot
+          // or the watcher indexes the PDF again, so the kept vectors stay for that run.
+          case "cancelled":
+            continue
+          case "failed":
+            removeFileChunksAndVectors(file.relativePath)
+            continue
+          case "extracted":
+            break
+        }
+        const publishedVersion = publishPdfText(file, extraction.result.text)
 
-        if (!publishedVersion) continue
+        if (!publishedVersion) {
+          removeFileChunksAndVectors(file.relativePath)
+          continue
+        }
         publishedPdfs.push({ relativePath: file.relativePath, sourceVersion: publishedVersion })
       }
 
