@@ -310,14 +310,11 @@ vault data API.
 
 `cli/src/` follows the same rule as the server: a module's folder is decided by
 what it depends on. `bin.ts`, `main.ts` and `program.ts` are the wiring and the
-only loose files.
+only loose files. The tree under "Structure" lists what each folder holds.
 
-| Layer       | Holds                                                                                                                                                       | May import at runtime        |
-| ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------- |
-| `adapters/` | The outside world: Docker, the terminal prompts, `.env` file I/O, vault path, token                                                                         | nothing internal             |
-| `rules/`    | Decisions and text, with no file, Docker or prompt I/O: `.env` parsing, typed getters and text edits, ports, bind addresses, messages, templates            | other rules                  |
-| `steps/`    | Workflow pieces commands compose: deployment checks, the container start, the free-port question, instance identity, the settings chooser, Obsidian sign-in | rules, adapters, other steps |
-| `commands/` | One module per command (`lifecycle` holds start, restart, logs and down)                                                                                    | steps, rules, adapters       |
+At runtime, `adapters/` imports nothing internal, `rules/` imports only other
+rules, `steps/` imports rules, adapters and other steps, and `commands/`
+imports steps, rules and adapters.
 
 - **Shared logic moves down.** When two commands need the same step, it goes
   in `steps/`, never in one command for the other to import. A step can also
@@ -334,11 +331,7 @@ only loose files.
 - **Export style** follows the server's test: a module that performs
   operations (runs or removes a container, writes a file) exports one
   namespace object, and a module that only decides, asks or reads exports
-  named functions. The `.env` file adapter and the container start step export
-  `envFile` and `containerStart`, the Docker and prompt adapters export a
-  factory that returns one (`createDockerRunner`, `createPrompts`), and the
-  other steps (the deployment gates, the questions, Obsidian sign-in) and
-  every rule export named functions.
+  named functions.
 
 Lint enforces the direction: `eslint.config.ts` has one
 `no-restricted-imports` block per CLI folder, and every folder but `adapters/`
