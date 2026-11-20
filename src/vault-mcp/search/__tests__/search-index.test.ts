@@ -10113,6 +10113,66 @@ It has multiple sentences to verify chunking works correctly.
         .get()
       expect(fileVectors?.count).toBe(0)
     })
+
+    it("keeps a deleted note's vector with its chunk when the cleanup's chunk delete fails", async () => {
+      const vaultDir = await mkdtemp(join(tmpdir(), "embed-note-deleted-"))
+      const dbDir = await mkdtemp(join(tmpdir(), "embed-note-deleted-db-"))
+      onTestFinished(async () => {
+        await rm(vaultDir, { recursive: true })
+        await rm(dbDir, { recursive: true })
+      })
+      const dbPath = join(dbDir, "search.db")
+      const embeddingIndex = createSearchIndex(dbPath, createMockEmbedder())
+      const rebuild = () => {
+        return embeddingIndex.rebuildFromVault(
+          {
+            vaultPath: vaultDir,
+            bodyTagParser: inProcessBodyTagParser,
+            pdfExtractor: createInProcessPdfExtractor(vaultDir),
+            maxFileBytes: 10_000_000,
+          },
+          logger,
+        )
+      }
+      await writeFile(join(vaultDir, "gone.md"), "A note deleted while the server was down.")
+      const firstRebuild = await rebuild()
+      await firstRebuild.embedding
+
+      const database = new Database(dbPath)
+      sqliteVec.load(database)
+      onTestFinished(() => {
+        database.close()
+      })
+      const noteRowCounts = () => {
+        return database
+          .prepare(
+            `SELECT
+               (SELECT COUNT(*) FROM note_chunks WHERE note_path = 'gone.md') AS chunks,
+               (SELECT COUNT(*) FROM note_vectors WHERE chunk_id IN
+                 (SELECT id FROM note_chunks WHERE note_path = 'gone.md')) AS vectors`,
+          )
+          .get()
+      }
+      expect(noteRowCounts()).toEqual({ chunks: 1, vectors: 1 })
+      database.exec(`
+        CREATE TRIGGER reject_gone_chunk_delete BEFORE DELETE ON note_chunks
+        WHEN OLD.note_path = 'gone.md'
+        BEGIN
+          SELECT RAISE(ABORT, 'controlled note chunk delete failure');
+        END;
+      `)
+      await rm(join(vaultDir, "gone.md"))
+
+      const secondRebuild = await rebuild()
+      // A SqliteError also carries its stack, so only its code and message are matched
+      await expect(secondRebuild.embedding).rejects.toMatchObject({
+        code: "SQLITE_CONSTRAINT_TRIGGER",
+        message: "controlled note chunk delete failure",
+      })
+
+      // The vector delete rolled back with the failed chunk delete
+      expect(noteRowCounts()).toEqual({ chunks: 1, vectors: 1 })
+    })
   })
 })
 
