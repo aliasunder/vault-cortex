@@ -989,7 +989,6 @@ describe("task-mutations", () => {
       expect(doneSection).toBe(
         `\n- [x] In-progress task ➕ 2026-07-01 ✅ ${today()} ^active-task\n\n- [x] Completed ➕ 2026-06-01 ✅ 2026-06-15\n\n`,
       )
-      expect(result.changes).toEqual(["status: in_progress → done", "heading: Active → Done"])
     })
 
     it("auto-completes to the 'Done' lane, not a 'Done' heading inside the card", async () => {
@@ -1335,7 +1334,14 @@ title: Tasks
 
       const contentAfter = await readTestNote(vault, "board.md")
       expect(contentAfter).toBe(contentBefore)
-      expect(result.changes).toEqual([])
+      expect(result).toEqual({
+        path: "board.md",
+        line: 8,
+        description: "In-progress task",
+        block_id: "active-task",
+        heading: "Active",
+        changes: [],
+      })
     })
 
     it("format override writes done date in Dataview format", async () => {
@@ -2832,7 +2838,13 @@ kanban-plugin: board
         logger,
       )
 
-      expect(result.changes).toEqual(["status: todo → done"])
+      expect(result).toEqual({
+        path: "board.md",
+        line: 10,
+        description: "Sub-stage",
+        heading: "Active",
+        changes: ["status: todo → done"],
+      })
       // Sub-task completed in place under Active, not moved to Done
       expect(await readTestNote(vault, "board.md")).toBe(
         KANBAN_WITH_SUBITEMS.replace(
@@ -3096,7 +3108,14 @@ kanban-plugin: board
         logger,
       )
 
-      expect(result.changes).toEqual(["heading: Active → Done"])
+      expect(result).toEqual({
+        path: "agenda.md",
+        line: 7,
+        description: "Call dentist",
+        block_id: "call-dentist",
+        heading: "Done",
+        changes: ["heading: Active → Done"],
+      })
       const content = await readTestNote(vault, "agenda.md")
       expect(content).toBe(`## Active
 
@@ -3123,7 +3142,14 @@ kanban-plugin: board
         logger,
       )
 
-      expect(result.changes).toEqual(["heading: Active → Done"])
+      expect(result).toEqual({
+        path: "board.md",
+        line: 9,
+        description: "Quoted parent",
+        block_id: "quoted-parent",
+        heading: "Done",
+        changes: ["heading: Active → Done"],
+      })
       const content = await readTestNote(vault, "board.md")
       expect(content).toBe(`---
 kanban-plugin: board
@@ -3153,8 +3179,15 @@ kanban-plugin: board
         logger,
       )
 
-      expect(result.changes).toEqual(["subtasks: 1 → 2"])
-      expect(result.subtasks).toEqual([{ line: 9, description: "Stage 2" }])
+      expect(result).toEqual({
+        path: "board.md",
+        line: 7,
+        description: "Quoted parent",
+        block_id: "quoted-parent",
+        heading: "Active",
+        subtasks: [{ line: 9, description: "Stage 2" }],
+        changes: ["subtasks: 1 → 2"],
+      })
       const content = await readTestNote(vault, "board.md")
       expect(content).toBe(`---
 kanban-plugin: board
@@ -3194,7 +3227,14 @@ kanban-plugin: board
           logger,
         )
 
-        expect(result.heading).toBe("Ideas")
+        expect(result).toEqual({
+          path: "notes.md",
+          line: 9,
+          description: "Third",
+          block_id: "third",
+          heading: "Ideas",
+          changes: [`created: (none) → ${today()}`],
+        })
         const content = await readTestNote(vault, "notes.md")
         expect(content).toBe(
           `---\ntitle: Notes\n---\n\n## Ideas\n\n- [ ] First ^first\n- [ ] Second ^second\n- [ ] Third ➕ ${today()} ^third\n`,
@@ -3435,7 +3475,13 @@ kanban-plugin: board
           logger,
         )
 
-        expect(result.changes).toEqual([`created: (none) → ${today()}`])
+        expect(result).toEqual({
+          path: "tasks.md",
+          line: 7,
+          description: "Child task",
+          block_id: "child",
+          changes: [`created: (none) → ${today()}`],
+        })
         const content = await readTestNote(vault, "tasks.md")
         expect(content).toBe(
           `---\ntitle: Tasks\n---\n\n- [ ] Buy groceries ➕ 2026-07-01\n- [ ] Walk the dog ➕ 2026-07-02 ^walk-dog\n  - [ ] Child task ➕ ${today()} ^child\n- [x] Done task ➕ 2026-07-01 ✅ 2026-07-10\n`,
@@ -3458,7 +3504,13 @@ kanban-plugin: board
           logger,
         )
 
-        expect(result.line).toBe(9)
+        expect(result).toEqual({
+          path: "tasks.md",
+          line: 9,
+          description: "End task",
+          block_id: "end-task",
+          changes: [`created: (none) → ${today()}`],
+        })
         const content = await readTestNote(vault, "tasks.md")
         expect(content).toBe(
           `---\ntitle: Tasks\n---\n\n- [ ] Buy groceries ➕ 2026-07-01\n- [ ] Walk the dog ➕ 2026-07-02 ^walk-dog\n- [x] Done task ➕ 2026-07-01 ✅ 2026-07-10\n\n- [ ] End task ➕ ${today()} ^end-task\n`,
@@ -3483,7 +3535,14 @@ kanban-plugin: board
           logger,
         )
 
-        expect(result.heading).toBe("Active")
+        expect(result).toEqual({
+          path: "board.md",
+          line: 7,
+          description: "First card",
+          block_id: "first-card",
+          heading: "Active",
+          changes: [`created: (none) → ${today()}`],
+        })
         const content = await readTestNote(vault, "board.md")
         expect(content).toBe(
           `---\ntitle: Board\nkanban-plugin: board\n---\n\n## Active\n- [ ] First card ➕ ${today()} ^first-card\n\n## Done\n`,
@@ -3625,7 +3684,14 @@ kanban-plugin: board
           logger,
         )
 
-        expect(moved.changes).toEqual(["position: 2 → 1"])
+        expect(moved).toEqual({
+          path: "board.md",
+          line: 4,
+          description: "Second",
+          block_id: "second",
+          heading: "Active",
+          changes: ["position: 2 → 1"],
+        })
         expect(await readTestNote(vault, "board.md")).toBe(
           "## Active\n- [ ] Commented %%\n%%\n- [ ] Second ^second\n- [ ] First ^first\n",
         )
@@ -3766,7 +3832,14 @@ kanban-plugin: board
         const remainingCards = cards.slice(0, -1)
         const afterMove = remainingCards.toSpliced(1, 0, cards.at(-1) ?? "", inserted)
 
-        expect(moved.changes).toEqual(["position: 1001 → 2"])
+        expect(moved).toEqual({
+          path: "board.md",
+          line: prefix.split("\n").length + 1,
+          description: "Card 999",
+          block_id: "card-999",
+          heading: "Active",
+          changes: ["position: 1001 → 2"],
+        })
         expect(await readTestNote(vault, "board.md")).toBe(`${prefix}${afterMove.join("\n")}\n`)
         expect(fenceVisits).toBeLessThan(30 * cards.length)
       })
@@ -3789,7 +3862,14 @@ kanban-plugin: board
           logger,
         )
 
-        expect(result.heading).toBe("Active")
+        expect(result).toEqual({
+          path: "board.md",
+          line: 9,
+          description: "Inserted",
+          block_id: "inserted",
+          heading: "Active",
+          changes: [`created: (none) → ${today()}`],
+        })
         const content = await readTestNote(vault, "board.md")
         expect(content).toBe(
           `---\ntitle: Board\nkanban-plugin: board\n---\n\n## Active\n\n- [ ] First ^first\n- [ ] Inserted ➕ ${today()} ^inserted\n- [ ] Second ^second\n- [ ] Third ^third\n`,
@@ -4067,7 +4147,14 @@ kanban-plugin: board
         expect(content).toBe(
           `---\ntitle: Board\nkanban-plugin: board\n---\n\n## Active\n\n- [ ] Bravo ^bravo\n- [ ] Charlie ^charlie\n- [ ] Alpha ^alpha\n- [ ] Delta ^delta\n\n## Done\n`,
         )
-        expect(result.changes).toEqual(["position: 1 → 3"])
+        expect(result).toEqual({
+          path: "board.md",
+          line: 10,
+          description: "Alpha",
+          block_id: "alpha",
+          heading: "Active",
+          changes: ["position: 1 → 3"],
+        })
       })
 
       it("same-lane reorder is a no-op when already at the target position", async () => {
@@ -4089,7 +4176,14 @@ kanban-plugin: board
 
         const contentAfter = await readTestNote(vault, "board.md")
         expect(contentAfter).toBe(contentBefore)
-        expect(result.changes).toEqual([])
+        expect(result).toEqual({
+          path: "board.md",
+          line: 8,
+          description: "Alpha",
+          block_id: "alpha",
+          heading: "Active",
+          changes: [],
+        })
       })
 
       it("same-lane position=top is a no-op for the first card below a blank line", async () => {
@@ -4142,7 +4236,14 @@ kanban-plugin: board
         expect(content).toBe(
           `---\ntitle: Board\nkanban-plugin: board\n---\n\n## Active\n\n- [ ] Bravo ^bravo\n\n## Up Next\n\n- [ ] Charlie ^charlie\n- [ ] Alpha ^alpha\n- [ ] Delta ^delta\n`,
         )
-        expect(result.changes).toEqual(["heading: Active → Up Next", "position: 1 → 2"])
+        expect(result).toEqual({
+          path: "board.md",
+          line: 13,
+          description: "Alpha",
+          block_id: "alpha",
+          heading: "Up Next",
+          changes: ["heading: Active → Up Next", "position: 1 → 2"],
+        })
       })
 
       it("position-only call without heading or status succeeds", async () => {
@@ -4161,7 +4262,14 @@ kanban-plugin: board
           logger,
         )
 
-        expect(result.changes).toEqual(["position: 2 → 1"])
+        expect(result).toEqual({
+          path: "board.md",
+          line: 8,
+          description: "Bravo",
+          block_id: "bravo",
+          heading: "Active",
+          changes: ["position: 2 → 1"],
+        })
         const content = await readTestNote(vault, "board.md")
         expect(content).toBe(
           `---\ntitle: Board\nkanban-plugin: board\n---\n\n## Active\n\n- [ ] Bravo ^bravo\n- [ ] Alpha ^alpha\n\n## Done\n`,
@@ -4188,7 +4296,14 @@ kanban-plugin: board
         expect(content).toBe(
           `---\ntitle: Board\nkanban-plugin: board\n---\n\n## Active\n\n- [ ] Bravo ^bravo\n  - [ ] Sub-B1\n- [ ] Alpha ^alpha\n  - [ ] Sub-A1\n  - [ ] Sub-A2\n- [ ] Charlie ^charlie\n\n## Done\n`,
         )
-        expect(result.changes).toEqual(["position: 2 → 1"])
+        expect(result).toEqual({
+          path: "board.md",
+          line: 8,
+          description: "Bravo",
+          block_id: "bravo",
+          heading: "Active",
+          changes: ["position: 2 → 1"],
+        })
       })
 
       it("rejects position on a sub-task", async () => {
@@ -4232,7 +4347,14 @@ kanban-plugin: board
         expect(content).toBe(
           `---\ntitle: Board\nkanban-plugin: board\n---\n\n## Active\n\n- [ ] Bravo ^bravo\n- [ ] Charlie ^charlie\n- [ ] Alpha ^alpha\n\n## Done\n`,
         )
-        expect(result.changes).toEqual(["position: 1 → 3"])
+        expect(result).toEqual({
+          path: "board.md",
+          line: 10,
+          description: "Alpha",
+          block_id: "alpha",
+          heading: "Active",
+          changes: ["position: 1 → 3"],
+        })
       })
 
       it("same-lane reorder works in a lane whose heading has no text", async () => {
@@ -4315,7 +4437,14 @@ kanban-plugin: board
             "",
           ].join("\n"),
         )
-        expect(result.changes).toEqual(["position: 3 → 1"])
+        expect(result).toEqual({
+          path: "board.md",
+          line: 8,
+          description: "Charlie",
+          block_id: "charlie",
+          heading: "Active",
+          changes: ["position: 3 → 1"],
+        })
       })
 
       it("rejects position-only reorder on a task above all headings", async () => {
@@ -4687,11 +4816,15 @@ kanban-plugin: board
         // pushing it from position 1 → 2 in the post-spawn lane.
         // before-position 1 proves the count comes from the pre-spawn lane
         // (2 cards); linesWithSpawn would report 2.
-        expect(result.changes).toEqual([
-          "status: todo → done",
-          "position: 1 → 3",
-          "next_occurrence: (none) → line 7",
-        ])
+        expect(result).toEqual({
+          path: "notes.md",
+          line: 9,
+          description: "Water plants",
+          block_id: "water",
+          heading: "Habits",
+          next_occurrence: { line: 7, description: "Water plants", due: "2026-01-12" },
+          changes: ["status: todo → done", "position: 1 → 3", "next_occurrence: (none) → line 7"],
+        })
         const content = await readTestNote(vault, "notes.md")
         expect(content).toBe(
           `---\ntitle: Notes\n---\n\n## Habits\n\n- [ ] Water plants 🔁 every week 📅 2026-01-12\n- [ ] Read for 30 min ^read\n- [x] Water plants 🔁 every week 📅 2026-01-05 ✅ ${today()} ^water\n\n## Done\n`,
@@ -5095,11 +5228,18 @@ title: Tasks
       logger,
     )
 
-    expect(result.changes).toEqual([
-      "status: todo → done",
-      "due: 2026-01-27 → 2026-02-03",
-      "next_occurrence: (none) → line 5",
-    ])
+    expect(result).toEqual({
+      path: "tasks.md",
+      line: 6,
+      description: "Report",
+      block_id: "report",
+      next_occurrence: { line: 5, description: "Report", due: "2026-02-10" },
+      changes: [
+        "status: todo → done",
+        "due: 2026-01-27 → 2026-02-03",
+        "next_occurrence: (none) → line 5",
+      ],
+    })
     const content = await readTestNote(vault, "tasks.md")
     expect(content).toBe(
       `---\ntitle: Tasks\n---\n\n- [ ] Report 🔁 every week 📅 2026-02-10\n- [x] Report 🔁 every week 📅 2026-02-03 ✅ ${today()} ^report\n`,
@@ -5843,7 +5983,17 @@ title: Tasks
       logger,
     )
 
-    expect(result.changes).toEqual(["due: (none) → 2026-05-01", "description: Old text → Ship it"])
+    expect(result).toEqual({
+      path: "tasks.md",
+      line: 5,
+      description: "Ship it",
+      block_id: "prose",
+      changes: ["due: (none) → 2026-05-01", "description: Old text → Ship it"],
+      advisories: [
+        'description: the line was written as submitted, but the stored description parses back as "Ship it" — the trailing "✅ 2026-01-01" was read as task metadata',
+        'done: the stored line parses back "2026-01-01" although nothing set it — description text was read as this field',
+      ],
+    })
     const content = await readTestNote(vault, "tasks.md")
     expect(content).toBe(
       "---\ntitle: Tasks\n---\n\n- [ ] Ship it ✅ 2026-01-01 ➕ 2026-01-01 📅 2026-05-01 ^prose\n",
@@ -5869,7 +6019,13 @@ title: Tasks
       logger,
     )
 
-    expect(result.changes).toEqual(["recurrence: (none) → every week"])
+    expect(result).toEqual({
+      path: "tasks.md",
+      line: 5,
+      description: "Chore",
+      block_id: "chore",
+      changes: ["recurrence: (none) → every week"],
+    })
     // The rule lands before the dates, matching the create-path field order.
     const content = await readTestNote(vault, "tasks.md")
     expect(content).toBe(
@@ -5892,7 +6048,13 @@ title: Tasks
       logger,
     )
 
-    expect(result.changes).toEqual(["recurrence: every week → (none)"])
+    expect(result).toEqual({
+      path: "tasks.md",
+      line: 5,
+      description: "Water plants",
+      block_id: "water-plants",
+      changes: ["recurrence: every week → (none)"],
+    })
     const content = await readTestNote(vault, "tasks.md")
     expect(content).toBe(
       "---\ntitle: Tasks\n---\n\n- [ ] Water plants 📅 2026-01-05 ➕ 2026-01-01 ^water-plants\n",
@@ -6010,11 +6172,17 @@ title: Tasks
       logger,
     )
 
-    expect(result.changes).toEqual([
-      `created: (none) → ${today()}`,
-      "recurrence: (none) → every week",
-      "due: (none) → 2026-01-05",
-    ])
+    expect(result).toEqual({
+      path: "tasks.md",
+      line: 7,
+      description: "Weekly chore",
+      block_id: "weekly-chore",
+      changes: [
+        `created: (none) → ${today()}`,
+        "recurrence: (none) → every week",
+        "due: (none) → 2026-01-05",
+      ],
+    })
     const content = await readTestNote(vault, "tasks.md")
     expect(content).toBe(
       `---\ntitle: Tasks\n---\n\n- [ ] Existing ➕ 2026-01-01\n\n- [ ] Weekly chore 🔁 every week ➕ ${today()} 📅 2026-01-05 ^weekly-chore\n`,
@@ -6513,10 +6681,17 @@ describe("round-trip advisories", () => {
         logger,
       )
 
-      expect(result.advisories).toEqual([
-        'description: the line was written as submitted, but the stored description parses back as "check" — the trailing "[repeat:: every week]" was read as task metadata',
-        'recurrence: the stored line parses back "every week" although nothing set it — description text was read as this field',
-      ])
+      expect(result).toEqual({
+        path: "tasks.md",
+        line: 9,
+        description: "check [repeat:: every week]",
+        block_id: "dv-check",
+        changes: [`created: (none) → ${today()}`],
+        advisories: [
+          'description: the line was written as submitted, but the stored description parses back as "check" — the trailing "[repeat:: every week]" was read as task metadata',
+          'recurrence: the stored line parses back "every week" although nothing set it — description text was read as this field',
+        ],
+      })
     })
 
     it("says the stored description parses back empty when the whole submitted text is consumed", async () => {
@@ -6534,10 +6709,17 @@ describe("round-trip advisories", () => {
         logger,
       )
 
-      expect(result.advisories).toEqual([
-        'description: the line was written as submitted, but the stored description parses back empty — the trailing "🔁 every day" was read as task metadata',
-        'recurrence: the stored line parses back "every day" although nothing set it — description text was read as this field',
-      ])
+      expect(result).toEqual({
+        path: "tasks.md",
+        line: 9,
+        description: "🔁 every day",
+        block_id: "all-meta",
+        changes: [`created: (none) → ${today()}`],
+        advisories: [
+          'description: the line was written as submitted, but the stored description parses back empty — the trailing "🔁 every day" was read as task metadata',
+          'recurrence: the stored line parses back "every day" although nothing set it — description text was read as this field',
+        ],
+      })
       const content = await readTestNote(vault, "tasks.md")
       expect(content).toBe(
         `---\ntitle: Tasks\n---\n\n- [ ] Buy groceries ➕ 2026-07-01\n- [ ] Walk the dog ➕ 2026-07-02 ^walk-dog\n- [x] Done task ➕ 2026-07-01 ✅ 2026-07-10\n\n- [ ] 🔁 every day ➕ ${today()} ^all-meta\n`,
@@ -6560,7 +6742,13 @@ describe("round-trip advisories", () => {
         logger,
       )
 
-      expect(result.advisories).toBeUndefined()
+      expect(result).toEqual({
+        path: "tasks.md",
+        line: 9,
+        description: "Water plants",
+        block_id: "water",
+        changes: [`created: (none) → ${today()}`, "recurrence: (none) → every week"],
+      })
       const content = await readTestNote(vault, "tasks.md")
       expect(content).toBe(
         `---\ntitle: Tasks\n---\n\n- [ ] Buy groceries ➕ 2026-07-01\n- [ ] Walk the dog ➕ 2026-07-02 ^walk-dog\n- [x] Done task ➕ 2026-07-01 ✅ 2026-07-10\n\n- [ ] Water plants 🔁 every week ➕ ${today()} ^water\n`,
@@ -6583,9 +6771,20 @@ describe("round-trip advisories", () => {
         logger,
       )
 
-      expect(result.advisories).toEqual([
-        'subtask "check 🔁 every week": written as submitted, but its stored text parses back as "check" — the trailing "🔁 every week" was read as task metadata',
-      ])
+      expect(result).toEqual({
+        path: "tasks.md",
+        line: 9,
+        description: "Ship the feature",
+        block_id: "ship",
+        subtasks: [
+          { line: 10, description: "Design" },
+          { line: 11, description: "check 🔁 every week" },
+        ],
+        changes: [`created: (none) → ${today()}`, "subtasks: 0 → 2"],
+        advisories: [
+          'subtask "check 🔁 every week": written as submitted, but its stored text parses back as "check" — the trailing "🔁 every week" was read as task metadata',
+        ],
+      })
     })
   })
 
@@ -6614,14 +6813,17 @@ describe("round-trip advisories", () => {
       expect(content).toBe(
         "---\ntitle: Tasks\n---\n\n- [ ] Fix ⛔ prose ➕ 2026-09-01 ⛔ real-dep ^my-task\n",
       )
-      expect(result.advisories).toEqual([
-        'description: the line was written as submitted, but the stored description parses back as "Fix" — the trailing "⛔ prose" was read as task metadata',
-        'depends_on: submitted "real-dep" but the stored line parses back "prose"',
-      ])
-      expect(result.changes).toEqual([
-        "depends_on: old-dep → real-dep",
-        "description: Old desc → Fix",
-      ])
+      expect(result).toEqual({
+        path: "tasks.md",
+        line: 5,
+        description: "Fix",
+        block_id: "my-task",
+        changes: ["depends_on: old-dep → real-dep", "description: Old desc → Fix"],
+        advisories: [
+          'description: the line was written as submitted, but the stored description parses back as "Fix" — the trailing "⛔ prose" was read as task metadata',
+          'depends_on: submitted "real-dep" but the stored line parses back "prose"',
+        ],
+      })
     })
 
     it("serializes exactly one task_id field when the new description contains an id signifier", async () => {
@@ -6648,10 +6850,17 @@ describe("round-trip advisories", () => {
       expect(content).toBe(
         "---\ntitle: Tasks\n---\n\n- [ ] Fix 🆔 prose ➕ 2026-09-01 🆔 new-id ^t1\n",
       )
-      expect(result.advisories).toEqual([
-        'description: the line was written as submitted, but the stored description parses back as "Fix" — the trailing "🆔 prose" was read as task metadata',
-        'task_id: submitted "new-id" but the stored line parses back "prose"',
-      ])
+      expect(result).toEqual({
+        path: "tasks.md",
+        line: 5,
+        description: "Fix",
+        block_id: "t1",
+        changes: ["task_id: old-id → new-id", "description: Old → Fix"],
+        advisories: [
+          'description: the line was written as submitted, but the stored description parses back as "Fix" — the trailing "🆔 prose" was read as task metadata',
+          'task_id: submitted "new-id" but the stored line parses back "prose"',
+        ],
+      })
     })
 
     it("serializes exactly one due-date field when the new description contains a date signifier", async () => {
@@ -6678,10 +6887,17 @@ describe("round-trip advisories", () => {
       expect(content).toBe(
         "---\ntitle: Tasks\n---\n\n- [ ] Fix 📅 2026-12-31 ➕ 2026-09-01 📅 2026-10-01 ^t2\n",
       )
-      expect(result.advisories).toEqual([
-        'description: the line was written as submitted, but the stored description parses back as "Fix" — the trailing "📅 2026-12-31" was read as task metadata',
-        'due: submitted "2026-10-01" but the stored line parses back "2026-12-31"',
-      ])
+      expect(result).toEqual({
+        path: "tasks.md",
+        line: 5,
+        description: "Fix",
+        block_id: "t2",
+        changes: ["due: 2026-09-15 → 2026-10-01", "description: Old → Fix"],
+        advisories: [
+          'description: the line was written as submitted, but the stored description parses back as "Fix" — the trailing "📅 2026-12-31" was read as task metadata',
+          'due: submitted "2026-10-01" but the stored line parses back "2026-12-31"',
+        ],
+      })
     })
 
     it("omits advisories when a clean description update leaves a pre-existing recurrence in place", async () => {
@@ -6735,10 +6951,17 @@ describe("round-trip advisories", () => {
         logger,
       )
 
-      expect(result.advisories).toEqual([
-        'description: the line was written as submitted, but the stored description parses back as "Fix" — the trailing "📅 2026-12-31" was read as task metadata',
-        'due: previously "2026-01-01", but the stored line now parses back "2026-12-31" — this call\'s edits changed what the line parses as this field',
-      ])
+      expect(result).toEqual({
+        path: "tasks.md",
+        line: 5,
+        description: "Fix",
+        block_id: "t1",
+        changes: ["description: Old → Fix"],
+        advisories: [
+          'description: the line was written as submitted, but the stored description parses back as "Fix" — the trailing "📅 2026-12-31" was read as task metadata',
+          'due: previously "2026-01-01", but the stored line now parses back "2026-12-31" — this call\'s edits changed what the line parses as this field',
+        ],
+      })
     })
 
     it("omits advisories when clearing the last metadata field migrates a trailing tag into the description slot", async () => {
@@ -6794,9 +7017,14 @@ describe("round-trip advisories", () => {
       expect(content).toBe(
         "---\ntitle: Tasks\n---\n\n- [ ] Fix ⛔ prose ➕ 2026-09-01 ⛔ new-dep ^t1\n",
       )
-      expect(result.advisories).toEqual([
-        'depends_on: submitted "new-dep" but the stored line parses back "prose"',
-      ])
+      expect(result).toEqual({
+        path: "tasks.md",
+        line: 5,
+        description: "Fix",
+        block_id: "t1",
+        changes: ["depends_on: prose → new-dep"],
+        advisories: ['depends_on: submitted "new-dep" but the stored line parses back "prose"'],
+      })
     })
 
     it("restamps the real completion date, not a description date the parser read as metadata, and restamps stably", async () => {
@@ -6936,7 +7164,13 @@ describe("round-trip advisories", () => {
 
       // #urgent is in the description only, #review is in the metadata tail
       // only — neither is duplicated, no dedup advisory fires.
-      expect(result.advisories).toBeUndefined()
+      expect(result).toEqual({
+        path: "tasks.md",
+        line: 5,
+        description: "Fix bug #urgent #review",
+        block_id: "x",
+        changes: ["description: Fix bug #review → Fix bug #urgent #review"],
+      })
       const content = await readTestNote(vault, "tasks.md")
       expect(content).toBe(
         "---\ntitle: Tasks\n---\n\n- [ ] Fix bug #urgent 📅 2026-01-01 #review ^x\n",
@@ -6962,7 +7196,13 @@ describe("round-trip advisories", () => {
         logger,
       )
 
-      expect(result.advisories).toBeUndefined()
+      expect(result).toEqual({
+        path: "tasks.md",
+        line: 5,
+        description: "Fix crash #urgent",
+        block_id: "x",
+        changes: ["description: Fix bug #urgent → Fix crash #urgent"],
+      })
       const content = await readTestNote(vault, "tasks.md")
       expect(content).toBe("---\ntitle: Tasks\n---\n\n- [ ] Fix crash 📅 2026-01-01 #urgent ^x\n")
     })
@@ -6993,10 +7233,17 @@ describe("round-trip advisories", () => {
       expect(content).toBe(
         `---\ntitle: Tasks\n---\n\n- [x] Finish ✅ 2026-05-05 ➕ 2026-07-01 ✅ ${today()} ^t\n`,
       )
-      expect(result.advisories).toEqual([
-        'description: the line was written as submitted, but the stored description parses back as "Finish" — the trailing "✅ 2026-05-05" was read as task metadata',
-        `done: submitted "${today()}" but the stored line parses back "2026-05-05"`,
-      ])
+      expect(result).toEqual({
+        path: "tasks.md",
+        line: 5,
+        description: "Finish",
+        block_id: "t",
+        changes: ["status: todo → done", "description: Old → Finish"],
+        advisories: [
+          'description: the line was written as submitted, but the stored description parses back as "Finish" — the trailing "✅ 2026-05-05" was read as task metadata',
+          `done: submitted "${today()}" but the stored line parses back "2026-05-05"`,
+        ],
+      })
     })
 
     it("preserves a description cancelled-date signifier through a combined status change and reports both divergences", async () => {
@@ -7023,10 +7270,17 @@ describe("round-trip advisories", () => {
       expect(content).toBe(
         `---\ntitle: Tasks\n---\n\n- [-] Archive ❌ 2026-05-04 ➕ 2026-07-01 ❌ ${today()} ^t\n`,
       )
-      expect(result.advisories).toEqual([
-        'description: the line was written as submitted, but the stored description parses back as "Archive" — the trailing "❌ 2026-05-04" was read as task metadata',
-        `cancelled: submitted "${today()}" but the stored line parses back "2026-05-04"`,
-      ])
+      expect(result).toEqual({
+        path: "tasks.md",
+        line: 5,
+        description: "Archive",
+        block_id: "t",
+        changes: ["status: todo → cancelled", "description: Old → Archive"],
+        advisories: [
+          'description: the line was written as submitted, but the stored description parses back as "Archive" — the trailing "❌ 2026-05-04" was read as task metadata',
+          `cancelled: submitted "${today()}" but the stored line parses back "2026-05-04"`,
+        ],
+      })
     })
 
     it("omits recurrence advisory when recurrence is set via the param", async () => {
@@ -7048,7 +7302,13 @@ describe("round-trip advisories", () => {
         logger,
       )
 
-      expect(result.advisories).toBeUndefined()
+      expect(result).toEqual({
+        path: "tasks.md",
+        line: 5,
+        description: "Water plants",
+        block_id: "water",
+        changes: ["recurrence: (none) → every week"],
+      })
       const content = await readTestNote(vault, "tasks.md")
       expect(content).toBe(
         "---\ntitle: Tasks\n---\n\n- [ ] Water plants 🔁 every week ➕ 2026-01-01 ^water\n",
@@ -7074,7 +7334,13 @@ describe("round-trip advisories", () => {
         logger,
       )
 
-      expect(result.advisories).toBeUndefined()
+      expect(result).toEqual({
+        path: "tasks.md",
+        line: 5,
+        description: "Water plants",
+        block_id: "water",
+        changes: ["recurrence: every week → (none)"],
+      })
       const content = await readTestNote(vault, "tasks.md")
       expect(content).toBe("---\ntitle: Tasks\n---\n\n- [ ] Water plants ➕ 2026-01-01 ^water\n")
     })
@@ -7094,9 +7360,17 @@ describe("round-trip advisories", () => {
         logger,
       )
 
-      expect(result.advisories).toEqual([
-        'subtask "check 🔁 every week": written as submitted, but its stored text parses back as "check" — the trailing "🔁 every week" was read as task metadata',
-      ])
+      expect(result).toEqual({
+        path: "tasks.md",
+        line: 6,
+        description: "Walk the dog",
+        block_id: "walk-dog",
+        subtasks: [{ line: 7, description: "check 🔁 every week" }],
+        changes: ["subtasks: 0 → 1"],
+        advisories: [
+          'subtask "check 🔁 every week": written as submitted, but its stored text parses back as "check" — the trailing "🔁 every week" was read as task metadata',
+        ],
+      })
     })
   })
 
@@ -8215,7 +8489,14 @@ title: Tasks
         logger,
       )
 
-      expect(result.changes).toEqual(["subtasks: 1 → 2"])
+      expect(result).toEqual({
+        path: "tasks.md",
+        line: 5,
+        description: "Card",
+        block_id: "card",
+        subtasks: [{ line: 8, description: "New stage" }],
+        changes: ["subtasks: 1 → 2"],
+      })
 
       const content = await readTestNote(vault, "tasks.md")
       expect(content).toBe(
@@ -8292,7 +8573,13 @@ title: Tasks
         logger,
       )
 
-      expect(result.changes).toEqual(["status: todo → cancelled"])
+      expect(result).toEqual({
+        path: "tasks.md",
+        line: 5,
+        description: "Task",
+        block_id: "task",
+        changes: ["status: todo → cancelled"],
+      })
       const content = await readTestNote(vault, "tasks.md")
       expect(content).toBe(
         `---\ntitle: Tasks\n---\n\n- [-] Task ➕ 2026-07-01 ❌ ${today()} ^task\n`,
@@ -8323,7 +8610,14 @@ title: Tasks
 
       // Position 2 lands above the [>] line, which the supplied registry
       // reads as an ordinary todo card.
-      expect(result.line).toBe(9)
+      expect(result).toEqual({
+        path: "board.md",
+        line: 9,
+        description: "Inserted",
+        block_id: "inserted",
+        heading: "Active",
+        changes: [`created: (none) → ${today()}`],
+      })
       const content = await readTestNote(vault, "board.md")
       expect(content).toBe(
         `---\ntitle: Board\nkanban-plugin: board\n---\n\n## Active\n\n- [ ] Card A ^card-a\n- [ ] Inserted ➕ ${today()} ^inserted\n- [>] Forwarded ref\n- [ ] Card B ^card-b\n`,
@@ -8402,8 +8696,13 @@ title: Tasks
         logger,
       )
 
-      expect(result.description).toBe("Real task")
-      expect(result.changes).toEqual(["status: todo → done"])
+      expect(result).toEqual({
+        path: "tasks.md",
+        line: 9,
+        description: "Real task",
+        block_id: "real",
+        changes: ["status: todo → done"],
+      })
     })
 
     it("skips a fenced match and finds the real task with the same block-id", async () => {
@@ -8425,8 +8724,13 @@ title: Tasks
         logger,
       )
 
-      expect(result.description).toBe("Real task")
-      expect(result.changes).toEqual(["status: todo → done"])
+      expect(result).toEqual({
+        path: "tasks.md",
+        line: 9,
+        description: "Real task",
+        block_id: "shared-id",
+        changes: ["status: todo → done"],
+      })
     })
 
     it("skips a fenced match and finds the real parent with the same block-id", async () => {
@@ -8449,7 +8753,13 @@ title: Tasks
         logger,
       )
 
-      expect(result.description).toBe("Child task")
+      expect(result).toEqual({
+        path: "tasks.md",
+        line: 10,
+        description: "Child task",
+        block_id: "child-of-shared",
+        changes: [`created: (none) → ${today()}`],
+      })
     })
 
     it("createTask succeeds when the block-id exists only inside a fenced block", async () => {
@@ -8471,8 +8781,13 @@ title: Tasks
         logger,
       )
 
-      expect(result.description).toBe("New task")
-      expect(result.block_id).toBe("taken")
+      expect(result).toEqual({
+        path: "tasks.md",
+        line: 11,
+        description: "New task",
+        block_id: "taken",
+        changes: [`created: (none) → ${today()}`],
+      })
     })
 
     it("updateTask rejects a line-addressed task inside a fenced code block", async () => {
@@ -8663,7 +8978,13 @@ kanban-plugin: board
       logger,
     )
 
-    expect(result.description).toBe("Real task")
+    expect(result).toEqual({
+      path: "tasks.md",
+      line: 6,
+      description: "Real task",
+      block_id: "shared",
+      changes: ["priority: (none) → high"],
+    })
     expect(await readTestNote(vault, "tasks.md")).toBe(
       "---\ntitle: Tasks\n---\n\n- [>] Forwarded elsewhere ^shared\n- [ ] Real task ⏫ ^shared\n",
     )
@@ -8903,7 +9224,14 @@ title: Plan
       logger,
     )
 
-    expect(result.changes).toEqual(["block_id: other → other-card"])
+    expect(result).toEqual({
+      path: "board.md",
+      line: 11,
+      description: "Other card",
+      block_id: "other-card",
+      heading: "Active",
+      changes: ["block_id: other → other-card"],
+    })
     expect(await readTestNote(vault, "board.md")).toBe(
       BOARD.replace("- [ ] Other card ^other\n", "- [ ] Other card ^other-card\n"),
     )
@@ -8924,7 +9252,13 @@ title: Plan
       logger,
     )
 
-    expect(result.changes).toEqual(["block_id: (none) → child"])
+    expect(result).toEqual({
+      path: "plan.md",
+      line: 6,
+      description: "Child",
+      block_id: "child",
+      changes: ["block_id: (none) → child"],
+    })
     expect(await readTestNote(vault, "plan.md")).toBe(
       PLAIN_NOTE.replace("  - [ ] Child\n", "  - [ ] Child ^child\n"),
     )
@@ -8977,7 +9311,13 @@ title: Plan
       logger,
     )
 
-    expect(result.changes).toEqual(["block_id: (none) → (none)"])
+    expect(result).toEqual({
+      path: "board.md",
+      line: 8,
+      description: "Existing sub-task",
+      heading: "Active",
+      changes: ["block_id: (none) → (none)"],
+    })
     expect(await readTestNote(vault, "board.md")).toBe(BOARD)
   })
 
@@ -9067,9 +9407,17 @@ title: Plan
       logger,
     )
 
-    expect(result.advisories).toEqual([
-      'subtask "Step ^step-id": written as submitted, but its stored text parses back as "Step" — the trailing "^step-id" was read as task metadata',
-    ])
+    expect(result).toEqual({
+      path: "plan.md",
+      line: 5,
+      description: "Parent",
+      block_id: "parent",
+      subtasks: [{ line: 7, description: "Step ^step-id" }],
+      changes: ["subtasks: 1 → 2"],
+      advisories: [
+        'subtask "Step ^step-id": written as submitted, but its stored text parses back as "Step" — the trailing "^step-id" was read as task metadata',
+      ],
+    })
     expect(await readTestNote(vault, "plan.md")).toBe(
       PLAIN_NOTE.replace("  - [ ] Child\n", "  - [ ] Child\n  - [ ] Step ^step-id\n"),
     )
@@ -9091,9 +9439,17 @@ title: Plan
       logger,
     )
 
-    expect(result.advisories).toEqual([
-      'subtask "Step ^step-id": written as submitted, but its stored text parses back as "Step" — the trailing "^step-id" was read as task metadata',
-    ])
+    expect(result).toEqual({
+      path: "plan.md",
+      line: 8,
+      description: "New task",
+      block_id: "new-task",
+      subtasks: [{ line: 9, description: "Step ^step-id" }],
+      changes: [`created: (none) → ${today()}`, "subtasks: 0 → 1"],
+      advisories: [
+        'subtask "Step ^step-id": written as submitted, but its stored text parses back as "Step" — the trailing "^step-id" was read as task metadata',
+      ],
+    })
     expect(await readTestNote(vault, "plan.md")).toBe(
       `${PLAIN_NOTE}\n- [ ] New task ➕ ${today()} ^new-task\n  - [ ] Step ^step-id\n`,
     )
@@ -9197,7 +9553,14 @@ title: Plan
       logger,
     )
 
-    expect(result.block_id).toBe("other")
+    expect(result).toEqual({
+      path: "board.md",
+      line: 11,
+      description: "Other card renamed ^typed",
+      block_id: "other",
+      heading: "Active",
+      changes: ["description: Other card → Other card renamed ^typed"],
+    })
     expect(await readTestNote(vault, "board.md")).toBe(
       BOARD.replace("- [ ] Other card ^other\n", "- [ ] Other card renamed ^typed ^other\n"),
     )
