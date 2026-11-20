@@ -1801,8 +1801,8 @@ export const createSearchIndex = (
     return sourceVersion
   }
 
-  /** Removes a file's chunks and their vectors. The vectors go first, because
-   *  their delete finds them through the chunk rows. */
+  /** Removes a file's chunks and their vectors, and does nothing when file content is not
+   *  embedded. The vectors go first, because their delete finds them through the chunk rows. */
   const removeFileChunksAndVectors = (filePath: string): void => {
     if (!deleteFileVectorsForPathStmt || !deleteFileChunksForPathStmt) return
 
@@ -2695,10 +2695,12 @@ export const createSearchIndex = (
       db.exec("DELETE FROM file_content_fts")
       db.exec("DELETE FROM file_content")
     }
-    // Vector tables are NOT wiped — embedAndStoreChunks uses content-hash
-    // gating to skip unchanged chunks, so only new/modified notes re-embed.
-    // Vectors of deleted notes are removed by the background embedding pass
-    // (Pass 3, after the two indexing passes below) before embedding starts.
+    // Chunk and vector tables are NOT wiped.
+    // - Embedding skips a chunk whose content hash is unchanged, so only new or
+    //   changed notes and files re-embed.
+    // - Pass 3, the background embedding pass after the two indexing passes below,
+    //   removes deleted notes' chunks and vectors before it embeds notes, and
+    //   deleted files' before it embeds files.
 
     type RebuildFilePaths = { relativePath: string; absolutePath: string }
     type RebuildFileContent = {
@@ -2727,17 +2729,13 @@ export const createSearchIndex = (
     // non-md files) — shared by the notes pass and the non-md stat pass.
     // Named stages keep each pass O(n) (a spread-accumulating reduce would
     // re-copy the array per entry) and let the chain read top-to-bottom.
-    const visibleFilesOfKind = (
-      fileKind: "note" | "file",
-    ): { relativePath: string; absolutePath: string }[] => {
+    const visibleFilesOfKind = (fileKind: "note" | "file"): RebuildFilePaths[] => {
       const matchesKind = (directoryEntry: Dirent): boolean => {
         if (!directoryEntry.isFile() && !directoryEntry.isSymbolicLink()) return false
         const isNoteFile = directoryEntry.name.endsWith(".md")
         return fileKind === "note" ? isNoteFile : !isNoteFile
       }
-      const toFilePaths = (
-        directoryEntry: Dirent,
-      ): { relativePath: string; absolutePath: string } => {
+      const toFilePaths = (directoryEntry: Dirent): RebuildFilePaths => {
         const absolutePath = join(directoryEntry.parentPath, directoryEntry.name)
         return {
           relativePath: relative(normalizedVault, absolutePath),
@@ -2789,7 +2787,7 @@ export const createSearchIndex = (
     // HTML and script content is read only when the file content tables exist;
     // PDFs join their separate deferred pass below. The switch
     // names every kind, so a new kind does not compile until it has a reader.
-    const rebuildReaderFor = (fileKind: FileKind): "canvas" | "text" | "decoded" | null => {
+    const rebuildReaderFor = (fileKind: FileKind): "canvas" | "text" | "htmlOrScript" | null => {
       switch (fileKind) {
         case "canvas":
           return "canvas"
@@ -2797,7 +2795,7 @@ export const createSearchIndex = (
           return fileToolsEnabled ? "text" : null
         case "html":
         case "script":
-          return fileToolsEnabled ? "decoded" : null
+          return fileToolsEnabled ? "htmlOrScript" : null
         case "pdf":
         case "image":
         case "other":
@@ -2809,7 +2807,7 @@ export const createSearchIndex = (
     })
     const canvasFiles = nonMdFilesByReader.get("canvas") ?? []
     const textFiles = nonMdFilesByReader.get("text") ?? []
-    const htmlAndScriptFiles = nonMdFilesByReader.get("decoded") ?? []
+    const htmlAndScriptFiles = nonMdFilesByReader.get("htmlOrScript") ?? []
 
     const readRebuildFileContent = async (params: {
       file: RebuildFilePaths
@@ -2857,17 +2855,25 @@ export const createSearchIndex = (
     })
     const canvasContents = canvasContentResults.filter((entry) => entry !== null)
 
-    // A PDF is found by name from this write on, and keyword search finds its text again once the
-    // PDF pass publishes it. Its chunks and vectors are kept, so semantic search answers from them
-    // meanwhile and the pass re-embeds only chunks whose text changed.
-    const pdfsAwaitingText = nonMarkdownFileStats
-      .filter((file) => fileToolsEnabled && getFileKind(file.relativePath) === "pdf")
-      .map((file) => ({
-        relativePath: file.relativePath,
-        content: "",
-        modifiedAtMs: file.modifiedAtMs,
-        sizeBytes: file.bytes,
-      }))
+    // Each PDF gets a name-only row now, which is a file_content row with empty text.
+    // - Search finds the PDF by name from this write on, and keyword search finds its text again
+    //   once the PDF pass publishes it.
+    // - Its chunks and vectors are kept, so semantic search answers from them meanwhile, and the
+    //   pass re-embeds only chunks whose text changed.
+    const pdfsAwaitingText = fileToolsEnabled
+      ? nonMarkdownFileStats
+          .filter((file) => getFileKind(file.relativePath) === "pdf")
+          .map((file) => ({
+            relativePath: file.relativePath,
+            content: "",
+            modifiedAtMs: file.modifiedAtMs,
+            sizeBytes: file.bytes,
+          }))
+      : []
+    // The PDF pass never extracts a PDF over the byte cap, so it keeps only its name-only row.
+    const pdfTooLargeToExtract = (pdf: { sizeBytes: number }): boolean => {
+      return pdf.sizeBytes > maxFileBytes
+    }
     // The source version of each PDF's name-only row: the symbol upsertFileContent returned for
     // it, which a later write or removal of the path replaces in sourceVersions. The PDF pass
     // checks it before it writes, so a watcher change to the PDF wins over the pass.
@@ -2963,6 +2969,7 @@ export const createSearchIndex = (
       content: string
       sourceVersion: symbol
     }> = []
+    // The non-PDF file versions this rebuild wrote, for the background embedding pass
     const fileVersionsForEmbedding = new Map<string, symbol>()
 
     // If this transaction rolls back, the catch clears the source versions its upserts
@@ -3079,12 +3086,12 @@ export const createSearchIndex = (
         for (const fileEntry of allFileContents) {
           try {
             const isPdf = getFileKind(fileEntry.relativePath) === "pdf"
-            // The PDF pass never extracts a PDF over the byte cap, so it stays
-            // name-only and its kept chunks and vectors would answer for text it
-            // no longer has.
-            const pdfOverByteCap = isPdf && fileEntry.sizeBytes > maxFileBytes
 
-            if (pdfOverByteCap) removeFileContent({ filePath: fileEntry.relativePath }, logger)
+            // A PDF the PDF pass will not extract would otherwise keep chunks and
+            // vectors that answer for text search no longer has.
+            if (isPdf && pdfTooLargeToExtract(fileEntry)) {
+              removeFileChunksAndVectors(fileEntry.relativePath)
+            }
             const sourceVersion = upsertFileContent(
               {
                 filePath: fileEntry.relativePath,
@@ -3097,6 +3104,8 @@ export const createSearchIndex = (
               logger,
             )
 
+            // Embedding a PDF's empty text would replace its kept chunks, so the PDF
+            // pass embeds a PDF once it publishes the text.
             if (isPdf) nameOnlyRowVersions.set(fileEntry.relativePath, sourceVersion)
             else fileVersionsForEmbedding.set(fileEntry.relativePath, sourceVersion)
           } catch (error) {
@@ -3233,6 +3242,8 @@ export const createSearchIndex = (
                 .all()
                 .map((chunkPath) => chunkPath.file_path)
 
+              // A file counts as gone when it has no file_content row, so a PDF keeps
+              // its chunks through its name-only row until the PDF pass embeds it.
               const deletedFilePaths = indexedFileChunkPaths.filter(
                 (path) => !currentFilePaths.has(path),
               )
@@ -3433,9 +3444,8 @@ export const createSearchIndex = (
           if (!nameOnlyRowVersion) return false
           return sourceVersions.get(file.relativePath) === nameOnlyRowVersion
         }
-        const tooLargeToExtract = file.sizeBytes > maxFileBytes
 
-        if (tooLargeToExtract) {
+        if (pdfTooLargeToExtract(file)) {
           logger.debug("PDF over MAX_FILE_BYTES kept name-only", { path: file.relativePath })
           continue
         }
@@ -3445,31 +3455,32 @@ export const createSearchIndex = (
         // No await separates this check from the removals below, so a newer watcher write
         // keeps its own chunks and vectors.
         if (!nameOnlyRowIsCurrent()) continue
-        // A PDF that ends name-only loses the chunks and vectors the rebuild kept, so they
-        // cannot answer for text that search no longer has.
         switch (extraction.status) {
-          // A request is cancelled at shutdown or by a newer request for the path. The next boot
-          // or the watcher indexes the PDF again, so the kept vectors stay for that run.
+          // Shutdown or the watcher's newer request for the path cancels a request. The next boot
+          // or that newer request indexes the PDF again, so its kept chunks and vectors stay.
           case "cancelled":
             continue
+          // The PDF stays name-only, so its kept chunks and vectors would answer for text that
+          // search no longer has.
           case "failed":
             removeFileChunksAndVectors(file.relativePath)
             continue
-          case "extracted":
-            break
-        }
-        const publishedVersion = publishPdfText(file, extraction.result.text)
+          case "extracted": {
+            const publishedVersion = publishPdfText(file, extraction.result.text)
 
-        if (!publishedVersion) {
-          removeFileChunksAndVectors(file.relativePath)
-          continue
+            // A failed write leaves the name-only row, as a failed extraction does.
+            if (!publishedVersion) {
+              removeFileChunksAndVectors(file.relativePath)
+              continue
+            }
+            publishedPdfs.push({ relativePath: file.relativePath, sourceVersion: publishedVersion })
+          }
         }
-        publishedPdfs.push({ relativePath: file.relativePath, sourceVersion: publishedVersion })
       }
 
       for (const { relativePath, sourceVersion } of publishedPdfs) {
         try {
-          await embedFileContent({ filePath: relativePath, sourceVersion }, logger)
+          await embedAndStoreFileChunks({ filePath: relativePath, sourceVersion }, logger)
         } catch (error) {
           embeddingFailures.push(error)
           logger.error("PDF embedding failed", {
