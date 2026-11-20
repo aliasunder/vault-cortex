@@ -218,13 +218,14 @@ const describeRoundTripDivergence = (divergence: TaskRoundTripDivergence): strin
   }
   const storedDisplay = displayRoundTripValue(divergence.storedValue)
 
-  if (divergence.expectedSource === "submitted") {
-    return `${divergence.field}: submitted ${displayRoundTripValue(divergence.expected)} but the stored line parses back ${storedDisplay}`
+  switch (divergence.expectedSource) {
+    case "submitted":
+      return `${divergence.field}: submitted ${displayRoundTripValue(divergence.expected)} but the stored line parses back ${storedDisplay}`
+    case "prior":
+      return `${divergence.field}: previously ${displayRoundTripValue(divergence.expected)}, but the stored line now parses back ${storedDisplay} — this call's edits changed what the line parses as this field`
+    case "none":
+      return `${divergence.field}: the stored line parses back ${storedDisplay} although nothing set it — description text was read as this field`
   }
-  if (divergence.expectedSource === "prior") {
-    return `${divergence.field}: previously ${displayRoundTripValue(divergence.expected)}, but the stored line now parses back ${storedDisplay} — this call's edits changed what the line parses as this field`
-  }
-  return `${divergence.field}: the stored line parses back ${storedDisplay} although nothing set it — description text was read as this field`
 }
 
 /** Advisory sentences for a written task line; empty when the line parses
@@ -318,8 +319,8 @@ const subtaskPositionsFrom = ({
 
 // ── Shared constants ────────────────────────────────────────────
 
-/** Whole-string form of the block-id character class, for validating an id
- *  before it is written. */
+/** Matches a whole block id made of one or more ASCII letters, digits and
+ *  hyphens (the block-id character class). Checked before an id is written. */
 const BLOCK_ID_RE = new RegExp(`^${tasks.BLOCK_ID_CHARACTER_CLASS}+$`)
 
 // ── Internal helpers ────────────────────────────────────────────
@@ -438,6 +439,9 @@ const taskInsertIndexUnderHeading = ({
 }): number => {
   const sectionLines = lines.slice(heading.bodyStartLine, heading.bodyEndLine)
   const firstContentOffset = sectionLines.findIndex((line) => line.trim() !== "")
+
+  if (firstContentOffset === -1) return heading.bodyStartLine
+
   const startsWithCompleteMarker =
     sectionLines[firstContentOffset]?.trim() === tasks.COMPLETE_MARKER
 
@@ -525,6 +529,8 @@ const findFenceOrCommentLineIndices = (bodyLines: readonly string[]): FenceOrCom
   let commentOpen = false
 
   for (const [lineIndex, lineText] of bodyLines.entries()) {
+    // Fence state advances only outside a `%%` comment, and comment state only
+    // outside a fence, because each treats the other's markers as plain text.
     if (!commentOpen) {
       const fenceResult = advanceFence(lineText, openFence)
       openFence = fenceResult.openFence
@@ -585,6 +591,8 @@ const findLaneCards = ({
   while (walkIndex < walkEnd) {
     const line = lines[walkIndex]
 
+    // A plain bullet steps by one line, so a task indented under it counts as
+    // a card, just as the index lists that task at depth 0.
     if (!line?.trim() || !tasks.isTaskLine(line)) {
       walkIndex++
       continue
@@ -1049,7 +1057,8 @@ const moveTaskBlock = ({
     statusRegistry,
   })
 
-  // An unchanged raw index means the card is already at the target slot.
+  // Removing the block moves the lines after it up to start at taskLineIndex,
+  // so an insert there would put the card back where it already is.
   if (isSameLane && insertAt === taskLineIndex) return { lines, taskLineIndex, changes: [] }
 
   const resultLines = linesWithoutBlock.toSpliced(insertAt, 0, ...taskBlock)
@@ -1141,11 +1150,13 @@ const appendSubtasks = ({
   taskLineIndex: number
   descriptions: readonly string[]
   bodyStartLine: number
-  statusRegistry: ReadonlyMap<string, StatusClassification> | undefined
+  statusRegistry: ReadonlyMap<string, StatusClassification>
 }): {
   lines: readonly string[]
   subtaskPositions: SubtaskPosition[]
   change: string
+  /** Where the checklist lines went in, so a line tracked by index past
+   *  this append can be shifted (spawnIndexAfterSplices). */
   checklistSplice: { insertIndex: number; lineCount: number }
 } => {
   const blockEnd = findTaskBlockEnd(lines, taskLineIndex)
@@ -1193,13 +1204,16 @@ type NoNextOccurrence =
 type RecurrenceSpawn =
   { kind: "spawn"; spawnedLine: string; nextDates: NextOccurrenceDates } | NoNextOccurrence
 
-/** The reason an update creates no next occurrence, which a refused
- *  nextBlockId quotes, and, when the rule itself is the cause, the advisory a
- *  completion without nextBlockId carries. */
+/** The text for an update that creates no next occurrence:
+ *  - reason, which a refused nextBlockId quotes;
+ *  - advisory, only when the rule itself is the cause, which a completion
+ *    without nextBlockId carries. */
 const describeNoNextOccurrence = (
   outcome: NoNextOccurrence,
 ): { reason: string; advisory?: string | undefined } => {
   switch (outcome.kind) {
+    // A refusal never quotes this reason, because assertUpdateTaskParams
+    // refuses nextBlockId without status "done".
     case "not-completing":
       return { reason: "the update does not complete the task" }
     case "already-done":
@@ -1221,8 +1235,8 @@ const describeNoNextOccurrence = (
 }
 
 /** Resolves the recurrence spawn for an update, mirroring the Tasks plugin:
- *  spawn only on a transition to done from a not-done status (custom
- *  DONE-typed checkbox chars from the status registry count as done), with
+ *  spawn only on a transition to done from a not-done status (the parser
+ *  reads custom DONE-typed checkbox chars from the status registry as done), with
  *  the recurrence rule and dates read from the fully edited task line — so
  *  an update that changes dates or the rule and completes in one call
  *  advances from the edited values. The status edit on that line is
@@ -1256,6 +1270,8 @@ const resolveRecurrenceSpawn = ({
   if (!editedTask?.recurrence) return { kind: "not-recurring" }
   const recurrenceText = editedTask.recurrence
 
+  // assertRecurrenceRuleGrammar already checked a rule submitted as
+  // recurrence, so only a rule the call did not submit can fail here.
   if (parseRecurrenceRule(recurrenceText) === null) {
     return { kind: "unreadable-rule", recurrenceText }
   }
@@ -1271,6 +1287,8 @@ const resolveRecurrenceSpawn = ({
 
   if (nextDates === null) return { kind: "no-next-date", recurrenceText }
 
+  // The spawned line drops the completed line's block id, so it carries one
+  // only when the caller adds nextBlockId to it.
   return {
     kind: "spawn",
     spawnedLine: tasks.buildNextOccurrenceLine({
@@ -1280,6 +1298,22 @@ const resolveRecurrenceSpawn = ({
       config,
     }),
     nextDates,
+  }
+}
+
+/** The spawn with nextBlockId, when the update names one, ending its line. */
+const spawnWithNextBlockId = ({
+  spawn,
+  nextBlockId,
+}: {
+  spawn: Extract<RecurrenceSpawn, { kind: "spawn" }>
+  nextBlockId: string | undefined
+}): Extract<RecurrenceSpawn, { kind: "spawn" }> => {
+  if (!nextBlockId) return spawn
+
+  return {
+    ...spawn,
+    spawnedLine: tasks.assignBlockId({ taskLine: spawn.spawnedLine, blockId: nextBlockId }),
   }
 }
 
@@ -1306,6 +1340,9 @@ const spawnIndexAfterSplices = ({
   laneMove?: { moveStart: number; movedBlockLength: number; insertAt: number } | undefined
   subtaskAppend?: { insertIndex: number; lineCount: number } | undefined
 }): number => {
+  // The spawn is never inside the moved block, so `<` places it before or
+  // after the removal. An insert at the spawn's own index pushes it down, so
+  // the inserts use `<=`.
   const indexAfterRemoval =
     !laneMove || spawnIndex < laneMove.moveStart
       ? spawnIndex
@@ -1317,6 +1354,12 @@ const spawnIndexAfterSplices = ({
   const subtaskAppendShift =
     subtaskAppend && subtaskAppend.insertIndex <= indexAfterMove ? subtaskAppend.lineCount : 0
   return indexAfterMove + subtaskAppendShift
+}
+
+/** The block id a line ends in, if any. BLOCK_LINK_RE is anchored at the end
+ *  of the line, so trailing spaces (a markdown hard break) are trimmed first. */
+const trailingBlockIdOf = (line: string): string | undefined => {
+  return tasks.BLOCK_LINK_RE.exec(line.trimEnd())?.[1]
 }
 
 /** Builds the wire-format position of a spawned next occurrence — shared
@@ -1406,12 +1449,6 @@ const validateBlockId = ({
  *  next save writes that id onto the card in place of the card's own. */
 const KANBAN_INDENTED_ID_REASON =
   "the Kanban plugin copies an indented line's block ID onto its card when it saves the board"
-
-/** The block id a line ends in, if any. BLOCK_LINK_RE is anchored at the end
- *  of the line, so trailing spaces (a markdown hard break) are trimmed first. */
-const trailingBlockIdOf = (line: string): string | undefined => {
-  return tasks.BLOCK_LINK_RE.exec(line.trimEnd())?.[1]
-}
 
 /** Refuses checklist text that ends in a block id. Checklist items are always
  *  written indented, so on a Kanban board each would hand its card an id. */
@@ -1610,7 +1647,7 @@ const createTask = async (params: CreateTaskParams, logger: Logger): Promise<Cre
   if (parentLocator && heading !== undefined) {
     throw new Error("parent and heading are mutually exclusive")
   }
-  if (dependsOn !== undefined && dependsOn.length === 0) {
+  if (dependsOn?.length === 0) {
     throw new Error("dependsOn cannot be empty")
   }
   assertTaskIdGrammar({ taskId, dependsOn })
@@ -1876,7 +1913,8 @@ const assertUpdateTaskParams = (params: UpdateTaskParams): void => {
     throw new Error("blockId and line are mutually exclusive")
   }
 
-  // Listed in the order the error message names them.
+  // Listed in the order the error message names them. nextBlockId is left
+  // out, because it only names the line that a status change creates.
   const mutationParams = {
     status,
     priority,
@@ -1921,13 +1959,14 @@ const assertUpdateTaskParams = (params: UpdateTaskParams): void => {
     throw new Error("assignBlockId cannot be empty (use null to remove the id)")
   }
 
-  // The id names the next occurrence, which only a completion creates. An
-  // empty id is refused too, by the grammar check, rather than ignored.
+  // The id names the next occurrence, which only a completion creates.
+  // validateBlockId's grammar check refuses an empty id later; assignBlockId
+  // refuses its own here only to point the caller to null.
   if (nextBlockId !== undefined && status !== "done") {
     throw new Error('nextBlockId requires status "done"')
   }
 
-  if (addSubtasks !== undefined && addSubtasks.length === 0) {
+  if (addSubtasks?.length === 0) {
     throw new Error("addSubtasks cannot be empty")
   }
   if (addSubtasks?.some((subtaskText) => !subtaskText.trim())) {
@@ -1937,7 +1976,7 @@ const assertUpdateTaskParams = (params: UpdateTaskParams): void => {
     throw new Error("addSubtasks items must be a single line")
   }
 
-  if (Array.isArray(dependsOn) && dependsOn.length === 0) {
+  if (dependsOn?.length === 0) {
     throw new Error("dependsOn cannot be empty (use null to clear)")
   }
   assertTaskIdGrammar({ taskId, dependsOn })
@@ -1983,6 +2022,7 @@ const editTaskLine = ({
     assignBlockId: newBlockId,
   } = params
 
+  // `changes` lists the edits in this order.
   const fieldEdits: LineEdit[] = [
     ...(status
       ? [
@@ -2191,10 +2231,12 @@ type PlacedSpawn = {
   writtenBelow: boolean
 }
 
-/** Removes a task completed under onCompletion "delete", with its
- *  children, and writes the note. A spawned next occurrence survives the
- *  removal: one written above the block keeps its index, and one written
- *  below it moves up by the block's length. */
+/** Removes a task completed under onCompletion "delete", with the lines
+ *  nested under it, and writes the note. A spawned next occurrence survives
+ *  the removal:
+ *  - one written above the task keeps its index;
+ *  - one written below takes over the task's nested lines, so only the task
+ *    line goes and the spawn moves up by one. */
 const deleteTaskOnCompletion = async (
   {
     note,
@@ -2259,8 +2301,8 @@ const deleteTaskOnCompletion = async (
   const headingBefore = headings.findLast((heading) => heading.startLine < taskLineIndex)
 
   // The task is gone from the written file, so this is the line it held
-  // just before removal: counted on the note as read, plus one for a spawn
-  // written above it.
+  // just before removal, counted on the note as read. taskLineIndex already
+  // includes a spawn written above the task.
   const deletedTaskLine = note.readBodyStartLine + taskLineIndex + 1
 
   logger.info("task deleted on completion", {
@@ -2340,7 +2382,7 @@ const resolveTargetLane = ({
 
   // Kept as a HeadingInfo (not .text) so an empty-named heading is not
   // misread as "above all headings."
-  const currentHeading = headings.findLast((heading) => heading.startLine < taskLineIndex)
+  const currentHeading = laneHeadings.findLast((heading) => heading.startLine < taskLineIndex)
 
   if (!currentHeading) {
     throw new Error("cannot reorder a task that sits above the first heading — pass a heading")
@@ -2427,6 +2469,8 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
     // Parsed from the whole note so `depth` counts task ancestors the way
     // the index does — raw indentation would call a checklist item under a
     // plain bullet a sub-task while the index lists it as top-level.
+    // extractTasks numbers lines from the top of the file with the same
+    // findBodyStartLine, so its `line` matches taskFileLine.
     const taskFileLine = note.readBodyStartLine + taskLineIndex + 1
     const taskBefore = tasks
       .extractTasks(fileContent, statusRegistry)
@@ -2497,8 +2541,8 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
     })
 
     // On an indented board line, description text ending in ` ^id` is
-    // refused unless that id is the one the line keeps. The kept id depends
-    // on assignBlockId:
+    // refused unless that id is the one the line keeps. There, the kept id
+    // depends on assignBlockId:
     // - a string was refused above;
     // - null keeps no id, so text restoring the old one is refused, since
     //   `changes` reports that id removed;
@@ -2526,34 +2570,26 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
       config: formatConfig,
     })
 
-    const noNextOccurrence =
+    const noNextOccurrenceText =
       recurrenceSpawn.kind === "spawn" ? undefined : describeNoNextOccurrence(recurrenceSpawn)
+    const recurrenceAdvisory = noNextOccurrenceText?.advisory
 
-    if (nextBlockId !== undefined && noNextOccurrence) {
+    if (nextBlockId !== undefined && noNextOccurrenceText) {
       throw new Error(
-        `nextBlockId was given, but this update creates no next occurrence: ${noNextOccurrence.reason}`,
+        `nextBlockId was given, but this update creates no next occurrence: ${noNextOccurrenceText.reason}`,
       )
     }
 
     const linesWithEdits = bodyLines.with(taskLineIndex, mutatedLine)
 
-    // Checked against the note as read, so an id this call removes or deletes
-    // cannot move to the spawn and retarget existing links, and against the
-    // edited lines, so it cannot repeat this call's assignBlockId.
+    // Checked against the note as read, the task's own current id included,
+    // so an id this call removes or deletes cannot move to the spawn and
+    // retarget existing links. Checked against the edited lines too, so it
+    // cannot repeat this call's assignBlockId.
     if (nextBlockId !== undefined) {
       validateBlockId({ blockId: nextBlockId, bodyLines })
       validateBlockId({ blockId: nextBlockId, bodyLines: linesWithEdits })
     }
-    const namedRecurrenceSpawn =
-      recurrenceSpawn.kind === "spawn" && nextBlockId !== undefined
-        ? {
-            ...recurrenceSpawn,
-            spawnedLine: tasks.assignBlockId({
-              taskLine: recurrenceSpawn.spawnedLine,
-              blockId: nextBlockId,
-            }),
-          }
-        : recurrenceSpawn
 
     // The spawned occurrence is written on the line directly adjacent to
     // the completed task line — above it by default, directly below it
@@ -2564,14 +2600,13 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
     // alone. The spawn never rides that move: the next instance stays in
     // the source lane.
     const placedSpawn: PlacedSpawn | undefined =
-      namedRecurrenceSpawn.kind === "spawn"
+      recurrenceSpawn.kind === "spawn"
         ? {
-            spawn: namedRecurrenceSpawn,
+            spawn: spawnWithNextBlockId({ spawn: recurrenceSpawn, nextBlockId }),
             insertIndex: formatConfig.recurrenceOnNextLine ? taskLineIndex + 1 : taskLineIndex,
             writtenBelow: formatConfig.recurrenceOnNextLine,
           }
         : undefined
-    const recurrenceAdvisory = noNextOccurrence?.advisory
     const linesWithSpawn = placedSpawn
       ? linesWithEdits.toSpliced(placedSpawn.insertIndex, 0, placedSpawn.spawn.spawnedLine)
       : linesWithEdits
@@ -2597,6 +2632,8 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
       taskBefore.status !== "done" &&
       effectiveOnCompletion?.toLowerCase() === "delete"
 
+    // addSubtasks is not applied, because its checklist would sit under a
+    // removed task.
     if (shouldDeleteOnCompletion) {
       return deleteTaskOnCompletion(
         {
@@ -2644,7 +2681,7 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
     // taken when a spawn was written and any position is requested, for a
     // task under a heading.
     const preSpawnHeading =
-      recurrenceSpawn.kind === "spawn" && position
+      placedSpawn && position
         ? headings.findLast((heading) => heading.startLine < taskLineIndex)
         : undefined
     const beforePositionInLane = preSpawnHeading

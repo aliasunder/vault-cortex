@@ -665,7 +665,7 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, next_occur
           .min(1)
           .optional()
           .describe(
-            "The ^block-id, without the ^, to give the next occurrence a recurring task's completion creates. Letters, digits, and hyphens only; must be new to the note.",
+            "The ^block-id, without the ^, to give the next occurrence that completing a recurring task creates. Letters, digits, and hyphens only; must be new to the note.",
           ),
         heading: z
           .string()

@@ -1589,7 +1589,7 @@
             ]
           },
           "next_block_id": {
-            "description": "The ^block-id, without the ^, to give the next occurrence a recurring task's completion creates. Letters, digits, and hyphens only; must be new to the note.",
+            "description": "The ^block-id, without the ^, to give the next occurrence that completing a recurring task creates. Letters, digits, and hyphens only; must be new to the note.",
             "type": "string",
             "minLength": 1
           },
