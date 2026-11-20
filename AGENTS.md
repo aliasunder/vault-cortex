@@ -1533,8 +1533,8 @@ pattern:
    `CONTRIBUTING.md`) — only for a var the
    image needs at boot or that has no derivation; optional vars are
    documented in both guides' Configuration sections by reference to
-   the remote guide's table. Re-publish the Railway template after editing
-   its definition.
+   the remote guide's table. A PR that edits the Railway table says so in its
+   description; the maintainer re-publishes the template at merge time.
 
 CI drift tests in `cli/src/rules/__tests__/templates.test.ts` catch omissions across
 steps 2–4 after the fact and pin the committed hosted templates (step 8);
