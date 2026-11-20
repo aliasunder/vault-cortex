@@ -104,31 +104,31 @@ const REFRESH_TOKEN_KEY_PREFIX = "hmac-sha256:"
 // no refresh-token storage key is ever computed over a JWT's signing input.
 const REFRESH_TOKEN_KEY_LABEL = "refresh-token:"
 
-// A registration older than this that never signed in is swept:
-// - a client has signed in once the server has saved a refresh token for it;
-// - consent follows registration within two minutes in practice, and a
-//   consent request and an authorization code each live ten minutes, so a
-//   sign-in the sweep cuts off is one that started unusually late. Clients
-//   register more than once per connect, and only one of those
-//   registrations signs in;
-// - the sweep runs only at boot and before a registration, and a swept
-//   client is told at /authorize how to reconnect;
-// - /register needs no sign-in, so the age bounds how much disk anyone can
-//   fill through it.
+// A registration older than this that never signed in is swept. A client
+// has signed in once the server has saved a refresh token for it.
+// - The sweep exists because /register needs no sign-in, so the age bounds
+//   how much disk anyone can fill through it. Clients also register more
+//   than once per connect, and only one of those registrations signs in.
+// - An hour cuts off only a late sign-in. A consent request and an
+//   authorization code each live ten minutes, so a sign-in the sweep cuts
+//   off reached /authorize more than 40 minutes after registering. Consent
+//   follows registration within two minutes in practice.
 const NEVER_SIGNED_IN_CLIENT_MAX_AGE_S = 60 * 60
 
-// A registration's issue time, read from its stored JSON. SQLite uses an
-// expression index only for a query that repeats the indexed expression, so
-// the index and the sweep both build on this one constant.
+// The sweep's partial index holds the issue time, read from the stored JSON,
+// of each registration that never signed in. SQLite uses it only for a query
+// that repeats the indexed expression and whose condition implies the
+// index's, so the index and the sweep both build on these two constants.
 const CLIENT_ISSUED_AT_EXPRESSION = "json_extract(data, '$.client_id_issued_at')"
+const NEVER_SIGNED_IN_CONDITION = "signed_in_at IS NULL"
 
 /** Adds clients.signed_in_at to a database created before it existed and
  *  marks every existing client signed in. */
 const addSignedInAtColumnAndMarkExistingClients = (db: Database.Database, logger: Logger): void => {
-  // The column and its marks commit together. A column added without them
-  // would let the sweep delete every signed-in client registered more than
-  // NEVER_SIGNED_IN_CLIENT_MAX_AGE_S before the upgrade, and the next boot
-  // would find the column and never mark them.
+  // The column and its marks commit together. If the column committed
+  // alone, the next boot would find it and skip the marks, and the sweep
+  // would delete every signed-in client registered more than
+  // NEVER_SIGNED_IN_CLIENT_MAX_AGE_S before the upgrade.
   const addColumnAndMarkClients = db.transaction((): number => {
     const hasSignedInAt = db
       .prepare("SELECT 1 FROM pragma_table_info('clients') WHERE name = 'signed_in_at'")
@@ -196,12 +196,13 @@ const initDb = (dbPath: string, logger: Logger): Database.Database => {
 
   addSignedInAtColumnAndMarkExistingClients(db, logger)
 
-  // A registration SQLite's JSON parser cannot read (nested past 1,000
-  // levels) makes every sweep throw, which stops the boot and every later
-  // /register. registerClient refuses them, and this deletes any that a
-  // version without that check stored. Signed-in rows are never swept.
+  // A registration that never signed in and whose JSON SQLite's parser
+  // refuses (nested past 1,000 levels) would stop the index build below,
+  // and with it the boot. registerClient refuses such JSON, so only a
+  // version without that check stored any. A signed-in row stays: the
+  // index leaves it out, so neither the build nor the sweep parses it.
   const { changes: deletedUnreadableClientCount } = db
-    .prepare("DELETE FROM clients WHERE signed_in_at IS NULL AND json_valid(data) = 0")
+    .prepare(`DELETE FROM clients WHERE ${NEVER_SIGNED_IN_CONDITION} AND json_valid(data) = 0`)
     .run()
 
   if (deletedUnreadableClientCount > 0) {
@@ -216,21 +217,21 @@ const initDb = (dbPath: string, logger: Logger): Database.Database => {
   db.exec(`
     CREATE INDEX IF NOT EXISTS clients_never_signed_in_by_issued_at
     ON clients (${CLIENT_ISSUED_AT_EXPRESSION})
-    WHERE signed_in_at IS NULL
+    WHERE ${NEVER_SIGNED_IN_CONDITION}
   `)
 
   // Rows whose key lacks the prefix hold raw tokens written by a version
   // that stored them in plaintext; the keyed lookup can never match them,
   // so clear them on every boot. Each affected client re-authorizes once
   // through the consent page.
-  const { changes: rawRowsCleared } = db
+  const { changes: clearedPlaintextTokenCount } = db
     .prepare("DELETE FROM refresh_tokens WHERE token NOT LIKE ?")
     .run(`${REFRESH_TOKEN_KEY_PREFIX}%`)
 
-  if (rawRowsCleared > 0) {
+  if (clearedPlaintextTokenCount > 0) {
     logger.info("oauth_refresh_tokens_cleared", {
       reason: "plaintext_rows",
-      rows: rawRowsCleared,
+      rows: clearedPlaintextTokenCount,
     })
   }
   return db
@@ -244,7 +245,7 @@ class SqliteClientsStore implements OAuthRegisteredClientsStore {
   private readonly jsonValidStmt: Database.Statement<[string], { valid: number }>
 
   constructor(
-    private db: Database.Database,
+    db: Database.Database,
     private logger: Logger,
   ) {
     this.selectClientStmt = db.prepare("SELECT data FROM clients WHERE client_id = ?")
@@ -252,19 +253,23 @@ class SqliteClientsStore implements OAuthRegisteredClientsStore {
     this.markSignedInStmt = db.prepare("UPDATE clients SET signed_in_at = ? WHERE client_id = ?")
     this.deleteNeverSignedInClientsStmt = db.prepare(`
       DELETE FROM clients
-      WHERE signed_in_at IS NULL
+      WHERE ${NEVER_SIGNED_IN_CONDITION}
         AND ${CLIENT_ISSUED_AT_EXPRESSION} < ?
     `)
     this.jsonValidStmt = db.prepare("SELECT json_valid(?) AS valid")
+    // createOAuthProvider builds the store once per boot, so this is the
+    // boot's sweep. registerClient runs the only other one.
     this.sweepNeverSignedInClients()
   }
 
   /** Deletes every registration older than NEVER_SIGNED_IN_CLIENT_MAX_AGE_S
    *  that never signed in.
    *
-   *  /authorize rejects an unknown ID in the browser, where the client never
-   *  sees the error, so a swept client would retry its dead client_id
-   *  forever. A client that signed in is therefore never swept. */
+   *  A swept client cannot recover on its own. /authorize answers its unknown
+   *  ID with a page in the browser (authorize-guard.ts), where the client
+   *  never sees the error, so the client keeps presenting that ID until its
+   *  user follows the page and clears the saved sign-in. A client that
+   *  signed in is therefore never swept. */
   private sweepNeverSignedInClients(): void {
     const issuedBefore = DateTime.now().toUnixInteger() - NEVER_SIGNED_IN_CLIENT_MAX_AGE_S
     const { changes: sweptClientCount } = this.deleteNeverSignedInClientsStmt.run(issuedBefore)
@@ -312,10 +317,13 @@ class SqliteClientsStore implements OAuthRegisteredClientsStore {
       client_secret_expires_at: 0,
     }
     const serializedClient = JSON.stringify(full)
-    // The sweep and its index read every stored registration with SQLite's
-    // JSON parser, which refuses nesting past 1,000 levels, and a jwks value
-    // can nest freely. A stored row it could not read would make every sweep
-    // throw. Asking SQLite itself keeps this check exact.
+    // The sweep's index reads each new registration with SQLite's JSON
+    // parser, which refuses nesting past 1,000 levels:
+    // - the SDK accepts any JSON as jwks, a client's inline public keys
+    //   (https://www.rfc-editor.org/rfc/rfc7591#section-2);
+    // - the INSERT below would fail on such JSON with a raw SQLite error,
+    //   which the SDK answers with a 500;
+    // - asking SQLite itself keeps this check exact.
     const readableBySqlite = this.jsonValidStmt.get(serializedClient)?.valid === 1
 
     if (!readableBySqlite) {
@@ -522,7 +530,7 @@ export const createOAuthProvider = ({
    *    A row in either table is only read when its own token is presented,
    *    so rows left by dormant clients — or made unreachable by rotating
    *    MCP_AUTH_TOKEN — would otherwise stay forever. */
-  const saveRefreshToken = db.transaction(
+  const saveRefreshTokenAndMarkSignedIn = db.transaction(
     ({ token, clientId, scopes }: { token: string; clientId: string; scopes: string[] }): void => {
       const now = DateTime.now()
       deleteExpiredRefreshTokensStmt.run(now.toUnixInteger())
@@ -751,7 +759,7 @@ export const createOAuthProvider = ({
       const { scopes } = stored.params
       const accessToken = issueAccessToken(stored.clientId, scopes)
       const refreshToken = randomBytes(32).toString("hex")
-      saveRefreshToken({
+      saveRefreshTokenAndMarkSignedIn({
         token: refreshToken,
         clientId: stored.clientId,
         scopes,
@@ -829,7 +837,7 @@ export const createOAuthProvider = ({
       }
       const accessToken = issueAccessToken(clientId, grantedScopes)
       const newRefreshToken = randomBytes(32).toString("hex")
-      saveRefreshToken({
+      saveRefreshTokenAndMarkSignedIn({
         token: newRefreshToken,
         clientId,
         scopes: grantedScopes,
