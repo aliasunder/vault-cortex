@@ -1,9 +1,8 @@
-import { extname } from "node:path"
-import { fileURLToPath } from "node:url"
 import { Worker } from "node:worker_threads"
 import type { Logger } from "../../logger.js"
 import { hasTagCandidate } from "../obsidian-markdown/body-tags.js"
 import { describeError } from "../../utils/describe-error.js"
+import { siblingModuleUrl } from "../../utils/sibling-module-url.js"
 
 /** How one note's body-tag parse ended.
  *  - "parsed" carries the tags; "no-candidate", "over-limit" and "failed"
@@ -64,17 +63,7 @@ const isWorkerReply = (message: unknown): message is WorkerReply => {
   return message.tags.every((tag: unknown) => typeof tag === "string")
 }
 
-/**
- * The worker entry beside this module. Compiled `dist` runs `.js` files, while
- * `tsx` (the dev server, the integration harness, scripts) and vitest run the
- * `.ts` sources, so the entry takes this module's own extension. A `.ts` entry
- * needs a TypeScript loader in the worker: under tsx the worker inherits the
- * parent's `--import tsx`, and vitest's config passes the same flag.
- */
-const WORKER_ENTRY = new URL(
-  `./body-tag-worker${extname(fileURLToPath(import.meta.url))}`,
-  import.meta.url,
-)
+const WORKER_ENTRY = siblingModuleUrl({ name: "body-tag-worker", besideModule: import.meta.url })
 
 /**
  * Runs `parseBodyTags` in one worker thread, one note at a time, so a note

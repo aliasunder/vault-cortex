@@ -185,6 +185,8 @@ The edit tools differ in how they locate the lines they change — by heading, b
 
 The three anchor tools share one resolution rule: a short, case-sensitive substring locates a full line, ambiguity is an error, and `first_match` takes the first match instead.
 
+`vault_list_notes` matches its glob in a worker thread with a time limit: `utils/glob-filter.ts` starts one worker per call, with at most one per CPU core (and never more than four) running at a time. A call still waiting or matching after `GLOB_MATCH_TIMEOUT_MS` (2 seconds, in `vault-operations/vault-filesystem.ts`) returns a timeout error, and a worker still matching is stopped. Up to four calls per worker wait for a running worker to finish, and a call beyond them returns a timeout error at once, saying too many glob calls are waiting.
+
 `vault_update_properties` merges properties — sets new keys, overwrites matching keys, deletes keys set to `null` — and keeps the body, adding only a missing final newline. With `replace: true` it replaces the whole properties block instead, without parsing the old one, so it can repair any block a merge refuses.
 
 Every tool handles a note's properties block by the same rules, so a write never silently drops its properties:
@@ -373,8 +375,8 @@ Link queries use a `links` table populated during indexing:
 `vault_read_file` reads non-markdown vault files, dispatching on the file's kind to the most useful representation per type. `obsidian-markdown/file-kinds.ts` maps the lowercased extension to a kind, so `Report.PDF` is a PDF. Reads, indexing, the note mover and the link tools take every non-markdown file's kind from it:
 
 1. **Images** (`.png`/`.jpg`/`.jpeg`/`.gif`/`.webp`) return an MCP `image` content block plus a one-line metadata text block: the path, the delivered format, dimensions and bytes, and, when the image was recompressed, its original dimensions and bytes. A shared fit-to-byte-budget pipeline (`utils/fit-image-to-byte-budget.ts`, built on sharp) makes oversized images deliverable: EXIF auto-orient → resize long edge to ≤1568px → walk a fixed quality ladder (JPEG via mozjpeg for opaque images, WebP for alpha — PNG has no quality knob) → shrink dimensions by √(budget/actual) if the ladder floor still exceeds the budget. Deterministic and terminating (bounded attempts, 64px floor); sharp's default `limitInputPixels` stays active as the decompression-bomb guard. The budget (`MAX_IMAGE_OUTPUT_BYTES`, default 48 KiB binary) is sized for the tightest mainstream client cap.
-2. **Canvas** (`.canvas`) linearizes to markdown via the pure `obsidian-markdown/canvas.ts` parser ([JSON Canvas 1.0](https://jsoncanvas.org)): group membership by spatial rect containment within the [nesting limit](#note-content-parsers) (innermost group wins; equal rects tiebreak deterministically by id), nodes in reading order (y, then x), and an edge list with node ids resolved to display names. Lenient parsing — unknown properties ignored, malformed entries skipped. `raw: true` skips the linearizer and returns the JSON source verbatim for full structural fidelity. Canvas content is also FTS-indexed (linearized text in `file_content` + `file_content_fts` tables, gated behind `FILE_TOOLS_ENABLED`) so canvas files appear in `vault_search` results with `kind: "file"`. Canvas file cards and the links typed in text cards are extracted unconditionally into the `links` table for graph queries regardless of the feature gate.
-3. **Text formats** (`.svg`/`.json`/`.txt`/`.csv`/`.xml`/`.log`/`.yaml`/`.yml`/`.base`) pass through as text, without a leading byte-order mark, capped at a fixed 100 KiB output size (explicit error over silent truncation). They skip the NUL-byte check in item 5, so a NUL-padded log still reads. `start_line`/`limit` page any text result — text files, canvas renditions, PDF-extracted text — as a 1-based line window preceded by a window-metadata block stating the range, total line count, and next `start_line`; the cap applies to the window, and an unpaged read is byte-exact apart from that mark.
+2. **Canvas** (`.canvas`) linearizes to markdown via the pure `obsidian-markdown/canvas.ts` parser ([JSON Canvas 1.0](https://jsoncanvas.org)): group membership by spatial rect containment within the [nesting limit](#note-content-parsers) (innermost group wins; equal rects tiebreak deterministically by id), nodes in reading order (y, then x), and an edge list with node ids resolved to display names. Lenient parsing — a leading byte-order mark skipped, unknown properties ignored, malformed entries skipped. `raw: true` skips the linearizer and returns the JSON source verbatim for full structural fidelity. Canvas content is also FTS-indexed (linearized text in `file_content` + `file_content_fts` tables, gated behind `FILE_TOOLS_ENABLED`) so canvas files appear in `vault_search` results with `kind: "file"`. Canvas file cards and the links typed in text cards are extracted unconditionally into the `links` table for graph queries regardless of the feature gate.
+3. **Text formats** (`.svg`/`.json`/`.txt`/`.csv`/`.xml`/`.log`/`.yaml`/`.yml`/`.base`) pass through as text, byte-exact when read whole, capped at a fixed 100 KiB output size (explicit error over silent truncation). They skip the NUL-byte check in item 5, so a NUL-padded log still reads. `start_line`/`limit` page any text result — text files, canvas renditions, PDF-extracted text — as a 1-based line window preceded by a window-metadata block stating the range, total line count, and next `start_line`; the cap applies to the window.
 4. **PDFs** (`.pdf`) return structured markdown reconstructed from layout-aware extraction (`unpdf`, based on Mozilla's PDF.js):
    - A document metadata header (title, page count, link count)
    - Heading hierarchy inferred from font sizes relative to the dominant
@@ -517,7 +519,9 @@ Both models lazy-load on first use (~1–2s cold start each, kept in memory afte
 
 `vault_search` calls `hybridSearch`, which runs up to four ranked retrieval legs and merges results via RRF. The flow:
 
-1. **Note FTS5** keyword search (synchronous, `fullTextSearch`)
+1. **Note FTS5** keyword search (synchronous, `fullTextSearch`):
+   - The title column holds the note's title and each of its [aliases](https://obsidian.md/help/aliases), one per line, so an alias match ranks like a title match. The metadata column keeps only alias entries that are not text, such as numbers.
+   - A note whose title or alias equals the whole query sorts first, ignoring letter case and one pair of surrounding double quotes.
 2. **File content FTS5** — linearized canvas, extracted PDF text, text files, HTML visible text, and scripts (skipped when note-specific filters are active)
 3. **Note vector search** — embed the query → sqlite-vec KNN over `note_vectors` → deduplicate to best chunk per note
 4. **File content vector search** — same query embedding → KNN over `file_content_vectors` → deduplicate to best chunk per file (same skip condition as step 2)
@@ -609,15 +613,17 @@ Vector tables persist across restarts and rebuilds (only FTS, notes, links, task
 
 **Background embedding and tool calls:** model inference runs synchronously on the server's one JavaScript thread, so before each background model call (a chunk, or a 16-entry memory batch) the job waits until no tool call or prompt is running, for at most 5 seconds (`BACKGROUND_EMBED_MAX_WAIT_MS`). A tool call or prompt that arrives while a model call runs still waits for the model call to finish.
 
-**Embedding pipeline:** Controlled by `EMBEDDING_ENABLED` (default: `true`). Markdown syntax is stripped before embedding (`plaintext.ts`). Short notes (under 500 body tokens) stay a single title-prefixed chunk. Longer notes split into per-heading sections via `chunker.ts`:
+**Embedding pipeline:** Controlled by `EMBEDDING_ENABLED` (default: `true`). Markdown syntax is stripped before embedding (`plaintext.ts`). Short notes (under 500 body tokens) stay a single title-prefixed chunk unless a metadata line pushes them past the chunk budget. Longer notes split into per-heading sections via `chunker.ts`:
 
 - **Two views per note:** each top-level heading spans its full subtree (the aggregate view, so child text embeds twice); deeper headings own only the lines above the next heading of any level (the disjoint leaf view)
-- **Chunk prefixes:** every fragment starts with the note title. Aggregate and leaf fragments add a `Section:` line naming the heading's ancestor path, with these exceptions:
+- **Chunk prefixes:** every fragment starts with the note title, followed by the note's aliases when it has any and its title is not empty (`Avery Quinn (also known as Avery, Mom)`), so the embedder and the reranker see a note's other names. Aggregate and leaf fragments add a `Section:` line naming the heading's ancestor path, with these exceptions:
   - Long ancestor paths drop their leading segments to fit the remaining token budget, keeping the deepest segments. The `Section:` line is omitted when the title and metadata exhaust the budget.
   - Preamble and TOC fragments omit the `Section:` line. The aggregate also omits it when one top-level heading opens the note with no preceding text or heading, because that heading wraps the whole note.
+- **Prefix part length:** in chunk prefixes, the title, the metadata line and each heading name are cut to 2,000 characters, about 370 of the embedding model's 512 tokens in English; the TOC chunk keeps the full title and heading names
 - **Empty sections:** a heading whose slice is empty emits no section chunk. Its name still appears in the TOC and in descendant chunks' `Section:` lines. A top-level heading with children still emits its aggregate even without text of its own, because its slice spans the subtree.
 - **Table-of-contents chunk:** each split note with named headings emits one short chunk with its folder path and title on the first line, followed by heading names in document order within the chunk budget. This gives a broad query a compact view of the note's topics without requiring one section to represent the whole note
 - **Sub-splitting:** oversized sections split at paragraph boundaries (MAX_CHUNK_TOKENS = 450, minus each chunk's prefix cost), with a sub-minimum trailing fragment merged backward
+- **Per-note limit:** a note's chunk text stops at 50 times its stripped body or 50 million characters, whichever is smaller, and the first chunk and the TOC chunk always stay. The limit keeps embedding work proportional to note length, and ordinary notes stay under it; full-text search covers a note past the limit in full
 
 Content-hash gating (SHA-256 per chunk) skips re-embedding unchanged content on both incremental file-watcher updates and full rebuilds. A chunk whose text already has a stored vector elsewhere in the same note or file gets that vector copied, so an edit near the top of a long note re-embeds only the chunks whose text changed.
 
@@ -1018,6 +1024,16 @@ and before each new registration, logged as `oauth_clients_swept`:
   can appear, and the sweep bounds how long they stay
 - A registration's JSON body is capped at 8 KB, which bounds how much disk
   each of those rows takes
+- A partial index orders the registrations that never signed in by issue
+  time, so each sweep reads only the rows past their hour, which it deletes;
+  rows still inside their hour add nothing to the cost of a later
+  registration
+- The index cannot hold a registration whose JSON SQLite cannot read back
+  (nested past its 1,000-level limit), so `/register` refuses one with
+  `invalid_client_metadata`
+- Boot deletes every registration that never signed in and that SQLite
+  cannot read, logged as `oauth_unreadable_clients_deleted`, because one
+  would stop the index build; a signed-in one stays, outside the index
 - Adding `signed_in_at` to an existing `oauth.db` sets it on every row
   already there, in the same transaction, and logs
   `oauth_clients_marked_signed_in` with the count when there was at least

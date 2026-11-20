@@ -126,9 +126,10 @@ const smallestContainingGroup = (
     // Two groups with identical rectangles contain each other; without a
     // tiebreak each would claim the other as parent, neither would be
     // top-level, and both would drop out of the render entirely. Give the
-    // containment one deterministic direction (higher id contains lower)
-    // so one nests under the other. Content nodes are exempt — they never
-    // become parents, so mutual containment is harmless there.
+    // containment one deterministic direction (the id later in string order
+    // contains the earlier) so one nests under the other. Content nodes are
+    // exempt — they never become parents, so mutual containment is harmless
+    // there.
     const mutuallyContained = node.type === "group" && isContainedIn(group, node)
 
     if (!mutuallyContained) return true
@@ -203,41 +204,6 @@ const groupHeading = (group: CanvasNode, depth: number): string => {
   return `${heading} Group: ${group.label ?? "(unlabeled)"}`
 }
 
-/** The node sections with group nesting: ungrouped content first, then each
- *  top-level group's heading, its content and its child groups, depth first,
- *  all in reading order. Every node appears once, even when IDs repeat,
- *  because ownership is keyed by node object, not by ID. */
-const renderNestedNodes = ({
-  contentNodes,
-  groups,
-}: {
-  contentNodes: readonly CanvasNode[]
-  groups: readonly CanvasNode[]
-}): string[] => {
-  const membersByGroup = groupBy(contentNodes, (node) => smallestContainingGroup(node, groups))
-  const childGroupsByParent = groupBy(groups, (group) => smallestContainingGroup(group, groups))
-  const ungroupedNodes = membersByGroup.get(undefined) ?? []
-  const topLevelGroups = childGroupsByParent.get(undefined) ?? []
-  const sections = ungroupedNodes.map(renderNode)
-  const frames = topLevelGroups.toReversed().map((group) => ({ group, depth: 0 }))
-
-  // A stack of groups still to render; the last one pushed renders next, so
-  // groups are pushed in reverse to come out in reading order.
-  while (frames.length) {
-    const frame = frames.pop()
-
-    if (!frame) break
-    const { group, depth } = frame
-
-    sections.push(groupHeading(group, depth))
-    for (const member of membersByGroup.get(group) ?? []) sections.push(renderNode(member))
-    for (const child of (childGroupsByParent.get(group) ?? []).toReversed()) {
-      frames.push({ group: child, depth: depth + 1 })
-    }
-  }
-  return sections
-}
-
 /** Groups a list by a key function, preserving each bucket's insertion order. */
 const groupBy = <Key, Item>(
   items: readonly Item[],
@@ -259,10 +225,47 @@ const groupBy = <Key, Item>(
   return buckets
 }
 
+/** The node sections with group nesting: ungrouped content first, then each
+ *  top-level group's heading, its content and its child groups, depth first,
+ *  all in reading order. Every node appears once, even when IDs repeat,
+ *  because ownership is keyed by node object, not by ID. */
+const renderNestedNodes = ({
+  contentNodes,
+  groups,
+}: {
+  contentNodes: readonly CanvasNode[]
+  groups: readonly CanvasNode[]
+}): string[] => {
+  const membersByGroup = groupBy(contentNodes, (node) => smallestContainingGroup(node, groups))
+  const childGroupsByParent = groupBy(groups, (group) => smallestContainingGroup(group, groups))
+  const ungroupedNodes = membersByGroup.get(undefined) ?? []
+  const topLevelGroups = childGroupsByParent.get(undefined) ?? []
+  const sections = ungroupedNodes.map(renderNode)
+  const frames = topLevelGroups.toReversed().map((group) => ({ group, depth: 0 }))
+
+  // A stack of groups still to render; the last one pushed renders next, so
+  // groups are pushed in reverse to come out in reading order.
+  for (let frame = frames.pop(); frame; frame = frames.pop()) {
+    const { group, depth } = frame
+
+    sections.push(groupHeading(group, depth))
+    for (const member of membersByGroup.get(group) ?? []) sections.push(renderNode(member))
+    for (const child of (childGroupsByParent.get(group) ?? []).toReversed()) {
+      frames.push({ group: child, depth: depth + 1 })
+    }
+  }
+  return sections
+}
+
 /** Parses canvas JSON with a contextual error message on failure. */
 const parseCanvasJson = (canvasJson: string): unknown => {
+  // Callers pass a Canvas's text as saved, so a leading byte-order mark from a Windows editor
+  // reaches here. JSON.parse rejects the mark, and RFC 8259 §8.1 lets a JSON parser skip it:
+  // https://www.rfc-editor.org/rfc/rfc8259#section-8.1
+  const jsonText = canvasJson.startsWith("\uFEFF") ? canvasJson.slice(1) : canvasJson
+
   try {
-    return JSON.parse(canvasJson)
+    return JSON.parse(jsonText)
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     throw new Error(`invalid .canvas JSON: ${message}`, { cause: error })
@@ -311,8 +314,10 @@ export const linearizeCanvas = (canvasJson: string): string => {
     return `${edgeEndpointName(edge.fromNode)} → ${edgeEndpointName(edge.toNode)}${label}`
   })
 
+  const nodeWord = nodes.length === 1 ? "node" : "nodes"
+  const edgeWord = edges.length === 1 ? "edge" : "edges"
   const sections = [
-    `# Canvas: ${nodes.length} ${nodes.length === 1 ? "node" : "nodes"}, ${edges.length} ${edges.length === 1 ? "edge" : "edges"}`,
+    `# Canvas: ${nodes.length} ${nodeWord}, ${edges.length} ${edgeWord}`,
     ...nodeSections,
     ...(edgeLines.length > 0 ? [["## Connections", ...edgeLines].join("\n\n")] : []),
   ]
@@ -438,6 +443,9 @@ export const rewriteCanvasLinks = (params: {
   // Spreading keeps each key's position, nodes included. Only integer-like
   // keys ("10"), which JSON Canvas never defines, move to the front.
   const rewrittenCanvas = { ...parsed, nodes: nodeRewrites.map((nodeRewrite) => nodeRewrite.node) }
+
+  // A trailing newline carries over, but a leading byte-order mark does not,
+  // matching how a rewritten note is saved.
   const trailingNewline = params.canvasJson.endsWith("\n") ? "\n" : ""
   return { content: `${stringifyCanvas(rewrittenCanvas)}${trailingNewline}`, linksRewritten }
 }

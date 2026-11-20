@@ -351,9 +351,9 @@ const findNearMissSection = (
   return sections.find(isNearMissOfRequested)
 }
 
-/** Comma-joined H2 headings for error messages — mirrors the heading
- *  parser's "Available headings" remediation so a caller can self-correct
- *  without a second lookup call. */
+/** Comma-joined H2 headings for error messages, so a caller can self-correct
+ *  without a second lookup call. Unlike `formatHeadingList`, it lists every
+ *  section, since a memory file typically holds only a few H2 sections. */
 const listSectionHeadings = (sections: readonly ParsedSection[]): string => {
   const sectionHeadings = sections
     .filter((section) => section.level === 2)

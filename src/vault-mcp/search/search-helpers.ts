@@ -6,6 +6,7 @@ import { mtimeToIso } from "../../utils/mtime-to-iso.js"
 import type { LeadingCallout } from "../obsidian-markdown/callouts.js"
 import { isRecord } from "../../utils/is-record.js"
 import { stripTrailingSlashes } from "../../utils/strip-trailing-slashes.js"
+import { findAliasesKey } from "../obsidian-markdown/aliases.js"
 import type { NoteRow, NoteMetadata, SearchResult, TaskRow, TaskEntry } from "./search-index.js"
 
 // ── Type guards ────────────────────────────────────────────────
@@ -147,10 +148,13 @@ const parseRecord = (json: string): Record<string, unknown> => {
 /** Type predicate for the LeadingCallout shape ({type, title, body} — all strings). */
 const isLeadingCalloutShape = (
   value: Record<string, unknown>,
-): value is { type: string; title: string; body: string } =>
-  typeof value.type === "string" &&
-  typeof value.title === "string" &&
-  typeof value.body === "string"
+): value is { type: string; title: string; body: string } => {
+  return (
+    typeof value.type === "string" &&
+    typeof value.title === "string" &&
+    typeof value.body === "string"
+  )
+}
 
 /** Parses a JSON column that must contain a LeadingCallout ({type, title, body}).
  *  Throws on corruption — the indexer stores JSON.stringify(parseLeadingCallout(...)). */
@@ -179,12 +183,24 @@ export const folderLikePattern = (folder: string): string =>
 
 // ── FTS metadata builder ───────────────────────────────────────
 
+/** The part of an aliases value the title column does not hold: its entries
+ *  that are not text, which parseFrontmatterAliases skips. */
+const nonTextAliasEntries = (value: unknown): unknown => {
+  if (isString(value)) return null
+  return Array.isArray(value) ? value.filter((element) => !isString(element)) : value
+}
+
 /** Flattens frontmatter into a searchable text block for the FTS metadata column.
- *  Keys are included (so "lifecycle" is findable), title is excluded (separate FTS column). */
+ *  Keys are included (so "lifecycle" is findable). The title and the text
+ *  aliases are excluded, because both fill the title column. */
 export const buildFtsMetadataText = (frontmatter: Record<string, unknown>): string => {
+  const aliasesKey = findAliasesKey(frontmatter)
   const lines: string[] = []
-  for (const [key, value] of Object.entries(frontmatter)) {
+  for (const [key, frontmatterValue] of Object.entries(frontmatter)) {
     if (key === "title") continue
+
+    const value = key === aliasesKey ? nonTextAliasEntries(frontmatterValue) : frontmatterValue
+
     if (value == null) continue
     if (Array.isArray(value)) {
       const primitiveElements = value.filter(isScalarListElement).map(String)
@@ -197,6 +213,158 @@ export const buildFtsMetadataText = (frontmatter: Record<string, unknown>): stri
     }
   }
   return lines.join("\n")
+}
+
+// ── Note names ─────────────────────────────────────────────────
+
+/**
+ * The longest name, in UTF-16 code units, that is normalized and checked for
+ * duplicates. Each check's cost grows faster than the name's length, so it is
+ * bounded per name:
+ * - NFC sorts each run of combining marks, in time that grows with the square
+ *   of the run's length;
+ * - V8 hashes a string longer than 16,383 characters by its length alone, so a
+ *   Set of many long names of one length compares each new name with all of them.
+ *
+ * A file name is at most 255 bytes on common file systems, so every note's file
+ * name fits, and so do the titles and aliases of real vaults.
+ */
+const MAX_COMPARED_NAME_LENGTH = 256
+
+/**
+ * Folds a note name for comparison without letter case.
+ * - Obsidian's Quick Switcher, which opens a note by its title or an alias,
+ *   compares names this way: https://obsidian.md/help/plugins/quick-switcher
+ * - NFC normalization first makes an accented letter stored as a base letter
+ *   plus a combining mark (as some file systems save names) equal its
+ *   single-character form, which is what a typed query holds. A name longer
+ *   than MAX_COMPARED_NAME_LENGTH is compared without it.
+ */
+export const foldName = (name: string): string => {
+  const normalizedName = name.length > MAX_COMPARED_NAME_LENGTH ? name : name.normalize("NFC")
+  return normalizedName.toLowerCase()
+}
+
+/**
+ * SQL expression over `notes_fts` that is 1 when the bound text equals a whole
+ * line of the names column, and 0 otherwise. It binds `toNameLookupText(query)`.
+ * - buildFtsNameText writes each name folded, on a line of its own, so a search
+ *   folds nothing per row.
+ * - A newline on both sides of both strings limits `instr` to whole lines.
+ */
+export const EXACT_NAME_MATCH_SQL =
+  "instr(char(10) || notes_fts.names || char(10), char(10) || ? || char(10)) > 0"
+
+/** Matches a run of line breaks. */
+const LINE_BREAK_RUN_RE = /[\r\n]+/
+
+/**
+ * A name on one line: its lines, trimmed and without the blank ones, joined by
+ * one space.
+ * - A YAML block scalar can give a title or an alias several lines and a final
+ *   line break.
+ * - EXACT_NAME_MATCH_SQL compares the query with whole lines of the names
+ *   column, so each name, and the query, must fill one line and nothing else.
+ * - Splitting at line breaks keeps the work linear in the name's length; a
+ *   regex that also takes the whitespace around each break backtracks through
+ *   every long run of spaces.
+ */
+const toSingleLineName = (name: string): string => {
+  const lines = name.split(LINE_BREAK_RUN_RE).map((line) => line.trim())
+  return lines.filter(Boolean).join(" ")
+}
+
+/** Matches a query that is one double-quoted phrase and captures the text
+ *  inside the quotes. */
+const QUOTED_PHRASE_RE = /^"(?<phrase>[^"]*)"$/
+
+/**
+ * The folded, single-line text EXACT_NAME_MATCH_SQL compares with each note name:
+ * - the text inside the quotes when the whole query is one double-quoted phrase;
+ * - otherwise the query;
+ * - empty when the query has no text.
+ */
+export const toNameLookupText = (query: string): string => {
+  const trimmedQuery = query.trim()
+  const quotedPhrase = QUOTED_PHRASE_RE.exec(trimmedQuery)?.groups?.phrase
+
+  return foldName(toSingleLineName(quotedPhrase ?? trimmedQuery))
+}
+
+/** A note name on one line, and its folded form. */
+type NoteName = { singleLineName: string; foldedName: string }
+
+/** The title, then each alias, in document order. */
+const toNoteNames = (params: { title: string; aliases: ReadonlyArray<string> }): NoteName[] => {
+  return [params.title, ...params.aliases].map((name) => {
+    const singleLineName = toSingleLineName(name)
+    return { singleLineName, foldedName: foldName(singleLineName) }
+  })
+}
+
+/**
+ * The names that repeat no earlier name in the compared form, in document
+ * order. A name longer than MAX_COMPARED_NAME_LENGTH is kept without the check.
+ */
+const dropRepeatedNames = (params: {
+  noteNames: ReadonlyArray<NoteName>
+  compareBy: keyof NoteName
+}): NoteName[] => {
+  const seenForms = new Set<string>()
+  const keptNames: NoteName[] = []
+  for (const noteName of params.noteNames) {
+    if (noteName.singleLineName.length <= MAX_COMPARED_NAME_LENGTH) {
+      const comparedForm = noteName[params.compareBy]
+
+      if (seenForms.has(comparedForm)) continue
+      seenForms.add(comparedForm)
+    }
+    keptNames.push(noteName)
+  }
+  return keptNames
+}
+
+/**
+ * The FTS row's two name columns. Each holds the title, then the aliases, one
+ * per line:
+ * - titleText holds the names as written, for keyword matching, and drops only
+ *   a name spelled exactly like an earlier one. The FTS tokenizer folds letter
+ *   case by an older Unicode version than `toLowerCase`, so in some scripts
+ *   (Cherokee, Osage) it reads two spellings that `toLowerCase` folds together
+ *   as different words;
+ * - foldedNames holds each name folded, without repeats, for EXACT_NAME_MATCH_SQL.
+ */
+export const buildFtsNameText = (params: {
+  title: string
+  aliases: ReadonlyArray<string>
+}): { titleText: string; foldedNames: string } => {
+  const noteNames = toNoteNames(params)
+  const distinctSpellings = dropRepeatedNames({ noteNames, compareBy: "singleLineName" })
+  const distinctFoldedNames = dropRepeatedNames({ noteNames, compareBy: "foldedName" })
+
+  return {
+    titleText: distinctSpellings.map((noteName) => noteName.singleLineName).join("\n"),
+    foldedNames: distinctFoldedNames.map((noteName) => noteName.foldedName).join("\n"),
+  }
+}
+
+/** The note's title line in every chunk of the note:
+ *  `Avery Quinn (also known as Avery, Mom)`, or the bare title when the note
+ *  has no other name or its title is empty. */
+export const buildChunkTitleLine = (params: {
+  title: string
+  aliases: ReadonlyArray<string>
+}): string => {
+  const [titleName, ...aliasNames] = dropRepeatedNames({
+    noteNames: toNoteNames(params),
+    compareBy: "foldedName",
+  })
+
+  const singleLineTitle = titleName?.singleLineName
+
+  if (!singleLineTitle || aliasNames.length === 0) return params.title
+  const aliasList = aliasNames.map((aliasName) => aliasName.singleLineName).join(", ")
+  return `${singleLineTitle} (also known as ${aliasList})`
 }
 
 // ── Row mappers ────────────────────────────────────────────────

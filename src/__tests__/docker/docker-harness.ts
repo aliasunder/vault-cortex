@@ -489,14 +489,15 @@ const isRunning = async (name: string): Promise<boolean> => {
   return state.trim() === "true"
 }
 
-/** The container's stdout and stderr merged in emission order. Init scripts
- *  log progress on stdout and retries/errors on stderr, and tests assert the
- *  interleaving. Two pipes read back separately cannot be re-interleaved, so
- *  this is the one Docker call that goes through `sh`, with the name passed
- *  as a positional argument rather than spliced into the command string.
- *
- *  `since` narrows to lines after a Docker timestamp, which is how the
- *  restart scenarios ignore the first boot's output. */
+/** The container's stdout and stderr merged into one string.
+ *  - Docker records the two streams separately, so lines written close
+ *    together on different streams can come back in either order. Check
+ *    line order with containerLogStreams instead.
+ *  - Merging needs one pipe, so this is the one Docker call that goes
+ *    through `sh`. The name is passed as a positional argument rather than
+ *    spliced into the command string.
+ *  - `since` narrows to lines after a Docker timestamp, which is how the
+ *    restart scenarios ignore the first boot's output. */
 export const containerLogs = async (name: string, since?: string): Promise<string> => {
   const sinceArgs = since ? ["--since", since] : []
   const { stdout } = await execFileAsync(
@@ -507,6 +508,19 @@ export const containerLogs = async (name: string, since?: string): Promise<strin
     },
   )
   return stdout
+}
+
+/** The container's stdout and stderr, each in the order the container wrote
+ *  it. */
+export const containerLogStreams = async (
+  name: string,
+): Promise<{ stdout: string; stderr: string }> => {
+  const result = await docker(["logs", name])
+
+  if (result.code !== 0) {
+    throw new Error(`docker logs ${name} exited ${result.code}: ${result.stderr.trim()}`)
+  }
+  return { stdout: result.stdout, stderr: result.stderr }
 }
 
 const HEALTHZ_ATTEMPT_TIMEOUT_MS = 5_000

@@ -6,6 +6,7 @@ import { createHmac } from "node:crypto"
 import Database from "better-sqlite3"
 import { DateTime } from "luxon"
 import {
+  InvalidClientMetadataError,
   InvalidGrantError,
   InvalidRequestError,
   InvalidScopeError,
@@ -133,6 +134,7 @@ const registerClient = async (
     grant_types?: string[]
     response_types?: string[]
     token_endpoint_auth_method?: string
+    jwks?: unknown
   },
 ): Promise<OAuthClientInformationFull> => {
   const { clientsStore } = oauth.provider
@@ -2569,6 +2571,13 @@ describe("OAuth client sign-in stamp", () => {
   })
 })
 
+const registeredClientIds = (db: Database.Database): string[] => {
+  return db
+    .prepare<[], { client_id: string }>("SELECT client_id FROM clients ORDER BY client_id")
+    .all()
+    .map((clientRow) => clientRow.client_id)
+}
+
 describe("OAuth never-signed-in client sweep", () => {
   const createSweepTest = async (): Promise<{
     dbPath: string
@@ -2579,13 +2588,6 @@ describe("OAuth never-signed-in client sweep", () => {
     // boot under test.
     createOAuthProvider({ ...TEST_URLS, authToken: AUTH_TOKEN, dbPath, logger })
     return { dbPath, logs: [] }
-  }
-
-  const registeredClientIds = (db: Database.Database): string[] => {
-    return db
-      .prepare<[], { client_id: string }>("SELECT client_id FROM clients ORDER BY client_id")
-      .all()
-      .map((clientRow) => clientRow.client_id)
   }
 
   it("sweeps a client older than an hour that never signed in, at boot", async () => {
@@ -2664,5 +2666,182 @@ describe("OAuth never-signed-in client sweep", () => {
     })
 
     expect(registeredClientIds(db)).toEqual([registered.client_id])
+  })
+
+  // The sweep's range test, written out here so that a sweep no longer built on
+  // the indexed expression matches no prepared statement and fails the test.
+  const SWEEP_RANGE_TEST = "json_extract(data, '$.client_id_issued_at') < ?"
+
+  /** The detail text of each row of `sql`'s query plan. The sweep binds one
+   *  integer, the cutoff, which the plan does not depend on. */
+  const queryPlanDetails = (db: Database.Database, sql: string): string[] => {
+    return db
+      .prepare<[number], { detail: string }>(`EXPLAIN QUERY PLAN ${sql}`)
+      .all(0)
+      .map((planRow) => planRow.detail)
+  }
+
+  it.each([
+    { label: "a database this version creates", createPriorSchema: (): void => undefined },
+    {
+      label: "a database created before signed_in_at existed",
+      createPriorSchema: (dbPath: string): void => {
+        createDbWithoutSignedInAt(dbPath).close()
+      },
+    },
+  ])(
+    "reads only the rows it deletes, through the never-signed-in index, on $label",
+    async ({ createPriorSchema }) => {
+      const dbPath = await createOAuthDbPath()
+      createPriorSchema(dbPath)
+      const prepareSpy = vi.spyOn(Database.prototype, "prepare")
+      onTestFinished(() => {
+        prepareSpy.mockRestore()
+      })
+
+      createOAuthProvider({ ...TEST_URLS, authToken: AUTH_TOKEN, dbPath, logger })
+
+      const preparedSql = prepareSpy.mock.calls.map(([sql]) => sql.replace(/\s+/g, " ").trim())
+      prepareSpy.mockRestore()
+      const sweepSql = preparedSql.filter((sql) => sql.includes(SWEEP_RANGE_TEST))
+      const db = openDb(dbPath)
+      const queryPlans = sweepSql.map((sql) => queryPlanDetails(db, sql))
+      expect(queryPlans).toEqual([
+        ["SEARCH clients USING INDEX clients_never_signed_in_by_issued_at (<expr><?)"],
+      ])
+    },
+  )
+})
+
+/** A JSON value of `depth` nested arrays, the shape of the crafted jwks. SQLite
+ *  counts the registration object around it as one more level. */
+const nestedArrays = (depth: number): unknown => {
+  return JSON.parse(`${"[".repeat(depth)}${"]".repeat(depth)}`)
+}
+
+/** The clients table as a version with signed_in_at, but before the
+ *  readability check and the sweep index, created it. Only such a table can
+ *  store a row SQLite cannot read. */
+const createDbWithoutSweepIndex = (dbPath: string): Database.Database => {
+  const oldDb = new Database(dbPath)
+  oldDb.exec(`
+    CREATE TABLE clients (
+      client_id TEXT PRIMARY KEY,
+      data TEXT NOT NULL,
+      signed_in_at INTEGER
+    );
+  `)
+  return oldDb
+}
+
+const seedClientData = (db: Database.Database, clientId: string, client: object): void => {
+  db.prepare("INSERT INTO clients (client_id, data) VALUES (?, ?)").run(
+    clientId,
+    JSON.stringify(client),
+  )
+}
+
+describe("OAuth registrations SQLite cannot read", () => {
+  it("refuses a registration whose jwks nests 1,000 arrays deep, stores nothing and warns", async () => {
+    const dbPath = await createOAuthDbPath()
+    const logs: LogCall[] = []
+    const oauth = createOAuthProvider({
+      ...TEST_URLS,
+      authToken: AUTH_TOKEN,
+      dbPath,
+      logger: recordingLogger(logs),
+    })
+
+    const registration = registerClient(oauth, {
+      redirect_uris: ["https://example.com/cb"],
+      jwks: nestedArrays(1000),
+    })
+
+    await expect(registration).rejects.toThrow(
+      new InvalidClientMetadataError("Client metadata is nested too deeply to store"),
+    )
+    expect(registeredClientIds(openDb(dbPath))).toEqual([])
+    const refusedLogs = logs.filter((log) => log.message === "oauth_client_registration_refused")
+    expect(refusedLogs).toEqual([
+      {
+        level: "warn",
+        message: "oauth_client_registration_refused",
+        data: { component: "oauth", reason: "unreadable_json" },
+      },
+    ])
+  })
+
+  it("stores a registration whose jwks nests 999 arrays deep", async () => {
+    const dbPath = await createOAuthDbPath()
+    const oauth = createOAuthProvider({ ...TEST_URLS, authToken: AUTH_TOKEN, dbPath, logger })
+
+    const registered = await registerClient(oauth, {
+      redirect_uris: ["https://example.com/cb"],
+      jwks: nestedArrays(999),
+    })
+
+    expect(registeredClientIds(openDb(dbPath))).toEqual([registered.client_id])
+  })
+
+  it("deletes at boot a never-signed-in registration SQLite cannot read, and keeps the others", async () => {
+    const dbPath = await createOAuthDbPath()
+    const oldDb = createDbWithoutSweepIndex(dbPath)
+    // All three are young enough that the boot's sweep keeps them by age.
+    seedClientData(oldDb, "unreadable-never-signed-in", {
+      client_id_issued_at: fiftyNineMinutesAgo(),
+      jwks: nestedArrays(1000),
+    })
+    seedClientIssuedAt(oldDb, "readable-never-signed-in", fiftyNineMinutesAgo())
+    seedClientData(oldDb, "unreadable-signed-in", {
+      client_id_issued_at: fiftyNineMinutesAgo(),
+      jwks: nestedArrays(1000),
+    })
+    stampSignedIn(oldDb, "unreadable-signed-in", fiftyNineMinutesAgo())
+    oldDb.close()
+    const logs: LogCall[] = []
+
+    createOAuthProvider({
+      ...TEST_URLS,
+      authToken: AUTH_TOKEN,
+      dbPath,
+      logger: recordingLogger(logs),
+    })
+
+    expect(registeredClientIds(openDb(dbPath))).toEqual([
+      "readable-never-signed-in",
+      "unreadable-signed-in",
+    ])
+    const deletedLogs = logs.filter((log) => log.message === "oauth_unreadable_clients_deleted")
+    expect(deletedLogs).toEqual([
+      {
+        level: "warn",
+        message: "oauth_unreadable_clients_deleted",
+        data: { component: "oauth", deletedUnreadableClientCount: 1 },
+      },
+    ])
+  })
+
+  it("logs no deletion on a boot whose only unreadable registration signed in", async () => {
+    const dbPath = await createOAuthDbPath()
+    const oldDb = createDbWithoutSweepIndex(dbPath)
+    // The boot's delete must pass over this row, so it finds nothing to delete.
+    seedClientData(oldDb, "unreadable-signed-in", {
+      client_id_issued_at: fiftyNineMinutesAgo(),
+      jwks: nestedArrays(1000),
+    })
+    stampSignedIn(oldDb, "unreadable-signed-in", fiftyNineMinutesAgo())
+    oldDb.close()
+    const logs: LogCall[] = []
+
+    createOAuthProvider({
+      ...TEST_URLS,
+      authToken: AUTH_TOKEN,
+      dbPath,
+      logger: recordingLogger(logs),
+    })
+
+    expect(registeredClientIds(openDb(dbPath))).toEqual(["unreadable-signed-in"])
+    const deletedLogs = logs.filter((log) => log.message === "oauth_unreadable_clients_deleted")
+    expect(deletedLogs).toEqual([])
   })
 })

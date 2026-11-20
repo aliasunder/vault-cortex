@@ -15,6 +15,7 @@ import { withExclusiveFileLock } from "../../utils/file-write-lock.js"
 import {
   parseHeadings,
   findHeading,
+  formatHeadingList,
   linesBeforeFirstHeading,
   type HeadingInfo,
 } from "../obsidian-markdown/headings.js"
@@ -533,10 +534,12 @@ const patchNote = async (
       })
 
       if (childHeadings.length > 0) {
-        const childList = childHeadings.map((child) => child.text).join(", ")
         const noun = childHeadings.length === 1 ? "child heading" : "child headings"
         throw new Error(
-          `section "${targetHeadingMarkdown}" has ${childHeadings.length} ${noun} (${childList})`,
+          formatHeadingList({
+            lead: `section "${targetHeadingMarkdown}" has ${childHeadings.length} ${noun}`,
+            labels: childHeadings.map((child) => child.text),
+          }),
         )
       }
     }
