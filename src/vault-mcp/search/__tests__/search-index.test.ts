@@ -12315,7 +12315,7 @@ describe("scripts", () => {
     expect(vi.mocked(readFile)).not.toHaveBeenCalledWith(scriptPath, expect.anything())
   })
 
-  it("finds a script that starts with a byte-order mark by its first word", async () => {
+  it("keeps a script's leading byte-order mark in its indexed text and finds the script by its first word", async () => {
     // The indexed text keeps the mark, so the word right after it is found
     // only while the tokenizer treats the mark as a separator.
     const { database } = await rebuildVaultOf({
