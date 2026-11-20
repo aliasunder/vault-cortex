@@ -82,10 +82,13 @@ LABEL io.modelcontextprotocol.server.name="io.github.aliasunder/vault-cortex" \
       org.opencontainers.image.description="Standalone MCP server for Obsidian vaults — hybrid search, notes & files, memory, tasks, OAuth 2.1" \
       org.opencontainers.image.source="https://github.com/aliasunder/vault-cortex" \
       org.opencontainers.image.licenses="MIT"
-COPY --from=deps  /app/node_modules ./node_modules
-COPY --from=build /app/dist/src ./dist/src
-COPY package.json ./
-RUN mkdir -p /data && chown -R node:node /data /app
+# Each COPY gives its files to UID 1000 with --chown. A recursive chown in a
+# later RUN would rewrite every file under /app into a new layer, so the
+# image would ship node_modules twice.
+COPY --from=deps  --chown=node:node /app/node_modules ./node_modules
+COPY --from=build --chown=node:node /app/dist/src ./dist/src
+COPY --chown=node:node package.json ./
+RUN mkdir -p /data && chown node:node /data /app
 EXPOSE 8000
 
 # ---------------------------------------------------------------------------
