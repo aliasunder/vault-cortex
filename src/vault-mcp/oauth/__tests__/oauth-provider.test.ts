@@ -2667,16 +2667,62 @@ describe("OAuth never-signed-in client sweep", () => {
 
     expect(registeredClientIds(db)).toEqual([registered.client_id])
   })
+
+  // The sweep's range test, written out here so that a sweep no longer built on
+  // the indexed expression matches no prepared statement and fails the test.
+  const SWEEP_RANGE_TEST = "json_extract(data, '$.client_id_issued_at') < ?"
+
+  /** The detail text of each row of `sql`'s query plan. The sweep binds one
+   *  integer, the cutoff, which the plan does not depend on. */
+  const queryPlanDetails = (db: Database.Database, sql: string): string[] => {
+    return db
+      .prepare<[number], { detail: string }>(`EXPLAIN QUERY PLAN ${sql}`)
+      .all(0)
+      .map((planRow) => planRow.detail)
+  }
+
+  it.each([
+    { label: "a database this version creates", createPriorSchema: (): void => undefined },
+    {
+      label: "a database created before signed_in_at existed",
+      createPriorSchema: (dbPath: string): void => {
+        createDbWithoutSignedInAt(dbPath).close()
+      },
+    },
+  ])(
+    "reads only the rows it deletes, through the never-signed-in index, on $label",
+    async ({ createPriorSchema }) => {
+      const dbPath = await createOAuthDbPath()
+      createPriorSchema(dbPath)
+      const prepareSpy = vi.spyOn(Database.prototype, "prepare")
+      onTestFinished(() => {
+        prepareSpy.mockRestore()
+      })
+
+      createOAuthProvider({ ...TEST_URLS, authToken: AUTH_TOKEN, dbPath, logger })
+
+      const preparedSql = prepareSpy.mock.calls.map(([sql]) => sql.replace(/\s+/g, " ").trim())
+      prepareSpy.mockRestore()
+      const sweepSql = preparedSql.filter((sql) => sql.includes(SWEEP_RANGE_TEST))
+      const db = openDb(dbPath)
+      const queryPlans = sweepSql.map((sql) => queryPlanDetails(db, sql))
+      expect(queryPlans).toEqual([
+        ["SEARCH clients USING INDEX clients_never_signed_in_by_issued_at (<expr><?)"],
+      ])
+    },
+  )
 })
 
 /** A JSON value of `depth` nested arrays, the shape of the crafted jwks. SQLite
  *  counts the registration object around it as one more level. */
-const nestedArrays = (depth: number): unknown =>
-  JSON.parse(`${"[".repeat(depth)}${"]".repeat(depth)}`)
+const nestedArrays = (depth: number): unknown => {
+  return JSON.parse(`${"[".repeat(depth)}${"]".repeat(depth)}`)
+}
 
-/** The clients table as a version with signed_in_at but without the
- *  readability check created it, so a row SQLite cannot read can be stored. */
-const createDbWithoutReadabilityCheck = (dbPath: string): Database.Database => {
+/** The clients table as a version with signed_in_at, but before the
+ *  readability check and the sweep index, created it. Only such a table can
+ *  store a row SQLite cannot read. */
+const createDbWithoutSweepIndex = (dbPath: string): Database.Database => {
   const oldDb = new Database(dbPath)
   oldDb.exec(`
     CREATE TABLE clients (
@@ -2739,7 +2785,7 @@ describe("OAuth registrations SQLite cannot read", () => {
 
   it("deletes at boot a never-signed-in registration SQLite cannot read, and keeps the others", async () => {
     const dbPath = await createOAuthDbPath()
-    const oldDb = createDbWithoutReadabilityCheck(dbPath)
+    const oldDb = createDbWithoutSweepIndex(dbPath)
     // All three are young enough that the boot's sweep keeps them by age.
     seedClientData(oldDb, "unreadable-never-signed-in", {
       client_id_issued_at: fiftyNineMinutesAgo(),

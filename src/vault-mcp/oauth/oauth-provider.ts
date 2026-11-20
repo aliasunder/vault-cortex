@@ -117,6 +117,11 @@ const REFRESH_TOKEN_KEY_LABEL = "refresh-token:"
 //   fill through it.
 const NEVER_SIGNED_IN_CLIENT_MAX_AGE_S = 60 * 60
 
+// A registration's issue time, read from its stored JSON. SQLite uses an
+// expression index only for a query that repeats the indexed expression, so
+// the index and the sweep both build on this one constant.
+const CLIENT_ISSUED_AT_EXPRESSION = "json_extract(data, '$.client_id_issued_at')"
+
 /** Adds clients.signed_in_at to a database created before it existed and
  *  marks every existing client signed in. */
 const addSignedInAtColumnAndMarkExistingClients = (db: Database.Database, logger: Logger): void => {
@@ -191,11 +196,10 @@ const initDb = (dbPath: string, logger: Logger): Database.Database => {
 
   addSignedInAtColumnAndMarkExistingClients(db, logger)
 
-  // SQLite's JSON parser refuses nesting past 1,000 levels, so a stored
-  // registration nested that deep makes every sweep throw: the boot fails, and
-  // so does every later /register. registerClient refuses such registrations,
-  // but a version without that check stored any it was sent. The sweep reads
-  // only rows that never signed in, so those are the ones removed.
+  // A registration SQLite's JSON parser cannot read (nested past 1,000
+  // levels) makes every sweep throw, which stops the boot and every later
+  // /register. registerClient refuses them, and this deletes any that a
+  // version without that check stored. Signed-in rows are never swept.
   const { changes: deletedUnreadableClientCount } = db
     .prepare("DELETE FROM clients WHERE signed_in_at IS NULL AND json_valid(data) = 0")
     .run()
@@ -203,6 +207,17 @@ const initDb = (dbPath: string, logger: Logger): Database.Database => {
   if (deletedUnreadableClientCount > 0) {
     logger.warn("oauth_unreadable_clients_deleted", { deletedUnreadableClientCount })
   }
+
+  // Lets the sweep, which runs before every /register, read only the rows it
+  // deletes instead of parsing every stored registration. It is created after:
+  // - the migration, because its condition names signed_in_at;
+  // - the delete above, because SQLite cannot build it over a row its JSON
+  //   parser refuses.
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS clients_never_signed_in_by_issued_at
+    ON clients (${CLIENT_ISSUED_AT_EXPRESSION})
+    WHERE signed_in_at IS NULL
+  `)
 
   // Rows whose key lacks the prefix hold raw tokens written by a version
   // that stored them in plaintext; the keyed lookup can never match them,
@@ -232,15 +247,15 @@ class SqliteClientsStore implements OAuthRegisteredClientsStore {
     private db: Database.Database,
     private logger: Logger,
   ) {
-    this.jsonValidStmt = db.prepare("SELECT json_valid(?) AS valid")
     this.selectClientStmt = db.prepare("SELECT data FROM clients WHERE client_id = ?")
     this.insertClientStmt = db.prepare("INSERT INTO clients (client_id, data) VALUES (?, ?)")
     this.markSignedInStmt = db.prepare("UPDATE clients SET signed_in_at = ? WHERE client_id = ?")
     this.deleteNeverSignedInClientsStmt = db.prepare(`
       DELETE FROM clients
       WHERE signed_in_at IS NULL
-        AND json_extract(data, '$.client_id_issued_at') < ?
+        AND ${CLIENT_ISSUED_AT_EXPRESSION} < ?
     `)
+    this.jsonValidStmt = db.prepare("SELECT json_valid(?) AS valid")
     this.sweepNeverSignedInClients()
   }
 
@@ -297,10 +312,10 @@ class SqliteClientsStore implements OAuthRegisteredClientsStore {
       client_secret_expires_at: 0,
     }
     const serializedClient = JSON.stringify(full)
-    // The sweep reads every stored registration with SQLite's JSON parser,
-    // which refuses nesting past 1,000 levels (a jwks value can nest freely),
-    // so one stored row it cannot read would make every later sweep throw.
-    // Asking SQLite itself keeps this check exact.
+    // The sweep and its index read every stored registration with SQLite's
+    // JSON parser, which refuses nesting past 1,000 levels, and a jwks value
+    // can nest freely. A stored row it could not read would make every sweep
+    // throw. Asking SQLite itself keeps this check exact.
     const readableBySqlite = this.jsonValidStmt.get(serializedClient)?.valid === 1
 
     if (!readableBySqlite) {
