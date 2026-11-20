@@ -602,7 +602,7 @@ A file that is created after step 1 and deleted within chokidar's 2 s write-stab
 
 Vector tables persist across restarts and rebuilds (only FTS, notes, links, tasks, non-md, and file content tables are cleared). Pass 3 cleans up vectors for deleted notes and files, then embeds only new or modified chunks via content-hash gating. An embedding failure removes nothing, so a file keeps the vectors it had until its next successful indexing.
 
-- **PDFs:** a PDF keeps its chunks and vectors through the rebuild, so semantic search answers from them until the PDF pass publishes its text, and the pass re-embeds only chunks whose text changed.
+- **PDFs:** a PDF keeps its chunks and vectors through the rebuild, so semantic search answers from them until the PDF pass re-embeds the chunks whose text changed.
 - **PDFs that stay name-only:** a PDF over `MAX_FILE_BYTES` loses its chunks and vectors when the rebuild writes its file-name row, and one whose extraction or publication fails loses them in the PDF pass.
 
 **Incremental updates:** the file watcher calls `embedNote` after `upsertNote` and `embedFileContent` after `upsertFileContent`; deletion cleans up both vectors and chunks.
