@@ -70,10 +70,11 @@ const notValidUtf8Message = (path: string): string => {
   return `not valid UTF-8: "${path}" cannot be returned as text`
 }
 
-/** Decodes an asset buffer as UTF-8, rejecting invalid byte sequences — text
- *  is promised verbatim, and the default decoder would silently substitute
- *  U+FFFD for every undecodable byte instead. A leading byte-order mark is
- *  kept for the same reason. Unlike decodeTextBuffer, it accepts NUL bytes. */
+/** Decodes an asset buffer as UTF-8 for a read that promises the file verbatim:
+ *  - invalid byte sequences throw, where the default decoder would substitute
+ *    U+FFFD for each one;
+ *  - a leading byte-order mark is kept;
+ *  - NUL bytes are accepted, unlike decodeTextBuffer. */
 const decodeUtf8AcceptingNul = (params: { buffer: Buffer; path: string }): string => {
   try {
     return new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(params.buffer)

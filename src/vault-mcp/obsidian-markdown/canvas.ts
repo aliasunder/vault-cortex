@@ -126,9 +126,10 @@ const smallestContainingGroup = (
     // Two groups with identical rectangles contain each other; without a
     // tiebreak each would claim the other as parent, neither would be
     // top-level, and both would drop out of the render entirely. Give the
-    // containment one deterministic direction (higher id contains lower)
-    // so one nests under the other. Content nodes are exempt — they never
-    // become parents, so mutual containment is harmless there.
+    // containment one deterministic direction (the id later in string order
+    // contains the earlier) so one nests under the other. Content nodes are
+    // exempt — they never become parents, so mutual containment is harmless
+    // there.
     const mutuallyContained = node.type === "group" && isContainedIn(group, node)
 
     if (!mutuallyContained) return true
