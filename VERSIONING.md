@@ -14,11 +14,11 @@ describes.
 
 ## What a version number promises
 
-| Release | May contain                                                                                                                      |
-| ------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| Major   | Breaking changes to a covered part, each listed under ⚠ BREAKING CHANGES in the release notes                                    |
-| Minor   | New tools, prompts (the guided workflows a client lists), optional parameters and prompt arguments, response fields and settings |
-| Patch   | Bug fixes and dependency updates                                                                                                 |
+| Release | May contain                                                                                                                                                                                          |
+| ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Major   | Breaking changes to a covered part, each listed under ⚠ BREAKING CHANGES in the release notes                                                                                                        |
+| Minor   | New tools, prompts (the guided workflows a client lists), optional parameters and prompt arguments, response fields and settings, and a required parameter, prompt argument or setting made optional |
+| Patch   | Bug fixes and dependency updates                                                                                                                                                                     |
 
 Each row may also contain what the rows below it list, and any change the
 "Not covered" list allows. A dependency update that changes a covered part,
@@ -30,6 +30,9 @@ breaking:
 
 - A new tool, prompt, optional parameter or prompt argument, response field
   or setting
+- A required parameter, prompt argument or setting made optional, because
+  every call that worked before still works; making an optional one
+  required is a breaking change
 - A fix to behavior that only ever worked by accident and was never
   documented, such as a path spelling the tool's description already said
   is refused
