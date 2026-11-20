@@ -4349,6 +4349,39 @@ describe("rebuildFromVault deferred PDF content", () => {
     expect(fixture.embedder.embedText).toHaveBeenCalledTimes(2)
   })
 
+  it("embeds nothing for a rebuild PDF whose extracted text is unchanged", async () => {
+    const fixture = await createPdfRebuildFixture()
+    const targetChunkIds = () => {
+      return fixture.database
+        .prepare("SELECT id FROM file_content_chunks WHERE file_path = ?")
+        .all(fixture.path)
+    }
+    const chunkIdsBeforeRebuild = targetChunkIds()
+    fixture.extractForIndex.mockResolvedValue({
+      status: "extracted",
+      result: { text: "Old oldquartz", totalPages: 1 },
+    })
+    const rebuilt = await fixture.rebuild()
+    await rebuilt.embedding
+    fixture.embedder.embedText.mockClear()
+    fixture.embedder.embedBatch.mockClear()
+    fixture.startIndexing()
+    await rebuilt.pdfPass
+
+    expect(fixture.extractForIndex).toHaveBeenCalledExactlyOnceWith({ path: fixture.path }, logger)
+    expect(fixture.fileRows()).toEqual([
+      { path: fixture.path, content: "Old oldquartz", bytes: 18 },
+      { path: "decoy.txt", content: "Decoy controlsun", bytes: 16 },
+    ])
+    expect(fixture.embedder.embedText).not.toHaveBeenCalled()
+    expect(fixture.embedder.embedBatch).not.toHaveBeenCalled()
+    expect(targetChunkIds()).toEqual(chunkIdsBeforeRebuild)
+    expect(fixture.targetChunks()).toEqual([{ chunk_text: "Report\n\nOld oldquartz" }])
+    expect(
+      fixture.database.prepare("SELECT COUNT(*) AS count FROM file_content_vectors").get(),
+    ).toEqual({ count: 2 })
+  })
+
   it("skips deferred extraction after a failed PDF placeholder write and continues other PDFs", async () => {
     const fixture = await createPdfRebuildFixture()
     await writeFile(join(fixture.vaultPath, "Healthy.PDF"), "healthy disk bytes")
@@ -4385,7 +4418,7 @@ describe("rebuildFromVault deferred PDF content", () => {
     expect(fixture.targetChunks()).toEqual([])
   })
 
-  it("keeps a failed PDF publication filename-only and indexes the remaining PDFs", async () => {
+  it("keeps a failed PDF publication filename-only without its vectors and indexes the remaining PDFs", async () => {
     const fixture = await createPdfRebuildFixture()
     await writeFile(join(fixture.vaultPath, "Survivor.PDF"), "healthy disk bytes")
     fixture.database.exec(`
@@ -4403,6 +4436,7 @@ describe("rebuildFromVault deferred PDF content", () => {
     })
     const rebuilt = await fixture.rebuild()
     await rebuilt.embedding
+    expect(fixture.targetChunks()).toEqual([{ chunk_text: "Report\n\nOld oldquartz" }])
 
     fixture.startIndexing()
     await rebuilt.pdfPass
@@ -4431,9 +4465,12 @@ describe("rebuildFromVault deferred PDF content", () => {
       { file_path: "Survivor.PDF", chunk_text: "Survivor\n\nNew newcobalt" },
       { file_path: "decoy.txt", chunk_text: "decoy\n\nDecoy controlsun" },
     ])
+    expect(
+      fixture.database.prepare("SELECT COUNT(*) AS count FROM file_content_vectors").get(),
+    ).toEqual({ count: 2 })
   })
 
-  it("clears persisted old text and vectors before extraction and awaits the fresh PDF embedding", async () => {
+  it("answers from a PDF's kept vectors while its text is pending, then re-embeds its changed chunk", async () => {
     const fixture = await createPdfRebuildFixture()
     const extraction = Promise.withResolvers<PdfTextResult>()
     const extractionStarted = Promise.withResolvers<undefined>()
@@ -4458,14 +4495,19 @@ describe("rebuildFromVault deferred PDF content", () => {
     ])
     expect(fixture.keywordPaths("Report")).toEqual([{ path: "Report.PDF" }])
     expect(fixture.keywordPaths("oldquartz")).toEqual([])
-    expect(fixture.targetChunks()).toEqual([])
+    expect(fixture.targetChunks()).toEqual([{ chunk_text: "Report\n\nOld oldquartz" }])
     expect(
       fixture.database.prepare("SELECT COUNT(*) AS count FROM file_content_vectors").get(),
-    ).toEqual({ count: 1 })
-    const pendingResult = await fixture.search.hybridSearch({ query: "futuremeaning" }, logger)
+    ).toEqual({ count: 2 })
+    // Keyword search has no PDF text yet, so this hit comes from the kept vector alone.
+    const pendingResult = await fixture.search.hybridSearch(
+      { query: "oldquartz", limit: 1 },
+      logger,
+    )
     expect(pendingResult.results.map(({ path, snippet }) => ({ path, snippet }))).toEqual([
-      { path: "decoy.txt", snippet: "decoy Decoy controlsun" },
+      { path: fixture.path, snippet: "Report Old oldquartz" },
     ])
+    fixture.embedder.embedText.mockClear()
     const completed = vi.fn()
     fixture.startIndexing()
     const pass = rebuilt.pdfPass
@@ -4486,14 +4528,18 @@ describe("rebuildFromVault deferred PDF content", () => {
     await embeddingStarted.promise
     expect(completed).not.toHaveBeenCalled()
     expect(fixture.keywordPaths("newcobalt")).toEqual([{ path: fixture.path }])
-    expect(fixture.targetChunks()).toEqual([])
+    expect(fixture.targetChunks()).toEqual([{ chunk_text: "Report\n\nOld oldquartz" }])
     embedding.resolve(fixture.vectorFor("newcobalt"))
     await pass
+    expect(fixture.embedder.embedText).toHaveBeenCalledExactlyOnceWith("Report\n\nNew newcobalt")
     expect(fixture.fileRows()).toEqual([
       { path: "Report.PDF", content: "New newcobalt", bytes: 18 },
       { path: "decoy.txt", content: "Decoy controlsun", bytes: 16 },
     ])
     expect(fixture.targetChunks()).toEqual([{ chunk_text: "Report\n\nNew newcobalt" }])
+    expect(
+      fixture.database.prepare("SELECT COUNT(*) AS count FROM file_content_vectors").get(),
+    ).toEqual({ count: 2 })
     const freshResult = await fixture.search.hybridSearch(
       { query: "futuremeaning", limit: 1 },
       logger,
@@ -4507,7 +4553,7 @@ describe("rebuildFromVault deferred PDF content", () => {
     { label: "at", maxFileBytes: 18, extracted: true },
     { label: "above", maxFileBytes: 17, extracted: false },
   ])(
-    "keeps current filename metadata for a PDF $label the input byte limit",
+    "keeps current filename metadata for a PDF $label the input byte limit, with vectors only when extracted",
     async ({ maxFileBytes, extracted }) => {
       const fixture = await createPdfRebuildFixture()
       fixture.extractForIndex.mockResolvedValue({
@@ -4517,7 +4563,10 @@ describe("rebuildFromVault deferred PDF content", () => {
       const rebuilt = await fixture.rebuild(maxFileBytes)
       await rebuilt.embedding
       expect(fixture.extractForIndex).not.toHaveBeenCalled()
-      expect(fixture.targetChunks()).toEqual([])
+      // Over the cap, the PDF will never get text, so the rebuild drops its vectors at once
+      expect(fixture.targetChunks()).toEqual(
+        extracted ? [{ chunk_text: "Report\n\nOld oldquartz" }] : [],
+      )
       expect(fixture.keywordPaths("oldquartz")).toEqual([])
       fixture.startIndexing()
       await rebuilt.pdfPass
@@ -4527,13 +4576,16 @@ describe("rebuildFromVault deferred PDF content", () => {
         { path: "decoy.txt", content: "Decoy controlsun", bytes: 16 },
       ])
       expect(fixture.keywordPaths("Report")).toEqual([{ path: fixture.path }])
+      expect(fixture.targetChunks()).toEqual(
+        extracted ? [{ chunk_text: "Report\n\nNew newcobalt" }] : [],
+      )
       expect(
         fixture.database.prepare("SELECT COUNT(*) AS count FROM file_content_vectors").get(),
       ).toEqual({ count: extracted ? 2 : 1 })
     },
   )
 
-  it("keeps a rebuild PDF whose extraction was cancelled filename-only without warning", async () => {
+  it("keeps a rebuild PDF whose extraction was cancelled filename-only with its vectors, without warning", async () => {
     const fixture = await createPdfRebuildFixture()
     const warnSpy = vi.spyOn(logger, "warn")
     onTestFinished(() => warnSpy.mockRestore())
@@ -4549,10 +4601,13 @@ describe("rebuildFromVault deferred PDF content", () => {
       { path: fixture.path, content: "", bytes: 18 },
       { path: "decoy.txt", content: "Decoy controlsun", bytes: 16 },
     ])
-    expect(fixture.targetChunks()).toEqual([])
+    expect(fixture.targetChunks()).toEqual([{ chunk_text: "Report\n\nOld oldquartz" }])
+    expect(
+      fixture.database.prepare("SELECT COUNT(*) AS count FROM file_content_vectors").get(),
+    ).toEqual({ count: 2 })
   })
 
-  it("leaves a resource-budget failure filename-only without restoring persisted text or vectors", async () => {
+  it("keeps a PDF's vectors while extraction is pending and removes them when it fails its resource budget", async () => {
     const fixture = await createPdfRebuildFixture()
     const warnSpy = vi.spyOn(logger, "warn")
     onTestFinished(() => warnSpy.mockRestore())
@@ -4573,14 +4628,14 @@ describe("rebuildFromVault deferred PDF content", () => {
     const rebuilt = await fixture.rebuild()
     await rebuilt.embedding
     expect(fixture.keywordPaths("oldquartz")).toEqual([])
-    expect(fixture.targetChunks()).toEqual([])
+    expect(fixture.targetChunks()).toEqual([{ chunk_text: "Report\n\nOld oldquartz" }])
     fixture.startIndexing()
     const pass = rebuilt.pdfPass
     pendingPasses.push(pass)
     await started.promise
     expect(fixture.keywordPaths("Report")).toEqual([{ path: fixture.path }])
     expect(fixture.keywordPaths("oldquartz")).toEqual([])
-    expect(fixture.targetChunks()).toEqual([])
+    expect(fixture.targetChunks()).toEqual([{ chunk_text: "Report\n\nOld oldquartz" }])
     extraction.reject(failure)
     await pass
     expect(warnSpy).toHaveBeenCalledExactlyOnceWith("PDF content pass could not index file", {
@@ -4699,6 +4754,110 @@ describe("rebuildFromVault deferred PDF content", () => {
       )
     },
   )
+
+  it("keeps a newer watcher write's vectors when extraction of the rebuild's version fails", async () => {
+    const fixture = await createPdfRebuildFixture()
+    const warnSpy = vi.spyOn(logger, "warn")
+    onTestFinished(() => warnSpy.mockRestore())
+    const extraction = Promise.withResolvers<PdfTextResult>()
+    const started = Promise.withResolvers<undefined>()
+    const pendingPasses: Promise<unknown>[] = []
+    onTestFinished(async () => {
+      extraction.resolve({ text: "", totalPages: 1 })
+      await Promise.allSettled(pendingPasses)
+    })
+    fixture.extractForIndex.mockImplementation(async () => {
+      started.resolve(undefined)
+      return { status: "extracted", result: await extraction.promise }
+    })
+    const rebuilt = await fixture.rebuild()
+    await rebuilt.embedding
+    fixture.startIndexing()
+    const pass = rebuilt.pdfPass
+    pendingPasses.push(pass)
+    await started.promise
+    fixture.search.removeFileContent({ filePath: fixture.path }, logger)
+    const sourceVersion = fixture.search.upsertFileContent(
+      {
+        filePath: fixture.path,
+        rawContent: "Newer newcobalt",
+        fileStat: testStat(2000, 16),
+      },
+      logger,
+    )
+    await fixture.search.embedFileContent({ filePath: fixture.path, sourceVersion }, logger)
+    expect(fixture.targetChunks()).toEqual([{ chunk_text: "Report\n\nNewer newcobalt" }])
+
+    extraction.reject(
+      Object.assign(new Error("controlled extraction budget"), { pdfFailure: "pdf-resource" }),
+    )
+    await pass
+
+    expect(warnSpy).toHaveBeenCalledExactlyOnceWith("PDF content pass could not index file", {
+      path: fixture.path,
+      error: "[Error]: controlled extraction budget",
+    })
+    expect(fixture.fileRows()).toEqual([
+      { path: fixture.path, content: "Newer newcobalt", bytes: 16 },
+      { path: "decoy.txt", content: "Decoy controlsun", bytes: 16 },
+    ])
+    expect(fixture.targetChunks()).toEqual([{ chunk_text: "Report\n\nNewer newcobalt" }])
+    expect(
+      fixture.database.prepare("SELECT COUNT(*) AS count FROM file_content_vectors").get(),
+    ).toEqual({ count: 2 })
+  })
+
+  it("logs a PDF whose old chunks and vectors cannot be removed and finishes the other PDFs", async () => {
+    const fixture = await createPdfRebuildFixture()
+    await writeFile(join(fixture.vaultPath, "Healthy.PDF"), "healthy disk bytes")
+    fixture.database.exec(`
+      CREATE TRIGGER reject_report_chunk_delete BEFORE DELETE ON file_content_chunks
+      WHEN OLD.file_path = 'Report.PDF'
+      BEGIN
+        SELECT RAISE(ABORT, 'controlled chunk delete failure');
+      END;
+    `)
+    const warnSpy = vi.spyOn(logger, "warn")
+    onTestFinished(() => warnSpy.mockRestore())
+    fixture.extractForIndex.mockImplementation(async ({ path }) => {
+      if (path === fixture.path) throw new Error("controlled extraction failure")
+      return { status: "extracted", result: { text: "Second healthyamber", totalPages: 1 } }
+    })
+    const rebuilt = await fixture.rebuild()
+    await rebuilt.embedding
+    fixture.startIndexing()
+    await rebuilt.pdfPass
+
+    expect(warnSpy).toHaveBeenCalledTimes(2)
+    expect(warnSpy).toHaveBeenCalledWith("PDF content pass could not index file", {
+      path: fixture.path,
+      error: "[Error]: controlled extraction failure",
+    })
+    expect(warnSpy).toHaveBeenCalledWith(
+      "PDF content pass could not remove old chunks and vectors",
+      {
+        path: fixture.path,
+        error: "[SqliteError]: controlled chunk delete failure",
+      },
+    )
+    expect(fixture.keywordPaths("healthyamber")).toEqual([{ path: "Healthy.PDF" }])
+    expect(
+      fixture.database
+        .prepare("SELECT chunk_text FROM file_content_chunks WHERE file_path = ?")
+        .all("Healthy.PDF"),
+    ).toEqual([{ chunk_text: "Healthy\n\nSecond healthyamber" }])
+    // The failed delete rolled back, so the chunk still has its vector
+    expect(fixture.targetChunks()).toEqual([{ chunk_text: "Report\n\nOld oldquartz" }])
+    expect(
+      fixture.database
+        .prepare(
+          `SELECT COUNT(*) AS count FROM file_content_vectors
+           WHERE chunk_id IN (SELECT id FROM file_content_chunks WHERE file_path = ?)`,
+        )
+        .get(fixture.path),
+    ).toEqual({ count: 1 })
+  })
+
   it.each([{ outcome: "newer edit" }, { outcome: "unlink" }])(
     "rejects a delayed PDF embedding after a $outcome",
     async ({ outcome }) => {
@@ -9957,6 +10116,66 @@ It has multiple sentences to verify chunking works correctly.
         .get()
       expect(fileVectors?.count).toBe(0)
     })
+
+    it("keeps a deleted note's vector with its chunk when the cleanup's chunk delete fails", async () => {
+      const vaultDir = await mkdtemp(join(tmpdir(), "embed-note-deleted-"))
+      const dbDir = await mkdtemp(join(tmpdir(), "embed-note-deleted-db-"))
+      onTestFinished(async () => {
+        await rm(vaultDir, { recursive: true })
+        await rm(dbDir, { recursive: true })
+      })
+      const dbPath = join(dbDir, "search.db")
+      const embeddingIndex = createSearchIndex(dbPath, createMockEmbedder())
+      const rebuild = () => {
+        return embeddingIndex.rebuildFromVault(
+          {
+            vaultPath: vaultDir,
+            bodyTagParser: inProcessBodyTagParser,
+            pdfExtractor: createInProcessPdfExtractor(vaultDir),
+            maxFileBytes: 10_000_000,
+          },
+          logger,
+        )
+      }
+      await writeFile(join(vaultDir, "gone.md"), "A note deleted while the server was down.")
+      const firstRebuild = await rebuild()
+      await firstRebuild.embedding
+
+      const database = new Database(dbPath)
+      sqliteVec.load(database)
+      onTestFinished(() => {
+        database.close()
+      })
+      const noteRowCounts = () => {
+        return database
+          .prepare(
+            `SELECT
+               (SELECT COUNT(*) FROM note_chunks WHERE note_path = 'gone.md') AS chunks,
+               (SELECT COUNT(*) FROM note_vectors WHERE chunk_id IN
+                 (SELECT id FROM note_chunks WHERE note_path = 'gone.md')) AS vectors`,
+          )
+          .get()
+      }
+      expect(noteRowCounts()).toEqual({ chunks: 1, vectors: 1 })
+      database.exec(`
+        CREATE TRIGGER reject_gone_chunk_delete BEFORE DELETE ON note_chunks
+        WHEN OLD.note_path = 'gone.md'
+        BEGIN
+          SELECT RAISE(ABORT, 'controlled note chunk delete failure');
+        END;
+      `)
+      await rm(join(vaultDir, "gone.md"))
+
+      const secondRebuild = await rebuild()
+      // A SqliteError also carries its stack, so only its code and message are matched
+      await expect(secondRebuild.embedding).rejects.toMatchObject({
+        code: "SQLITE_CONSTRAINT_TRIGGER",
+        message: "controlled note chunk delete failure",
+      })
+
+      // The vector delete rolled back with the failed chunk delete
+      expect(noteRowCounts()).toEqual({ chunks: 1, vectors: 1 })
+    })
   })
 })
 
@@ -10685,6 +10904,37 @@ describe("vectors reused by chunk text", () => {
       expect(fixture.vectorCount()).toBe(rowsAfter.length)
       const { stored, expected } = vectorsAgainstText(rowsAfter)
       expect(stored).toEqual(expected)
+    },
+  )
+
+  it.each(sourceKinds)(
+    "$label: a failed stale-tail delete keeps every chunk row's vector",
+    async ({ sourceKind }) => {
+      const fixture = await createEmbeddingRaceIndex(sourceKind, createTextVectorEmbedder())
+      await saveAndEmbed(fixture, noteOf(["alpha", "beta", "gamma", "delta", "epsilon"]))
+      const chunkTable = sourceKind === "note" ? "note_chunks" : "file_content_chunks"
+      const chunkRowCount = (): unknown => {
+        return fixture.inspect.prepare(`SELECT COUNT(*) AS count FROM ${chunkTable}`).get()
+      }
+      const chunkRowsBefore = chunkRowCount()
+      fixture.inspect.exec(`
+        CREATE TRIGGER reject_stale_tail_delete BEFORE DELETE ON ${chunkTable}
+        BEGIN
+          SELECT RAISE(ABORT, 'controlled stale tail delete failure');
+        END;
+      `)
+
+      await expect(
+        saveAndEmbed(fixture, noteOf(["alpha", "beta", "gamma", "delta"])),
+        // A SqliteError also carries its stack, so only its code and message are matched
+      ).rejects.toMatchObject({
+        code: "SQLITE_CONSTRAINT_TRIGGER",
+        message: "controlled stale tail delete failure",
+      })
+
+      // The vector delete rolled back with the failed chunk delete
+      expect(chunkRowCount()).toEqual(chunkRowsBefore)
+      expect(chunkRowCount()).toEqual({ count: fixture.vectorCount() })
     },
   )
 })
