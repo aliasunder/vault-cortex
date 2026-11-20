@@ -185,6 +185,8 @@ The edit tools differ in how they locate the lines they change — by heading, b
 
 The three anchor tools share one resolution rule: a short, case-sensitive substring locates a full line, ambiguity is an error, and `first_match` takes the first match instead.
 
+`vault_list_notes` matches its glob in a worker thread with a time limit: `utils/glob-filter.ts` starts one worker per call, with at most one per CPU core (and never more than four) running at a time. A call still waiting or matching after `GLOB_MATCH_TIMEOUT_MS` (2 seconds, in `vault-operations/vault-filesystem.ts`) returns a timeout error, and a worker still matching is stopped. Up to four calls per worker wait for a running worker to finish, and a call beyond them returns a timeout error at once, saying too many glob calls are waiting.
+
 `vault_update_properties` merges properties — sets new keys, overwrites matching keys, deletes keys set to `null` — and keeps the body, adding only a missing final newline. With `replace: true` it replaces the whole properties block instead, without parsing the old one, so it can repair any block a merge refuses.
 
 Every tool handles a note's properties block by the same rules, so a write never silently drops its properties:
@@ -1022,6 +1024,16 @@ and before each new registration, logged as `oauth_clients_swept`:
   can appear, and the sweep bounds how long they stay
 - A registration's JSON body is capped at 8 KB, which bounds how much disk
   each of those rows takes
+- A partial index orders the registrations that never signed in by issue
+  time, so each sweep reads only the rows past their hour, which it deletes;
+  rows still inside their hour add nothing to the cost of a later
+  registration
+- The index cannot hold a registration whose JSON SQLite cannot read back
+  (nested past its 1,000-level limit), so `/register` refuses one with
+  `invalid_client_metadata`
+- Boot deletes every registration that never signed in and that SQLite
+  cannot read, logged as `oauth_unreadable_clients_deleted`, because one
+  would stop the index build; a signed-in one stays, outside the index
 - Adding `signed_in_at` to an existing `oauth.db` sets it on every row
   already there, in the same transaction, and logs
   `oauth_clients_marked_signed_in` with the count when there was at least

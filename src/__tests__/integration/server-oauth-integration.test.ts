@@ -753,6 +753,41 @@ describe("client registration sweep", () => {
       .map((clientRow) => clientRow.client_id)
     expect(registeredClientIds).toEqual([kept.client_id])
   }, 60_000)
+
+  it("refuses a registration nested too deeply to store, so later registrations and a reboot still work", async () => {
+    const dataDir = await mkdtemp(join(tmpdir(), "vc-integ-unreadable-"))
+    onTestFinished(async () => {
+      await rm(dataDir, { recursive: true, force: true })
+    })
+    const sameDataDir = { INDEX_DB_PATH: join(dataDir, "search.db") }
+    const port = await freePort()
+    const before = await startServer(port, sameDataDir)
+    onTestFinished(before.cleanup)
+    // SQLite's JSON parser refuses nesting past 1,000 levels; the SDK's
+    // client metadata schema accepts any jwks value.
+    const nestedJwks = `${"[".repeat(1000)}${"]".repeat(1000)}`
+
+    const refused = await fetch(`http://127.0.0.1:${port}/register`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: `{"redirect_uris":["${REDIRECT_URI}"],"jwks":${nestedJwks}}`,
+    })
+
+    expect(refused.status).toBe(400)
+    expect(await refused.json()).toEqual({
+      error: "invalid_client_metadata",
+      error_description: "Client metadata is nested too deeply to store",
+    })
+    // registerClient throws unless the next registration answers 201.
+    await registerClient(port)
+    await before.cleanup()
+
+    const rebootedPort = await freePort()
+    const after = await startServer(rebootedPort, sameDataDir)
+    onTestFinished(() => after.cleanup())
+    const health = await fetch(`http://127.0.0.1:${rebootedPort}/healthz`)
+    expect(health.status).toBe(200)
+  }, 60_000)
 })
 
 // ── Refresh-token reuse detection ─────────────────────────────

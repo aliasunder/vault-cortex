@@ -1154,7 +1154,7 @@ describe("patchNote — child-section guard", () => {
         },
         logger,
       ),
-    ).rejects.toThrow(new Error('section "## Active" has 1 child heading (Subtasks)'))
+    ).rejects.toThrow(new Error('section "## Active" has 1 child heading: Subtasks'))
     expect(await readTestNote("note.md")).toBe(content)
   })
 
@@ -1174,9 +1174,33 @@ describe("patchNote — child-section guard", () => {
         logger,
       ),
     ).rejects.toThrow(
-      new Error('section "# Main Title" has 4 child headings (Active, Subtasks, Up Next, Done)'),
+      new Error('section "# Main Title" has 4 child headings: Active, Subtasks, Up Next, Done'),
     )
     expect(await readTestNote("note.md")).toBe(content)
+  })
+
+  it("lists the first 30 child headings and the total when a section has 31", async () => {
+    const childNames = Array.from({ length: 31 }, (_, index) => `Child ${index + 1}`)
+    const noteContent = `# Main\n\n${childNames.map((childName) => `## ${childName}\n`).join("\n")}`
+    await writeTestNote("note.md", noteContent)
+
+    await expect(
+      patchNote(
+        {
+          vaultPath: vault,
+          path: "note.md",
+          operation: "replace",
+          content: "New content.\n",
+          heading: "Main",
+        },
+        logger,
+      ),
+    ).rejects.toThrow(
+      new Error(
+        `section "# Main" has 31 child headings (first 30 of 31): ${childNames.slice(0, 30).join(", ")}`,
+      ),
+    )
+    expect(await readTestNote("note.md")).toBe(noteContent)
   })
 
   it("allows replace with include_children: true", async () => {

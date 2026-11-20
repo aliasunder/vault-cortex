@@ -240,6 +240,11 @@ The server, and the `:remote` image's setup mode, set these headers:
 
 - `POST /mcp` parses JSON up to 5 MB only after bearer validation, so a request
   without a valid token is refused before its body is read
+- A `vault_list_notes` glob in a `/mcp` request body is matched in a worker
+  thread stopped after 2 seconds, so no glob can hold the server's main thread
+- At most one glob worker per CPU core runs at a time, and never more than
+  four; up to four calls per worker wait for a free worker within the same
+  2 seconds, and further glob calls fail at once
 - A rejected request body produces one short warning without a stack, and
   the logger caps every logged string at 256 code points (error text and
   stack traces at 4,096)
@@ -369,6 +374,10 @@ while the owner decides are bounded:
   10 minutes, so a sign-in the sweep cuts off is one that started late; a
   client whose registration was swept is told at `/authorize` how to
   reconnect
+- **Readable** — a registration the database cannot read back (JSON
+  nested more than 1,000 levels deep) is refused with
+  `invalid_client_metadata`, and boot deletes any that an earlier version
+  stored and that never signed in
 
 ### Symlink safety
 
