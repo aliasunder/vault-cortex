@@ -1,4 +1,7 @@
-import { execFileSync } from "node:child_process"
+import {
+  CHILD_DEADLINE_MS,
+  runScriptInChild,
+} from "../../../__tests__/helpers/run-script-in-child.js"
 import { describe, it, expect } from "vitest"
 import { stripMarkdownSyntax } from "../../obsidian-markdown/plaintext.js"
 import { buildChunkMetadataPrefix, chunkContent } from "../chunker.js"
@@ -6,9 +9,6 @@ import { buildChunkMetadataPrefix, chunkContent } from "../chunker.js"
 /** A quadratic pass over input this long runs for minutes; a linear one takes
  *  well under a second. */
 const LONG_RUN_LENGTH = 1_000_000
-
-/** Leaves room for the child's tsx start-up on a loaded machine. */
-const CHILD_DEADLINE_MS = 20_000
 
 /** Generate a string of approximately N whitespace-separated tokens. */
 const generateTokens = (count: number): string => {
@@ -1269,16 +1269,8 @@ describe("chunkContent", () => {
      *  a child process with a deadline; returns what the script printed. */
     const runChunkerInChild = (script: string): string => {
       const chunkerUrl = new URL("../chunker.ts", import.meta.url).href
-      return execFileSync(
-        process.execPath,
-        [
-          "--import",
-          "tsx",
-          "--input-type=module",
-          "--eval",
-          `import { chunkContent } from ${JSON.stringify(chunkerUrl)};\n${script}`,
-        ],
-        { encoding: "utf8", timeout: CHILD_DEADLINE_MS, killSignal: "SIGKILL" },
+      return runScriptInChild(
+        `import { chunkContent } from ${JSON.stringify(chunkerUrl)};\n${script}`,
       )
     }
 

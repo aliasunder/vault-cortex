@@ -14,7 +14,10 @@ import {
   symlink,
 } from "node:fs/promises"
 import { randomUUID } from "node:crypto"
-import { CHILD_DEADLINE_MS, runScriptInChild } from "./helpers/run-script-in-child.js"
+import {
+  CHILD_DEADLINE_MS,
+  runScriptInChild,
+} from "../../../__tests__/helpers/run-script-in-child.js"
 import { basename, join } from "node:path"
 import { tmpdir } from "node:os"
 import { DateTime } from "luxon"

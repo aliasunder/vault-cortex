@@ -10,7 +10,10 @@ import {
   readdir,
   symlink,
 } from "node:fs/promises"
-import { CHILD_DEADLINE_MS, runScriptInChild } from "./helpers/run-script-in-child.js"
+import {
+  CHILD_DEADLINE_MS,
+  runScriptInChild,
+} from "../../../__tests__/helpers/run-script-in-child.js"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { parseNote, UnkeepableOpeningBlockError } from "../../obsidian-markdown/frontmatter.js"

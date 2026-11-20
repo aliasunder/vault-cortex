@@ -1,6 +1,9 @@
 import { describe, it, expect, vi, onTestFinished } from "vitest"
 import { rm, writeFile, mkdir, readFile, readdir, stat, rename, unlink } from "node:fs/promises"
-import { CHILD_DEADLINE_MS, runScriptInChild } from "./helpers/run-script-in-child.js"
+import {
+  CHILD_DEADLINE_MS,
+  runScriptInChild,
+} from "../../../__tests__/helpers/run-script-in-child.js"
 import { mkdtempSync } from "node:fs"
 import { basename, join, dirname } from "node:path"
 import { tmpdir } from "node:os"
