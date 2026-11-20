@@ -1473,7 +1473,9 @@ Docker hardening, and durability seatbelts above.
 - **Path length** (`utils/assert-path-within-max-length.ts`): a path
   longer than 4,095 bytes, the most Linux accepts on any filesystem, is
   refused before it is normalized, resolved or case-folded, which bounds
-  the cost of those steps. The refusal reads like the filesystem's own
+  the cost of those steps. The check measures the path as sent, so it
+  also refuses a longer path that its `..` segments would shorten to an
+  allowed length. The refusal reads like the filesystem's own
   ENAMETOOLONG error and gets the same remedy, so the tool descriptions
   that already list ENAMETOOLONG cover it. The check runs in four places:
   - at the start of `resolveVaultRelativePath()`, on the path as sent;
