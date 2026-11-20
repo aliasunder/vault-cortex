@@ -27,6 +27,7 @@ import type {
   OAuthTokenRevocationRequest,
 } from "@modelcontextprotocol/sdk/shared/auth.js"
 import {
+  InvalidClientMetadataError,
   InvalidGrantError,
   InvalidRequestError,
   InvalidScopeError,
@@ -190,6 +191,19 @@ const initDb = (dbPath: string, logger: Logger): Database.Database => {
 
   addSignedInAtColumnAndMarkExistingClients(db, logger)
 
+  // SQLite's JSON parser refuses nesting past 1,000 levels, so a stored
+  // registration nested that deep makes every sweep throw: the boot fails, and
+  // so does every later /register. registerClient refuses such registrations,
+  // but a version without that check stored any it was sent. The sweep reads
+  // only rows that never signed in, so those are the ones removed.
+  const { changes: deletedUnreadableClientCount } = db
+    .prepare("DELETE FROM clients WHERE signed_in_at IS NULL AND json_valid(data) = 0")
+    .run()
+
+  if (deletedUnreadableClientCount > 0) {
+    logger.warn("oauth_unreadable_clients_deleted", { deletedUnreadableClientCount })
+  }
+
   // Rows whose key lacks the prefix hold raw tokens written by a version
   // that stored them in plaintext; the keyed lookup can never match them,
   // so clear them on every boot. Each affected client re-authorizes once
@@ -212,11 +226,13 @@ class SqliteClientsStore implements OAuthRegisteredClientsStore {
   private readonly insertClientStmt: Database.Statement<[string, string]>
   private readonly markSignedInStmt: Database.Statement<[number, string]>
   private readonly deleteNeverSignedInClientsStmt: Database.Statement<[number]>
+  private readonly jsonValidStmt: Database.Statement<[string], { valid: number }>
 
   constructor(
     private db: Database.Database,
     private logger: Logger,
   ) {
+    this.jsonValidStmt = db.prepare("SELECT json_valid(?) AS valid")
     this.selectClientStmt = db.prepare("SELECT data FROM clients WHERE client_id = ?")
     this.insertClientStmt = db.prepare("INSERT INTO clients (client_id, data) VALUES (?, ?)")
     this.markSignedInStmt = db.prepare("UPDATE clients SET signed_in_at = ? WHERE client_id = ?")
@@ -280,10 +296,22 @@ class SqliteClientsStore implements OAuthRegisteredClientsStore {
       // RFC 7591 §3.2.1 defines 0 as a secret that never expires.
       client_secret_expires_at: 0,
     }
+    const serializedClient = JSON.stringify(full)
+    // The sweep reads every stored registration with SQLite's JSON parser,
+    // which refuses nesting past 1,000 levels (a jwks value can nest freely),
+    // so one stored row it cannot read would make every later sweep throw.
+    // Asking SQLite itself keeps this check exact.
+    const readableBySqlite = this.jsonValidStmt.get(serializedClient)?.valid === 1
+
+    if (!readableBySqlite) {
+      this.logger.warn("oauth_client_registration_refused", { reason: "unreadable_json" })
+      throw new InvalidClientMetadataError("Client metadata is nested too deeply to store")
+    }
+
     // The /register rate limit bounds how fast rows arrive; sweeping on each
     // registration bounds how long the ones that never sign in stay.
     this.sweepNeverSignedInClients()
-    this.insertClientStmt.run(full.client_id, JSON.stringify(full))
+    this.insertClientStmt.run(full.client_id, serializedClient)
     this.logger.info("oauth_client_registered", {
       clientId: full.client_id,
       clientName: full.client_name ?? null,
