@@ -1004,7 +1004,7 @@ needs no token, so a page anyone serves could submit it.
 through `/register` on first connect, and some register more than once per
 connect, so the `clients` table would grow with rows no client ever uses.
 A registration older than an hour that never signed in is deleted at boot
-and before each new registration, logged as `oauth_clients_swept`:
+and before each new registration is stored, logged as `oauth_clients_swept`:
 
 - A registration has signed in once the server has saved a refresh token
   for it, which sets its `signed_in_at` column
