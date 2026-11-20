@@ -119,15 +119,21 @@ type UpdateTaskParams = {
   addSubtasks?: string[] | undefined
   /** A new id for the line, or null to remove its id. */
   assignBlockId?: string | null | undefined
+  /** The id to give the next occurrence that completing a recurring task
+   *  creates. Refused unless the update creates one, and for an id the note
+   *  already holds. */
+  nextBlockId?: string | undefined
   format?: "emoji" | "dataview" | undefined
 }
 
-/** The spawned next occurrence of a completed recurring task. It carries no
- *  block id, so `line` is its only handle. Date fields are present only when
- *  the occurrence has them. */
+/** The spawned next occurrence of a completed recurring task. It carries a
+ *  block id only when the update named one with nextBlockId; otherwise `line`
+ *  is its only handle. Date fields are present only when the occurrence has
+ *  them. */
 type NextOccurrencePosition = {
   line: number
   description: string
+  block_id?: string | undefined
   due?: string | undefined
   scheduled?: string | undefined
   start?: string | undefined
@@ -1174,13 +1180,45 @@ const appendSubtasks = ({
   }
 }
 
-/** What completing a recurring task produces: a spawned next-occurrence
- *  line, an advisory when the rule yields no next occurrence, or nothing
- *  (the task is not recurring, or is not transitioning to done). */
+/** Why an update creates no next occurrence. */
+type NoNextOccurrence =
+  | { kind: "not-completing" }
+  | { kind: "already-done" }
+  | { kind: "not-recurring" }
+  | { kind: "unreadable-rule"; recurrenceText: string }
+  | { kind: "no-next-date"; recurrenceText: string }
+
+/** What an update produces for a recurring task: a spawned next-occurrence
+ *  line, or the reason there is none. */
 type RecurrenceSpawn =
-  | { kind: "spawn"; spawnedLine: string; nextDates: NextOccurrenceDates }
-  | { kind: "advisory"; advisory: string }
-  | { kind: "none" }
+  { kind: "spawn"; spawnedLine: string; nextDates: NextOccurrenceDates } | NoNextOccurrence
+
+/** The reason an update creates no next occurrence, which a refused
+ *  nextBlockId quotes, and, when the rule itself is the cause, the advisory a
+ *  completion without nextBlockId carries. */
+const describeNoNextOccurrence = (
+  outcome: NoNextOccurrence,
+): { reason: string; advisory?: string | undefined } => {
+  switch (outcome.kind) {
+    case "not-completing":
+      return { reason: "the update does not complete the task" }
+    case "already-done":
+      return { reason: "the task is already done" }
+    case "not-recurring":
+      return { reason: "the task has no recurrence rule" }
+    case "unreadable-rule": {
+      const reason = `its recurrence rule "${outcome.recurrenceText}" is not a rule the Tasks plugin recognizes`
+      return {
+        reason,
+        advisory: `The task was completed, but ${reason}, so no next occurrence was created.`,
+      }
+    }
+    case "no-next-date": {
+      const reason = `its recurrence rule "${outcome.recurrenceText}" produced no next occurrence`
+      return { reason, advisory: `The task was completed, but ${reason}, so none was created.` }
+    }
+  }
+}
 
 /** Resolves the recurrence spawn for an update, mirroring the Tasks plugin:
  *  spawn only on a transition to done from a not-done status (custom
@@ -1207,22 +1245,19 @@ const resolveRecurrenceSpawn = ({
   today: string
   config: TaskFormatConfig
 }): RecurrenceSpawn => {
-  if (status !== "done") return { kind: "none" }
+  if (status !== "done") return { kind: "not-completing" }
 
   if (taskBefore.status === "done") {
-    return { kind: "none" }
+    return { kind: "already-done" }
   }
 
   const editedTask = tasks.extractTasksFromBody(editedTaskLine, config.statusRegistry).at(0)
 
-  if (!editedTask?.recurrence) return { kind: "none" }
+  if (!editedTask?.recurrence) return { kind: "not-recurring" }
   const recurrenceText = editedTask.recurrence
 
   if (parseRecurrenceRule(recurrenceText) === null) {
-    return {
-      kind: "advisory",
-      advisory: `The task was completed, but its recurrence rule "${recurrenceText}" is not a rule the Tasks plugin recognizes, so no next occurrence was created.`,
-    }
+    return { kind: "unreadable-rule", recurrenceText }
   }
 
   const nextDates = nextOccurrenceDates({
@@ -1234,12 +1269,7 @@ const resolveRecurrenceSpawn = ({
     removeScheduledDateOnRecurrence: config.removeScheduledDateOnRecurrence,
   })
 
-  if (nextDates === null) {
-    return {
-      kind: "advisory",
-      advisory: `The task was completed, but its recurrence rule "${recurrenceText}" produced no next occurrence, so none was created.`,
-    }
-  }
+  if (nextDates === null) return { kind: "no-next-date", recurrenceText }
 
   return {
     kind: "spawn",
@@ -1302,6 +1332,7 @@ const buildNextOccurrencePosition = ({
 }): NextOccurrencePosition => ({
   line: bodyStartLine + spawnIndex + 1,
   description: tasks.describeTaskLine(recurrenceSpawn.spawnedLine),
+  block_id: trailingBlockIdOf(recurrenceSpawn.spawnedLine),
   ...(recurrenceSpawn.nextDates.dueDate ? { due: recurrenceSpawn.nextDates.dueDate } : {}),
   ...(recurrenceSpawn.nextDates.scheduledDate
     ? { scheduled: recurrenceSpawn.nextDates.scheduledDate }
@@ -1833,6 +1864,7 @@ const assertUpdateTaskParams = (params: UpdateTaskParams): void => {
     dependsOn,
     addSubtasks,
     assignBlockId,
+    nextBlockId,
   } = params
 
   const identifierCount = [blockId, line].filter(Boolean).length
@@ -1887,6 +1919,12 @@ const assertUpdateTaskParams = (params: UpdateTaskParams): void => {
 
   if (assignBlockId === "") {
     throw new Error("assignBlockId cannot be empty (use null to remove the id)")
+  }
+
+  // The id names the next occurrence, which only a completion creates. An
+  // empty id is refused too, by the grammar check, rather than ignored.
+  if (nextBlockId !== undefined && status !== "done") {
+    throw new Error('nextBlockId requires status "done"')
   }
 
   if (addSubtasks !== undefined && addSubtasks.length === 0) {
@@ -2338,6 +2376,7 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
     format,
     addSubtasks,
     assignBlockId: newBlockId,
+    nextBlockId,
   } = params
 
   assertUpdateTaskParams(params)
@@ -2438,6 +2477,12 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
     if (newBlockId) {
       validateBlockId({ blockId: newBlockId, bodyLines, excludeLineIndex: taskLineIndex })
     }
+    // The next occurrence copies the task line's indentation.
+    if (nextBlockId !== undefined && isIndentedKanbanLine) {
+      throw new Error(
+        `nextBlockId is not allowed on an indented line on a Kanban board — ${KANBAN_INDENTED_ID_REASON}`,
+      )
+    }
     if (isKanbanBoard && addSubtasks) {
       rejectKanbanChecklistBlockIds(addSubtasks)
     }
@@ -2481,7 +2526,34 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
       config: formatConfig,
     })
 
+    const noNextOccurrence =
+      recurrenceSpawn.kind === "spawn" ? undefined : describeNoNextOccurrence(recurrenceSpawn)
+
+    if (nextBlockId !== undefined && noNextOccurrence) {
+      throw new Error(
+        `nextBlockId was given, but this update creates no next occurrence: ${noNextOccurrence.reason}`,
+      )
+    }
+
     const linesWithEdits = bodyLines.with(taskLineIndex, mutatedLine)
+
+    // Checked against the note as read, so an id this call removes or deletes
+    // cannot move to the spawn and retarget existing links, and against the
+    // edited lines, so it cannot repeat this call's assignBlockId.
+    if (nextBlockId !== undefined) {
+      validateBlockId({ blockId: nextBlockId, bodyLines })
+      validateBlockId({ blockId: nextBlockId, bodyLines: linesWithEdits })
+    }
+    const namedRecurrenceSpawn =
+      recurrenceSpawn.kind === "spawn" && nextBlockId !== undefined
+        ? {
+            ...recurrenceSpawn,
+            spawnedLine: tasks.assignBlockId({
+              taskLine: recurrenceSpawn.spawnedLine,
+              blockId: nextBlockId,
+            }),
+          }
+        : recurrenceSpawn
 
     // The spawned occurrence is written on the line directly adjacent to
     // the completed task line — above it by default, directly below it
@@ -2492,15 +2564,14 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
     // alone. The spawn never rides that move: the next instance stays in
     // the source lane.
     const placedSpawn: PlacedSpawn | undefined =
-      recurrenceSpawn.kind === "spawn"
+      namedRecurrenceSpawn.kind === "spawn"
         ? {
-            spawn: recurrenceSpawn,
+            spawn: namedRecurrenceSpawn,
             insertIndex: formatConfig.recurrenceOnNextLine ? taskLineIndex + 1 : taskLineIndex,
             writtenBelow: formatConfig.recurrenceOnNextLine,
           }
         : undefined
-    const recurrenceAdvisory =
-      recurrenceSpawn.kind === "advisory" ? recurrenceSpawn.advisory : undefined
+    const recurrenceAdvisory = noNextOccurrence?.advisory
     const linesWithSpawn = placedSpawn
       ? linesWithEdits.toSpliced(placedSpawn.insertIndex, 0, placedSpawn.spawn.spawnedLine)
       : linesWithEdits

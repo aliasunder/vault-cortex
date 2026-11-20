@@ -5958,6 +5958,281 @@ title: Tasks
   })
 })
 
+describe("naming the next occurrence's block id", () => {
+  it("writes the named id on a next occurrence spawned above the completed task", async () => {
+    const vault = await createVault()
+    await writeTestNote(vault, "tasks.md", RECURRING_NOTE)
+
+    const result = await taskMutations.updateTask(
+      {
+        statusRegistry: DEFAULT_STATUS_REGISTRY,
+        vaultPath: vault,
+        path: "tasks.md",
+        blockId: "water-plants",
+        status: "done",
+        nextBlockId: "water-plants-2",
+      },
+      logger,
+    )
+
+    expect(result).toEqual({
+      path: "tasks.md",
+      line: 6,
+      description: "Water plants",
+      block_id: "water-plants",
+      next_occurrence: {
+        line: 5,
+        description: "Water plants",
+        block_id: "water-plants-2",
+        due: "2026-01-12",
+      },
+      changes: ["status: todo → done", "next_occurrence: (none) → line 5"],
+    })
+    expect(await readTestNote(vault, "tasks.md")).toBe(
+      `---\ntitle: Tasks\n---\n\n- [ ] Water plants 🔁 every week 📅 2026-01-12 ^water-plants-2\n- [x] Water plants 🔁 every week 📅 2026-01-05 ➕ 2026-01-01 ✅ ${today()} ^water-plants\n`,
+    )
+  })
+
+  it("writes the named id on a next occurrence spawned below with recurrenceOnNextLine", async () => {
+    const vault = await createVault()
+    await writeTasksPluginConfig(vault, { recurrenceOnNextLine: true })
+    await writeTestNote(vault, "tasks.md", RECURRING_NOTE)
+
+    const result = await taskMutations.updateTask(
+      {
+        statusRegistry: DEFAULT_STATUS_REGISTRY,
+        vaultPath: vault,
+        path: "tasks.md",
+        blockId: "water-plants",
+        status: "done",
+        nextBlockId: "water-plants-2",
+      },
+      logger,
+    )
+
+    expect(result.next_occurrence).toEqual({
+      line: 6,
+      description: "Water plants",
+      block_id: "water-plants-2",
+      due: "2026-01-12",
+    })
+    expect(await readTestNote(vault, "tasks.md")).toBe(
+      `---\ntitle: Tasks\n---\n\n- [x] Water plants 🔁 every week 📅 2026-01-05 ➕ 2026-01-01 ✅ ${today()} ^water-plants\n- [ ] Water plants 🔁 every week 📅 2026-01-12 ^water-plants-2\n`,
+    )
+  })
+
+  it("keeps the named next occurrence in the source lane while the completed card moves to Done", async () => {
+    const vault = await createVault()
+    await writeTestNote(
+      vault,
+      "board.md",
+      `---\nkanban-plugin: board\n---\n\n## Active\n\n- [ ] Weekly review 🔁 every week 📅 2026-01-05 ^weekly\n- [ ] Other task ➕ 2026-07-01\n\n## Done\n\n- [x] Old ➕ 2026-06-01 ✅ 2026-06-15\n`,
+    )
+
+    const result = await taskMutations.updateTask(
+      {
+        statusRegistry: DEFAULT_STATUS_REGISTRY,
+        vaultPath: vault,
+        path: "board.md",
+        blockId: "weekly",
+        status: "done",
+        nextBlockId: "weekly-2",
+      },
+      logger,
+    )
+
+    expect(result.next_occurrence).toEqual({
+      line: 7,
+      description: "Weekly review",
+      block_id: "weekly-2",
+      due: "2026-01-12",
+    })
+    expect(await readTestNote(vault, "board.md")).toBe(
+      `---\nkanban-plugin: board\n---\n\n## Active\n\n- [ ] Weekly review 🔁 every week 📅 2026-01-12 ^weekly-2\n- [ ] Other task ➕ 2026-07-01\n\n## Done\n- [x] Weekly review 🔁 every week 📅 2026-01-05 ✅ ${today()} ^weekly\n\n- [x] Old ➕ 2026-06-01 ✅ 2026-06-15\n`,
+    )
+  })
+
+  it("writes the named id on the next occurrence of a task deleted on completion", async () => {
+    const vault = await createVault()
+    await writeTestNote(
+      vault,
+      "tasks.md",
+      `---\ntitle: Tasks\n---\n\n## Active\n\n- [ ] Water plants 🔁 every week 🏁 delete 📅 2026-07-07 ^water\n- [ ] Other task ➕ 2026-07-01 ^other\n`,
+    )
+
+    const result = await taskMutations.updateTask(
+      {
+        statusRegistry: DEFAULT_STATUS_REGISTRY,
+        vaultPath: vault,
+        path: "tasks.md",
+        blockId: "water",
+        status: "done",
+        nextBlockId: "water-next",
+      },
+      logger,
+    )
+
+    expect(result).toEqual({
+      path: "tasks.md",
+      line: 8,
+      description: "Water plants",
+      block_id: "water",
+      heading: "Active",
+      next_occurrence: {
+        line: 7,
+        description: "Water plants",
+        block_id: "water-next",
+        due: "2026-07-14",
+      },
+      changes: [
+        "status: todo → done",
+        "next_occurrence: (none) → line 7",
+        "on_completion: task removed (🏁 delete)",
+      ],
+      on_completion_applied: "delete",
+    })
+    expect(await readTestNote(vault, "tasks.md")).toBe(
+      `---\ntitle: Tasks\n---\n\n## Active\n\n- [ ] Water plants 🔁 every week 🏁 delete 📅 2026-07-14 ^water-next\n- [ ] Other task ➕ 2026-07-01 ^other\n`,
+    )
+  })
+
+  it("writes the named id on a Dataview-format next occurrence", async () => {
+    const vault = await createVault()
+    await writeTasksPluginConfig(vault, { taskFormat: "dataview" })
+    await writeTestNote(
+      vault,
+      "tasks.md",
+      "---\ntitle: Tasks\n---\n\n- [ ] DV habit [repeat:: every week] [due:: 2026-01-05] ^dv\n",
+    )
+
+    await taskMutations.updateTask(
+      {
+        statusRegistry: DEFAULT_STATUS_REGISTRY,
+        vaultPath: vault,
+        path: "tasks.md",
+        blockId: "dv",
+        status: "done",
+        nextBlockId: "dv-2",
+      },
+      logger,
+    )
+
+    expect(await readTestNote(vault, "tasks.md")).toBe(
+      `---\ntitle: Tasks\n---\n\n- [ ] DV habit [repeat:: every week] [due:: 2026-01-12] ^dv-2\n- [x] DV habit [repeat:: every week] [due:: 2026-01-05] [completion:: ${today()}] ^dv\n`,
+    )
+  })
+
+  // Every refusal fires before the write, so the note keeps its exact bytes.
+  it.each([
+    {
+      label: "a status other than done",
+      note: RECURRING_NOTE,
+      update: { blockId: "water-plants", status: "in_progress", nextBlockId: "next" },
+      message: 'nextBlockId requires status "done"',
+    },
+    {
+      label: "a task that is already done",
+      note: "---\ntitle: Tasks\n---\n\n- [x] Water plants 🔁 every week 📅 2026-01-05 ✅ 2026-01-06 ^water-plants\n",
+      update: { blockId: "water-plants", status: "done", nextBlockId: "next" },
+      message:
+        "nextBlockId was given, but this update creates no next occurrence: the task is already done",
+    },
+    {
+      label: "a task with no recurrence rule",
+      note: "---\ntitle: Tasks\n---\n\n- [ ] Plain task ➕ 2026-01-01 ^plain\n",
+      update: { blockId: "plain", status: "done", nextBlockId: "next" },
+      message:
+        "nextBlockId was given, but this update creates no next occurrence: the task has no recurrence rule",
+    },
+    {
+      label: "an unreadable recurrence rule",
+      note: "---\ntitle: Tasks\n---\n\n- [ ] Fuzzy habit 🔁 whenever 📅 2026-01-05 ^fuzzy\n",
+      update: { blockId: "fuzzy", status: "done", nextBlockId: "next" },
+      message:
+        'nextBlockId was given, but this update creates no next occurrence: its recurrence rule "whenever" is not a rule the Tasks plugin recognizes',
+    },
+    {
+      label: "a finite rule with no occurrences left",
+      note: "---\ntitle: Tasks\n---\n\n- [ ] One-shot 🔁 every day for 1 times 📅 2026-01-05 ^one-shot\n",
+      update: { blockId: "one-shot", status: "done", nextBlockId: "next" },
+      message:
+        'nextBlockId was given, but this update creates no next occurrence: its recurrence rule "every day for 1 times" produced no next occurrence',
+    },
+    {
+      label: "an id another line holds",
+      note: `${RECURRING_NOTE}- [ ] Other task ^taken\n`,
+      update: { blockId: "water-plants", status: "done", nextBlockId: "taken" },
+      message: 'blockId "taken" already exists in this note',
+    },
+    {
+      label: "the completed task's own id",
+      note: RECURRING_NOTE,
+      update: { blockId: "water-plants", status: "done", nextBlockId: "water-plants" },
+      message: 'blockId "water-plants" already exists in this note',
+    },
+    {
+      label: "an id the same call removes with assignBlockId",
+      note: RECURRING_NOTE,
+      update: {
+        blockId: "water-plants",
+        status: "done",
+        assignBlockId: "water-plants-old",
+        nextBlockId: "water-plants",
+      },
+      message: 'blockId "water-plants" already exists in this note',
+    },
+    {
+      label: "the id of a task deleted on completion",
+      note: "---\ntitle: Tasks\n---\n\n- [ ] Water plants 🔁 every week 🏁 delete 📅 2026-07-07 ^water\n",
+      update: { blockId: "water", status: "done", nextBlockId: "water" },
+      message: 'blockId "water" already exists in this note',
+    },
+    {
+      label: "the same call's assignBlockId",
+      note: RECURRING_NOTE,
+      update: {
+        blockId: "water-plants",
+        status: "done",
+        assignBlockId: "fresh-id",
+        nextBlockId: "fresh-id",
+      },
+      message: 'blockId "fresh-id" already exists in this note',
+    },
+    {
+      label: "an id with invalid characters",
+      note: RECURRING_NOTE,
+      update: { blockId: "water-plants", status: "done", nextBlockId: "bad id" },
+      message: 'blockId "bad id" contains invalid characters (allowed: letters, digits, hyphens)',
+    },
+    {
+      label: "an indented line on a Kanban board",
+      note: "---\nkanban-plugin: board\n---\n\n## Active\n\n- [ ] Card ^card\n  - [ ] Water 🔁 every week 📅 2026-01-05\n",
+      update: { line: 8, status: "done", nextBlockId: "next" },
+      message:
+        "nextBlockId is not allowed on an indented line on a Kanban board — the Kanban plugin copies an indented line's block ID onto its card when it saves the board",
+    },
+  ] as const)(
+    "refuses nextBlockId for $label and leaves the note unchanged",
+    async ({ note, update, message }) => {
+      const vault = await createVault()
+      await writeTestNote(vault, "tasks.md", note)
+
+      await expect(
+        taskMutations.updateTask(
+          {
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
+            vaultPath: vault,
+            path: "tasks.md",
+            ...update,
+          },
+          logger,
+        ),
+      ).rejects.toThrow(new Error(message))
+      expect(await readTestNote(vault, "tasks.md")).toBe(note)
+    },
+  )
+})
+
 describe("round-trip advisories", () => {
   describe("createTask", () => {
     it("writes the line verbatim and reports the recurrence consumption when the description ends in a parseable recurrence", async () => {
