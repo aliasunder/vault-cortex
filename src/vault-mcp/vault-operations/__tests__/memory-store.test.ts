@@ -1590,26 +1590,18 @@ describe("updateMemory near-duplicate section guard", () => {
   })
 
   // The near-miss comparison strips the "(newest first)" suffix and only then
-  // trims, so the extra spaces in front of the suffix fall away. A
-  // three-character name has no edit budget: if the trim ran first, the space
-  // left behind would make the names differ and a duplicate section would be
-  // created.
+  // trims, so the extra spaces in front of the suffix fall away. Against a
+  // hand-written heading with no suffix, a three-character name has no edit
+  // budget: if the trim ran first, the space left behind would make the names
+  // differ and a duplicate section would be created.
   it("rejects a short name with extra spaces before its suffix as a near miss", async () => {
     const emptyVault = await mkdtemp(join(tmpdir(), "suffix-spacing-sections-"))
     onTestFinished(async () => {
       await rm(emptyVault, { recursive: true })
     })
-    await updateMemory(
-      {
-        vaultPath: emptyVault,
-        file: "Notes",
-        section: "Tax",
-        entry: "Three-character section",
-        date: "2026-07-31",
-      },
-      logger,
-    )
-    const contentBefore = await readFile(join(emptyVault, "About Me/Notes.md"), "utf8")
+    await mkdir(join(emptyVault, "About Me"))
+    const contentBefore = "## Tax\n- **2026-07-30**: Hand-written section\n"
+    await writeFile(join(emptyVault, "About Me/Notes.md"), contentBefore, "utf8")
 
     await expect(
       updateMemory(
@@ -1624,7 +1616,7 @@ describe("updateMemory near-duplicate section guard", () => {
       ),
     ).rejects.toThrow(
       new Error(
-        'section not created: "Tax   (newest first)" is nearly identical to existing section "Tax (newest first)". Existing sections: Tax (newest first)',
+        'section not created: "Tax   (newest first)" is nearly identical to existing section "Tax". Existing sections: Tax',
       ),
     )
     expect(await readFile(join(emptyVault, "About Me/Notes.md"), "utf8")).toBe(contentBefore)
