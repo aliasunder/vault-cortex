@@ -3456,8 +3456,8 @@ export const createSearchIndex = (
         // keeps its own chunks and vectors.
         if (!nameOnlyRowIsCurrent()) continue
         switch (extraction.status) {
-          // Shutdown or the watcher's newer request for the path cancels a request. The next boot
-          // or that newer request indexes the PDF again, so its kept chunks and vectors stay.
+          // Only shutdown's cancellation gets past the check above, because the watcher replaces
+          // the PDF's row before it supersedes a request. The next boot reuses the kept vectors.
           case "cancelled":
             continue
           // The PDF stays name-only, so its kept chunks and vectors would answer for text that
