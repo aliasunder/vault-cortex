@@ -1,5 +1,28 @@
 # Changelog
 
+## [1.0.0] — 2026-11-20
+
+### Features
+
+- Name the next occurrence's block id when completing a recurring task (#808)
+
+### Bug Fixes
+
+- **search:** Keep each PDF's vectors through the startup rebuild (#813)
+- **oauth:** Cap the stored size of a client registration at 9 KB (#814)
+- Refuse paths longer than any filesystem accepts (#806)
+- Keep trailing-pattern checks linear in input length (#795)
+
+### Refactoring
+
+- **cli:** Share one copy of each start, env, port and message rule, in lint-enforced layers (#761)
+
+### Documentation
+
+- **roadmap:** Drop the v1.0.0 entry from Planned (#815)
+- **versioning:** Say that making a required input optional is not breaking (#816)
+- Add VERSIONING.md, the compatibility policy for v1.0.0 (#812)
+
 ## [0.57.8] — 2026-11-20
 
 ### Bug Fixes
