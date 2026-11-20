@@ -19,6 +19,7 @@ import { mapWithConcurrency } from "../../utils/map-with-concurrency.js"
 import { isErrnoException } from "../../utils/is-errno-exception.js"
 import { describeError } from "../../utils/describe-error.js"
 import { assertNoControlCharacters } from "../../utils/assert-no-control-characters.js"
+import { assertPathWithinMaxLength } from "../../utils/assert-path-within-max-length.js"
 import { withFileLock } from "../../utils/file-write-lock.js"
 import {
   isDoubledMarkdownFileName,
@@ -488,6 +489,16 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
     return join(vaultPath, memoryDir, `${file}.md`)
   }
 
+  // The write lock case-folds its key, which takes more than linear time on
+  // some crafted names, so a memory path longer than any filesystem accepts
+  // is refused before the lock sees it. Reads take no lock and keep their
+  // "cannot read memory file" message for such a name.
+  const memoryLockPath = (vaultPath: string, file: string): string => {
+    const filePath = memoryFilePath(vaultPath, file)
+    assertPathWithinMaxLength(`${memoryDir}/${file}.md`)
+    return filePath
+  }
+
   type MemoryTemplateSpec = {
     fileName: string
     title: string
@@ -865,7 +876,7 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
     assertNoControlCharacters(params.section, "section")
     // Serialize the read-modify-write so concurrent appends to the same file
     // don't clobber each other's entries (lost update).
-    return withFileLock(memoryFilePath(params.vaultPath, params.file), async () => {
+    return withFileLock(memoryLockPath(params.vaultPath, params.file), async () => {
       const date = params.date ?? DateTime.now().toISODate()
       const position = params.position ?? "top"
       const bullet = `- **${date}**: ${params.entry}`
@@ -1136,7 +1147,7 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
 
     // Serialize with concurrent updates/deletes to the same file so the
     // read-modify-write can't be interleaved and lose a write.
-    return withFileLock(memoryFilePath(params.vaultPath, params.file), async () => {
+    return withFileLock(memoryLockPath(params.vaultPath, params.file), async () => {
       const raw = await readMemoryFile({ vaultPath: params.vaultPath, file: params.file }, logger)
       const { textBeforeBody, body } = splitNoteKeepingBlock(raw)
       const lines = splitIntoLines(body)

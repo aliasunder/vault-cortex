@@ -10,6 +10,7 @@ import {
   readdir,
   symlink,
 } from "node:fs/promises"
+import { execFileSync } from "node:child_process"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { parseNote, UnkeepableOpeningBlockError } from "../../obsidian-markdown/frontmatter.js"
@@ -3869,5 +3870,140 @@ describe("memory file with a properties block the server cannot read or keep", (
       expect(refusal).toEqual(OPENS_A_BLOCK_REFUSAL)
       expect(await readBrokenFile()).toBe(content)
     },
+  )
+})
+
+describe("over-long memory file names", () => {
+  // "About Me/" (9 bytes) + name + ".md" (3 bytes) makes 4,096 bytes, one more
+  // than the longest path Linux accepts (PATH_MAX less its terminating NUL)
+  const tooLongName = "a".repeat(4096 - 12)
+  const tooLongRefusal = new Error(`ENAMETOOLONG: name too long, 'About Me/${tooLongName}.md'`)
+
+  it("updateMemory refuses a name whose memory path is 4,096 bytes and writes nothing", async () => {
+    await expect(
+      updateMemory(
+        {
+          vaultPath: vault,
+          file: tooLongName,
+          section: "Decision heuristics (newest first)",
+          entry: "valid entry",
+          date: "2026-07-02",
+        },
+        logger,
+      ),
+    ).rejects.toThrow(tooLongRefusal)
+    expect(await readdir(join(vault, "About Me"))).toEqual(["Opinions.md", "Principles.md"])
+  })
+
+  it("deleteMemory refuses a name whose memory path is 4,096 bytes", async () => {
+    await expect(
+      deleteMemory(
+        {
+          vaultPath: vault,
+          file: tooLongName,
+          section: "Decision heuristics (newest first)",
+          date: "2026-05-06",
+          entry: "Secrets invisible at every layer",
+        },
+        logger,
+      ),
+    ).rejects.toThrow(tooLongRefusal)
+  })
+
+  it("keeps the separator refusal for an over-long name holding a separator", async () => {
+    const file = `../${tooLongName}`
+
+    await expect(
+      updateMemory(
+        {
+          vaultPath: vault,
+          file,
+          section: "Decision heuristics (newest first)",
+          entry: "valid entry",
+          date: "2026-07-02",
+        },
+        logger,
+      ),
+    ).rejects.toThrow(
+      new Error(`memory file must be a bare name without path separators: "${file}"`),
+    )
+  })
+})
+
+/** Leaves room for the child's tsx start-up on a loaded machine. */
+const CHILD_DEADLINE_MS = 20_000
+
+/**
+ * Runs one memory write in a child process with a name made of a million
+ * out-of-order combining marks, and prints "refused" when it throws the
+ * length refusal for that name. Without the check before the write lock,
+ * case-folding the lock key stalls for minutes, so the deadline's SIGKILL
+ * fails the test instead of hanging the suite. `memoryCall` is an
+ * expression that may use `vaultPath`, `file`, `store` and `logger`.
+ */
+const runMemoryWriteInChild = (memoryCall: string): string => {
+  const memoryStoreUrl = new URL("../memory-store.ts", import.meta.url).href
+  const loggerUrl = new URL("../../../logger.ts", import.meta.url).href
+
+  return execFileSync(
+    process.execPath,
+    [
+      "--import",
+      "tsx",
+      "--input-type=module",
+      "--eval",
+      `
+      import { mkdtemp, mkdir, rm } from "node:fs/promises";
+      import { tmpdir } from "node:os";
+      import { join } from "node:path";
+      import { createMemoryStore } from ${JSON.stringify(memoryStoreUrl)};
+      import { logger } from ${JSON.stringify(loggerUrl)};
+      const vaultPath = await mkdtemp(join(tmpdir(), "memory-long-name-"));
+      await mkdir(join(vaultPath, "About Me"));
+      const store = createMemoryStore({ memoryDir: "About Me" });
+      const file = "a" + "\\u0316\\u0301".repeat(500000);
+      try {
+        await (${memoryCall});
+        process.stdout.write("not refused");
+      } catch (error) {
+        const refused = error.message === "ENAMETOOLONG: name too long, 'About Me/" + file + ".md'";
+        process.stdout.write(refused ? "refused" : "other error: " + error.message.slice(0, 200));
+      } finally {
+        await rm(vaultPath, { recursive: true, force: true });
+      }
+    `,
+    ],
+    {
+      encoding: "utf8",
+      timeout: CHILD_DEADLINE_MS,
+      killSignal: "SIGKILL",
+      env: { ...process.env, LOG_LEVEL: "error" },
+    },
+  )
+}
+
+describe("over-long memory file names within a child deadline", () => {
+  it(
+    "updateMemory refuses a million-character combining-mark name",
+    () => {
+      const output = runMemoryWriteInChild(
+        `store.updateMemory({ vaultPath, file, section: "Notes", entry: "x", date: "2026-07-02" }, logger)`,
+      )
+
+      expect(output).toBe("refused")
+    },
+    CHILD_DEADLINE_MS + 5_000,
+  )
+
+  it(
+    "deleteMemory refuses a million-character combining-mark name",
+    () => {
+      const output = runMemoryWriteInChild(
+        `store.deleteMemory({ vaultPath, file, section: "Notes", date: "2026-07-02", entry: "x" }, logger)`,
+      )
+
+      expect(output).toBe("refused")
+    },
+    CHILD_DEADLINE_MS + 5_000,
   )
 })

@@ -14,6 +14,7 @@ import {
   symlink,
 } from "node:fs/promises"
 import { randomUUID } from "node:crypto"
+import { execFileSync } from "node:child_process"
 import { basename, join } from "node:path"
 import { tmpdir } from "node:os"
 import { DateTime } from "luxon"
@@ -33,6 +34,7 @@ import {
   pruneEmptyParents,
   readTrashFileState,
   resolveSafePath,
+  resolveVaultRelativePath,
   tempSavePath,
   trashDomainLockKey,
 } from "../vault-filesystem.js"
@@ -478,6 +480,187 @@ describe("absolute paths", () => {
       listAssets({ vaultPath: vault, folder: `${vault}/notes` }, logger),
     ).rejects.toThrow(`absolute path blocked: "${vault}/notes" must be vault-relative`)
   })
+})
+
+// The longest path Linux accepts: PATH_MAX (4,096 bytes) less its terminating NUL
+const LONGEST_ACCEPTED_PATH_BYTES = 4095
+
+/** The refusal a path longer than any filesystem accepts gets, quoting it as sent. */
+const pathTooLongError = (path: string): Error => {
+  return new Error(`ENAMETOOLONG: name too long, '${path}'`)
+}
+
+describe("over-long paths", () => {
+  const longestAcceptedPath = `${"a".repeat(LONGEST_ACCEPTED_PATH_BYTES - 3)}.md`
+  const oneByteTooLongPath = `${"a".repeat(LONGEST_ACCEPTED_PATH_BYTES - 2)}.md`
+  // 4,105 bytes that normalize to "x.md": 100 + 800 × 5 + 5
+  const paddedPath = `${"a".repeat(100)}${"/b/..".repeat(800)}/x.md`
+
+  it("resolveSafePath resolves a path of exactly 4,095 bytes", () => {
+    expect(resolveSafePath(vault, longestAcceptedPath)).toBe(join(vault, longestAcceptedPath))
+  })
+
+  it("resolveSafePath refuses a path of 4,096 bytes, quoting it as given", () => {
+    expect(() => resolveSafePath(vault, oneByteTooLongPath)).toThrow(
+      pathTooLongError(oneByteTooLongPath),
+    )
+  })
+
+  it("resolveSafePath keeps the absolute-path message for an over-long absolute path", () => {
+    const absolutePath = `/${oneByteTooLongPath}`
+
+    expect(() => resolveSafePath(vault, absolutePath)).toThrow(
+      new Error(`absolute path blocked: "${absolutePath}" must be vault-relative`),
+    )
+  })
+
+  it("resolveVaultRelativePath refuses a padded path that normalizes short, quoting it as sent", () => {
+    expect(() => resolveVaultRelativePath({ vaultPath: vault, notePath: paddedPath })).toThrow(
+      pathTooLongError(paddedPath),
+    )
+  })
+
+  it("deleteNote refuses a padded path, quoting it as sent, and leaves the note in place", async () => {
+    await writeFile(join(vault, "x.md"), "content", "utf8")
+
+    await expect(
+      deleteNote(
+        {
+          vaultPath: vault,
+          path: paddedPath,
+          protectedPaths: [],
+          pruneEmptyFolders: false,
+          trashOption: "system",
+        },
+        logger,
+      ),
+    ).rejects.toThrow(pathTooLongError(paddedPath))
+    expect(await readFile(join(vault, "x.md"), "utf8")).toBe("content")
+  })
+
+  it("writeNote refuses a path of 4,096 bytes and writes nothing", async () => {
+    await expect(
+      writeNote({ vaultPath: vault, path: oneByteTooLongPath, body: "body" }, logger),
+    ).rejects.toThrow(pathTooLongError(oneByteTooLongPath))
+    expect(await readdir(vault)).toEqual([])
+  })
+})
+
+/** Leaves room for the child's tsx start-up on a loaded machine. */
+const CHILD_DEADLINE_MS = 20_000
+
+/**
+ * Runs one vault call on a million-character path in a child process and
+ * prints "refused" when it throws the length refusal for that path. Without
+ * the check placed before the work, the call stalls for minutes, so the
+ * deadline's SIGKILL fails the test instead of hanging the suite.
+ *
+ * - `combining marks`: a long run of out-of-order combining marks, which
+ *   makes case-folding the path slow.
+ * - `padded`: a long segment followed by many "b/.." pairs, which makes
+ *   normalizing and resolving the path slow.
+ *
+ * `vaultCall` is an expression that may use `vaultPath`, `path`, `vaultFs`,
+ * `resolveVaultRelativePath` and `logger`.
+ */
+const runVaultCallInChild = (params: {
+  pathShape: "combining marks" | "padded"
+  vaultCall: string
+}): string => {
+  const vaultFilesystemUrl = new URL("../vault-filesystem.ts", import.meta.url).href
+  const loggerUrl = new URL("../../../logger.ts", import.meta.url).href
+
+  return execFileSync(
+    process.execPath,
+    [
+      "--import",
+      "tsx",
+      "--input-type=module",
+      "--eval",
+      `
+      import { mkdtemp, rm } from "node:fs/promises";
+      import { tmpdir } from "node:os";
+      import { join } from "node:path";
+      import { vaultFs, resolveVaultRelativePath } from ${JSON.stringify(vaultFilesystemUrl)};
+      import { logger } from ${JSON.stringify(loggerUrl)};
+      const vaultPath = await mkdtemp(join(tmpdir(), "vault-long-path-"));
+      const pathsByShape = {
+        "combining marks": "a" + "\\u0316\\u0301".repeat(500000) + ".md",
+        padded: "a".repeat(500000) + "/b/..".repeat(500000) + "/x.md",
+      };
+      const path = pathsByShape[${JSON.stringify(params.pathShape)}];
+      try {
+        await (${params.vaultCall});
+        process.stdout.write("not refused");
+      } catch (error) {
+        const refused = error.message === "ENAMETOOLONG: name too long, '" + path + "'";
+        process.stdout.write(refused ? "refused" : "other error: " + error.message.slice(0, 200));
+      } finally {
+        await rm(vaultPath, { recursive: true, force: true });
+      }
+    `,
+    ],
+    {
+      encoding: "utf8",
+      timeout: CHILD_DEADLINE_MS,
+      killSignal: "SIGKILL",
+      env: { ...process.env, LOG_LEVEL: "error" },
+    },
+  )
+}
+
+describe("over-long paths within a child deadline", () => {
+  it(
+    "writeNote refuses a million-character combining-mark path",
+    () => {
+      const output = runVaultCallInChild({
+        pathShape: "combining marks",
+        vaultCall: `vaultFs.writeNote({ vaultPath, path, body: "x" }, logger)`,
+      })
+
+      expect(output).toBe("refused")
+    },
+    CHILD_DEADLINE_MS + 5_000,
+  )
+
+  it(
+    "writeNote refuses a million-character padded path before resolving it",
+    () => {
+      const output = runVaultCallInChild({
+        pathShape: "padded",
+        vaultCall: `vaultFs.writeNote({ vaultPath, path, body: "x" }, logger)`,
+      })
+
+      expect(output).toBe("refused")
+    },
+    CHILD_DEADLINE_MS + 5_000,
+  )
+
+  it(
+    "deleteNote refuses a million-character padded path before normalizing it",
+    () => {
+      const output = runVaultCallInChild({
+        pathShape: "padded",
+        vaultCall: `vaultFs.deleteNote({ vaultPath, path, protectedPaths: [], pruneEmptyFolders: false, trashOption: "system" }, logger)`,
+      })
+
+      expect(output).toBe("refused")
+    },
+    CHILD_DEADLINE_MS + 5_000,
+  )
+
+  it(
+    "resolveVaultRelativePath refuses a million-character padded path before normalizing it",
+    () => {
+      const output = runVaultCallInChild({
+        pathShape: "padded",
+        vaultCall: `resolveVaultRelativePath({ vaultPath, notePath: path })`,
+      })
+
+      expect(output).toBe("refused")
+    },
+    CHILD_DEADLINE_MS + 5_000,
+  )
 })
 
 describe("markdown path requirement", () => {

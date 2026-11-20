@@ -42,6 +42,7 @@ import type { LeadingCallout } from "../obsidian-markdown/callouts.js"
 import { splitIntoLines, trimBlankEdgeLines } from "../obsidian-markdown/lines.js"
 import { assertNoControlCharacters } from "../../utils/assert-no-control-characters.js"
 import { assertPathHasExtension } from "../../utils/assert-path-has-extension.js"
+import { assertPathWithinMaxLength } from "../../utils/assert-path-within-max-length.js"
 import { caseFoldPath } from "../../utils/case-fold-path.js"
 import type { TrashOption } from "./trash-config.js"
 import { hasHiddenPathSegment } from "../../utils/has-hidden-path-segment.js"
@@ -54,9 +55,10 @@ import type { Logger } from "../../logger.js"
 export const toVaultRelativePath = (input: string): string =>
   posix.normalize(input.replace(/\\/g, "/"))
 
-/** Resolves a note path within the vault; throws on absolute paths,
- *  traversal, hidden paths (dot-prefixed segments — Obsidian ignores
- *  them), and the vault root itself (which names no entry). Hidden is
+/** Resolves a note path within the vault; throws on absolute paths, paths
+ *  longer than any filesystem accepts, traversal, hidden paths (dot-prefixed
+ *  segments — Obsidian ignores them), and the vault root itself (which names
+ *  no entry). Hidden is
  *  checked on the resolved relative path (so "./" and "../" normalize)
  *  before any fs access (no existence leak). Internal ".obsidian/"
  *  config readers deliberately bypass this via direct readFile. */
@@ -70,6 +72,11 @@ export const resolveSafePath = (vaultPath: string, notePath: string): string => 
   if (posix.isAbsolute(notePath)) {
     throw new Error(`absolute path blocked: "${notePath}" must be vault-relative`)
   }
+
+  // Before resolve(): resolving, normalizing and case-folding a path cost
+  // more than linear time on some crafted inputs, so a path the filesystem
+  // would refuse anyway is refused before any of them runs.
+  assertPathWithinMaxLength(notePath)
 
   const vaultRoot = resolve(vaultPath)
   const resolvedPath = resolve(vaultRoot, notePath)
@@ -98,12 +105,16 @@ export const resolveSafePath = (vaultPath: string, notePath: string): string => 
 
 /** Canonical vault-relative form of a note path — prefix guards must run on
  *  this form so path aliases (separator variants, traversal segments) can't
- *  evade them. Throws resolveSafePath's absolute/traversal/hidden errors for
- *  unsafe input. */
+ *  evade them. Throws resolveSafePath's absolute/length/traversal/hidden
+ *  errors for unsafe input. */
 export const resolveVaultRelativePath = (params: {
   vaultPath: string
   notePath: string
 }): string => {
+  // Normalizing costs more than linear time on some crafted inputs, so the
+  // length check runs on the input as sent, before toVaultRelativePath.
+  assertPathWithinMaxLength(params.notePath)
+
   const normalizedInput = toVaultRelativePath(params.notePath)
   // resolveSafePath is called for its safety guards; its absolute result is
   // an intermediate, converted straight back to vault-relative.

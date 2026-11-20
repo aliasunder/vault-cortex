@@ -1470,6 +1470,14 @@ Docker hardening, and durability seatbelts above.
   through `resolveSafePath()`, then take the path relative to the vault
   root. Prefix guards run on this form, so an aliased spelling (`\`
   separators, or `X/../About Me/Principles.md`) cannot evade protection.
+- **Path length** (`utils/assert-path-within-max-length.ts`): a path
+  longer than 4,095 bytes, the most Linux accepts on any filesystem, is
+  refused before any other work on it. The check runs on the input as sent,
+  in three places: at the start of `resolveVaultRelativePath()`, in
+  `resolveSafePath()` after the absolute-path check, and in the memory
+  store's update and delete before they take the write lock. The refusal
+  reads like the filesystem's own ENAMETOOLONG error and gets the same
+  remedy, so the tools' existing Errors entries describe it.
 - **`vaultFolderName`** (Zod schema in `config.ts`): config-time
   validation rejects absolute paths, traversal (`..`), and blank names
   before they reach any file operation.
@@ -1539,8 +1547,8 @@ Docker hardening, and durability seatbelts above.
 - **Memory file read failures** (`memory-store.ts`): a failed read of a
   memory file is rethrown as "cannot read memory file …" with the
   vault-relative path and no Node error code, so the tool boundary adds no
-  coded remedy. A file name longer than the filesystem allows surfaces
-  under this message, not as `ENAMETOOLONG`.
+  coded remedy. A read of a file name longer than the filesystem allows
+  surfaces under this message, not as `ENAMETOOLONG`.
 - **In-lock existence checks**: `deleteNote` and `moveNote` check file
   existence inside the lock, so a missing note returns the "note not found"
   error the tools document instead of Node's ENOENT text.
