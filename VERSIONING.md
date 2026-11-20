@@ -1,9 +1,9 @@
 # Versioning
 
 vault-cortex follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
-It ships as two things with their own version numbers: the server, a
-Docker image, and the `vault-cortex` npm package, a CLI that sets the
-server up and runs it. This document says which parts of each a version
+It ships as two things with their own version numbers: the server (a
+Docker image) and the `vault-cortex` npm package (a CLI that sets the
+server up and runs it). This document says which parts of each a version
 number covers, how a covered part is retired, and how the two versions
 relate.
 
@@ -14,20 +14,22 @@ describes.
 
 ## What a version number promises
 
-| Release | May contain                                                                                                 |
-| ------- | ----------------------------------------------------------------------------------------------------------- |
-| Major   | Breaking changes to a covered part, each listed under ⚠ BREAKING CHANGES in the release notes               |
-| Minor   | New tools, prompts (the guided workflows a client lists), optional parameters, response fields and settings |
-| Patch   | Bug fixes and dependency updates                                                                            |
+| Release | May contain                                                                                                                      |
+| ------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| Major   | Breaking changes to a covered part, each listed under ⚠ BREAKING CHANGES in the release notes                                    |
+| Minor   | New tools, prompts (the guided workflows a client lists), optional parameters and prompt arguments, response fields and settings |
+| Patch   | Bug fixes and dependency updates                                                                                                 |
 
 Each row may also contain what the rows below it list. A dependency update
 that changes a covered part, such as the CLI's minimum Node.js version,
 takes that part's rule.
 
-A change is breaking when a documented call, setting or read stops working
-or returns different fields. These are not breaking:
+A change is breaking when a documented call, setting or read stops working,
+returns different fields, or changes a field's type. These are not
+breaking:
 
-- A new tool, prompt, optional parameter, response field or setting
+- A new tool, prompt, optional parameter or prompt argument, response field
+  or setting
 - A fix to behavior that only ever worked by accident and was never
   documented, such as a path spelling the tool's description already said
   is refused
@@ -39,7 +41,7 @@ From v1.0.0, these change only in a major release:
 
 - **MCP tool surface** — tool names, parameter names and types, which
   parameters are required, response fields, the refusal of unknown
-  parameters by every tool that takes any, prompt names and their
+  parameters by every tool that takes any, prompt names and their required
   arguments, and the MCP protocol versions the server accepts
 - **Error contracts** — each tool's description, which your MCP client
   shows, lists its failures under `Errors:`. A listed failure stays
@@ -63,8 +65,8 @@ From v1.0.0, these change only in a major release:
   entries under headings in the `About Me/` folder), the Tasks plugin's
   emoji and Dataview fields, Kanban boards with lanes as headings,
   `^block-id` references, the Obsidian link forms the server resolves, and
-  the settings it reads in `.obsidian/`: daily notes, the trash setting
-  and the Tasks plugin's format
+  the settings it reads in `.obsidian/`: daily notes, the trash setting,
+  and the Tasks plugin's format, statuses and date stamping
 
 ## Not covered
 
@@ -134,7 +136,7 @@ reviewer's judgment against the Covered and Not covered lists.
 | Covered part        | Check                                                                                                                                                                                                                                                                                                                                   |
 | ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Tool surface        | A committed snapshot of every tool's schema, description and annotations, the prompts, and the connect-time instructions, for each combination of the settings that hide tools. A change must update the snapshot in the same pull request, so the diff is in review; the snapshot at each release commit is the reference for the next |
-| Error contracts     | Integration tests call every tool over real HTTP and assert whole responses, so a dropped failure or a changed field fails the suite                                                                                                                                                                                                    |
+| Error contracts     | Integration tests call every tool over real HTTP, asserting each success response whole and each documented failure by its message, so a changed field or a dropped failure fails the suite                                                                                                                                             |
 | Settings            | Config-loading tests pin each setting's accepted values and defaults, and drift tests keep the deploy templates, compose files and CLI-generated `.env` files listing the same settings, so a rename or a new setting reaches review on every surface at once                                                                           |
 | Deployment contract | Boot tests of the built `:remote` image check the container's startup scripts, the values they derive and the volume layout; a test pins the Render deploy template                                                                                                                                                                     |
 | CLI                 | Pseudo-terminal tests drive each interactive command before a CLI release; every pull request builds the CLI and runs `init` on the minimum and newest supported Node.js                                                                                                                                                                |
