@@ -7,10 +7,8 @@ server up and runs it). This document says which parts of each a version
 number covers, how a covered part is retired, and how the two versions
 relate.
 
-The policy takes effect at v1.0.0. Before that, any 0.x release may
-include a breaking change, announced as
-[How breaking changes are announced](#how-breaking-changes-are-announced)
-describes.
+The policy applies from v1.0.0 onward. The 0.x releases before it carried
+no compatibility promise.
 
 ## What a version number promises
 
@@ -40,7 +38,7 @@ breaking:
 
 ## Covered
 
-From v1.0.0, these change only in a major release:
+These change only in a major release:
 
 - **MCP tool surface** — tool names, parameter names and types, which
   parameters are required, response fields, the refusal of unknown
