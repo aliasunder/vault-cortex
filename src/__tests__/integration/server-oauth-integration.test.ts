@@ -16,6 +16,10 @@ import {
   EXPECTED_SECURITY_HEADERS,
 } from "./test-harness.js"
 
+// Each test boots its own server, which can take longer than Vitest's
+// 5-second default on a loaded machine. Tests that boot twice set their own.
+vi.setConfig({ testTimeout: 15_000 })
+
 const REDIRECT_URI = "http://127.0.0.1/callback"
 const TOKEN_A = "integration-token-before-rotation"
 const TOKEN_B = "integration-token-after-rotation"
@@ -787,6 +791,50 @@ describe("client registration sweep", () => {
     onTestFinished(() => after.cleanup())
     const health = await fetch(`http://127.0.0.1:${rebootedPort}/healthz`)
     expect(health.status).toBe(200)
+  }, 60_000)
+
+  it("refuses a registration under the 8 KB body cap whose stored form exceeds 9 KB, stores nothing, and still registers the next client", async () => {
+    const dataDir = await mkdtemp(join(tmpdir(), "vc-integ-stored-size-"))
+    onTestFinished(async () => {
+      await rm(dataDir, { recursive: true, force: true })
+    })
+    const port = await freePort()
+    const server = await startServer(port, { INDEX_DB_PATH: join(dataDir, "search.db") })
+    onTestFinished(server.cleanup)
+    const bodyWithJwks = (jwksItems: number): string => {
+      const jwks = Array.from({ length: jwksItems }, () => "1e20").join(",")
+      return `{"redirect_uris":["${REDIRECT_URI}"],"jwks":[${jwks}]}`
+    }
+    const itemsUnderBodyCap = Math.floor((8192 - Buffer.byteLength(bodyWithJwks(0)) + 1) / 5)
+    const body = bodyWithJwks(itemsUnderBodyCap)
+    expect(Buffer.byteLength(body)).toBeLessThanOrEqual(8192)
+    expect(Buffer.byteLength(JSON.stringify(JSON.parse(body)))).toBeGreaterThan(9216)
+
+    const refused = await fetch(`http://127.0.0.1:${port}/register`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body,
+    })
+
+    expect(refused.status).toBe(400)
+    expect(await refused.json()).toEqual({
+      error: "invalid_client_metadata",
+      error_description: "Client metadata is too large to store",
+    })
+    const oauthDb = new Database(join(dataDir, "oauth.db"), { readonly: true })
+    onTestFinished(() => {
+      oauthDb.close()
+    })
+    const storedClientIds = (): string[] => {
+      return oauthDb
+        .prepare<[], { client_id: string }>("SELECT client_id FROM clients")
+        .all()
+        .map((clientRow) => clientRow.client_id)
+    }
+    expect(storedClientIds()).toEqual([])
+    // registerClient throws unless the registration answers 201.
+    const next = await registerClient(port)
+    expect(storedClientIds()).toEqual([next.client_id])
   }, 60_000)
 })
 
