@@ -4807,7 +4807,7 @@ describe("rebuildFromVault deferred PDF content", () => {
     ).toEqual({ count: 2 })
   })
 
-  it("logs a PDF whose old vectors cannot be removed and finishes the other PDFs", async () => {
+  it("logs a PDF whose old chunks and vectors cannot be removed and finishes the other PDFs", async () => {
     const fixture = await createPdfRebuildFixture()
     await writeFile(join(fixture.vaultPath, "Healthy.PDF"), "healthy disk bytes")
     fixture.database.exec(`
