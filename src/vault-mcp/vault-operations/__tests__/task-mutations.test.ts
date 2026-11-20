@@ -6500,6 +6500,13 @@ describe("naming the next occurrence's block id", () => {
         "nextBlockId was given, but this update creates no next occurrence: the update does not complete the task",
     },
     {
+      label: "an edit that leaves the status as it is",
+      note: RECURRING_NOTE,
+      update: { blockId: "water-plants", description: "Water the ferns", nextBlockId: "next" },
+      message:
+        "nextBlockId was given, but this update creates no next occurrence: the update does not complete the task",
+    },
+    {
       label: "a task that is already done",
       note: "---\ntitle: Tasks\n---\n\n- [x] Water plants 🔁 every week 📅 2026-01-05 ✅ 2026-01-06 ^water-plants\n",
       update: { blockId: "water-plants", status: "done", nextBlockId: "next" },

@@ -1952,9 +1952,11 @@ const assertUpdateTaskParams = (params: UpdateTaskParams): void => {
     throw new Error("description must be a single line")
   }
 
-  // Later steps skip an empty assignBlockId as if it were absent, so this
-  // check is what refuses one. An empty nextBlockId reaches
-  // validateBlockId's grammar check instead.
+  // - Later steps skip an empty assignBlockId as if it were absent, so this
+  //   check is what refuses one.
+  // - An empty nextBlockId needs no check here. Like any nextBlockId, it is
+  //   refused when the update creates no next occurrence, and
+  //   validateBlockId's grammar check refuses it otherwise.
   if (assignBlockId === "") {
     throw new Error("assignBlockId cannot be empty (use null to remove the id)")
   }
