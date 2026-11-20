@@ -20,7 +20,8 @@ describes.
 | Minor   | New tools, prompts (the guided workflows a client lists), optional parameters and prompt arguments, response fields and settings |
 | Patch   | Bug fixes and dependency updates                                                                                                 |
 
-Each row may also contain what the rows below it list. A dependency update
+Each row may also contain what the rows below it list, and any change the
+"Not covered" list allows. A dependency update
 that changes a covered part, such as the CLI's minimum Node.js version,
 takes that part's rule.
 
