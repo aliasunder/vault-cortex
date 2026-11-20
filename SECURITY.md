@@ -38,11 +38,10 @@ The maintainer runs the `:remote` image on AWS Lightsail behind API Gateway.
 These components are part of the maintainer's deployment, not the vault-cortex
 project itself — adopters may use any hosting, reverse proxy, and CI/CD setup:
 
-- **API Gateway + Lambda authorizer** — checks the bearer token on protected
-  routes before a request reaches the server. The server itself enforces
-  expiry and revocation and answers 401, so the authorizer lets through a
-  JWT that is correctly signed for this deployment even after it expires.
-  The OAuth endpoints skip the authorizer.
+- **API Gateway + Lambda authorizer** — checks bearer tokens on protected
+  routes before Express. It forwards signed, deployment-bound expired JWTs so
+  Express can return 401 and enforce expiry and revocation. OAuth endpoints
+  bypass the Lambda.
 - **CI/CD workflows** — GitHub Actions with OIDC AWS auth, SSH to Lightsail,
   GHCR image push
 
@@ -66,11 +65,8 @@ mechanism-level detail.
   comparison — an aliased spelling (`\` separators,
   `X/../Protected/file.md`, or a case variant on a case-insensitive
   filesystem) cannot evade the guard
-- The folder settings (`MEMORY_DIR`, `DAILY_NOTES_FOLDER`,
-  `PROTECTED_PATHS`, `ORPHAN_EXCLUDE_FOLDERS`) reject `..`, absolute paths,
-  and blank names, so the server refuses to start while any of them holds
-  such a value. The one exception is `DAILY_NOTES_FOLDER=/`, which Obsidian
-  saves for the vault root and the server reads the same way
+- `vaultFolderName` Zod schema rejects `..`, absolute paths, and blank
+  names at config parse time
 - Memory file names reject `/` and `\` — prevents `../../outside`-style
   escapes from the memory directory — and leading dots, which would
   create hidden files
@@ -94,17 +90,12 @@ mechanism-level detail.
   the server whenever the desktop pushes them.
 - The search index and OAuth databases live outside the vault (the
   default `/data` volume), so the file tools can't reach them. The OAuth
-  database stores each refresh token only as a keyed hash (an HMAC made
-  with `MCP_AUTH_TOKEN`), so a copy of the database file holds no usable
-  credential.
-  `INDEX_DB_PATH`, a container path the Compose files and the remote
-  image set to `/data/index.db`, places the search database, and the
-  OAuth database sits beside it. If an edited Compose file points
-  `INDEX_DB_PATH` into a _visible_ vault folder, hidden-path blocking
-  covers neither database.
-  `vault_list_files` lists them like any other vault file, and
-  `vault_read_file` refuses them only because a SQLite file holds binary
-  data.
+  database stores refresh tokens keyed by an HMAC under `MCP_AUTH_TOKEN`,
+  so a copy of it holds no usable credential.
+  Hidden-path blocking does not cover a database relocated into a
+  _visible_ vault folder — there `vault_list_files` lists it like any
+  other vault file, and `vault_read_file` refuses it only because a
+  SQLite file holds binary data.
 - `vault_read_file` returns any visible non-markdown file whose bytes are
   UTF-8 text, whatever its extension, so a credential kept in a visible vault
   folder (a `deploy.env` or `secrets.txt`) is readable by any signed-in client.
@@ -124,28 +115,24 @@ mechanism-level detail.
   index, OAuth database) remain.
 - `DISABLED_TOOLS` narrows the surface tool-by-tool — e.g. keep writes
   on but remove the delete tools. Same registration-time guarantee.
-- No remaining tool description or prompt mentions a hidden tool. A test
-  disables each tool in turn and checks that no served tool's description
-  or input schema still names it.
+- Cross-references in surviving descriptions and prompts are
+  availability-keyed and disappear with their target. A test disables
+  each tool in turn and checks that no served tool's description or
+  input schema still names it.
 - Unknown tool names stop the server at startup rather than silently
   disabling nothing.
 
-### Check-then-write races
+### TOCTOU race prevention
 
-A time-of-check-to-time-of-use (TOCTOU) race lets a file change between a
-check and the write that relies on it. Writes to a note hold its per-file
-write lock (see [Data corruption prevention](#data-corruption-prevention)),
-and these operations leave no gap between the check and the write:
-
-- A move creates its destination in one step that fails if the name is
-  already taken. On POSIX that step is a hard link (`link()`); on
-  Windows-drive Docker bind mounts, which have no hard links, it is an
-  exclusive reservation (`O_EXCL`) followed by a rename
-- A move locks every note it changes, checks that they exist inside the
-  lock, then reads and plans every link rewrite before writing anything,
-  so the vault can't change between the plan and the writes
-- A delete checks that the note exists inside the lock, so a concurrent
-  edit can't recreate the file after it is removed
+- `atomicWriteFileExclusive()` uses `link()` on POSIX, or an `O_EXCL`
+  reserve + rename fallback when hard links are unavailable (Windows-drive
+  Docker bind mounts), to atomically create the destination — no
+  check-then-write window
+- `moveNote` reads and plans every rewrite before writing anything;
+  existence checks run inside the lock so the vault state is stable
+  during the entire read-plan-write span
+- `deleteNote` checks existence inside the lock — prevents racing with a
+  concurrent patch that could recreate the file after unlink
 
 ### Injection
 
@@ -180,11 +167,8 @@ The server, and the `:remote` image's setup mode, set these headers:
 ### Data corruption prevention
 
 - Atomic writes: temp-then-rename — readers never see partial content
-- Per-file write lock: one write runs at a time per file, in three modes.
-  A note or task edit fails at once while the file is mid-write, because
-  it was planned from an earlier read and must re-read first. A memory
-  write queues behind the current one, since it reads the file inside the
-  lock. A move locks every note it changes all at once, or none
+- Per-file mutex: three modes (serializing, fail-fast, multi-file)
+  prevent concurrent writes from corrupting each other
 - Properties-block guard: an edit to a note's body writes its properties
   block back as written, comments included. Every rewrite of the
   properties refuses a block it cannot keep (invalid YAML, a block that is
@@ -195,11 +179,10 @@ The server, and the `:remote` image's setup mode, set these headers:
   `vault_update_properties` with `replace: true` replaces a refused block
   with the properties it is given. A rewrite of the properties does not
   keep YAML comments
-- First-sync gate (remote image): the container's startup scripts (the
-  init chain) run Obsidian Sync to completion before the server starts,
-  so the memory folder's starter templates are never written while a
-  two-way sync is still downloading the vault. The download-only sync modes (`SYNC_MODE` set to `pull-only`
-  or `mirror-remote`) never upload the templates at all
+- First-sync gate (remote image): the init chain runs Obsidian Sync to
+  completion before the server starts, so in two-way sync memory bootstrap
+  can never race an incoming sync (`pull-only` and `mirror-remote` never
+  upload its templates)
 - Sync-state vault guard (remote image): the Sync client's own device
   record of locally held files is read before any sync attempt. If the
   record lists files but the vault volume has no content (notes or
@@ -220,11 +203,9 @@ The server, and the `:remote` image's setup mode, set these headers:
   Obsidian later trashed under a recorded name is kept. It cannot catch a
   note restored by hand and trashed again within a minute, or a file
   swapped in during the instant between the check and the delete
-- Memory shrink guard: the memory tools refuse a write that would remove
-  more than half of a memory file's bytes, since a shrink that large almost
-  always means a bug is erasing most of the file. An entry that really is
-  that large is removed with `vault_delete_span` or by hand. Other note
-  tools have no such guard
+- Memory shrink guard: refuses writes that would remove >50% of a file's
+  bytes — defense-in-depth against bugs that would silently erase most of
+  a memory file
 - Memory idempotency guard: exact-bullet dedup prevents duplicates from
   retried writes after gateway timeouts
 - Memory line-break rejection: entry, date, and section reject `\r`/`\n`
@@ -237,9 +218,9 @@ The server, and the `:remote` image's setup mode, set these headers:
 - `safeHandler()` catches all exceptions and returns the error's name and
   message, plus one remedy sentence for a raw filesystem or search-index
   error or a properties-block refusal — no stack traces reach the client
-- An image the `sharp` image library cannot decode, a password-protected
-  PDF, a damaged PDF, and a PDF reader that fails to start each return the
-  server's own message; the library's error, which can quote the server's install paths,
+- An image sharp cannot decode, a password-protected PDF, a damaged PDF,
+  and a PDF reader that fails to start each return the server's own
+  message; the library's error, which can quote the server's install paths,
   stays in the server log
 - A Node error's paths (a filesystem failure or an invalid path argument)
   reach the client vault-relative, from tools and from the prompts' fallback
@@ -302,8 +283,8 @@ The server, and the `:remote` image's setup mode, set these headers:
 When the `:remote` image starts without a working Obsidian Sync token —
 none set, or the Sync client rejected the saved one — it serves a `/setup`
 page where the owner signs in to Obsidian from the browser instead of
-running `get-sync-token` on their own computer. The sign-in form is
-served only until the server has a token the Sync client accepts:
+running `get-sync-token` on their own computer. The sign-in form is served only until the server has a token the
+Sync client accepts:
 
 - **Gated by `MCP_AUTH_TOKEN` before any upstream call** — the token is
   checked (constant-time) before the server contacts Obsidian, so the
@@ -404,11 +385,9 @@ a real fixture vault on disk. Security-relevant coverage:
   at registration (verified by asserting each write tool is absent and reads
   still work); `DISABLED_TOOLS` removes exactly the named tools (verified by
   asserting survivors by name, not just count); unknown names reject the boot
-- **Write mutation integrity** — each tool that changes a note (write,
-  patch, replace, delete span, replace span, insert at anchor, update
-  properties, move, delete, create task, update task, update memory, delete
-  memory) is followed by a read that proves the change happened; a
-  silent no-op fails the test
+- **Write mutation integrity** — each write tool (patch, replace, delete,
+  move, update properties) is read back after the call to prove the mutation
+  happened; a silent no-op fails the test
 - **Prompt-tool coupling** — when a prompt's prerequisite tool is disabled,
   the prompt disappears from the server's prompt list
 

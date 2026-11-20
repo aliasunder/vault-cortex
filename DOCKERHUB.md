@@ -44,7 +44,7 @@
 
 - **[Remote access](https://github.com/aliasunder/vault-cortex#remote-access-from-anywhere)** — works from your phone, a remote server, or any MCP client via OAuth 2.1. One click on Render or Railway gets you there with no server to manage; a VPS works too.
 - **[Plugin-free](https://github.com/aliasunder/vault-cortex#how-it-works)** — Obsidian doesn't need to be running. The server works directly with `.md` files on disk. Headless sync keeps the vault current.
-- **[Hybrid search](https://github.com/aliasunder/vault-cortex#hybrid-search)** — keyword matching (SQLite FTS5) and semantic similarity (vector embeddings), merged by Reciprocal Rank Fusion, then reordered by a reranking model (a cross-encoder) for intent-heavy queries. Keywords stay precise on exact terms and jargon; vectors find notes even when your words differ from the vault's.
+- **[Hybrid search](https://github.com/aliasunder/vault-cortex#hybrid-search)** — FTS5 keyword matching + vector semantic similarity via RRF fusion, refined by cross-encoder reranking for intent-heavy queries. Keywords stay precise on exact terms and jargon; vectors find notes even when your words differ from the vault's.
 - **[Structured memory](https://github.com/aliasunder/vault-cortex#memory)** — dated, append-only entries accumulate into a personal knowledge layer, auto-initialized for AI personalization. Topic recall answers "what do I think about X?" with the current take and the dated history behind it — evolution included.
 - **[Tasks](https://github.com/aliasunder/vault-cortex#tasks)** — Kanban-aware task queries and updates: triage by status, dates, or priority, then complete, reprioritize, or move tasks between lanes in one call. Completing a recurring task spawns its next occurrence. Parses both [Tasks plugin](https://publish.obsidian.md/tasks/) emoji and [Dataview](https://blacksmithgu.github.io/obsidian-dataview/) inline-field formats.
 - **[Link graph](https://github.com/aliasunder/vault-cortex#tools)** — backlinks, outgoing links, and orphan detection across the vault
@@ -67,11 +67,11 @@ See the [full Quick Start guide](https://github.com/aliasunder/vault-cortex#quic
 | --------------- | ---------------------------- | --------------------------------------------------------------------------------------------------- |
 | **Vault CRUD** | `vault_read_note` | Read a note — full body, properties, outline, or a section |
 |  | `vault_write_note` | Create a note (fails if it already exists; set `overwrite` to replace) |
-|  | `vault_patch_note` | Append, prepend, insert or replace by heading; replacing subsections needs `include_children` |
+|  | `vault_patch_note` | Heading-targeted edit (append, prepend, replace with `include_children` guard, insert) |
 |  | `vault_replace_in_note` | Find-and-replace text in a note (first match or `replace_all_occurrences`) |
-|  | `vault_delete_span` | Delete a line or a block of lines, found by short text from its first (and last) line |
-|  | `vault_replace_span` | Replace a line or a block of lines, found by short text from its first (and last) line |
-|  | `vault_insert_at_anchor` | Insert content before or after a line found by a short piece of its text |
+|  | `vault_delete_span` | Delete a block of lines by short anchors, no full re-quote |
+|  | `vault_replace_span` | Replace a block of lines by short anchors with new content |
+|  | `vault_insert_at_anchor` | Insert content before or after a line identified by a short anchor |
 |  | `vault_list_notes` | List notes with optional glob/folder filter |
 |  | `vault_delete_note` | Delete a note — trashed per the vault's setting, permanent under Sync (protected paths enforced) |
 |  | `vault_move_note` | Move or rename a note, rewriting links across the vault |
@@ -159,7 +159,7 @@ All settings are environment variables with sensible defaults. Some defaults der
 | `LOG_DIR` | — | `/data/logs` (remote), `$STORAGE_ROOT/data/logs` (single-volume), `none` (local) | Directory for log files that survive container re-creation. The container's own log (what `docker logs` shows) is always written, but Docker discards it whenever the container is recreated — on image updates or config changes. Date-stamped files under `LOG_DIR` live on the data volume and survive. `none` keeps only the container log. |
 | `LOG_RETENTION_DAYS` | — | `90` | Days kept; startup and daily cleanup. Digits only; `0` keeps today. Invalid values warn and use `90`. |
 | `LOG_MAX_DAILY_MB` | — | `25` | Daily file cap in whole MB ≥1 or `none`; resets at midnight in `TZ` (default UTC). Console continues. |
-| `WINDOWS_MODE` | — | `false` | On Windows? Set `true`. A `C:` drive mounted through Docker Desktop reports no file changes and has no hard links, so this switches the file watcher to polling and makes note moves work without hard links. Safe to leave on for any Windows setup; unneeded on macOS/Linux/WSL2. |
+| `WINDOWS_MODE` | — | `false` | On Windows? Set `true`. Switches the file watcher to polling and note moves to rename-based writes so a vault on a `C:` drive works through Docker Desktop. Safe to leave on for any Windows setup; unneeded on macOS/Linux/WSL2. |
 | `MAX_FILE_BYTES` | — | `52428800` (50 MiB) | Maximum file size `vault_read_file` will read (in bytes). Files exceeding this are rejected before reading, and a larger PDF is searchable by its name only. Raise for vaults with very large individual files. |
 | `MAX_IMAGE_OUTPUT_BYTES` | — | `49152` (48 KiB) | Byte budget for images delivered by `vault_read_file`, in binary bytes before base64 encoding. Images exceeding this are downscaled and recompressed to fit. Sized for the tightest mainstream MCP client cap; raise for clients that accept larger responses. |
 | `MAX_PDF_RENDER_PAGES` | — | `5` | Maximum PDF pages to render as images when `raw: true` is set on `vault_read_file`. The per-page byte budget is `MAX_IMAGE_OUTPUT_BYTES` divided evenly across the rendered pages — fewer pages means higher quality each. |
