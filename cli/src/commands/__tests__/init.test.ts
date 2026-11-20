@@ -1529,6 +1529,49 @@ describe("runInit remote with a kept existing .env", () => {
     expect(scripted.prints[0]).not.toContain("prompted.example.com")
   })
 
+  it("stops instead of starting a kept .env with no PUBLIC_URL, as start does", async () => {
+    const targetDir = makeTargetDir()
+    mkdirSync(targetDir, { recursive: true })
+    writeFileSync(
+      join(targetDir, ".env"),
+      "MCP_AUTH_TOKEN=existing\nOBSIDIAN_AUTH_TOKEN=persisted-tok\nVAULT_NAME=MyVault\n",
+    )
+    const fetchSigninSuccess: typeof fetch = async (input) => {
+      if (!String(input).includes("api.obsidian.md")) return new Response(null, { status: 200 })
+      return new Response(
+        JSON.stringify({ token: "sync-token-xyz", name: "User", email: "user@example.com" }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      )
+    }
+    const scripted = createScriptedPrompts([
+      true, // existing deployment found — re-run setup anyway
+      "https://prompted.example.com", // public URL
+      "MyVault", // vault name
+      true, // generate the token now
+      "user@example.com", // email
+      "password", // password
+      false, // no end-to-end encryption
+      [], // no optional settings
+      false, // .env differs — keep the existing file
+      true, // start the server now
+    ])
+    const recording = createRecordingDocker()
+
+    const exitCode = await runInit(
+      { mode: "remote", dir: targetDir },
+      { prompts: scripted.prompts, docker: recording.docker, fetchFn: fetchSigninSuccess },
+    )
+
+    expect(exitCode).toBe(1)
+    expect(scripted.errors).toEqual([
+      `PUBLIC_URL is empty or missing — the server requires it. Fix it in ${targetDir}/.env.\n` +
+        "Set it to the address your MCP clients reach this server at, for example:\n" +
+        "  PUBLIC_URL=https://vault.example.com",
+    ])
+    expect(recording.runParams).toEqual([])
+    expect(scripted.prints).toEqual([])
+  })
+
   /** Captures a Sync token this run, then keeps an existing .env that has none, and starts. */
   const runInitCapturingTokenThenKeepingEnv = async (
     targetDir: string,
