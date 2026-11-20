@@ -332,8 +332,8 @@ only loose files. The "Structure" tree lists what each folder holds.
 - **Export style** follows the server's test: a module that performs
   operations (runs or removes a container, writes a file) exports one
   namespace object (`envFile`), or a factory returning one
-  (`createPrompts`), and a module that only decides, asks or reads exports
-  named functions.
+  (`createDockerRunner`), and a module that only decides, asks or reads
+  exports named functions.
 
 Lint enforces the direction: `eslint.config.ts` has one
 `no-restricted-imports` block per CLI folder, and every folder but `adapters/`
