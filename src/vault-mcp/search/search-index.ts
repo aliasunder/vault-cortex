@@ -2345,11 +2345,12 @@ export const createSearchIndex = (
     }
 
     // chunkContent assigns indices 0 through length - 1, so a shortened note's
-    // old tail starts at chunks.length; remove its vectors before their parent rows.
-    if (deleteStaleVectorsStmt) {
-      deleteStaleVectorsStmt.run(notePath, chunks.length)
-    }
-    deleteStaleChunksStmt.run(notePath, chunks.length)
+    // old tail starts at chunks.length; remove its vectors before their parent rows,
+    // in one transaction so a crash cannot leave a chunk row whose vector is gone.
+    db.transaction(() => {
+      if (deleteStaleVectorsStmt) deleteStaleVectorsStmt.run(notePath, chunks.length)
+      deleteStaleChunksStmt.run(notePath, chunks.length)
+    })()
 
     logger.debug("embedded note", {
       path: notePath,
@@ -2586,11 +2587,12 @@ export const createSearchIndex = (
     }
 
     // chunkContent assigns indices 0 through length - 1, so a shortened file's
-    // old tail starts at chunks.length; remove its vectors before their parent rows.
-    if (deleteStaleFileVectorsStmt) {
-      deleteStaleFileVectorsStmt.run(params.filePath, chunks.length)
-    }
-    deleteStaleFileChunksStmt.run(params.filePath, chunks.length)
+    // old tail starts at chunks.length; remove its vectors before their parent rows,
+    // in one transaction so a crash cannot leave a chunk row whose vector is gone.
+    db.transaction(() => {
+      if (deleteStaleFileVectorsStmt) deleteStaleFileVectorsStmt.run(params.filePath, chunks.length)
+      deleteStaleFileChunksStmt.run(params.filePath, chunks.length)
+    })()
 
     logger.debug("embedded file content", {
       path: params.filePath,
@@ -3162,9 +3164,12 @@ export const createSearchIndex = (
               deletedPaths.length > 0 && deleteVectorsForNoteStmt && deleteChunksForNoteStmt
 
             if (hasDeletedNotes) {
+              // One transaction per note, so a crash cannot leave a chunk row whose vector is gone
               for (const path of deletedPaths) {
-                deleteVectorsForNoteStmt.run(path)
-                deleteChunksForNoteStmt.run(path)
+                db.transaction(() => {
+                  deleteVectorsForNoteStmt.run(path)
+                  deleteChunksForNoteStmt.run(path)
+                })()
               }
               logger.info("cleaned up vectors for deleted notes", {
                 count: deletedPaths.length,
@@ -3422,6 +3427,19 @@ export const createSearchIndex = (
       }
     }
 
+    /** Removes the kept chunks and vectors of a PDF the pass leaves name-only. A failure is
+     *  logged like a failed publish, so one PDF's failed delete never stops the pass. */
+    const removeUnpublishedPdfVectors = (file: PdfAwaitingText): void => {
+      try {
+        removeFileChunksAndVectors(file.relativePath)
+      } catch (error) {
+        logger.warn("PDF content pass could not remove old vectors", {
+          path: file.relativePath,
+          ...describeErrorForLog(error),
+        })
+      }
+    }
+
     /** Extracts and publishes each PDF in turn, then embeds the published PDFs. The first
      *  extraction waits inside the extractor until the server has listened, so the pass never
      *  delays startup. */
@@ -3463,14 +3481,14 @@ export const createSearchIndex = (
           // The PDF stays name-only, so its kept chunks and vectors would answer for text that
           // search no longer has.
           case "failed":
-            removeFileChunksAndVectors(file.relativePath)
+            removeUnpublishedPdfVectors(file)
             continue
           case "extracted": {
             const publishedVersion = publishPdfText(file, extraction.result.text)
 
             // A failed write leaves the name-only row, as a failed extraction does.
             if (!publishedVersion) {
-              removeFileChunksAndVectors(file.relativePath)
+              removeUnpublishedPdfVectors(file)
               continue
             }
             publishedPdfs.push({ relativePath: file.relativePath, sourceVersion: publishedVersion })

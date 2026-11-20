@@ -4807,6 +4807,46 @@ describe("rebuildFromVault deferred PDF content", () => {
     ).toEqual({ count: 2 })
   })
 
+  it("logs a PDF whose old vectors cannot be removed and finishes the other PDFs", async () => {
+    const fixture = await createPdfRebuildFixture()
+    await writeFile(join(fixture.vaultPath, "Healthy.PDF"), "healthy disk bytes")
+    fixture.database.exec(`
+      CREATE TRIGGER reject_report_chunk_delete BEFORE DELETE ON file_content_chunks
+      WHEN OLD.file_path = 'Report.PDF'
+      BEGIN
+        SELECT RAISE(ABORT, 'controlled chunk delete failure');
+      END;
+    `)
+    const warnSpy = vi.spyOn(logger, "warn")
+    onTestFinished(() => warnSpy.mockRestore())
+    fixture.extractForIndex.mockImplementation(async ({ path }) => {
+      if (path === fixture.path) throw new Error("controlled extraction failure")
+      return { status: "extracted", result: { text: "Second healthyamber", totalPages: 1 } }
+    })
+    const rebuilt = await fixture.rebuild()
+    await rebuilt.embedding
+    fixture.startIndexing()
+    await rebuilt.pdfPass
+
+    expect(warnSpy).toHaveBeenCalledTimes(2)
+    expect(warnSpy).toHaveBeenCalledWith("PDF content pass could not index file", {
+      path: fixture.path,
+      error: "[Error]: controlled extraction failure",
+    })
+    expect(warnSpy).toHaveBeenCalledWith("PDF content pass could not remove old vectors", {
+      path: fixture.path,
+      error: "[SqliteError]: controlled chunk delete failure",
+    })
+    expect(fixture.keywordPaths("healthyamber")).toEqual([{ path: "Healthy.PDF" }])
+    expect(
+      fixture.database
+        .prepare("SELECT chunk_text FROM file_content_chunks WHERE file_path = ?")
+        .all("Healthy.PDF"),
+    ).toEqual([{ chunk_text: "Healthy\n\nSecond healthyamber" }])
+    // The failed delete rolled back, so the vector still has its chunk
+    expect(fixture.targetChunks()).toEqual([{ chunk_text: "Report\n\nOld oldquartz" }])
+  })
+
   it.each([{ outcome: "newer edit" }, { outcome: "unlink" }])(
     "rejects a delayed PDF embedding after a $outcome",
     async ({ outcome }) => {
