@@ -21,9 +21,8 @@ describes.
 | Patch   | Bug fixes and dependency updates                                                                                                 |
 
 Each row may also contain what the rows below it list, and any change the
-"Not covered" list allows. A dependency update
-that changes a covered part, such as the CLI's minimum Node.js version,
-takes that part's rule.
+"Not covered" list allows. A dependency update that changes a covered part,
+such as the CLI's minimum Node.js version, takes that part's rule.
 
 A change is breaking when a documented call, setting or read stops working,
 returns different fields, or changes a field's type. These are not
