@@ -437,7 +437,7 @@ describe("readAssetContent — PDF page rendering (raw: true)", () => {
   })
 })
 
-describe("readAssetContent — UTF-8 files outside the dedicated types", () => {
+describe("readAssetContent — UTF-8 text decoding", () => {
   /** Stubs readAsset with the given bytes, reporting the extension lowercased
    *  as readAsset does. */
   const stubReadAsset = (params: { buffer: Buffer; extension: string }): void => {
