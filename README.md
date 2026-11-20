@@ -568,8 +568,8 @@ Planned work, what's being explored, and explicit non-goals live in
 
 ## Versioning
 
-[VERSIONING.md](./VERSIONING.md) says which parts of the server, CLI and
-deployment stay stable across releases, and how breaking changes are flagged.
+[VERSIONING.md](./VERSIONING.md) says which changes count as breaking, how
+they are announced, and how the server and CLI versions relate.
 
 ---
 

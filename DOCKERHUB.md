@@ -182,8 +182,8 @@ Whichever path you pick, the server is replaceable and your vault isn't. Your no
 
 ## Versioning
 
-[VERSIONING.md](https://github.com/aliasunder/vault-cortex/blob/main/VERSIONING.md) says which parts of the server, CLI and
-deployment stay stable across releases, and how breaking changes are flagged.
+[VERSIONING.md](https://github.com/aliasunder/vault-cortex/blob/main/VERSIONING.md) says which changes count as breaking, how
+they are announced, and how the server and CLI versions relate.
 
 ---
 
