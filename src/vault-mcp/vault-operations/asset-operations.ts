@@ -74,7 +74,7 @@ const notValidUtf8Message = (path: string): string => {
  *  is promised verbatim, and the default decoder would silently substitute
  *  U+FFFD for every undecodable byte instead. A leading byte-order mark is
  *  kept for the same reason. Unlike decodeTextBuffer, it accepts NUL bytes. */
-const decodeUtf8Strict = (params: { buffer: Buffer; path: string }): string => {
+const decodeUtf8AcceptingNul = (params: { buffer: Buffer; path: string }): string => {
   try {
     return new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(params.buffer)
   } catch (error) {
@@ -87,7 +87,7 @@ type ReadAsset = Readonly<{ buffer: Buffer; bytes: number; extension: string }>
 /** Builds the text result for a file outside the dedicated types (HTML pages,
  *  scripts, files with no extension), refusing binary data and bytes that are
  *  not UTF-8. */
-const buildUtf8SourceResult = (params: {
+const buildTextResultRefusingBinary = (params: {
   asset: ReadAsset
   path: string
   startLine?: number | undefined
@@ -311,7 +311,7 @@ const readAssetContent = async (
         maxImageOutputBytes: params.maxImageOutputBytes,
       })
     case "canvas": {
-      const canvasSource = decodeUtf8Strict({ buffer: asset.buffer, path })
+      const canvasSource = decodeUtf8AcceptingNul({ buffer: asset.buffer, path })
       const text = raw ? canvasSource : linearizeCanvas(canvasSource)
       return buildTextResult({ text, path, startLine, limit })
     }
@@ -338,13 +338,13 @@ const readAssetContent = async (
     }
     case "text": {
       // No NUL byte check here, so a NUL-padded log keeps reading
-      const text = decodeUtf8Strict({ buffer: asset.buffer, path })
+      const text = decodeUtf8AcceptingNul({ buffer: asset.buffer, path })
       return buildTextResult({ text, path, startLine, limit })
     }
     case "html":
     case "script":
     case "other":
-      return buildUtf8SourceResult({ asset, path, startLine, limit })
+      return buildTextResultRefusingBinary({ asset, path, startLine, limit })
   }
 }
 
