@@ -14,7 +14,7 @@ import {
   symlink,
 } from "node:fs/promises"
 import { randomUUID } from "node:crypto"
-import { execFileSync } from "node:child_process"
+import { CHILD_DEADLINE_MS, runScriptInChild } from "./helpers/run-script-in-child.js"
 import { basename, join } from "node:path"
 import { tmpdir } from "node:os"
 import { DateTime } from "luxon"
@@ -546,9 +546,6 @@ describe("over-long paths", () => {
   })
 })
 
-/** Leaves room for the child's tsx start-up on a loaded machine. */
-const CHILD_DEADLINE_MS = 20_000
-
 /**
  * Runs one vault call on a million-character path in a child process and
  * prints "refused" when it throws the length refusal for that path. Without
@@ -570,14 +567,8 @@ const runVaultCallInChild = (params: {
   const vaultFilesystemUrl = new URL("../vault-filesystem.ts", import.meta.url).href
   const loggerUrl = new URL("../../../logger.ts", import.meta.url).href
 
-  return execFileSync(
-    process.execPath,
-    [
-      "--import",
-      "tsx",
-      "--input-type=module",
-      "--eval",
-      `
+  return runScriptInChild(
+    `
       import { mkdtemp, rm } from "node:fs/promises";
       import { tmpdir } from "node:os";
       import { join } from "node:path";
@@ -599,13 +590,6 @@ const runVaultCallInChild = (params: {
         await rm(vaultPath, { recursive: true, force: true });
       }
     `,
-    ],
-    {
-      encoding: "utf8",
-      timeout: CHILD_DEADLINE_MS,
-      killSignal: "SIGKILL",
-      env: { ...process.env, LOG_LEVEL: "error" },
-    },
   )
 }
 

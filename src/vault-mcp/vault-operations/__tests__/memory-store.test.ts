@@ -10,7 +10,7 @@ import {
   readdir,
   symlink,
 } from "node:fs/promises"
-import { execFileSync } from "node:child_process"
+import { CHILD_DEADLINE_MS, runScriptInChild } from "./helpers/run-script-in-child.js"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { parseNote, UnkeepableOpeningBlockError } from "../../obsidian-markdown/frontmatter.js"
@@ -3986,6 +3986,14 @@ describe("over-long memory file names", () => {
     ).rejects.toThrow(tooLongRefusal)
   })
 
+  it("getMemory keeps its read-failure message for a name whose memory path is 4,096 bytes", async () => {
+    // Reads take no lock, so the length check does not run and the filesystem's
+    // refusal surfaces under the read wrapper's own message
+    await expect(getMemory({ vaultPath: vault, file: tooLongName }, logger)).rejects.toThrow(
+      new Error(`cannot read memory file "About Me/${tooLongName}.md"`),
+    )
+  })
+
   it("keeps the separator refusal for an over-long name holding a separator", async () => {
     const file = `../${tooLongName}`
 
@@ -4006,9 +4014,6 @@ describe("over-long memory file names", () => {
   })
 })
 
-/** Leaves room for the child's tsx start-up on a loaded machine. */
-const CHILD_DEADLINE_MS = 20_000
-
 /**
  * Runs one memory write in a child process with a name made of a million
  * out-of-order combining marks, and prints "refused" when it throws the
@@ -4021,14 +4026,8 @@ const runMemoryWriteInChild = (memoryCall: string): string => {
   const memoryStoreUrl = new URL("../memory-store.ts", import.meta.url).href
   const loggerUrl = new URL("../../../logger.ts", import.meta.url).href
 
-  return execFileSync(
-    process.execPath,
-    [
-      "--import",
-      "tsx",
-      "--input-type=module",
-      "--eval",
-      `
+  return runScriptInChild(
+    `
       import { mkdtemp, mkdir, rm } from "node:fs/promises";
       import { tmpdir } from "node:os";
       import { join } from "node:path";
@@ -4048,13 +4047,6 @@ const runMemoryWriteInChild = (memoryCall: string): string => {
         await rm(vaultPath, { recursive: true, force: true });
       }
     `,
-    ],
-    {
-      encoding: "utf8",
-      timeout: CHILD_DEADLINE_MS,
-      killSignal: "SIGKILL",
-      env: { ...process.env, LOG_LEVEL: "error" },
-    },
   )
 }
 

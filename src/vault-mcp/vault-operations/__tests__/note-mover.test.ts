@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, onTestFinished } from "vitest"
 import { rm, writeFile, mkdir, readFile, readdir, stat, rename, unlink } from "node:fs/promises"
-import { execFileSync } from "node:child_process"
+import { CHILD_DEADLINE_MS, runScriptInChild } from "./helpers/run-script-in-child.js"
 import { mkdtempSync } from "node:fs"
 import { basename, join, dirname } from "node:path"
 import { tmpdir } from "node:os"
@@ -3467,9 +3467,6 @@ describe("moveNote — filesystem backlink verification", () => {
   })
 })
 
-/** Leaves room for the child's tsx start-up on a loaded machine. */
-const CHILD_DEADLINE_MS = 20_000
-
 /**
  * Runs one move in a child process with a million-character padded path (a
  * long segment followed by many "b/.." pairs) as the old or the new path,
@@ -3481,14 +3478,8 @@ const runPaddedMoveInChild = (paddedSide: "old path" | "new path"): string => {
   const noteMoverUrl = new URL("../note-mover.ts", import.meta.url).href
   const loggerUrl = new URL("../../../logger.ts", import.meta.url).href
 
-  return execFileSync(
-    process.execPath,
-    [
-      "--import",
-      "tsx",
-      "--input-type=module",
-      "--eval",
-      `
+  return runScriptInChild(
+    `
       import { mkdtemp, rm } from "node:fs/promises";
       import { tmpdir } from "node:os";
       import { join } from "node:path";
@@ -3517,13 +3508,6 @@ const runPaddedMoveInChild = (paddedSide: "old path" | "new path"): string => {
         await rm(vaultPath, { recursive: true, force: true });
       }
     `,
-    ],
-    {
-      encoding: "utf8",
-      timeout: CHILD_DEADLINE_MS,
-      killSignal: "SIGKILL",
-      env: { ...process.env, LOG_LEVEL: "error" },
-    },
   )
 }
 
