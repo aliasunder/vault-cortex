@@ -268,6 +268,52 @@ describe("PDF extraction child", () => {
       lineWindow: { startLine: 3, endLine: 3, totalLines: 3 },
     })
   }, 15_000)
+
+  it("refuses an over-long path with the filesystem error's remedy before starting a child", async () => {
+    const vaultPath = await mkdtemp(join(tmpdir(), "probe-pdf-long-path-"))
+    const extractor = createPdfExtractor({ vaultPath, maxFileBytes: 1_000_000 })
+    onTestFinished(async () => {
+      await extractor.close()
+      await rm(vaultPath, { recursive: true, force: true })
+    })
+    // The path is 4,096 bytes, one more than any Linux filesystem accepts.
+    const longPath = `${"a".repeat(4092)}.pdf`
+    const requestLogger = { ...logger, warn: vi.fn() }
+    const { safeHandler } = createSafeHandlers({ vaultPath, isToolEnabled: () => false })
+
+    expect(
+      await safeHandler(
+        requestLogger,
+        () => extractor.readText({ path: longPath }, logger),
+        (result) => result.text,
+      ),
+    ).toEqual({
+      content: [
+        {
+          type: "text",
+          text: `[Error]: ENAMETOOLONG: name too long, '${longPath}'. The path is too long for the filesystem, so nothing can exist at it; check the path, or shorten it for a new file.`,
+        },
+      ],
+      isError: true,
+    })
+    expect(spawn).not.toHaveBeenCalled()
+  }, 15_000)
+
+  it("keeps the absolute-path refusal for an over-long absolute path, before starting a child", async () => {
+    const vaultPath = await mkdtemp(join(tmpdir(), "probe-pdf-absolute-long-path-"))
+    const extractor = createPdfExtractor({ vaultPath, maxFileBytes: 1_000_000 })
+    onTestFinished(async () => {
+      await extractor.close()
+      await rm(vaultPath, { recursive: true, force: true })
+    })
+    // 4,097 bytes, over the length limit and absolute
+    const absoluteLongPath = `/${"a".repeat(4092)}.pdf`
+
+    await expect(extractor.readText({ path: absoluteLongPath }, logger)).rejects.toThrow(
+      new Error(`absolute path blocked: "${absoluteLongPath}" must be vault-relative`),
+    )
+    expect(spawn).not.toHaveBeenCalled()
+  }, 15_000)
 })
 
 describe("PDF extraction ownership", () => {

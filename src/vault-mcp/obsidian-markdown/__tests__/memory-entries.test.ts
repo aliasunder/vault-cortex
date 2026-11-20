@@ -241,6 +241,52 @@ describe("parseMemoryEntries", () => {
     ])
   })
 
+  it("opens no fence from a fence marker inside a %% comment block", () => {
+    // A fence opened inside the comment would make the closing %% code, which
+    // would hide the real entry after the comment
+    const lines = [
+      "## Section",
+      "%%",
+      "```",
+      "%%",
+      "- **2026-07-07**: Real entry after the comment.",
+    ]
+    expect(parseMemoryEntries(lines)).toEqual([
+      {
+        section: "Section",
+        date: "2026-07-07",
+        text: "- **2026-07-07**: Real entry after the comment.",
+        entryIndex: 0,
+      },
+    ])
+  })
+
+  it("opens no comment from a %% marker inside a fenced code block", () => {
+    // A comment opened by the fenced %% would hide the second entry
+    const lines = [
+      "## Section",
+      "- **2026-05-05**: First entry.",
+      "```",
+      "%%",
+      "```",
+      "- **2026-06-06**: Second entry.",
+    ]
+    expect(parseMemoryEntries(lines)).toEqual([
+      {
+        section: "Section",
+        date: "2026-05-05",
+        text: ["- **2026-05-05**: First entry.", "```", "%%", "```"].join("\n"),
+        entryIndex: 0,
+      },
+      {
+        section: "Section",
+        date: "2026-06-06",
+        text: "- **2026-06-06**: Second entry.",
+        entryIndex: 1,
+      },
+    ])
+  })
+
   it("keeps a calendar-invalid date verbatim", () => {
     const lines = ["## Section", "- **2026-13-45**: Impossible date, kept as-is."]
     expect(parseMemoryEntries(lines)).toEqual([

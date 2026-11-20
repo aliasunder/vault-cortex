@@ -1386,7 +1386,7 @@ Docker hardening, and durability seatbelts above.
   - hidden: Obsidian Sync and the file watcher skip dot-prefixed names,
     so neither opens it;
   - 41 bytes whatever the note's name, so a note named near the
-    filesystem's limit still saves;
+    filesystem's per-name limit still saves;
   - on the note's filesystem, so the rename (or the hard link of an
     exclusive create, below) stays atomic.
 
@@ -1482,6 +1482,13 @@ Docker hardening, and durability seatbelts above.
   through `resolveSafePath()`, then take the path relative to the vault
   root. Prefix guards run on this form, so an aliased spelling (`\`
   separators, or `X/../About Me/Principles.md`) cannot evade protection.
+- **Path length** (`utils/assert-path-within-max-length.ts`): a path over
+  4,095 bytes, Linux's limit on any filesystem, is refused as sent, before
+  normalizing, resolving or case-folding can spend time on it, even when
+  its `..` segments would shorten it. The refusal mirrors the filesystem's
+  `ENAMETOOLONG` and its remedy. It runs in `resolveVaultRelativePath()`,
+  `resolveSafePath()`, PDF text reads, and memory updates and deletes;
+  memory reads take no lock and skip it.
 - **`vaultFolderName`** (Zod schema in `config.ts`): config-time
   validation rejects absolute paths, traversal (`..`), and blank names
   before they reach any file operation.
@@ -1551,8 +1558,8 @@ Docker hardening, and durability seatbelts above.
 - **Memory file read failures** (`memory-store.ts`): a failed read of a
   memory file is rethrown as "cannot read memory file …" with the
   vault-relative path and no Node error code, so the tool boundary adds no
-  coded remedy. A file name longer than the filesystem allows surfaces
-  under this message, not as `ENAMETOOLONG`.
+  coded remedy. A read of a file name longer than the filesystem allows
+  surfaces under this message, not as `ENAMETOOLONG`.
 - **In-lock existence checks**: `deleteNote` and `moveNote` check file
   existence inside the lock, so a missing note returns the "note not found"
   error the tools document instead of Node's ENOENT text.

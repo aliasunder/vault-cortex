@@ -5,6 +5,8 @@ import { env as inheritedEnvironment } from "node:process"
 import { fileURLToPath } from "node:url"
 import { promisify } from "node:util"
 import type { Logger } from "../../logger.js"
+import { assertPathWithinMaxLength } from "../../utils/assert-path-within-max-length.js"
+import { assertRelativePath } from "./vault-filesystem.js"
 import { describeErrorForLog } from "../../utils/describe-error.js"
 import { siblingModuleUrl } from "../../utils/sibling-module-url.js"
 import type { AssetTextResult } from "./asset-text.js"
@@ -611,6 +613,14 @@ export const createPdfExtractor = (params: {
       }
     },
     readText: async ({ path, startLine, limit }, logger) => {
+      // The absolute-path check comes first, as in resolveSafePath, so an absolute path gets that
+      // refusal whatever its length.
+      assertRelativePath(path)
+
+      // The child's refusal of an over-long path comes back as a plain Error, which gets no remedy
+      // at the tool boundary, so this process refuses the path before the request is sent.
+      assertPathWithinMaxLength(path)
+
       const request: PdfRequest = {
         kind: "read",
         vaultPath,

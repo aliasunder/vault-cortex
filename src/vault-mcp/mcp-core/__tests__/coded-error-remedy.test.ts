@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest"
 import { appendRemedy, remedyForCodedError } from "../coded-error-remedy.js"
 import { IndexIntegrityError } from "../../search/search-helpers.js"
+import { PathTooLongError } from "../../../utils/assert-path-within-max-length.js"
 
 /** A Node system error as fs produces it: the message, plus the structured
  *  code, syscall and path fields the remedy table keys on. */
@@ -27,6 +28,12 @@ describe("remedyForCodedError", () => {
     {
       label: "a too-long name with no path on the error",
       error: systemError({ code: "ENAMETOOLONG", syscall: "open" }),
+      remedy:
+        "The path is too long for the filesystem, so nothing can exist at it; check the path, or shorten it for a new file.",
+    },
+    {
+      label: "the server's own refusal of a path no filesystem accepts, which has no code",
+      error: new PathTooLongError("ENAMETOOLONG: name too long, 'Notes/a.md'"),
       remedy:
         "The path is too long for the filesystem, so nothing can exist at it; check the path, or shorten it for a new file.",
     },

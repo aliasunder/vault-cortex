@@ -4,12 +4,16 @@
  *  `mcp-core/` root like tool-availability.ts. */
 
 import { isErrnoException } from "../../utils/is-errno-exception.js"
+import { PathTooLongError } from "../../utils/assert-path-within-max-length.js"
 import { IndexIntegrityError } from "../search/search-helpers.js"
 
 const INDEX_REMEDY =
   "The server's search index could not be read; the call was not at fault. Retry once; if it fails again, tell the server's owner."
 
 const CHANGED_DURING_CALL_REMEDY = "The file or folder changed while the call ran; retry."
+
+const PATH_TOO_LONG_REMEDY =
+  "The path is too long for the filesystem, so nothing can exist at it; check the path, or shorten it for a new file."
 
 // A Node system error names its syscall and the path it failed on. A coded
 // error without a syscall (an ERR_* TypeError on the arguments) gets no remedy
@@ -22,7 +26,7 @@ const isSystemError = (error: NodeJS.ErrnoException): error is SystemError => {
 const describeSystemErrorRemedy = (error: SystemError): string => {
   switch (error.code) {
     case "ENAMETOOLONG":
-      return "The path is too long for the filesystem, so nothing can exist at it; check the path, or shorten it for a new file."
+      return PATH_TOO_LONG_REMEDY
     case "ENOTDIR":
     case "EEXIST": {
       if (error.syscall === "mkdir") {
@@ -72,10 +76,14 @@ const describeSystemErrorRemedy = (error: SystemError): string => {
 }
 
 /** The remedy sentence for a raw filesystem error (a Node error with a
- *  syscall) or a search-index failure (a SqliteError or an
- *  IndexIntegrityError); undefined for any other error, whose own text stands. */
+ *  syscall), the server's own refusal of a path no filesystem accepts, or a
+ *  search-index failure (a SqliteError or an IndexIntegrityError); undefined
+ *  for any other error, whose own text stands. */
 export const remedyForCodedError = (error: unknown): string | undefined => {
   if (error instanceof IndexIntegrityError) return INDEX_REMEDY
+  // The server's own length refusal carries no `code`, so it would fail the
+  // coded-error gate below; Node's ENAMETOOLONG gets the same remedy there.
+  if (error instanceof PathTooLongError) return PATH_TOO_LONG_REMEDY
   if (!isErrnoException(error)) return undefined
   // isErrnoException admits any Error with a string code, so better-sqlite3's
   // SqliteError (a SQLITE_* code and no syscall) passes it

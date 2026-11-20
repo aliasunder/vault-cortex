@@ -60,6 +60,9 @@ mechanism-level detail.
   (`/vault/Note.md`) throws before any filesystem access
 - `resolveSafePath()` resolves then prefix-checks every user-supplied
   path — `../../etc/passwd` throws before any filesystem access
+- A path longer than any Linux filesystem accepts (more than 4,095 bytes)
+  is refused before path resolution or a write lock sees it — a note, file
+  or folder path, and the memory file name of a memory write
 - Protected-path checks run on the canonical vault-relative form of the
   resolved path (`resolveVaultRelativePath()`), with a case-folded
   comparison — an aliased spelling (`\` separators,
@@ -217,7 +220,8 @@ The server, and the `:remote` image's setup mode, set these headers:
 
 - `safeHandler()` catches all exceptions and returns the error's name and
   message, plus one remedy sentence for a raw filesystem or search-index
-  error or a properties-block refusal — no stack traces reach the client
+  error, an over-long path or a properties-block refusal — no stack traces
+  reach the client
 - An image sharp cannot decode, a password-protected PDF, a damaged PDF,
   and a PDF reader that fails to start each return the server's own
   message; the library's error, which can quote the server's install paths,

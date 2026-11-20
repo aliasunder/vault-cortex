@@ -1,4 +1,7 @@
-import { execFileSync } from "node:child_process"
+import {
+  CHILD_DEADLINE_MS,
+  runScriptInChild,
+} from "../../../__tests__/helpers/run-script-in-child.js"
 import { describe, it, expect } from "vitest"
 import { DateTime, Settings } from "luxon"
 import { mtimeToIso } from "../../../utils/mtime-to-iso.js"
@@ -31,9 +34,6 @@ const COMPARED_NAME_LENGTH_LIMIT = 256
 /** A name folding pass that grows with the square of a name this long runs for
  *  minutes; a linear one takes milliseconds. */
 const LONG_NAME_LENGTH = 1_000_000
-
-/** Leaves room for the child's tsx start-up on a loaded machine. */
-const CHILD_DEADLINE_MS = 20_000
 
 // ── isString ──────────────────────────────────────────────────
 
@@ -287,14 +287,8 @@ describe("note names on long input", () => {
     "folds and joins million-character names within a child deadline",
     () => {
       const searchHelpersUrl = new URL("../search-helpers.ts", import.meta.url).href
-      const output = execFileSync(
-        process.execPath,
-        [
-          "--import",
-          "tsx",
-          "--input-type=module",
-          "--eval",
-          `
+      const output = runScriptInChild(
+        `
       import { toNameLookupText, buildFtsNameText, buildChunkTitleLine } from ${JSON.stringify(searchHelpersUrl)};
       const spacedName = 'a' + ' '.repeat(${LONG_NAME_LENGTH}) + 'b';
       const markedName = 'a' + '\\u0316\\u0301'.repeat(${LONG_NAME_LENGTH / 2});
@@ -307,8 +301,6 @@ describe("note names on long input", () => {
       ];
       process.stdout.write(checks.join(','));
     `,
-        ],
-        { encoding: "utf8", timeout: CHILD_DEADLINE_MS, killSignal: "SIGKILL" },
       )
 
       expect(output).toBe("true,true,true,true,true")

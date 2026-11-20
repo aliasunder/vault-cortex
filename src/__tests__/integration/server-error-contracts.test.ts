@@ -964,6 +964,101 @@ describe("filesystem errors name the path vault-relative and carry their remedy"
     })
   })
 
+  // 4,096 bytes, one more than the longest path Linux accepts (PATH_MAX less
+  // its terminating NUL), so the server refuses it before any filesystem call
+  const pathOverLimit = `${"a".repeat(4096 - 3)}.md`
+  // "About Me/" (9 bytes) + name + ".md" (3 bytes) makes 4,096 bytes
+  const memoryNameOverLimit = "a".repeat(4096 - 12)
+
+  it("vault_write_note on a path longer than any filesystem accepts", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_write_note",
+      args: { path: pathOverLimit, body: "body" },
+    })
+    expect(result).toEqual({
+      content: [
+        {
+          type: "text",
+          text: `[Error]: ENAMETOOLONG: name too long, '${pathOverLimit}'. ${PATH_TOO_LONG_REMEDY}`,
+        },
+      ],
+      isError: true,
+    })
+  })
+
+  it("vault_delete_note on a padded path longer than any filesystem accepts, quoted as sent", async () => {
+    // 4,108 bytes that normalize to "x.md"
+    const paddedPath = `${"a".repeat(100)}${"/b/..".repeat(800)}/../x.md`
+
+    const result = await callTool({ client, name: "vault_delete_note", args: { path: paddedPath } })
+    expect(result).toEqual({
+      content: [
+        {
+          type: "text",
+          text: `[Error]: ENAMETOOLONG: name too long, '${paddedPath}'. ${PATH_TOO_LONG_REMEDY}`,
+        },
+      ],
+      isError: true,
+    })
+  })
+
+  it("vault_update_memory on a file name whose memory path is longer than any filesystem accepts", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_update_memory",
+      args: { file: memoryNameOverLimit, section: "Notes (newest first)", entry: "refused" },
+    })
+    expect(result).toEqual({
+      content: [
+        {
+          type: "text",
+          text: `[Error]: ENAMETOOLONG: name too long, 'About Me/${memoryNameOverLimit}.md'. ${PATH_TOO_LONG_REMEDY}`,
+        },
+      ],
+      isError: true,
+    })
+  })
+
+  it("vault_delete_memory on a file name whose memory path is longer than any filesystem accepts", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_delete_memory",
+      args: { file: memoryNameOverLimit, section: "Notes", date: "2026-01-01", entry: "refused" },
+    })
+    expect(result).toEqual({
+      content: [
+        {
+          type: "text",
+          text: `[Error]: ENAMETOOLONG: name too long, 'About Me/${memoryNameOverLimit}.md'. ${PATH_TOO_LONG_REMEDY}`,
+        },
+      ],
+      isError: true,
+    })
+  })
+
+  it.each([
+    {
+      label: "an old_path",
+      args: { old_path: pathOverLimit, new_path: "Moved.md" },
+    },
+    {
+      label: "a new_path",
+      args: { old_path: "Orphan Note.md", new_path: pathOverLimit },
+    },
+  ])("vault_move_note on $label longer than any filesystem accepts", async ({ args }) => {
+    const result = await callTool({ client, name: "vault_move_note", args })
+    expect(result).toEqual({
+      content: [
+        {
+          type: "text",
+          text: `[Error]: ENAMETOOLONG: name too long, '${pathOverLimit}'. ${PATH_TOO_LONG_REMEDY}`,
+        },
+      ],
+      isError: true,
+    })
+  })
+
   it("vault_read_file on a file name too long for the filesystem", async () => {
     const longFileName = `${"a".repeat(300)}.png`
 

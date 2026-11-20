@@ -19,6 +19,7 @@ import { mapWithConcurrency } from "../../utils/map-with-concurrency.js"
 import { isErrnoException } from "../../utils/is-errno-exception.js"
 import { describeError } from "../../utils/describe-error.js"
 import { assertNoControlCharacters } from "../../utils/assert-no-control-characters.js"
+import { assertPathWithinMaxLength } from "../../utils/assert-path-within-max-length.js"
 import { withFileLock } from "../../utils/file-write-lock.js"
 import {
   isDoubledMarkdownFileName,
@@ -175,12 +176,14 @@ const scanGenuineEntryOffsets = (bodyLines: readonly string[]): number[] => {
     const fenceResult: ReturnType<typeof advanceFence> | null = scanCommentOpen
       ? null
       : advanceFence(bodyLine, scanFence)
-    scanFence = fenceResult ? fenceResult.openFence : scanFence
+
+    if (fenceResult) scanFence = fenceResult.openFence
 
     const commentResult: CommentResult | null = fenceResult?.lineIsCode
       ? null
       : advanceComment(bodyLine, scanCommentOpen)
-    scanCommentOpen = commentResult ? commentResult.commentOpen : scanCommentOpen
+
+    if (commentResult) scanCommentOpen = commentResult.commentOpen
 
     const insideCodeOrComment =
       (fenceResult?.lineIsCode ?? false) || (commentResult?.lineIsComment ?? false)
@@ -306,10 +309,13 @@ const sectionComparisonForm = (sectionName: string): string => {
 const DIGIT_RUN_PATTERN = /\d+/g
 
 /** Edit-distance budget for fuzzy near-miss detection, scaled to the shorter
- *  of the two names (canonical suffix excluded). Very short names get no
- *  fuzzy budget — "A" and "B" are distinct sections, not typos of each other
- *  — while long prose headings tolerate the common slips (dropped letter,
- *  stray plural, transposed pair). */
+ *  of the two names (canonical suffix excluded).
+ *  - Very short names get no fuzzy budget, because "A" and "B" are distinct
+ *    sections, not typos of each other.
+ *  - Long prose headings tolerate the common slips (dropped letter, stray
+ *    plural, transposed pair).
+ *  - One edit is allowed from 4 characters and two from 8, so the budget
+ *    never exceeds a quarter of the name. */
 const nearMissEditBudget = (shorterNameLength: number): number => {
   if (shorterNameLength <= 3) return 0
   if (shorterNameLength <= 7) return 1
@@ -493,6 +499,22 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
       throw new Error(`memory file must be named without .md: "${file}"`)
     }
     return join(vaultPath, memoryDir, `${file}.md`)
+  }
+
+  // Builds the path an update or delete locks and writes, and refuses a
+  // memory path longer than any filesystem accepts:
+  // - withFileLock (utils/file-write-lock.ts) case-folds its key, which takes
+  //   more than linear time on some crafted names, so the check runs before
+  //   the lock sees the path;
+  // - memoryFilePath's refusals and join run first, in linear time, so a
+  //   name with a separator keeps its own message;
+  // - the check measures and quotes the vault-relative path, as the other
+  //   memory errors do, so the refusal never shows the vault's location.
+  // Reads take no lock and fold nothing, so they skip the check.
+  const memoryWritePath = (vaultPath: string, file: string): string => {
+    const filePath = memoryFilePath(vaultPath, file)
+    assertPathWithinMaxLength(`${memoryDir}/${file}.md`)
+    return filePath
   }
 
   type MemoryTemplateSpec = {
@@ -870,9 +892,11 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
     }
     assertNoControlCharacters(params.entry, "entry")
     assertNoControlCharacters(params.section, "section")
+    const filePath = memoryWritePath(params.vaultPath, params.file)
+
     // Serialize the read-modify-write so concurrent appends to the same file
     // don't clobber each other's entries (lost update).
-    return withFileLock(memoryFilePath(params.vaultPath, params.file), async () => {
+    return withFileLock(filePath, async () => {
       const date = params.date ?? DateTime.now().toISODate()
       const position = params.position ?? "top"
       const bullet = `- **${date}**: ${params.entry}`
@@ -885,7 +909,6 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
       // File does not exist — create directory + file with section and entry
       if (existingContent === null) {
         const newSection = headingWithNewestFirstSuffix(params.section)
-        const filePath = memoryFilePath(params.vaultPath, params.file)
         // The read reports a folder at the path as no file. The write below
         // renames over the path, which would replace a symlink that points
         // at a folder, so the write stops when the path leads to anything
@@ -974,13 +997,7 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
         const beforeBytes = Buffer.byteLength(existingContent, "utf8")
         const afterBytes = Buffer.byteLength(serialized, "utf8")
         guardAgainstShrink(beforeBytes, afterBytes, "creating memory section")
-        await atomicWriteFile(
-          {
-            filePath: memoryFilePath(params.vaultPath, params.file),
-            content: serialized,
-          },
-          logger,
-        )
+        await atomicWriteFile({ filePath, content: serialized }, logger)
         logger.info("created memory section", {
           file: params.file,
           section: newSection,
@@ -1043,13 +1060,7 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
       const beforeBytes = Buffer.byteLength(existingContent, "utf8")
       const afterBytes = Buffer.byteLength(serialized, "utf8")
       guardAgainstShrink(beforeBytes, afterBytes, "updating memory entry")
-      await atomicWriteFile(
-        {
-          filePath: memoryFilePath(params.vaultPath, params.file),
-          content: serialized,
-        },
-        logger,
-      )
+      await atomicWriteFile({ filePath, content: serialized }, logger)
       logger.info("updated memory", {
         file: params.file,
         section: params.section,
@@ -1131,8 +1142,9 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
   ): Promise<void> => {
     const targetBullet = `- **${params.date}**: ${params.entry}`
 
-    // Refused up front unless the entry parser reads the bullet as an entry
-    // dated exactly params.date. That test refuses:
+    // Refused up front unless the entry parser, which decides which lines a
+    // delete can match, reads the bullet as an entry dated exactly
+    // params.date. That test refuses:
     // - a date of another shape, which can never match an entry;
     // - text after the date ("2026-07-02**: x"), which would carry part of the entry.
     // It passes an impossible date that a hand edit can leave in a file, such
@@ -1141,9 +1153,11 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
       throw new Error("date must be YYYY-MM-DD (e.g. 2026-07-02)")
     }
 
+    const filePath = memoryWritePath(params.vaultPath, params.file)
+
     // Serialize with concurrent updates/deletes to the same file so the
     // read-modify-write can't be interleaved and lose a write.
-    return withFileLock(memoryFilePath(params.vaultPath, params.file), async () => {
+    return withFileLock(filePath, async () => {
       const raw = await readMemoryFile({ vaultPath: params.vaultPath, file: params.file }, logger)
       const { textBeforeBody, body } = splitNoteKeepingBlock(raw)
       const lines = splitIntoLines(body)
@@ -1210,13 +1224,7 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
       const beforeBytes = Buffer.byteLength(raw, "utf8")
       const afterBytes = Buffer.byteLength(serialized, "utf8")
       guardAgainstShrink(beforeBytes, afterBytes, "deleting memory entry")
-      await atomicWriteFile(
-        {
-          filePath: memoryFilePath(params.vaultPath, params.file),
-          content: serialized,
-        },
-        logger,
-      )
+      await atomicWriteFile({ filePath, content: serialized }, logger)
       logger.info("deleted memory entry", {
         file: params.file,
         section: params.section,

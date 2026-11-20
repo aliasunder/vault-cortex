@@ -11,6 +11,10 @@ import {
   readdir,
   symlink,
 } from "node:fs/promises"
+import {
+  CHILD_DEADLINE_MS,
+  runScriptInChild,
+} from "../../../__tests__/helpers/run-script-in-child.js"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { parseNote, UnkeepableOpeningBlockError } from "../../obsidian-markdown/frontmatter.js"
@@ -2571,6 +2575,62 @@ describe("listMemoryFiles", () => {
     ])
   })
 
+  it("counts the entry after a %% comment that holds a fence marker", async () => {
+    // A fence opened inside the comment would make the closing %% code, which
+    // would hide the entry after the comment
+    await writeFile(
+      join(vault, "About Me/Commented.md"),
+      [
+        "# Commented",
+        "",
+        "## Notes (newest first)",
+        "%%",
+        "```",
+        "%%",
+        "- **2026-01-01**: after the comment",
+        "",
+      ].join("\n"),
+      "utf8",
+    )
+
+    const outlines = await listMemoryFiles({ vaultPath: vault }, logger)
+    const entries = await getMemoryEntries({ vaultPath: vault, file: "Commented" }, logger)
+
+    expect(entries.map((entry) => entry.date)).toEqual(["2026-01-01"])
+    expect(outlines.find((outline) => outline.file === "Commented")?.headings).toEqual([
+      { level: 1, text: "Commented" },
+      { level: 2, text: "Notes (newest first)", entry_count: 1 },
+    ])
+  })
+
+  it("counts the entry after a fence that holds a %% marker", async () => {
+    // A comment opened by the fenced %% would hide the entry after the fence
+    await writeFile(
+      join(vault, "About Me/Fenced.md"),
+      [
+        "# Fenced",
+        "",
+        "## Notes (newest first)",
+        "- **2026-01-03**: before the fence",
+        "```",
+        "%%",
+        "```",
+        "- **2026-01-01**: after the fence",
+        "",
+      ].join("\n"),
+      "utf8",
+    )
+
+    const outlines = await listMemoryFiles({ vaultPath: vault }, logger)
+    const entries = await getMemoryEntries({ vaultPath: vault, file: "Fenced" }, logger)
+
+    expect(entries.map((entry) => entry.date)).toEqual(["2026-01-03", "2026-01-01"])
+    expect(outlines.find((outline) => outline.file === "Fenced")?.headings).toEqual([
+      { level: 1, text: "Fenced" },
+      { level: 2, text: "Notes (newest first)", entry_count: 2 },
+    ])
+  })
+
   it("identifies H1 and H2 headings correctly", async () => {
     const outlines = await listMemoryFiles({ vaultPath: vault }, logger)
     const principles = outlines.find((outline) => outline.file === "Principles")
@@ -3972,12 +4032,156 @@ describe("memory file with a properties block the server cannot read or keep", (
   )
 })
 
+describe("over-long memory file names", () => {
+  // "About Me/" (9 bytes) + name + ".md" (3 bytes) makes 4,096 bytes, one more
+  // than the longest path Linux accepts (PATH_MAX less its terminating NUL)
+  const tooLongName = "a".repeat(4096 - 12)
+  const tooLongRefusal = new Error(`ENAMETOOLONG: name too long, 'About Me/${tooLongName}.md'`)
+
+  it("updateMemory refuses a name whose memory path is 4,096 bytes and writes nothing", async () => {
+    await expect(
+      updateMemory(
+        {
+          vaultPath: vault,
+          file: tooLongName,
+          section: "Decision heuristics (newest first)",
+          entry: "valid entry",
+          date: "2026-07-02",
+        },
+        logger,
+      ),
+    ).rejects.toThrow(tooLongRefusal)
+    expect(await readdir(join(vault, "About Me"))).toEqual(["Opinions.md", "Principles.md"])
+  })
+
+  it("updateMemory passes a name whose memory path is exactly 4,095 bytes on to the filesystem", async () => {
+    // The check measures the vault-relative path, so this name passes it. The
+    // read then fails, because the file name exceeds the per-name limit (255
+    // bytes on ext4)
+    const longestAcceptedName = "a".repeat(4095 - 12)
+
+    await expect(
+      updateMemory(
+        {
+          vaultPath: vault,
+          file: longestAcceptedName,
+          section: "Decision heuristics (newest first)",
+          entry: "valid entry",
+          date: "2026-07-02",
+        },
+        logger,
+      ),
+    ).rejects.toThrow(new Error(`cannot read memory file "About Me/${longestAcceptedName}.md"`))
+  })
+
+  it("deleteMemory refuses a name whose memory path is 4,096 bytes", async () => {
+    await expect(
+      deleteMemory(
+        {
+          vaultPath: vault,
+          file: tooLongName,
+          section: "Decision heuristics (newest first)",
+          date: "2026-05-06",
+          entry: "Secrets invisible at every layer",
+        },
+        logger,
+      ),
+    ).rejects.toThrow(tooLongRefusal)
+  })
+
+  it("getMemory keeps its read-failure message for a name whose memory path is 4,096 bytes", async () => {
+    // Reads take no lock, so the length check does not run and the filesystem's
+    // refusal surfaces under the read wrapper's own message
+    await expect(getMemory({ vaultPath: vault, file: tooLongName }, logger)).rejects.toThrow(
+      new Error(`cannot read memory file "About Me/${tooLongName}.md"`),
+    )
+  })
+
+  it("keeps the separator refusal for an over-long name holding a separator", async () => {
+    const file = `../${tooLongName}`
+
+    await expect(
+      updateMemory(
+        {
+          vaultPath: vault,
+          file,
+          section: "Decision heuristics (newest first)",
+          entry: "valid entry",
+          date: "2026-07-02",
+        },
+        logger,
+      ),
+    ).rejects.toThrow(
+      new Error(`memory file must be a bare name without path separators: "${file}"`),
+    )
+  })
+})
+
+/**
+ * Runs one memory write in a child process with a name made of a million
+ * out-of-order combining marks, and prints "refused" when it throws the
+ * length refusal for that name. Without the check before the write lock,
+ * case-folding the lock key stalls for minutes, so the deadline's SIGKILL
+ * fails the test instead of hanging the suite. `memoryCall` is an
+ * expression that may use `vaultPath`, `file`, `store` and `logger`.
+ */
+const runMemoryWriteInChild = (memoryCall: string): string => {
+  const memoryStoreUrl = new URL("../memory-store.ts", import.meta.url).href
+  const loggerUrl = new URL("../../../logger.ts", import.meta.url).href
+
+  return runScriptInChild(
+    `
+      import { mkdtemp, mkdir, rm } from "node:fs/promises";
+      import { tmpdir } from "node:os";
+      import { join } from "node:path";
+      import { createMemoryStore } from ${JSON.stringify(memoryStoreUrl)};
+      import { logger } from ${JSON.stringify(loggerUrl)};
+      const vaultPath = await mkdtemp(join(tmpdir(), "memory-long-name-"));
+      await mkdir(join(vaultPath, "About Me"));
+      const store = createMemoryStore({ memoryDir: "About Me" });
+      const file = "a" + "\\u0316\\u0301".repeat(500000);
+      try {
+        await (${memoryCall});
+        process.stdout.write("not refused");
+      } catch (error) {
+        const refused = error.message === "ENAMETOOLONG: name too long, 'About Me/" + file + ".md'";
+        process.stdout.write(refused ? "refused" : "other error: " + error.message.slice(0, 200));
+      } finally {
+        await rm(vaultPath, { recursive: true, force: true });
+      }
+    `,
+  )
+}
+
+describe("over-long memory file names within a child deadline", () => {
+  it(
+    "updateMemory refuses a million-character combining-mark name",
+    () => {
+      const output = runMemoryWriteInChild(
+        `store.updateMemory({ vaultPath, file, section: "Notes", entry: "x", date: "2026-07-02" }, logger)`,
+      )
+
+      expect(output).toBe("refused")
+    },
+    CHILD_DEADLINE_MS + 5_000,
+  )
+
+  it(
+    "deleteMemory refuses a million-character combining-mark name",
+    () => {
+      const output = runMemoryWriteInChild(
+        `store.deleteMemory({ vaultPath, file, section: "Notes", date: "2026-07-02", entry: "x" }, logger)`,
+      )
+
+      expect(output).toBe("refused")
+    },
+    CHILD_DEADLINE_MS + 5_000,
+  )
+})
+
 /** A quadratic scan of a run this long takes minutes; a linear one takes
  *  milliseconds. */
 const LONG_RUN_LENGTH = 1_000_000
-
-/** Leaves room for the child's tsx start-up on a loaded machine. */
-const CHILD_DEADLINE_MS = 20_000
 
 describe("updateMemory with a long new section name", () => {
   it(
