@@ -358,9 +358,9 @@ Variables, in the order the deploy form shows them (everything after the six inp
 Any edit to these two tables is a change to the live template, whether it is
 the image tag, a variable's presence, default or description, the port, or the
 health path. No test checks the live template, so re-publish it in the
-Composer as part of the same pull request, or the deploy form keeps showing
-the old text. Existing deployments keep their settings until their owners
-redeploy.
+Composer as part of the same pull request and say so in the pull request, or
+the deploy form keeps showing the old text. Existing deployments keep their
+settings until their owners redeploy.
 
 ## License
 
