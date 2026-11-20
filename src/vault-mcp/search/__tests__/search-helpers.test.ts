@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process"
 import { describe, it, expect } from "vitest"
 import { DateTime, Settings } from "luxon"
 import { mtimeToIso } from "../../../utils/mtime-to-iso.js"
@@ -5,6 +6,10 @@ import {
   isString,
   coerceToArray,
   buildFtsMetadataText,
+  buildFtsNameText,
+  buildChunkTitleLine,
+  foldName,
+  toNameLookupText,
   rowToMetadata,
   rowToTaskEntry,
   noteRowToSearchResult,
@@ -19,6 +24,17 @@ import {
   IndexIntegrityError,
 } from "../search-helpers.js"
 import type { NoteRow, TaskRow } from "../search-index.js"
+
+/** The longest name that is normalized to NFC and checked for duplicates,
+ *  owned here so a change to the production limit shows up as a failing test. */
+const COMPARED_NAME_LENGTH_LIMIT = 256
+
+/** A name folding pass that grows with the square of a name this long runs for
+ *  minutes; a linear one takes milliseconds. */
+const LONG_NAME_LENGTH = 1_000_000
+
+/** Leaves room for the child's tsx start-up on a loaded machine. */
+const CHILD_DEADLINE_MS = 20_000
 
 // ── isString ──────────────────────────────────────────────────
 
@@ -130,6 +146,199 @@ describe("buildFtsMetadataText", () => {
 
   it("returns empty string for empty frontmatter", () => {
     expect(buildFtsMetadataText({})).toBe("")
+  })
+
+  it("excludes the aliases key, which fills the title column, and keeps every other property", () => {
+    expect(buildFtsMetadataText({ aliases: ["Mom"], relation: "mother", tags: ["person"] })).toBe(
+      "relation: mother\ntags: person",
+    )
+  })
+
+  it("excludes only the first key spelled aliases, the one the alias reader reads", () => {
+    expect(buildFtsMetadataText({ Aliases: ["Mom"], aliases: ["Pup"] })).toBe("aliases: Pup")
+  })
+
+  it.each([
+    { label: "a list", aliases: ["Mom", 2024, true], expected: "aliases: 2024 true" },
+    { label: "a single number", aliases: 2024, expected: "aliases: 2024" },
+  ])("keeps the aliases entries that are not text from $label", ({ aliases, expected }) => {
+    expect(buildFtsMetadataText({ aliases })).toBe(expected)
+  })
+})
+
+// ── Note names ────────────────────────────────────────────────
+
+describe("buildFtsNameText", () => {
+  it("puts the title, then each alias, on its own line, as written and folded", () => {
+    expect(buildFtsNameText({ title: "Avery Quinn", aliases: ["Avery", "Mom"] })).toEqual({
+      titleText: "Avery Quinn\nAvery\nMom",
+      foldedNames: "avery quinn\navery\nmom",
+    })
+  })
+
+  it("drops an alias spelled exactly like the title or an earlier alias from both columns", () => {
+    expect(buildFtsNameText({ title: "Biscuit", aliases: ["Pup", "Pup", "Biscuit"] })).toEqual({
+      titleText: "Biscuit\nPup",
+      foldedNames: "biscuit\npup",
+    })
+  })
+
+  it("keeps an alias that differs only in letter case as written, and folds it out of the folded names", () => {
+    expect(buildFtsNameText({ title: "Biscuit", aliases: ["Pup", "biscuit", "PUP"] })).toEqual({
+      titleText: "Biscuit\nPup\nbiscuit\nPUP",
+      foldedNames: "biscuit\npup",
+    })
+  })
+
+  it("is the title alone for a note without aliases", () => {
+    expect(buildFtsNameText({ title: "Sam Carter", aliases: [] })).toEqual({
+      titleText: "Sam Carter",
+      foldedNames: "sam carter",
+    })
+  })
+
+  it("keeps a title or an alias that spans lines on one line, so it stays one name", () => {
+    expect(
+      buildFtsNameText({ title: "Sam\nCarter", aliases: ["Avery \r\n  Quinn", "Sam Carter"] }),
+    ).toEqual({ titleText: "Sam Carter\nAvery Quinn", foldedNames: "sam carter\navery quinn" })
+  })
+
+  it("trims the line break a block scalar leaves at the end of a title", () => {
+    expect(buildFtsNameText({ title: "Avery Quinn\n", aliases: ["Avery Quinn", "Mom"] })).toEqual({
+      titleText: "Avery Quinn\nMom",
+      foldedNames: "avery quinn\nmom",
+    })
+  })
+
+  it("keeps a repeated alias longer than 256 code units, which skips the duplicate check", () => {
+    const longAlias = "x".repeat(COMPARED_NAME_LENGTH_LIMIT + 1)
+
+    expect(buildFtsNameText({ title: "Sam Carter", aliases: [longAlias, longAlias] })).toEqual({
+      titleText: `Sam Carter\n${longAlias}\n${longAlias}`,
+      foldedNames: `sam carter\n${longAlias}\n${longAlias}`,
+    })
+  })
+
+  it("drops a repeated alias of 256 code units", () => {
+    const longestCheckedAlias = "x".repeat(COMPARED_NAME_LENGTH_LIMIT)
+
+    expect(
+      buildFtsNameText({
+        title: "Sam Carter",
+        aliases: [longestCheckedAlias, longestCheckedAlias],
+      }),
+    ).toEqual({
+      titleText: `Sam Carter\n${longestCheckedAlias}`,
+      foldedNames: `sam carter\n${longestCheckedAlias}`,
+    })
+  })
+})
+
+describe("buildChunkTitleLine", () => {
+  it("names the distinct aliases after the title", () => {
+    expect(buildChunkTitleLine({ title: "Biscuit", aliases: ["Pup", "Biscuit", "Good Boy"] })).toBe(
+      "Biscuit (also known as Pup, Good Boy)",
+    )
+  })
+
+  it("is the bare title when every alias repeats the title", () => {
+    expect(buildChunkTitleLine({ title: "Biscuit", aliases: ["BISCUIT"] })).toBe("Biscuit")
+  })
+
+  it("is the empty title, with no alias clause, when the title is empty", () => {
+    expect(buildChunkTitleLine({ title: "", aliases: ["Mom"] })).toBe("")
+  })
+
+  it("puts a title that spans lines on one line before its aliases", () => {
+    expect(buildChunkTitleLine({ title: "Avery\nQuinn\n", aliases: ["Mom"] })).toBe(
+      "Avery Quinn (also known as Mom)",
+    )
+  })
+})
+
+describe("foldName", () => {
+  it("folds an accented letter written as a base letter plus a combining mark to its single-character form", () => {
+    // Code points keep the two spellings, which render alike, visible in source
+    const decomposedName = `E${String.fromCodePoint(0x0301)}clair`
+    const composedQuery = `${String.fromCodePoint(0x00c9)}clair`
+
+    expect(foldName(decomposedName)).toBe(foldName(composedQuery))
+    expect(foldName(composedQuery)).toBe(`${String.fromCodePoint(0x00e9)}clair`)
+  })
+
+  it("normalizes a name of 256 code units", () => {
+    const decomposedName = `E${String.fromCodePoint(0x0301)}${"x".repeat(COMPARED_NAME_LENGTH_LIMIT - 2)}`
+
+    expect(foldName(decomposedName)).toBe(
+      `${String.fromCodePoint(0x00e9)}${"x".repeat(COMPARED_NAME_LENGTH_LIMIT - 2)}`,
+    )
+  })
+
+  it("only lowercases a name of 257 code units", () => {
+    const decomposedName = `E${String.fromCodePoint(0x0301)}${"x".repeat(COMPARED_NAME_LENGTH_LIMIT - 1)}`
+
+    expect(foldName(decomposedName)).toBe(
+      `e${String.fromCodePoint(0x0301)}${"x".repeat(COMPARED_NAME_LENGTH_LIMIT - 1)}`,
+    )
+  })
+})
+
+describe("note names on long input", () => {
+  it(
+    "folds and joins million-character names within a child deadline",
+    () => {
+      const searchHelpersUrl = new URL("../search-helpers.ts", import.meta.url).href
+      const output = execFileSync(
+        process.execPath,
+        [
+          "--import",
+          "tsx",
+          "--input-type=module",
+          "--eval",
+          `
+      import { toNameLookupText, buildFtsNameText, buildChunkTitleLine } from ${JSON.stringify(searchHelpersUrl)};
+      const spacedName = 'a' + ' '.repeat(${LONG_NAME_LENGTH}) + 'b';
+      const markedName = 'a' + '\\u0316\\u0301'.repeat(${LONG_NAME_LENGTH / 2});
+      const checks = [
+        toNameLookupText(spacedName) === spacedName,
+        toNameLookupText(markedName) === markedName,
+        buildFtsNameText({ title: spacedName, aliases: [markedName] }).titleText === spacedName + '\\n' + markedName,
+        buildFtsNameText({ title: spacedName, aliases: [markedName] }).foldedNames === spacedName + '\\n' + markedName,
+        buildChunkTitleLine({ title: spacedName, aliases: [markedName] }) === spacedName + ' (also known as ' + markedName + ')',
+      ];
+      process.stdout.write(checks.join(','));
+    `,
+        ],
+        { encoding: "utf8", timeout: CHILD_DEADLINE_MS, killSignal: "SIGKILL" },
+      )
+
+      expect(output).toBe("true,true,true,true,true")
+    },
+    CHILD_DEADLINE_MS + 5_000,
+  )
+})
+
+describe("toNameLookupText", () => {
+  it.each([
+    { label: "a bare name", query: "Mom", expected: "mom" },
+    { label: "a padded name", query: "  Avery Quinn  ", expected: "avery quinn" },
+    { label: "a quoted name", query: '"Avery Quinn"', expected: "avery quinn" },
+    { label: "padding inside the quotes", query: '" Mom "', expected: "mom" },
+    { label: "a query with a quoted part", query: '"Mom" trip', expected: '"mom" trip' },
+    {
+      label: "a query spanning lines, on one line",
+      query: "Avery\n  Quinn",
+      expected: "avery quinn",
+    },
+  ])("folds $label", ({ query, expected }) => {
+    expect(toNameLookupText(query)).toBe(expected)
+  })
+
+  it.each([
+    { label: "empty quotes", query: '""' },
+    { label: "whitespace only", query: "   " },
+  ])("returns no name text for $label", ({ query }) => {
+    expect(toNameLookupText(query)).toBe("")
   })
 })
 
@@ -423,14 +632,14 @@ describe("noteRowToSearchResult", () => {
 
   it("throws IndexIntegrityError when tags column contains invalid data", () => {
     expect(
-      describeThrow(() =>
-        noteRowToSearchResult({
+      describeThrow(() => {
+        return noteRowToSearchResult({
           row: makeNoteRow({ tags: "42" }),
           snippet: "text",
           score: 0.5,
           includeLeadingCallout: false,
-        }),
-      ),
+        })
+      }),
     ).toEqual({
       isIndexIntegrityError: true,
       message: "expected string[] from JSON column, got: 42",
@@ -439,8 +648,8 @@ describe("noteRowToSearchResult", () => {
 
   it("throws IndexIntegrityError when leading_callout column contains invalid data", () => {
     expect(
-      describeThrow(() =>
-        noteRowToSearchResult({
+      describeThrow(() => {
+        return noteRowToSearchResult({
           row: makeNoteRow({
             leading_callout: JSON.stringify({
               type: "note",
@@ -451,8 +660,8 @@ describe("noteRowToSearchResult", () => {
           snippet: "text",
           score: 0.5,
           includeLeadingCallout: true,
-        }),
-      ),
+        })
+      }),
     ).toEqual({
       isIndexIntegrityError: true,
       message:
@@ -462,14 +671,14 @@ describe("noteRowToSearchResult", () => {
 
   it("throws IndexIntegrityError when the stored mtime cannot be formatted", () => {
     expect(
-      describeThrow(() =>
-        noteRowToSearchResult({
+      describeThrow(() => {
+        return noteRowToSearchResult({
           row: makeNoteRow({ mtime: NaN }),
           snippet: "text",
           score: 0.5,
           includeLeadingCallout: false,
-        }),
-      ),
+        })
+      }),
     ).toEqual({ isIndexIntegrityError: true, message: "invalid mtime: NaN", causeName: "Error" })
   })
 })
@@ -533,8 +742,8 @@ describe("fileContentRowToSearchResult", () => {
 
   it("throws IndexIntegrityError when the stored mtime cannot be formatted", () => {
     expect(
-      describeThrow(() =>
-        fileContentRowToSearchResult(
+      describeThrow(() => {
+        return fileContentRowToSearchResult(
           {
             path: "Diagrams/architecture.canvas",
             title: "architecture",
@@ -544,8 +753,8 @@ describe("fileContentRowToSearchResult", () => {
             snippet: "Architecture overview",
           },
           0.85,
-        ),
-      ),
+        )
+      }),
     ).toEqual({ isIndexIntegrityError: true, message: "invalid mtime: NaN", causeName: "Error" })
   })
 })

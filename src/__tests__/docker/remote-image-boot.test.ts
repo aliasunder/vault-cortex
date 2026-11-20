@@ -26,6 +26,7 @@ import {
   assertImagePresent,
   containerExitCode,
   containerLogs,
+  containerLogStreams,
   countSyncStateFiles,
   createClient,
   docker,
@@ -69,19 +70,38 @@ const STOP_DEADLINE_MS = 20_000
 const FAILING_SYNC_TEST_TIMEOUT_MS = 120_000
 const FAILING_SYNC_STOP_DEADLINE_MS = 90_000
 
-/** init-first-sync's progress, retry, and outcome lines all name the step —
+/** init-first-sync's progress, retry, and outcome lines all name the step:
  *  "First sync (attempt …)", "First sync failed …", "First sync did not
- *  complete …" — which is what lets a test read the whole run back in
- *  order from the merged container logs. */
+ *  complete …". */
 const isFirstSyncLine = (line: string): boolean => line.includes("First sync")
 
-/** Log lines init-first-sync emits across a fully failing run. */
+/** init-first-sync's lines from each output stream, kept apart because line
+ *  order holds only within one stream.
+ *  - init-first-sync prints attempts to stdout, and retries and outcomes to
+ *    stderr.
+ *  - A failing stub sync returns at once, so an attempt line and the retry
+ *    line after it can come back from the merged logs in either order. */
+const firstSyncLinesByStream = async (
+  name: string,
+): Promise<{ stdout: string[]; stderr: string[] }> => {
+  const { stdout, stderr } = await containerLogStreams(name)
+  return {
+    stdout: stdout.split("\n").filter(isFirstSyncLine),
+    stderr: stderr.split("\n").filter(isFirstSyncLine),
+  }
+}
+
+/** The stdout lines init-first-sync prints across a fully failing run. */
 const FIRST_SYNC_ATTEMPT_LINES = [
   "[obsidian-sync] First sync (attempt 1/3) — waiting for completion before starting services...",
-  "[obsidian-sync] First sync failed — retrying in 10s...",
   "[obsidian-sync] First sync (attempt 2/3) — waiting for completion before starting services...",
-  "[obsidian-sync] First sync failed — retrying in 10s...",
   "[obsidian-sync] First sync (attempt 3/3) — waiting for completion before starting services...",
+]
+
+/** The stderr lines it prints between those attempts, before its outcome. */
+const FIRST_SYNC_RETRY_LINES = [
+  "[obsidian-sync] First sync failed — retrying in 10s...",
+  "[obsidian-sync] First sync failed — retrying in 10s...",
 ]
 
 /** Environment variables every scenario shares. Embeddings stay off so the
@@ -557,13 +577,14 @@ describe("remote image boot — first sync keeps failing (OB_STUB_SYNC_FAIL=1)",
           name,
           deadlineMs: FAILING_SYNC_STOP_DEADLINE_MS,
         })
-        const logs = await containerLogs(name)
-        const attemptLines = logs.split("\n").filter(isFirstSyncLine)
-        expect(attemptLines).toEqual([
-          ...FIRST_SYNC_ATTEMPT_LINES,
-          "[obsidian-sync] ERROR: First sync failed and the memory folder ('About Me') has not synced yet.",
-        ])
-        expect(logs).toContain(
+        expect(await firstSyncLinesByStream(name)).toEqual({
+          stdout: FIRST_SYNC_ATTEMPT_LINES,
+          stderr: [
+            ...FIRST_SYNC_RETRY_LINES,
+            "[obsidian-sync] ERROR: First sync failed and the memory folder ('About Me') has not synced yet.",
+          ],
+        })
+        expect(await containerLogs(name)).toContain(
           "s6-rc: warning: unable to start service init-first-sync: command exited 1",
         )
       },
@@ -602,12 +623,13 @@ describe("remote image boot — first sync keeps failing (OB_STUB_SYNC_FAIL=1)",
     })
 
     it("retries three times, warns, and starts the services anyway", async () => {
-      const logs = await containerLogs(name)
-      const attemptLines = logs.split("\n").filter(isFirstSyncLine)
-      expect(attemptLines).toEqual([
-        ...FIRST_SYNC_ATTEMPT_LINES,
-        "[obsidian-sync] WARNING: First sync did not complete — starting services anyway.",
-      ])
+      expect(await firstSyncLinesByStream(name)).toEqual({
+        stdout: FIRST_SYNC_ATTEMPT_LINES,
+        stderr: [
+          ...FIRST_SYNC_RETRY_LINES,
+          "[obsidian-sync] WARNING: First sync did not complete — starting services anyway.",
+        ],
+      })
     })
 
     it("calls `ob sync` once per attempt before handing over to continuous sync", async () => {
@@ -916,22 +938,24 @@ describe("remote image boot — remote vault holding only synced .obsidian/ sett
 })
 
 describe("remote image boot — safety checks in the init chain stop the container", () => {
-  /** Boot with the given env, register cleanup for the current test before
-   *  anything can throw, and return the logs once the container has stopped
-   *  on its own. */
-  const logsAfterGuardStops = async ({
-    scenario,
-    env,
-    volumes = [],
-    deadlineMs = STOP_DEADLINE_MS,
-  }: {
+  type GuardScenario = {
     scenario: string
     env: Record<string, string>
     volumes?: string[]
     /** How long to wait for the stop; a guard that fires after the three
      *  failed first-sync attempts needs FAILING_SYNC_STOP_DEADLINE_MS. */
     deadlineMs?: number
-  }): Promise<string> => {
+  }
+
+  /** Boot with the given env, register cleanup for the current test before
+   *  anything can throw, and return the container's name once it has
+   *  stopped on its own. */
+  const bootUntilGuardStops = async ({
+    scenario,
+    env,
+    volumes = [],
+    deadlineMs = STOP_DEADLINE_MS,
+  }: GuardScenario): Promise<string> => {
     const name = uniqueName(scenario)
     const handle = await runContainer({
       name,
@@ -942,6 +966,11 @@ describe("remote image boot — safety checks in the init chain stop the contain
     })
     onTestFinished(handle.cleanup)
     await waitForStopped({ name, deadlineMs })
+    return name
+  }
+
+  const logsAfterGuardStops = async (guardScenario: GuardScenario): Promise<string> => {
+    const name = await bootUntilGuardStops(guardScenario)
     return containerLogs(name)
   }
 
@@ -1075,7 +1104,7 @@ describe("remote image boot — safety checks in the init chain stop the contain
     async () => {
       // The memory layer is off so the memory-folder refusal can't be what
       // stops the container.
-      const logs = await logsAfterGuardStops({
+      const name = await bootUntilGuardStops({
         scenario: "undownloaded-file-sync-fails",
         env: {
           ...BASE_ENV,
@@ -1085,12 +1114,14 @@ describe("remote image boot — safety checks in the init chain stop the contain
         },
         deadlineMs: FAILING_SYNC_STOP_DEADLINE_MS,
       })
-      const attemptLines = logs.split("\n").filter(isFirstSyncLine)
-      expect(attemptLines).toEqual([
-        ...FIRST_SYNC_ATTEMPT_LINES,
-        "[obsidian-sync] ERROR: First sync failed with 1 file(s) still waiting to download.",
-      ])
-      expect(logs).toContain(
+      expect(await firstSyncLinesByStream(name)).toEqual({
+        stdout: FIRST_SYNC_ATTEMPT_LINES,
+        stderr: [
+          ...FIRST_SYNC_RETRY_LINES,
+          "[obsidian-sync] ERROR: First sync failed with 1 file(s) still waiting to download.",
+        ],
+      })
+      expect(await containerLogs(name)).toContain(
         "s6-rc: warning: unable to start service init-first-sync: command exited 1",
       )
     },

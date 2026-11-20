@@ -517,7 +517,9 @@ Both models lazy-load on first use (~1–2s cold start each, kept in memory afte
 
 `vault_search` calls `hybridSearch`, which runs up to four ranked retrieval legs and merges results via RRF. The flow:
 
-1. **Note FTS5** keyword search (synchronous, `fullTextSearch`)
+1. **Note FTS5** keyword search (synchronous, `fullTextSearch`):
+   - The title column holds the note's title and each of its [aliases](https://obsidian.md/help/aliases), one per line, so an alias match ranks like a title match. The metadata column keeps only alias entries that are not text, such as numbers.
+   - A note whose title or alias equals the whole query sorts first, ignoring letter case and one pair of surrounding double quotes.
 2. **File content FTS5** — linearized canvas, extracted PDF text, text files, HTML visible text, and scripts (skipped when note-specific filters are active)
 3. **Note vector search** — embed the query → sqlite-vec KNN over `note_vectors` → deduplicate to best chunk per note
 4. **File content vector search** — same query embedding → KNN over `file_content_vectors` → deduplicate to best chunk per file (same skip condition as step 2)
@@ -609,15 +611,17 @@ Vector tables persist across restarts and rebuilds (only FTS, notes, links, task
 
 **Background embedding and tool calls:** model inference runs synchronously on the server's one JavaScript thread, so before each background model call (a chunk, or a 16-entry memory batch) the job waits until no tool call or prompt is running, for at most 5 seconds (`BACKGROUND_EMBED_MAX_WAIT_MS`). A tool call or prompt that arrives while a model call runs still waits for the model call to finish.
 
-**Embedding pipeline:** Controlled by `EMBEDDING_ENABLED` (default: `true`). Markdown syntax is stripped before embedding (`plaintext.ts`). Short notes (under 500 body tokens) stay a single title-prefixed chunk. Longer notes split into per-heading sections via `chunker.ts`:
+**Embedding pipeline:** Controlled by `EMBEDDING_ENABLED` (default: `true`). Markdown syntax is stripped before embedding (`plaintext.ts`). Short notes (under 500 body tokens) stay a single title-prefixed chunk unless a metadata line pushes them past the chunk budget. Longer notes split into per-heading sections via `chunker.ts`:
 
 - **Two views per note:** each top-level heading spans its full subtree (the aggregate view, so child text embeds twice); deeper headings own only the lines above the next heading of any level (the disjoint leaf view)
-- **Chunk prefixes:** every fragment starts with the note title. Aggregate and leaf fragments add a `Section:` line naming the heading's ancestor path, with these exceptions:
+- **Chunk prefixes:** every fragment starts with the note title, followed by the note's aliases when it has any and its title is not empty (`Avery Quinn (also known as Avery, Mom)`), so the embedder and the reranker see a note's other names. Aggregate and leaf fragments add a `Section:` line naming the heading's ancestor path, with these exceptions:
   - Long ancestor paths drop their leading segments to fit the remaining token budget, keeping the deepest segments. The `Section:` line is omitted when the title and metadata exhaust the budget.
   - Preamble and TOC fragments omit the `Section:` line. The aggregate also omits it when one top-level heading opens the note with no preceding text or heading, because that heading wraps the whole note.
+- **Prefix part length:** in chunk prefixes, the title, the metadata line and each heading name are cut to 2,000 characters, about 370 of the embedding model's 512 tokens in English; the TOC chunk keeps the full title and heading names
 - **Empty sections:** a heading whose slice is empty emits no section chunk. Its name still appears in the TOC and in descendant chunks' `Section:` lines. A top-level heading with children still emits its aggregate even without text of its own, because its slice spans the subtree.
 - **Table-of-contents chunk:** each split note with named headings emits one short chunk with its folder path and title on the first line, followed by heading names in document order within the chunk budget. This gives a broad query a compact view of the note's topics without requiring one section to represent the whole note
 - **Sub-splitting:** oversized sections split at paragraph boundaries (MAX_CHUNK_TOKENS = 450, minus each chunk's prefix cost), with a sub-minimum trailing fragment merged backward
+- **Per-note limit:** a note's chunk text stops at 50 times its stripped body or 50 million characters, whichever is smaller, and the first chunk and the TOC chunk always stay. The limit keeps embedding work proportional to note length, and ordinary notes stay under it; full-text search covers a note past the limit in full
 
 Content-hash gating (SHA-256 per chunk) skips re-embedding unchanged content on both incremental file-watcher updates and full rebuilds. A chunk whose text already has a stored vector elsewhere in the same note or file gets that vector copied, so an edit near the top of a long note re-embeds only the chunks whose text changed.
 
