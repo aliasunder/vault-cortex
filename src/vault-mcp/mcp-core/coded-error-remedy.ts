@@ -81,6 +81,8 @@ const describeSystemErrorRemedy = (error: SystemError): string => {
  *  for any other error, whose own text stands. */
 export const remedyForCodedError = (error: unknown): string | undefined => {
   if (error instanceof IndexIntegrityError) return INDEX_REMEDY
+  // The server's own length refusal carries no `code`, so it would fail the
+  // coded-error gate below; Node's ENAMETOOLONG gets the same remedy there.
   if (error instanceof PathTooLongError) return PATH_TOO_LONG_REMEDY
   if (!isErrnoException(error)) return undefined
   // isErrnoException admits any Error with a string code, so better-sqlite3's

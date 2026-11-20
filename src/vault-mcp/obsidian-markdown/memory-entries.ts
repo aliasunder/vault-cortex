@@ -125,12 +125,14 @@ export const parseMemoryEntries = (lines: readonly string[]): MemoryEntry[] => {
       const fenceResult: ReturnType<typeof advanceFence> | null = commentOpen
         ? null
         : advanceFence(line, openFence)
-      openFence = fenceResult !== null ? fenceResult.openFence : openFence
+
+      if (fenceResult) openFence = fenceResult.openFence
 
       const commentResult: CommentResult | null = fenceResult?.lineIsCode
         ? null
         : advanceComment(line, commentOpen)
-      commentOpen = commentResult !== null ? commentResult.commentOpen : commentOpen
+
+      if (commentResult) commentOpen = commentResult.commentOpen
 
       // Inside code or a comment this line cannot START an entry, but it is
       // legitimate continuation content for one already open.

@@ -55,13 +55,15 @@ import type { Logger } from "../../logger.js"
 export const toVaultRelativePath = (input: string): string =>
   posix.normalize(input.replace(/\\/g, "/"))
 
-/** Resolves a note path within the vault; throws on absolute paths, paths
- *  longer than any filesystem accepts, traversal, hidden paths (dot-prefixed
- *  segments — Obsidian ignores them), and the vault root itself (which names
- *  no entry). Hidden is
- *  checked on the resolved relative path (so "./" and "../" normalize)
- *  before any fs access (no existence leak). Internal ".obsidian/"
- *  config readers deliberately bypass this via direct readFile. */
+/** Resolves a note path within the vault. It throws on:
+ *  - absolute paths;
+ *  - paths longer than any filesystem accepts;
+ *  - traversal, and the vault root itself, which names no entry;
+ *  - hidden paths (dot-prefixed segments, which Obsidian ignores), checked on
+ *    the resolved relative path so "./" and "../" normalize first, and before
+ *    any fs access so no existence leaks.
+ *  Internal ".obsidian/" config readers deliberately bypass this via direct
+ *  readFile. */
 export const resolveSafePath = (vaultPath: string, notePath: string): string => {
   // Vault paths are relative to the vault root — Obsidian has no other
   // form. An absolute input is rejected even when it lands inside the vault,
@@ -73,9 +75,10 @@ export const resolveSafePath = (vaultPath: string, notePath: string): string => 
     throw new Error(`absolute path blocked: "${notePath}" must be vault-relative`)
   }
 
-  // Before resolve(): resolving, normalizing and case-folding a path cost
-  // more than linear time on some crafted inputs, so a path the filesystem
-  // would refuse anyway is refused before any of them runs.
+  // resolve() below costs more than linear time on some crafted inputs, as
+  // does the case-folding that callers apply to its result (the write-lock
+  // key, isProtectedPath). A path the filesystem would refuse anyway is
+  // therefore refused before either runs.
   assertPathWithinMaxLength(notePath)
 
   const vaultRoot = resolve(vaultPath)
@@ -113,6 +116,7 @@ export const resolveVaultRelativePath = (params: {
 }): string => {
   // Normalizing costs more than linear time on some crafted inputs, so the
   // length check runs on the input as sent, before toVaultRelativePath.
+  // resolveSafePath repeats it for its own direct callers.
   assertPathWithinMaxLength(params.notePath)
 
   const normalizedInput = toVaultRelativePath(params.notePath)
@@ -146,7 +150,7 @@ export const isProtectedPath = (params: {
  * The delete/move that triggered the prune has already succeeded, so a failure
  * to remove a folder (permissions, a race, a vanished dir) is logged and ends
  * the walk rather than thrown — it never fails the tool call. An unsafe `path`
- * throws resolveSafePath's absolute/traversal/hidden error before any folder
+ * throws resolveSafePath's absolute/length/traversal/hidden error before any folder
  * is touched.
  * Returns the number of folders removed.
  */
@@ -186,7 +190,7 @@ export const pruneEmptyParents = async (
  *    every dot-prefixed path.
  *  - Its name is 41 bytes (a 36-character UUID plus the dot and ".tmp")
  *    whatever the target's name, so a target named near the filesystem's
- *    limit still saves.
+ *    per-name limit (255 bytes on ext4) still saves.
  *  - It stays in the target's folder, so the rename or link that follows
  *    never crosses filesystems. */
 export const tempSavePath = (filePath: string): string => {
@@ -305,8 +309,9 @@ export const atomicWriteFileExclusive = async (
 }
 
 /** Parses a note an overwrite will merge into. A refused properties block
- *  becomes an OverwriteBlockedError, which the tool layer repairs without
- *  moving the block's text into the body the overwrite replaces. */
+ *  becomes an OverwriteBlockedError. The tool layer answers it with repair
+ *  steps that skip moving the block's text into the body, since the
+ *  overwrite replaces that body. */
 const parseNoteForOverwrite = (existing: string): ParsedNote => {
   try {
     return parseNoteForRewrite(existing)
@@ -608,8 +613,8 @@ export const trashDomainLockKey = (vaultPath: string): string => {
 
 /** What the retention sweep checks in a trashed file before deleting it. */
 export type TrashFileState = {
-  /** Inode number, size, and modification time, stored in the file's
-   *  trash_entries row and matched exactly.
+  /** Inode number, size, and modification time, stored in the file's row of
+   *  the search index's trash_entries table and matched exactly.
    *  - Changing the format makes every recorded row a mismatch, so the sweep
    *    drops those rows and never deletes their files.
    *  - The inode alone is not enough, because ext4 reuses freed inode numbers.
@@ -759,23 +764,29 @@ const moveNoteToTrash = async (
         }
       }
 
-      if (params.recordTrashEntry) {
+      const tryRecordTrashEntry = async (recordTrashEntry: RecordTrashEntry): Promise<boolean> => {
         try {
           // The sweep compares against whatever is at the landed path, so the
           // identity is read there, after the rename.
           const { identity } = await readTrashFileState(candidateFullPath)
-          params.recordTrashEntry({ trashPath: candidateRelativePath, fileIdentity: identity })
+          recordTrashEntry({ trashPath: candidateRelativePath, fileIdentity: identity })
+          return true
         } catch (recordError) {
           logger.warn("failed to record trash entry", {
             path: candidateRelativePath,
             error: describeError(recordError),
           })
-          // The failed record left any stale row in place — still defuse it.
-          tryClearStaleTrashEntry()
+          return false
         }
-      } else {
-        tryClearStaleTrashEntry()
       }
+
+      const entryRecorded = params.recordTrashEntry
+        ? await tryRecordTrashEntry(params.recordTrashEntry)
+        : false
+
+      // A failed record counts as unrecorded, because it left any stale row
+      // in place.
+      if (!entryRecorded) tryClearStaleTrashEntry()
       return candidateRelativePath
     }
 

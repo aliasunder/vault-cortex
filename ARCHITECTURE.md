@@ -1472,12 +1472,16 @@ Docker hardening, and durability seatbelts above.
   separators, or `X/../About Me/Principles.md`) cannot evade protection.
 - **Path length** (`utils/assert-path-within-max-length.ts`): a path
   longer than 4,095 bytes, the most Linux accepts on any filesystem, is
-  refused before any other work on it. The check runs on the input as sent,
-  in three places: at the start of `resolveVaultRelativePath()`, in
-  `resolveSafePath()` after the absolute-path check, and in the memory
-  store's update and delete before they take the write lock. The refusal
-  reads like the filesystem's own ENAMETOOLONG error and gets the same
-  remedy, so the tools' existing Errors entries describe it.
+  refused before any other work on it, which bounds the cost of the
+  normalizing, resolving and case-folding that follow. The refusal reads
+  like the filesystem's own ENAMETOOLONG error and gets the same remedy, so
+  the tool descriptions that already list ENAMETOOLONG cover it. The check
+  runs in three places:
+  - at the start of `resolveVaultRelativePath()`, on the path as sent;
+  - in `resolveSafePath()`, after the absolute-path check;
+  - in the memory store's update and delete, on the memory folder plus the
+    file name, before the write lock case-folds the path. Memory reads take
+    no lock, so they skip the check.
 - **`vaultFolderName`** (Zod schema in `config.ts`): config-time
   validation rejects absolute paths, traversal (`..`), and blank names
   before they reach any file operation.
