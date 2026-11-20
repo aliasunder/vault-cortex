@@ -370,6 +370,10 @@ while the owner decides are bounded:
   10 minutes, so a sign-in the sweep cuts off is one that started late; a
   client whose registration was swept is told at `/authorize` how to
   reconnect
+- **Readable** — a registration the database cannot read back (JSON
+  nested more than 1,000 levels deep) is refused with
+  `invalid_client_metadata`, and boot deletes any that an earlier version
+  stored and that never signed in
 
 ### Symlink safety
 
