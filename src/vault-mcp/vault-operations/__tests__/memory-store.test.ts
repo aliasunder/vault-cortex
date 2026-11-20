@@ -2469,6 +2469,62 @@ describe("listMemoryFiles", () => {
     ])
   })
 
+  it("counts the entry after a %% comment that holds a fence marker", async () => {
+    // A fence opened inside the comment would make the closing %% code, which
+    // would hide the entry after the comment
+    await writeFile(
+      join(vault, "About Me/Commented.md"),
+      [
+        "# Commented",
+        "",
+        "## Notes (newest first)",
+        "%%",
+        "```",
+        "%%",
+        "- **2026-01-01**: after the comment",
+        "",
+      ].join("\n"),
+      "utf8",
+    )
+
+    const outlines = await listMemoryFiles({ vaultPath: vault }, logger)
+    const entries = await getMemoryEntries({ vaultPath: vault, file: "Commented" }, logger)
+
+    expect(entries.map((entry) => entry.date)).toEqual(["2026-01-01"])
+    expect(outlines.find((outline) => outline.file === "Commented")?.headings).toEqual([
+      { level: 1, text: "Commented" },
+      { level: 2, text: "Notes (newest first)", entry_count: 1 },
+    ])
+  })
+
+  it("counts the entry after a fence that holds a %% marker", async () => {
+    // A comment opened by the fenced %% would hide the entry after the fence
+    await writeFile(
+      join(vault, "About Me/Fenced.md"),
+      [
+        "# Fenced",
+        "",
+        "## Notes (newest first)",
+        "- **2026-01-03**: before the fence",
+        "```",
+        "%%",
+        "```",
+        "- **2026-01-01**: after the fence",
+        "",
+      ].join("\n"),
+      "utf8",
+    )
+
+    const outlines = await listMemoryFiles({ vaultPath: vault }, logger)
+    const entries = await getMemoryEntries({ vaultPath: vault, file: "Fenced" }, logger)
+
+    expect(entries.map((entry) => entry.date)).toEqual(["2026-01-03", "2026-01-01"])
+    expect(outlines.find((outline) => outline.file === "Fenced")?.headings).toEqual([
+      { level: 1, text: "Fenced" },
+      { level: 2, text: "Notes (newest first)", entry_count: 2 },
+    ])
+  })
+
   it("identifies H1 and H2 headings correctly", async () => {
     const outlines = await listMemoryFiles({ vaultPath: vault }, logger)
     const principles = outlines.find((outline) => outline.file === "Principles")
@@ -3893,6 +3949,26 @@ describe("over-long memory file names", () => {
       ),
     ).rejects.toThrow(tooLongRefusal)
     expect(await readdir(join(vault, "About Me"))).toEqual(["Opinions.md", "Principles.md"])
+  })
+
+  it("updateMemory passes a name whose memory path is exactly 4,095 bytes on to the filesystem", async () => {
+    // The check measures the vault-relative path, so this name passes it. The
+    // read then fails, because the file name exceeds the per-name limit (255
+    // bytes on ext4)
+    const longestAcceptedName = "a".repeat(4095 - 12)
+
+    await expect(
+      updateMemory(
+        {
+          vaultPath: vault,
+          file: longestAcceptedName,
+          section: "Decision heuristics (newest first)",
+          entry: "valid entry",
+          date: "2026-07-02",
+        },
+        logger,
+      ),
+    ).rejects.toThrow(new Error(`cannot read memory file "About Me/${longestAcceptedName}.md"`))
   })
 
   it("deleteMemory refuses a name whose memory path is 4,096 bytes", async () => {
