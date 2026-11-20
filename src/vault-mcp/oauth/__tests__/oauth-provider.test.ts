@@ -2820,4 +2820,28 @@ describe("OAuth registrations SQLite cannot read", () => {
       },
     ])
   })
+
+  it("logs no deletion on a boot whose only unreadable registration signed in", async () => {
+    const dbPath = await createOAuthDbPath()
+    const oldDb = createDbWithoutSweepIndex(dbPath)
+    // The boot's delete must pass over this row, so it finds nothing to delete.
+    seedClientData(oldDb, "unreadable-signed-in", {
+      client_id_issued_at: fiftyNineMinutesAgo(),
+      jwks: nestedArrays(1000),
+    })
+    stampSignedIn(oldDb, "unreadable-signed-in", fiftyNineMinutesAgo())
+    oldDb.close()
+    const logs: LogCall[] = []
+
+    createOAuthProvider({
+      ...TEST_URLS,
+      authToken: AUTH_TOKEN,
+      dbPath,
+      logger: recordingLogger(logs),
+    })
+
+    expect(registeredClientIds(openDb(dbPath))).toEqual(["unreadable-signed-in"])
+    const deletedLogs = logs.filter((log) => log.message === "oauth_unreadable_clients_deleted")
+    expect(deletedLogs).toEqual([])
+  })
 })
