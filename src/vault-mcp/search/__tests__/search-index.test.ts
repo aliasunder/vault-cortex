@@ -12315,6 +12315,24 @@ describe("scripts", () => {
     expect(vi.mocked(readFile)).not.toHaveBeenCalledWith(scriptPath, expect.anything())
   })
 
+  it("finds a script that starts with a byte-order mark by its first word", async () => {
+    // The indexed text keeps the mark, so the word right after it is found
+    // only while the tokenizer treats the mark as a separator.
+    const { database } = await rebuildVaultOf({
+      files: [
+        {
+          path: "marked.py",
+          content: Buffer.concat([
+            Buffer.from([0xef, 0xbb, 0xbf]),
+            Buffer.from("markedopal = 1\n"),
+          ]),
+        },
+      ],
+    })
+
+    expect(keywordPaths(database, "markedopal")).toEqual(["marked.py"])
+  })
+
   it("leaves a script holding a NUL byte out of search", async () => {
     const { database } = await rebuildVaultOf({
       files: [
