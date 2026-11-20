@@ -210,7 +210,8 @@ const initDb = (dbPath: string, logger: Logger): Database.Database => {
   }
 
   // Lets the sweep, which runs before every /register, read only the rows it
-  // deletes instead of parsing every stored registration. It is created after:
+  // deletes instead of parsing every registration that never signed in. It is
+  // created after:
   // - the migration, because its condition names signed_in_at;
   // - the delete above, because SQLite cannot build it over a row its JSON
   //   parser refuses.
