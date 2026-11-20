@@ -11,12 +11,13 @@ type DecodedTextBuffer =
   | Readonly<{ status: "invalid-utf8" }>
 
 // Decoding is stateless outside streaming mode, so one decoder serves every call.
-const utf8Decoder = new TextDecoder("utf-8")
+// ignoreBOM keeps a leading byte-order mark, which TextDecoder drops by default.
+const utf8Decoder = new TextDecoder("utf-8", { ignoreBOM: true })
 
 /** Decodes bytes as UTF-8 text.
  *  - A NUL byte within the first NUL_SEARCH_WINDOW_BYTES marks them binary.
  *  - Any byte sequence that is not UTF-8 marks them invalid.
- *  - A leading byte-order mark is dropped, as TextDecoder does by default. */
+ *  - A leading byte-order mark is kept, so the text matches the file's bytes. */
 export const decodeTextBuffer = (buffer: Uint8Array): DecodedTextBuffer => {
   const holdsEarlyNulByte = buffer.subarray(0, NUL_SEARCH_WINDOW_BYTES).includes(0)
 

@@ -72,11 +72,11 @@ const notValidUtf8Message = (path: string): string => {
 
 /** Decodes an asset buffer as UTF-8, rejecting invalid byte sequences — text
  *  is promised verbatim, and the default decoder would silently substitute
- *  U+FFFD for every undecodable byte instead. Unlike decodeTextBuffer, it
- *  accepts NUL bytes. */
+ *  U+FFFD for every undecodable byte instead. A leading byte-order mark is
+ *  kept for the same reason. Unlike decodeTextBuffer, it accepts NUL bytes. */
 const decodeUtf8Strict = (params: { buffer: Buffer; path: string }): string => {
   try {
-    return new TextDecoder("utf-8", { fatal: true }).decode(params.buffer)
+    return new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(params.buffer)
   } catch (error) {
     throw new Error(notValidUtf8Message(params.path), { cause: error })
   }

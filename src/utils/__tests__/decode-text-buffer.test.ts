@@ -56,9 +56,12 @@ describe("decodeTextBuffer", () => {
     expect(decodeTextBuffer(Buffer.from([0xed, 0xa0, 0x80]))).toEqual({ status: "invalid-utf8" })
   })
 
-  it("drops a leading byte-order mark", () => {
+  it("keeps a leading byte-order mark", () => {
     const withByteOrderMark = Buffer.from([0xef, 0xbb, 0xbf, 0x68, 0x69])
 
-    expect(decodeTextBuffer(withByteOrderMark)).toEqual({ status: "text", text: "hi" })
+    expect(decodeTextBuffer(withByteOrderMark)).toEqual({
+      status: "text",
+      text: `${String.fromCodePoint(0xfeff)}hi`,
+    })
   })
 })
