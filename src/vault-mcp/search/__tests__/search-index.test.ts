@@ -4833,10 +4833,13 @@ describe("rebuildFromVault deferred PDF content", () => {
       path: fixture.path,
       error: "[Error]: controlled extraction failure",
     })
-    expect(warnSpy).toHaveBeenCalledWith("PDF content pass could not remove old vectors", {
-      path: fixture.path,
-      error: "[SqliteError]: controlled chunk delete failure",
-    })
+    expect(warnSpy).toHaveBeenCalledWith(
+      "PDF content pass could not remove old chunks and vectors",
+      {
+        path: fixture.path,
+        error: "[SqliteError]: controlled chunk delete failure",
+      },
+    )
     expect(fixture.keywordPaths("healthyamber")).toEqual([{ path: "Healthy.PDF" }])
     expect(
       fixture.database

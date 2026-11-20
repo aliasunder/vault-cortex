@@ -3433,11 +3433,11 @@ export const createSearchIndex = (
 
     /** Removes the kept chunks and vectors of a PDF the pass leaves name-only. A failure is
      *  logged like a failed publish, so one PDF's failed delete never stops the pass. */
-    const removeUnpublishedPdfVectors = (file: PdfAwaitingText): void => {
+    const removeUnpublishedPdfChunksAndVectors = (file: PdfAwaitingText): void => {
       try {
         removeFileChunksAndVectors(file.relativePath)
       } catch (error) {
-        logger.warn("PDF content pass could not remove old vectors", {
+        logger.warn("PDF content pass could not remove old chunks and vectors", {
           path: file.relativePath,
           ...describeErrorForLog(error),
         })
@@ -3485,17 +3485,25 @@ export const createSearchIndex = (
           // The PDF stays name-only, so its kept chunks and vectors would answer for text that
           // search no longer has.
           case "failed":
-            removeUnpublishedPdfVectors(file)
+            removeUnpublishedPdfChunksAndVectors(file)
             continue
           case "extracted": {
             const publishedVersion = publishPdfText(file, extraction.result.text)
 
             // A failed write leaves the name-only row, as a failed extraction does.
             if (!publishedVersion) {
-              removeUnpublishedPdfVectors(file)
+              removeUnpublishedPdfChunksAndVectors(file)
               continue
             }
             publishedPdfs.push({ relativePath: file.relativePath, sourceVersion: publishedVersion })
+            break
+          }
+          // A new extraction status fails to compile here until the pass handles it
+          default: {
+            const unhandledExtraction: never = extraction
+            throw new Error(
+              `unhandled PDF extraction status: ${JSON.stringify(unhandledExtraction)}`,
+            )
           }
         }
       }
