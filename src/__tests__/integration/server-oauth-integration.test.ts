@@ -16,6 +16,10 @@ import {
   EXPECTED_SECURITY_HEADERS,
 } from "./test-harness.js"
 
+// Each test boots its own server, which can take longer than Vitest's
+// 5-second default on a loaded machine. Tests that boot twice set their own.
+vi.setConfig({ testTimeout: 15_000 })
+
 const REDIRECT_URI = "http://127.0.0.1/callback"
 const TOKEN_A = "integration-token-before-rotation"
 const TOKEN_B = "integration-token-after-rotation"
