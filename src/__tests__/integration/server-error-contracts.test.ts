@@ -48,6 +48,8 @@ let cleanup: (() => Promise<void>) | undefined
 let serverVaultPath: string
 // The shared server is booted once for all contracts, including log assertions.
 let serverStdout: () => string
+// The shared server's port, for a test that calls its HTTP endpoints directly
+let serverPort: number
 
 beforeAll(async () => {
   const port = await freePort()
@@ -55,6 +57,7 @@ beforeAll(async () => {
   cleanup = server.cleanup
   serverVaultPath = server.vaultPath
   serverStdout = server.stdout
+  serverPort = server.port
   client = await createTestClient(server.port)
 }, 30_000)
 
@@ -2135,6 +2138,35 @@ describe("control characters in body edits", () => {
       args: { path: "Scratch/control.md", body: "a\u0000b" },
     })
     expectToolError(result, "body contains a control character (U+0000 at position 1)")
+  })
+})
+
+// ── Glob matching deadline ───────────────────────────────────
+
+describe("glob matching deadline", () => {
+  it("vault_list_notes stops a glob still matching after 2 seconds, and the server answers meanwhile", async () => {
+    // Matching the glob below against this note's name outlasts the 2-second
+    // limit. The name has no "b", so the glob never matches it
+    const slowNotePath = join(serverVaultPath, `${"a".repeat(160)}.md`)
+    await writeFile(slowNotePath, "# Slow glob target\n")
+    onTestFinished(() => rm(slowNotePath))
+
+    const pendingResult = callTool({
+      client,
+      name: "vault_list_notes",
+      args: { glob: "**/*a*a*a*a*a*b.md" },
+    })
+    // Gives the call time to reach the matcher before the health check
+    await delay(200)
+    const healthResponse = await fetch(`http://127.0.0.1:${serverPort}/healthz`, {
+      signal: AbortSignal.timeout(1_000),
+    })
+
+    expect(healthResponse.status).toBe(200)
+    expect(await pendingResult).toEqual({
+      content: [{ type: "text", text: "[Error]: glob matching timed out after 2000 ms" }],
+      isError: true,
+    })
   })
 })
 
