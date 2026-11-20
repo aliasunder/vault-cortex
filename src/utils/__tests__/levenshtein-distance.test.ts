@@ -108,7 +108,8 @@ describe("isWithinEditDistance", () => {
       const distance = fullTableDistance(first, second)
       return [0, 1, 2, 3].flatMap((maxDistance) => {
         const banded = isWithinEditDistance({ first, second, maxDistance })
-        return banded === distance <= maxDistance ? [] : [{ first, second, maxDistance }]
+        const withinBudget = distance <= maxDistance
+        return banded === withinBudget ? [] : [{ first, second, maxDistance }]
       })
     })
 
