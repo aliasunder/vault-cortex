@@ -11549,6 +11549,61 @@ describe("canvas file content and links", () => {
       ).toEqual(EXPECTED_PLAN_OUTGOING)
       expect(search.getBacklinks({ path: "Plan.pdf.md" }, logger)).toEqual([])
     })
+
+    it("indexes a canvas that starts with a byte-order mark on a rebuild", async () => {
+      const directory = await mkdtemp(join(tmpdir(), "canvas-byte-order-mark-"))
+      onTestFinished(() => rm(directory, { recursive: true, force: true }))
+      await mkdir(join(directory, "Boards"))
+      await writeFile(join(directory, "Note.md"), NOTE_CONTENT)
+      await writeFile(join(directory, "Plan.pdf"), "x".repeat(300))
+      // U+FEFF first, as a Windows editor can save it; the card text holds a
+      // word no other file has, so a search hit can only come from this canvas.
+      const canvasWithMark = `\uFEFF${JSON.stringify({
+        nodes: [
+          { id: "f1", type: "file", x: 0, y: 0, width: 400, height: 300, file: "Plan.pdf" },
+          {
+            id: "t1",
+            type: "text",
+            x: 0,
+            y: 400,
+            width: 200,
+            height: 100,
+            text: "[[../Note]] quartzite",
+          },
+        ],
+        edges: [],
+      })}`
+      await writeFile(join(directory, "Boards/board.canvas"), canvasWithMark)
+      const search = createSearchIndex(":memory:", undefined, undefined, {
+        fileToolsEnabled: true,
+      })
+      const rebuilt = await search.rebuildFromVault(
+        {
+          vaultPath: directory,
+          bodyTagParser: inProcessBodyTagParser,
+          pdfExtractor: createInProcessPdfExtractor(directory),
+          maxFileBytes: 10_000_000,
+        },
+        logger,
+      )
+      await rebuilt.embedding
+      await rebuilt.pdfPass
+
+      expect(
+        search.getOutgoingLinks(
+          { path: "Boards/board.canvas", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
+          logger,
+        ),
+      ).toEqual(EXPECTED_PLAN_OUTGOING)
+      expect(
+        search.getBacklinks({ path: "Note.md" }, logger).map((backlink) => backlink.path),
+      ).toEqual(["Boards/board.canvas"])
+      expect(
+        (await search.hybridSearch({ query: "quartzite" }, logger)).results.map(
+          (result) => result.path,
+        ),
+      ).toEqual(["Boards/board.canvas"])
+    })
   })
 
   describe("canvas backlinks target acceptance", () => {
@@ -12258,6 +12313,27 @@ describe("scripts", () => {
     // These two cover a read as a buffer and a read given an encoding or options
     expect(vi.mocked(readFile)).not.toHaveBeenCalledWith(scriptPath)
     expect(vi.mocked(readFile)).not.toHaveBeenCalledWith(scriptPath, expect.anything())
+  })
+
+  it("keeps a script's leading byte-order mark in its indexed text and finds the script by its first word", async () => {
+    // The indexed text keeps the mark, so the word right after it is found
+    // only while the tokenizer treats the mark as a separator.
+    const { database } = await rebuildVaultOf({
+      files: [
+        {
+          path: "marked.py",
+          content: Buffer.concat([
+            Buffer.from([0xef, 0xbb, 0xbf]),
+            Buffer.from("markedopal = 1\n"),
+          ]),
+        },
+      ],
+    })
+
+    expect(
+      database.prepare("SELECT content FROM file_content WHERE path = ?").get("marked.py"),
+    ).toEqual({ content: `${String.fromCodePoint(0xfeff)}markedopal = 1\n` })
+    expect(keywordPaths(database, "markedopal")).toEqual(["marked.py"])
   })
 
   it("leaves a script holding a NUL byte out of search", async () => {

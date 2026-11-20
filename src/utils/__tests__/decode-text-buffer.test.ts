@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { decodeTextBuffer } from "../decode-text-buffer.js"
+import { decodeTextBuffer, decodeUtf8OrNull } from "../decode-text-buffer.js"
 
 /** `length` bytes of ASCII "a" with a NUL byte at `nulIndex`. */
 const buildBufferWithNulAt = (params: { length: number; nulIndex: number }): Buffer => {
@@ -56,9 +56,37 @@ describe("decodeTextBuffer", () => {
     expect(decodeTextBuffer(Buffer.from([0xed, 0xa0, 0x80]))).toEqual({ status: "invalid-utf8" })
   })
 
-  it("drops a leading byte-order mark", () => {
+  it("keeps a leading byte-order mark", () => {
     const withByteOrderMark = Buffer.from([0xef, 0xbb, 0xbf, 0x68, 0x69])
 
-    expect(decodeTextBuffer(withByteOrderMark)).toEqual({ status: "text", text: "hi" })
+    expect(decodeTextBuffer(withByteOrderMark)).toEqual({
+      status: "text",
+      text: `${String.fromCodePoint(0xfeff)}hi`,
+    })
+  })
+})
+
+describe("decodeUtf8OrNull", () => {
+  it("decodes UTF-8 text, multibyte characters included", () => {
+    expect(decodeUtf8OrNull(Buffer.from("café — ✓\n", "utf8"))).toBe("café — ✓\n")
+  })
+
+  it("decodes a NUL byte in the first 8,000 bytes as text, unlike decodeTextBuffer", () => {
+    expect(decodeUtf8OrNull(buildBufferWithNulAt({ length: 5, nulIndex: 0 }))).toBe("\u0000aaaa")
+  })
+
+  it("returns null for bytes that are not UTF-8", () => {
+    // 0xE9 is "é" in Latin-1 and never a complete UTF-8 sequence
+    expect(decodeUtf8OrNull(Buffer.from([0x63, 0x61, 0x66, 0xe9]))).toBeNull()
+  })
+
+  it("returns null for an encoded UTF-16 surrogate, as a strict UTF-8 decoder does", () => {
+    expect(decodeUtf8OrNull(Buffer.from([0xed, 0xa0, 0x80]))).toBeNull()
+  })
+
+  it("keeps a leading byte-order mark", () => {
+    expect(decodeUtf8OrNull(Buffer.from([0xef, 0xbb, 0xbf, 0x68, 0x69]))).toBe(
+      `${String.fromCodePoint(0xfeff)}hi`,
+    )
   })
 })

@@ -276,10 +276,7 @@ const findFirstDuplicateKey = (document: Document): YAMLParseError | undefined =
   // A stack of pending steps; the last one pushed runs next.
   const steps: DuplicateKeyStep[] = [{ kind: "node", node: document.contents }]
 
-  while (steps.length) {
-    const step = steps.pop()
-
-    if (!step) break
+  for (let step = steps.pop(); step; step = steps.pop()) {
     if (step.kind === "key") {
       const { pair, nodes, values } = step
       const key = pair.key
