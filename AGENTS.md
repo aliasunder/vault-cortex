@@ -330,8 +330,8 @@ imports steps, rules and adapters.
   `Mode`, `DaemonStatus` and `PublishedPort` types from `adapters/docker.ts`.
 - **Export style** follows the server's test: a module that performs
   operations (runs or removes a container, writes a file) exports one
-  namespace object, and a module that only decides, asks or reads exports
-  named functions.
+  namespace object, or a factory that returns one, and a module that only
+  decides, asks or reads exports named functions.
 
 Lint enforces the direction: `eslint.config.ts` has one
 `no-restricted-imports` block per CLI folder, and every folder but `adapters/`
