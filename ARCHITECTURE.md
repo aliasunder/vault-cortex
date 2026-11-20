@@ -1482,21 +1482,13 @@ Docker hardening, and durability seatbelts above.
   through `resolveSafePath()`, then take the path relative to the vault
   root. Prefix guards run on this form, so an aliased spelling (`\`
   separators, or `X/../About Me/Principles.md`) cannot evade protection.
-- **Path length** (`utils/assert-path-within-max-length.ts`): a path
-  longer than 4,095 bytes, the most Linux accepts on any filesystem, is
-  refused before it is normalized, resolved or case-folded, which bounds
-  the cost of those steps. The check measures the path as sent, so it
-  also refuses a longer path that its `..` segments would shorten to an
-  allowed length. The refusal reads like the filesystem's own
-  ENAMETOOLONG error and gets the same remedy, so the tool descriptions
-  that already list ENAMETOOLONG cover it. The check runs in four places:
-  - at the start of `resolveVaultRelativePath()`, on the path as sent;
-  - in `resolveSafePath()`, after the absolute-path check;
-  - in a PDF text read, before the request goes to the PDF child process,
-    so the refusal keeps its remedy;
-  - in the memory store's update and delete, on the memory folder plus the
-    file name, before the write lock case-folds the path. Memory reads take
-    no lock, so they skip the check.
+- **Path length** (`utils/assert-path-within-max-length.ts`): a path over
+  4,095 bytes, Linux's limit on any filesystem, is refused as sent, before
+  normalizing, resolving or case-folding can spend time on it, even when
+  its `..` segments would shorten it. The refusal mirrors the filesystem's
+  `ENAMETOOLONG` and its remedy. It runs in `resolveVaultRelativePath()`,
+  `resolveSafePath()`, PDF text reads, and memory updates and deletes;
+  memory reads take no lock and skip it.
 - **`vaultFolderName`** (Zod schema in `config.ts`): config-time
   validation rejects absolute paths, traversal (`..`), and blank names
   before they reach any file operation.
