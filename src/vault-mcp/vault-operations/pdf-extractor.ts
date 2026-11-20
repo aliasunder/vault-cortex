@@ -6,6 +6,7 @@ import { extname } from "node:path"
 import { fileURLToPath } from "node:url"
 import { promisify } from "node:util"
 import type { Logger } from "../../logger.js"
+import { assertPathWithinMaxLength } from "../../utils/assert-path-within-max-length.js"
 import { describeErrorForLog } from "../../utils/describe-error.js"
 import type { AssetTextResult } from "./asset-text.js"
 import type { PdfTextResult } from "../obsidian-markdown/pdf.js"
@@ -614,6 +615,10 @@ export const createPdfExtractor = (params: {
       }
     },
     readText: async ({ path, startLine, limit }, logger) => {
+      // The child's refusal of an over-long path comes back as a plain Error, which gets no remedy
+      // at the tool boundary, so this process refuses the path before the request is sent.
+      assertPathWithinMaxLength(path)
+
       const request: PdfRequest = {
         kind: "read",
         vaultPath,
