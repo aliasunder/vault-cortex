@@ -40,10 +40,12 @@ breaking:
 
 These change only in a major release:
 
-- **MCP tool surface** — tool names, parameter names and types, which
-  parameters are required, response fields, the refusal of unknown
-  parameters by every tool that takes any, prompt names and their required
-  arguments, and the MCP protocol versions the server accepts
+- **MCP tool surface** — tool names, parameter names and types, response
+  fields, the refusal of unknown parameters by every tool that takes any,
+  prompt names and their arguments, and the MCP protocol versions the
+  server accepts. An optional parameter or prompt argument becomes required
+  only in a major release; a required one may become optional in a minor,
+  as the list above says
 - **Error contracts** — each tool's description, which your MCP client
   shows, lists its failures under `Errors:`. A listed failure stays
   refused, and its message keeps naming the fix; the exact wording may
