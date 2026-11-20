@@ -14,11 +14,11 @@ describes.
 
 ## What a version number promises
 
-| Release | May contain                                                                                        |
-| ------- | -------------------------------------------------------------------------------------------------- |
-| Major   | Breaking changes to a covered part, each listed under ⚠ BREAKING CHANGES in the release notes      |
-| Minor   | New tools, prompts (the guided workflows a client lists), parameters, response fields and settings |
-| Patch   | Bug fixes and dependency updates                                                                   |
+| Release | May contain                                                                                                 |
+| ------- | ----------------------------------------------------------------------------------------------------------- |
+| Major   | Breaking changes to a covered part, each listed under ⚠ BREAKING CHANGES in the release notes               |
+| Minor   | New tools, prompts (the guided workflows a client lists), optional parameters, response fields and settings |
+| Patch   | Bug fixes and dependency updates                                                                            |
 
 Each row may also contain what the rows below it list. A dependency update
 that changes a covered part, such as the CLI's minimum Node.js version,
