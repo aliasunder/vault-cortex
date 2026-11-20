@@ -2845,3 +2845,77 @@ describe("OAuth registrations SQLite cannot read", () => {
     expect(deletedLogs).toEqual([])
   })
 })
+
+const SIZE_TEST_REDIRECT_URI = "https://example.com/cb"
+
+const storedDataBytes = (db: Database.Database, clientId: string): number => {
+  const storedRow = db
+    .prepare<[string], { data: string }>("SELECT data FROM clients WHERE client_id = ?")
+    .get(clientId)
+
+  if (!storedRow) throw new Error(`no stored registration for ${clientId}`)
+  return Buffer.byteLength(storedRow.data)
+}
+
+/** The stored size of a registration whose client_name is empty, measured in
+ *  a scratch database. The credentials the server adds have fixed lengths, so
+ *  each byte added to the name adds one stored byte. */
+const storedBytesWithEmptyName = async (): Promise<number> => {
+  const dbPath = await createOAuthDbPath()
+  const oauth = createOAuthProvider({ ...TEST_URLS, authToken: AUTH_TOKEN, dbPath, logger })
+  const registered = await registerClient(oauth, {
+    client_name: "",
+    redirect_uris: [SIZE_TEST_REDIRECT_URI],
+  })
+  return storedDataBytes(openDb(dbPath), registered.client_id)
+}
+
+describe("OAuth registration stored-size cap", () => {
+  it("stores a registration whose stored JSON is exactly 9,216 bytes", async () => {
+    const emptyNameBytes = await storedBytesWithEmptyName()
+    const dbPath = await createOAuthDbPath()
+    const oauth = createOAuthProvider({ ...TEST_URLS, authToken: AUTH_TOKEN, dbPath, logger })
+
+    const registered = await registerClient(oauth, {
+      client_name: "n".repeat(9216 - emptyNameBytes),
+      redirect_uris: [SIZE_TEST_REDIRECT_URI],
+    })
+
+    const db = openDb(dbPath)
+    expect(registeredClientIds(db)).toEqual([registered.client_id])
+    expect(storedDataBytes(db, registered.client_id)).toBe(9216)
+  })
+
+  it("refuses a registration whose stored JSON is 9,217 bytes, counting a two-byte character as two, stores nothing and warns", async () => {
+    const emptyNameBytes = await storedBytesWithEmptyName()
+    const dbPath = await createOAuthDbPath()
+    const logs: LogCall[] = []
+    const oauth = createOAuthProvider({
+      ...TEST_URLS,
+      authToken: AUTH_TOKEN,
+      dbPath,
+      logger: recordingLogger(logs),
+    })
+    // "é" is two UTF-8 bytes but one UTF-16 unit, so the stored JSON is 9,217
+    // bytes long but only 9,216 units: a cap on string length would store it.
+    const clientName = `${"n".repeat(9217 - emptyNameBytes - 2)}é`
+
+    const registration = registerClient(oauth, {
+      client_name: clientName,
+      redirect_uris: [SIZE_TEST_REDIRECT_URI],
+    })
+
+    await expect(registration).rejects.toThrow(
+      new InvalidClientMetadataError("Client metadata is too large to store"),
+    )
+    expect(registeredClientIds(openDb(dbPath))).toEqual([])
+    const refusedLogs = logs.filter((log) => log.message === "oauth_client_registration_refused")
+    expect(refusedLogs).toEqual([
+      {
+        level: "warn",
+        message: "oauth_client_registration_refused",
+        data: { component: "oauth", reason: "too_large", storedBytes: 9217 },
+      },
+    ])
+  })
+})

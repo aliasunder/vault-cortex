@@ -55,6 +55,12 @@ const PENDING_REQUEST_TTL_S = 10 * 60
 // the cap, anyone could make a held request keep up to 100 KB, the default
 // body limit of the express.urlencoded parsers on /authorize.
 const MAX_PENDING_REQUEST_PARAMS_BYTES = 8192
+// Caps the UTF-8 size of a stored client registration. /register's body cap
+// (REGISTRATION_BODY_LIMIT in oauth-routes.ts) limits what is parsed, and the
+// stored form of a parsed body can be longer than the body, so storage has its
+// own cap. The extra 1 KB over the body cap covers the credentials
+// registerClient adds (under 300 bytes). Real clients store under 500 bytes.
+const MAX_STORED_CLIENT_BYTES = 9 * 1024
 // Every rejected code gets this one message, so a code issued to another
 // client looks the same as an unknown one.
 const INVALID_AUTH_CODE_MESSAGE = "Authorization code expired or invalid"
@@ -73,9 +79,8 @@ type PendingAuthRequest = {
 }
 
 /** A held consent request keeps the client's ID, not a parsed copy of its
- *  registration, which can run to the 8 KB that /register accepts
- *  (REGISTRATION_BODY_LIMIT in oauth-routes.ts). Lookups load the client
- *  from the database. */
+ *  registration, which can run to MAX_STORED_CLIENT_BYTES. Lookups load the
+ *  client from the database. */
 type StoredPendingRequest = Omit<PendingAuthRequest, "client"> & { clientId: string }
 
 type StoredAuthCode = {
@@ -318,6 +323,15 @@ class SqliteClientsStore implements OAuthRegisteredClientsStore {
       client_secret_expires_at: 0,
     }
     const serializedClient = JSON.stringify(full)
+    // The cap counts UTF-8 bytes, which is what SQLite stores. String length
+    // counts UTF-16 units, so it would undercount any character beyond ASCII.
+    const storedBytes = Buffer.byteLength(serializedClient)
+
+    if (storedBytes > MAX_STORED_CLIENT_BYTES) {
+      this.logger.warn("oauth_client_registration_refused", { reason: "too_large", storedBytes })
+      throw new InvalidClientMetadataError("Client metadata is too large to store")
+    }
+
     // The sweep's index reads each new registration with SQLite's JSON
     // parser, which refuses nesting past 1,000 levels:
     // - the SDK accepts any JSON as jwks, a client's inline public keys
