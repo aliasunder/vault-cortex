@@ -517,7 +517,9 @@ Both models lazy-load on first use (~1–2s cold start each, kept in memory afte
 
 `vault_search` calls `hybridSearch`, which runs up to four ranked retrieval legs and merges results via RRF. The flow:
 
-1. **Note FTS5** keyword search (synchronous, `fullTextSearch`)
+1. **Note FTS5** keyword search (synchronous, `fullTextSearch`):
+   - The title column holds the note's title and each of its [aliases](https://obsidian.md/help/aliases), one per line, so an alias match ranks like a title match. The metadata column keeps only alias entries that are not text, such as numbers.
+   - A note whose title or alias equals the whole query sorts first, ignoring letter case and one pair of surrounding double quotes.
 2. **File content FTS5** — linearized canvas, extracted PDF text, text files, HTML visible text, and scripts (skipped when note-specific filters are active)
 3. **Note vector search** — embed the query → sqlite-vec KNN over `note_vectors` → deduplicate to best chunk per note
 4. **File content vector search** — same query embedding → KNN over `file_content_vectors` → deduplicate to best chunk per file (same skip condition as step 2)
@@ -612,7 +614,7 @@ Vector tables persist across restarts and rebuilds (only FTS, notes, links, task
 **Embedding pipeline:** Controlled by `EMBEDDING_ENABLED` (default: `true`). Markdown syntax is stripped before embedding (`plaintext.ts`). Short notes (under 500 body tokens) stay a single title-prefixed chunk. Longer notes split into per-heading sections via `chunker.ts`:
 
 - **Two views per note:** each top-level heading spans its full subtree (the aggregate view, so child text embeds twice); deeper headings own only the lines above the next heading of any level (the disjoint leaf view)
-- **Chunk prefixes:** every fragment starts with the note title. Aggregate and leaf fragments add a `Section:` line naming the heading's ancestor path, with these exceptions:
+- **Chunk prefixes:** every fragment starts with the note title, followed by the note's aliases when it has any and its title is not empty (`Avery Quinn (also known as Avery, Mom)`), so the embedder and the reranker see a note's other names. Aggregate and leaf fragments add a `Section:` line naming the heading's ancestor path, with these exceptions:
   - Long ancestor paths drop their leading segments to fit the remaining token budget, keeping the deepest segments. The `Section:` line is omitted when the title and metadata exhaust the budget.
   - Preamble and TOC fragments omit the `Section:` line. The aggregate also omits it when one top-level heading opens the note with no preceding text or heading, because that heading wraps the whole note.
 - **Empty sections:** a heading whose slice is empty emits no section chunk. Its name still appears in the TOC and in descendant chunks' `Section:` lines. A top-level heading with children still emits its aggregate even without text of its own, because its slice spans the subtree.

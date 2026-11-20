@@ -358,7 +358,7 @@ describe("schema creation", () => {
       logger,
     )
     const results = isolatedIndex.fullTextSearch({ query: "Test" }, logger)
-    expect(results).toHaveLength(1)
+    expect(results.map((result) => result.path)).toEqual(["test.md"])
   })
 
   it("loads the sqlite-vec extension during construction", () => {
@@ -922,7 +922,7 @@ describe("leading callout", () => {
     )
 
     const withoutFlag = index.fullTextSearch({ query: "burnout" }, logger)
-    expect(withoutFlag).toHaveLength(1)
+    expect(withoutFlag.map((result) => result.path)).toEqual(["About Me/Me.md"])
     expect(withoutFlag[0]?.leading_callout).toBeUndefined()
 
     const withFlag = index.fullTextSearch(
@@ -1283,8 +1283,9 @@ describe("upsertNote", () => {
       logger,
     )
     const results = index.fullTextSearch({ query: "new content" }, logger)
-    expect(results).toHaveLength(1)
-    expect(results[0]?.title).toBe("V2")
+    expect(results.map((result) => ({ path: result.path, title: result.title }))).toEqual([
+      { path: "test.md", title: "V2" },
+    ])
   })
 
   it("handles notes with no frontmatter", () => {
@@ -1297,8 +1298,9 @@ describe("upsertNote", () => {
       logger,
     )
     const results = index.fullTextSearch({ query: "plain text" }, logger)
-    expect(results).toHaveLength(1)
-    expect(results[0]?.tags).toEqual([])
+    expect(results.map((result) => ({ path: result.path, tags: result.tags }))).toEqual([
+      { path: "bare.md", tags: [] },
+    ])
   })
 
   it("normalizes tags to array when given as string", () => {
@@ -1574,7 +1576,7 @@ describe("removeNote", () => {
     )
     index.removeNote("test.md")
     const results = index.fullTextSearch({ query: "Removable" }, logger)
-    expect(results).toHaveLength(0)
+    expect(results).toEqual([])
   })
 
   it("does not throw for non-existent path", () => {
@@ -1732,7 +1734,7 @@ describe("fullTextSearch", () => {
 
   it("omits created when null", () => {
     const results = index.fullTextSearch({ query: "content without" }, logger)
-    expect(results).toHaveLength(1)
+    expect(results.map((result) => result.path)).toEqual(["notes/random.md"])
     expect(results[0]).not.toHaveProperty("created")
   })
 
@@ -1746,7 +1748,7 @@ describe("fullTextSearch", () => {
   it("returns modified as ISO 8601 string", () => {
     const results = index.fullTextSearch({ query: "burnout" }, logger)
     expect(typeof results[0]?.modified).toBe("string")
-    expect(results[0]?.modified).toMatch(/^\d{4}-\d{2}-\d{2}T/)
+    expect(results[0]?.modified).toBe(DateTime.fromMillis(1000).toISO())
   })
 
   it("respects custom snippet_tokens", () => {
@@ -1842,13 +1844,17 @@ describe("fullTextSearch", () => {
   })
 
   it("respects limit", () => {
+    const unlimitedPaths = index
+      .fullTextSearch({ query: "notes" }, logger)
+      .map((result) => result.path)
     const results = index.fullTextSearch({ query: "notes", limit: 1 }, logger)
-    expect(results).toHaveLength(1)
+    expect(unlimitedPaths.length).toBeGreaterThan(1)
+    expect(results.map((result) => result.path)).toEqual(unlimitedPaths.slice(0, 1))
   })
 
   it("returns empty for no matches", () => {
     const results = index.fullTextSearch({ query: "xyznonexistent" }, logger)
-    expect(results).toHaveLength(0)
+    expect(results).toEqual([])
   })
 
   it("handles porter stemming", () => {
@@ -2080,7 +2086,7 @@ describe("metadata search", () => {
 
   it("snippet contains body text, not metadata, for a frontmatter-only match", () => {
     const results = index.fullTextSearch({ query: "overdue" }, logger)
-    expect(results).toHaveLength(1)
+    expect(results.map((result) => result.path)).toEqual(["garden/fence.md"])
     expect(results[0]?.snippet).not.toContain("status")
     expect(results[0]?.snippet).not.toContain("overdue")
     expect(results[0]?.snippet).toContain("rotted posts")
@@ -2124,6 +2130,301 @@ describe("metadata search", () => {
 
     const results = warmIndex.fullTextSearch({ query: "xeriscaping" }, logger)
     expect(results.map((result) => result.path)).toEqual(["garden/layout.md"])
+  })
+
+  it("warm-DB migration: FTS names column is added to a database that has metadata", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "warm-fts-names-"))
+    onTestFinished(() => rm(dir, { recursive: true }))
+    const dbPath = join(dir, "search.db")
+    const legacyDb = new Database(dbPath)
+    legacyDb.exec(`
+      CREATE VIRTUAL TABLE notes_fts USING fts5(
+        path UNINDEXED, title, content, metadata, tokenize='porter unicode61'
+      );
+    `)
+    legacyDb.close()
+
+    const warmIndex = createSearchIndex(dbPath)
+    warmIndex.upsertNote(
+      withBodyTags({
+        filePath: "People/Avery Quinn.md",
+        rawContent: "---\ntitle: Avery Quinn\naliases: [Mom]\n---\n\nLives near the coast.\n",
+        fileStat: testStat(1000),
+      }),
+      logger,
+    )
+    warmIndex.upsertNote(
+      withBodyTags({
+        filePath: "Trips/Plan.md",
+        rawContent:
+          "---\ntitle: Plan\n---\n\nMom and the trip, mom and the trip, the trip with mom.\n",
+        fileStat: testStat(1000),
+      }),
+      logger,
+    )
+
+    const results = warmIndex.fullTextSearch({ query: "Mom" }, logger)
+    expect(results.map((result) => result.path)).toEqual(["People/Avery Quinn.md", "Trips/Plan.md"])
+  })
+})
+
+describe("note names in keyword search", () => {
+  /** An aliased person note whose body never says its alias, beside notes
+   *  that repeat the alias in their titles and bodies. Before aliases joined
+   *  the title column, the person note matched "mom" once, in its metadata
+   *  column, and ranked last. */
+  const createNamesIndex = (): SearchIndex => {
+    const namesIndex = createSearchIndex(":memory:")
+    const notes = [
+      {
+        filePath: "People/Avery Quinn.md",
+        rawContent:
+          "---\ntitle: Avery Quinn\naliases: [Avery, Mom]\nrelation: mother\n---\n\nLives near the coast.\n",
+      },
+      {
+        filePath: "Trips/Mom and Daughter Trip.md",
+        rawContent:
+          "---\ntitle: Mom and Daughter Trip\n---\n\nMom picks the hotels; mom books the trains. A trip with mom.\n",
+      },
+      {
+        filePath: "Trips/Session log.md",
+        rawContent:
+          "---\ntitle: Session log\n---\n\nMom said the session log helps on a trip. Mom agreed.\n",
+      },
+      {
+        filePath: "Logs/Daily.md",
+        rawContent:
+          "---\ntitle: Daily\n---\n\nThe session log, the session log and the session log again.\n",
+      },
+    ]
+    for (const note of notes) {
+      namesIndex.upsertNote(withBodyTags({ ...note, fileStat: testStat(1000) }), logger)
+    }
+    return namesIndex
+  }
+
+  it("ranks a note whose alias equals the query above notes that repeat it", () => {
+    const results = createNamesIndex().fullTextSearch({ query: "Mom" }, logger)
+
+    expect(results.map((result) => result.path)).toEqual([
+      "People/Avery Quinn.md",
+      "Trips/Mom and Daughter Trip.md",
+      "Trips/Session log.md",
+    ])
+  })
+
+  it("gives the exact-name match the highest score, so scores still descend", () => {
+    const results = createNamesIndex().fullTextSearch({ query: "Mom" }, logger)
+    const scores = results.map((result) => result.score)
+    const [exactNameScore, nextScore] = scores
+
+    expect(results[0]?.path).toBe("People/Avery Quinn.md")
+    expect(exactNameScore).toBeGreaterThan(nextScore ?? Number.POSITIVE_INFINITY)
+    expect(scores).toEqual(scores.toSorted((left, right) => right - left))
+  })
+
+  it.each([
+    { label: "another letter case", query: "MOM" },
+    { label: "padding around the query", query: "  mom  " },
+    { label: "the query in double quotes", query: '"Mom"' },
+  ])("matches the alias written with $label", ({ query }) => {
+    const results = createNamesIndex().fullTextSearch({ query }, logger)
+
+    expect(results.map((result) => result.path)).toEqual([
+      "People/Avery Quinn.md",
+      "Trips/Mom and Daughter Trip.md",
+      "Trips/Session log.md",
+    ])
+  })
+
+  it("ranks a note whose title equals the query above a note that repeats it", () => {
+    const results = createNamesIndex().fullTextSearch({ query: "session log" }, logger)
+
+    expect(results.map((result) => result.path)).toEqual(["Trips/Session log.md", "Logs/Daily.md"])
+  })
+
+  it("keeps the relevance order for a query that equals no name", () => {
+    // The least relevant match sorts first by path, so a path-only order fails
+    const namesIndex = createNamesIndex()
+    namesIndex.upsertNote(
+      withBodyTags({
+        filePath: "Archive/Someday.md",
+        rawContent:
+          "---\ntitle: Someday\n---\n\nSomeday a trip with mom, once the garden, the shed, the fence, the porch and the attic are done.\n",
+        fileStat: testStat(1000),
+      }),
+      logger,
+    )
+
+    const results = namesIndex.fullTextSearch({ query: "mom trip" }, logger)
+
+    expect(results.map((result) => result.path)).toEqual([
+      "Trips/Mom and Daughter Trip.md",
+      "Trips/Session log.md",
+      "Archive/Someday.md",
+    ])
+  })
+
+  it("gives no boost to a query that is only part of a name", () => {
+    const results = createNamesIndex().fullTextSearch({ query: "log" }, logger)
+
+    expect(results.map((result) => result.path)).toEqual(["Logs/Daily.md", "Trips/Session log.md"])
+  })
+
+  it("leaves out an exact-name match the filters exclude", () => {
+    const results = createNamesIndex().fullTextSearch(
+      { query: "Mom", filters: { folder: "Trips" } },
+      logger,
+    )
+
+    expect(results.map((result) => result.path)).toEqual([
+      "Trips/Mom and Daughter Trip.md",
+      "Trips/Session log.md",
+    ])
+  })
+
+  it("does not match a note through the name of its aliases key", () => {
+    const namesIndex = createNamesIndex()
+
+    // The person note's other key names stay searchable, so the empty result
+    // below comes from leaving the aliases key out of the metadata column
+    const relationResults = namesIndex.fullTextSearch({ query: "relation" }, logger)
+    expect(relationResults.map((result) => result.path)).toEqual(["People/Avery Quinn.md"])
+
+    expect(namesIndex.fullTextSearch({ query: "aliases" }, logger)).toEqual([])
+  })
+
+  it("ranks a note whose title is a YAML block scalar first for that title", () => {
+    const blockTitleIndex = createSearchIndex(":memory:")
+    const notes = [
+      {
+        // A folded block scalar ends the title with a line break
+        filePath: "People/Avery.md",
+        rawContent: "---\ntitle: >\n  Avery\n  Quinn\n---\n\nLives near the coast.\n",
+      },
+      {
+        filePath: "Visits/Visit.md",
+        rawContent:
+          "---\ntitle: Visit\n---\n\nAvery Quinn came by. Avery Quinn stayed. Avery Quinn left.\n",
+      },
+    ]
+    for (const note of notes) {
+      blockTitleIndex.upsertNote(withBodyTags({ ...note, fileStat: testStat(1000) }), logger)
+    }
+
+    // Without an exact-name match, Visits/Visit.md ranks first because it repeats the name
+    const results = blockTitleIndex.fullTextSearch({ query: "Avery Quinn" }, logger)
+
+    expect(results.map((result) => result.path)).toEqual(["People/Avery.md", "Visits/Visit.md"])
+  })
+
+  it("finds a note by an aliases entry that is not text", () => {
+    const numberAliasIndex = createSearchIndex(":memory:")
+    numberAliasIndex.upsertNote(
+      withBodyTags({
+        filePath: "Reviews/Year in review.md",
+        rawContent: "---\naliases: [Recap, 2024]\n---\n\nThe garden came first.\n",
+        fileStat: testStat(1000),
+      }),
+      logger,
+    )
+
+    const results = numberAliasIndex.fullTextSearch({ query: "2024" }, logger)
+
+    expect(results.map((result) => result.path)).toEqual(["Reviews/Year in review.md"])
+  })
+
+  it("matches a name in another letter case beyond ASCII", () => {
+    const accentIndex = createSearchIndex(":memory:")
+    const notes = [
+      {
+        filePath: "Pets/Biscuit.md",
+        rawContent: "---\naliases: [Éclair]\n---\n\nNaps all afternoon.\n",
+      },
+      {
+        filePath: "Bakery/Order.md",
+        rawContent:
+          "---\ntitle: Order\n---\n\nOne éclair, a second éclair and an éclair for later.\n",
+      },
+    ]
+    for (const note of notes) {
+      accentIndex.upsertNote(withBodyTags({ ...note, fileStat: testStat(1000) }), logger)
+    }
+
+    // Without an exact-name match, Bakery/Order.md ranks first because it repeats the word
+    const results = accentIndex.fullTextSearch({ query: "éclair" }, logger)
+
+    expect(results.map((result) => result.path)).toEqual(["Pets/Biscuit.md", "Bakery/Order.md"])
+  })
+
+  it("matches a query spanning lines against the name it spells on one line", () => {
+    const results = createNamesIndex().fullTextSearch({ query: "session\nlog" }, logger)
+
+    expect(results.map((result) => result.path)).toEqual(["Trips/Session log.md", "Logs/Daily.md"])
+  })
+
+  it("finds a title in Cherokee capitals by a keyword typed in the same capitals", () => {
+    // The tokenizer folds case from an older Unicode version than toLowerCase,
+    // so a lowercased copy of this title would not match the query
+    const cherokeeIndex = createSearchIndex(":memory:")
+    cherokeeIndex.upsertNote(
+      withBodyTags({
+        filePath: "Language/Cherokee.md",
+        rawContent: "---\ntitle: ᏣᎳᎩ ᎦᏬᏂᎯᏍᏗ\n---\n\nThe syllabary has eighty-five letters.\n",
+        fileStat: testStat(1000),
+      }),
+      logger,
+    )
+
+    const results = cherokeeIndex.fullTextSearch({ query: "ᏣᎳᎩ" }, logger)
+
+    expect(results.map((result) => result.path)).toEqual(["Language/Cherokee.md"])
+  })
+
+  it("finds a note by an alias that differs from its title only in Cherokee letter case", () => {
+    // toLowerCase folds the two spellings together, but the tokenizer reads them
+    // as different words, so the alias needs its own place in the title column
+    const cherokeeIndex = createSearchIndex(":memory:")
+    cherokeeIndex.upsertNote(
+      withBodyTags({
+        filePath: "Language/Cherokee.md",
+        rawContent:
+          "---\ntitle: ᏣᎳᎩ\naliases: [ꮳꮃꭹ]\n---\n\nThe syllabary has eighty-five letters.\n",
+        fileStat: testStat(1000),
+      }),
+      logger,
+    )
+
+    const results = cherokeeIndex.fullTextSearch({ query: "ꮳꮃꭹ" }, logger)
+
+    expect(results.map((result) => result.path)).toEqual(["Language/Cherokee.md"])
+  })
+
+  // These queries have no name text, and an untitled note's only name is empty,
+  // so the exact-name check would boost that note if the query matched any row
+  it.each([
+    { label: "empty quotes", query: '""' },
+    { label: "quoted spaces", query: '"   "' },
+    { label: "only spaces", query: "   " },
+  ])("finds no note, untitled ones included, for a query of $label", ({ query }) => {
+    const untitledIndex = createSearchIndex(":memory:")
+    untitledIndex.upsertNote(
+      withBodyTags({
+        filePath: "Inbox/Untitled.md",
+        rawContent: '---\ntitle: ""\n---\n\nA trip with mom.\n',
+        fileStat: testStat(1000),
+      }),
+      logger,
+    )
+    const warnSpy = vi.spyOn(logger, "warn")
+    onTestFinished(() => warnSpy.mockRestore())
+
+    // The untitled note is searchable, so the empty result below comes from the query
+    const momResults = untitledIndex.fullTextSearch({ query: "mom" }, logger)
+    expect(momResults.map((result) => result.path)).toEqual(["Inbox/Untitled.md"])
+
+    expect(untitledIndex.fullTextSearch({ query }, logger)).toEqual([])
+    expect(warnSpy).not.toHaveBeenCalled()
   })
 })
 
@@ -2354,7 +2655,7 @@ describe("searchByTag", () => {
 
   it("returns empty for non-existent tag", () => {
     const results = index.searchByTag({ tag: "nope" }, logger)
-    expect(results).toHaveLength(0)
+    expect(results).toEqual([])
   })
 
   it("prefix match treats LIKE wildcards in the tag as literal characters", () => {
@@ -2412,7 +2713,10 @@ describe("searchByFolder", () => {
 
   it("recursive mode includes nested files", () => {
     const results = index.searchByFolder({ folder: "About Me", recursive: true }, logger)
-    expect(results).toHaveLength(2)
+    expect(results.map((result) => result.path)).toEqual([
+      "About Me/sub/deep.md",
+      "About Me/Principles.md",
+    ])
   })
 
   it("non-recursive mode excludes nested files", () => {
@@ -2584,7 +2888,11 @@ describe("listAllTags", () => {
       logger,
     )
     const tags = index.listAllTags({}, logger)
-    expect(tags).toHaveLength(3)
+    expect(tags).toEqual([
+      { tag: "principles", count: 2 },
+      { tag: "self", count: 1 },
+      { tag: "work", count: 1 },
+    ])
     const results = index.fullTextSearch({ query: "no tags" }, logger)
     expect(results.map((result) => result.path)).toEqual(["bare.md"])
   })
@@ -2620,25 +2928,22 @@ describe("recentNotes", () => {
 
   it("sorts by modified by default", () => {
     const results = index.recentNotes({}, logger)
-    expect(results[0]?.path).toBe("new.md")
-    expect(results[1]?.path).toBe("no-created.md")
-    expect(results[2]?.path).toBe("old.md")
+    expect(results.map((result) => result.path)).toEqual(["new.md", "no-created.md", "old.md"])
   })
 
   it("sorts by created date", () => {
     const results = index.recentNotes({ sort_by: "created" }, logger)
-    expect(results[0]?.path).toBe("new.md")
-    expect(results[1]?.path).toBe("old.md")
+    expect(results.map((result) => result.path)).toEqual(["new.md", "old.md", "no-created.md"])
   })
 
   it("puts nulls last for created sort", () => {
     const results = index.recentNotes({ sort_by: "created" }, logger)
-    expect(results[results.length - 1]?.path).toBe("no-created.md")
+    expect(results.at(-1)?.path).toBe("no-created.md")
   })
 
   it("respects limit", () => {
     const results = index.recentNotes({ limit: 1 }, logger)
-    expect(results).toHaveLength(1)
+    expect(results.map((result) => result.path)).toEqual(["new.md"])
   })
 
   it("floors a fractional limit instead of failing with SQLite's datatype mismatch", () => {
@@ -2735,12 +3040,12 @@ describe("listPropertyKeys", () => {
   })
 
   it("returns at most 3 sample values", () => {
-    for (let i = 0; i < 5; i++) {
+    for (let noteNumber = 0; noteNumber < 5; noteNumber++) {
       index.upsertNote(
         withBodyTags({
-          filePath: `extra/n${i}.md`,
-          rawContent: `---\nvariety: value-${i}\n---\nbody\n`,
-          fileStat: testStat(4000 + i),
+          filePath: `extra/n${noteNumber}.md`,
+          rawContent: `---\nvariety: value-${noteNumber}\n---\nbody\n`,
+          fileStat: testStat(4000 + noteNumber),
         }),
         logger,
       )
@@ -2756,9 +3061,9 @@ describe("listPropertyKeys", () => {
 
   it("sorts by count descending", () => {
     const keys = index.listPropertyKeys({}, logger)
-    for (let i = 1; i < keys.length; i++) {
-      const prev = keys[i - 1]
-      const curr = keys[i]
+    for (let keyIndex = 1; keyIndex < keys.length; keyIndex++) {
+      const prev = keys[keyIndex - 1]
+      const curr = keys[keyIndex]
 
       if (!prev || !curr) continue
       expect(prev.count).toBeGreaterThanOrEqual(curr.count)
@@ -2789,8 +3094,7 @@ describe("listPropertyKeys", () => {
     )
     const keys = index.listPropertyKeys({ folder: "Projects" }, logger)
     const statusKey = keys.find((entry) => entry.key === "status")
-    expect(statusKey).toBeDefined()
-    expect(statusKey?.sample_values).not.toContain("blocked")
+    expect(statusKey?.sample_values).toEqual(["done", "in-progress"])
   })
 
   /** Keys of the two Projects/ notes from beforeEach: every key appears in
@@ -2891,29 +3195,27 @@ describe("listPropertyValues", () => {
 
   it("returns distinct values with counts for a scalar property", () => {
     const values = index.listPropertyValues({ key: "status" }, logger)
-    expect(values).toHaveLength(2)
-    expect(values.find((entry) => entry.value === "in-progress")).toEqual({
-      value: "in-progress",
-      count: 1,
-    })
-    expect(values.find((entry) => entry.value === "done")).toEqual({
-      value: "done",
-      count: 1,
-    })
+    expect(values).toEqual([
+      { value: "done", count: 1 },
+      { value: "in-progress", count: 1 },
+    ])
   })
 
   it("enumerates individual array elements for array properties", () => {
     const values = index.listPropertyValues({ key: "tags" }, logger)
-    expect(values.find((entry) => entry.value === "project")).toBeDefined()
-    expect(values.find((entry) => entry.value === "active")).toBeDefined()
-    expect(values.find((entry) => entry.value === "note")).toBeDefined()
+    expect(values).toEqual([
+      { value: "project", count: 2 },
+      { value: "active", count: 1 },
+      { value: "done", count: 1 },
+      { value: "note", count: 1 },
+    ])
   })
 
   it("sorts by count descending", () => {
     const values = index.listPropertyValues({ key: "tags" }, logger)
-    for (let i = 1; i < values.length; i++) {
-      const prev = values[i - 1]
-      const curr = values[i]
+    for (let valueIndex = 1; valueIndex < values.length; valueIndex++) {
+      const prev = values[valueIndex - 1]
+      const curr = values[valueIndex]
 
       if (!prev || !curr) continue
       expect(prev.count).toBeGreaterThanOrEqual(curr.count)
@@ -2922,7 +3224,10 @@ describe("listPropertyValues", () => {
 
   it("respects limit", () => {
     const values = index.listPropertyValues({ key: "tags", limit: 2 }, logger)
-    expect(values).toHaveLength(2)
+    expect(values).toEqual([
+      { value: "project", count: 2 },
+      { value: "active", count: 1 },
+    ])
   })
 
   it("respects folder filter", () => {
@@ -2935,14 +3240,15 @@ describe("listPropertyValues", () => {
       logger,
     )
     const values = index.listPropertyValues({ key: "status", folder: "Projects" }, logger)
-    expect(values).toHaveLength(2)
-    const blockedValue = values.find((entry) => entry.value === "blocked")
-    expect(blockedValue).toBeUndefined()
+    expect(values).toEqual([
+      { value: "done", count: 1 },
+      { value: "in-progress", count: 1 },
+    ])
   })
 
   it("returns empty for non-existent key", () => {
     const values = index.listPropertyValues({ key: "nonexistent" }, logger)
-    expect(values).toHaveLength(0)
+    expect(values).toEqual([])
   })
 
   it("does not match a sibling folder whose name starts with the folder's name", () => {
@@ -3070,12 +3376,12 @@ describe("searchByProperty", () => {
 
   it("returns empty for non-matching value", () => {
     const results = index.searchByProperty({ key: "status", value: "archived" }, logger)
-    expect(results).toHaveLength(0)
+    expect(results).toEqual([])
   })
 
   it("returns empty for non-existent key", () => {
     const results = index.searchByProperty({ key: "nonexistent", value: "any" }, logger)
-    expect(results).toHaveLength(0)
+    expect(results).toEqual([])
   })
 
   it("respects folder filter", () => {
@@ -3139,7 +3445,7 @@ describe("searchByProperty", () => {
       { key: "status", value: "in-progress", limit: 1 },
       logger,
     )
-    expect(results).toHaveLength(1)
+    expect(results.map((result) => result.path)).toEqual(["Projects/another.md"])
   })
 
   it("finds notes by YAML date property (normalized from Date object)", () => {
@@ -3968,8 +4274,8 @@ describe("rebuildFromVault deferred PDF content", () => {
       close: async () => {},
       startIndexing,
     }
-    const rebuild = (maxFileBytes = 1000) =>
-      search.rebuildFromVault(
+    const rebuild = (maxFileBytes = 1000) => {
+      return search.rebuildFromVault(
         {
           vaultPath,
           bodyTagParser: inProcessBodyTagParser,
@@ -3978,14 +4284,20 @@ describe("rebuildFromVault deferred PDF content", () => {
         },
         logger,
       )
-    const fileRows = () =>
-      database.prepare("SELECT path, content, bytes FROM file_content ORDER BY path").all()
-    const targetChunks = () =>
-      database.prepare("SELECT chunk_text FROM file_content_chunks WHERE file_path = ?").all(path)
-    const keywordPaths = (query: string) =>
-      database
+    }
+    const fileRows = () => {
+      return database.prepare("SELECT path, content, bytes FROM file_content ORDER BY path").all()
+    }
+    const targetChunks = () => {
+      return database
+        .prepare("SELECT chunk_text FROM file_content_chunks WHERE file_path = ?")
+        .all(path)
+    }
+    const keywordPaths = (query: string) => {
+      return database
         .prepare("SELECT path FROM file_content_fts WHERE file_content_fts MATCH ? ORDER BY path")
         .all(query)
+    }
     return {
       vaultPath,
       path,
@@ -5154,7 +5466,7 @@ describe("rebuildFromVault", () => {
     )
     expect(indexedCount).toBe(2)
     const hidden = index.fullTextSearch({ query: "hidden" }, logger)
-    expect(hidden).toHaveLength(0)
+    expect(hidden).toEqual([])
   })
 
   it("clears existing data before rebuilding", async () => {
@@ -5176,7 +5488,7 @@ describe("rebuildFromVault", () => {
       logger,
     )
     const results = index.fullTextSearch({ query: "stale" }, logger)
-    expect(results).toHaveLength(0)
+    expect(results).toEqual([])
   })
 
   it("makes indexed notes searchable", async () => {
@@ -5477,7 +5789,7 @@ describe("rebuildFromVault", () => {
       { key: "start-multi-column", value: "ExampleRegion1" },
       logger,
     )
-    expect(propertyHits).toHaveLength(0)
+    expect(propertyHits).toEqual([])
   })
 
   it("resolves a link into a note whose block is not valid YAML", async () => {
@@ -5964,7 +6276,6 @@ describe("rebuildFromVault", () => {
     expect(count).toBe(4)
 
     const results = index.fullTextSearch({ query: "symlink target content" }, logger)
-    expect(results).toHaveLength(2)
     const paths = results.map((result) => result.path).toSorted()
     expect(paths).toEqual(["linked.md", "real/original.md"])
   })
@@ -5990,11 +6301,14 @@ describe("rebuildFromVault", () => {
       logger,
     )
     expect(outgoing).toEqual([
-      expect.objectContaining({
+      {
         path: "Board.canvas",
+        title: null,
         exists: true,
         kind: "file",
-      }),
+        bytes: 2,
+        daily_note_forward_ref: false,
+      },
     ])
   })
 
@@ -6039,7 +6353,7 @@ describe("rebuildFromVault", () => {
     expect(count).toBe(3) // 2 baseline + valid-link.md (broken.md filtered)
 
     const results = index.fullTextSearch({ query: "burnout" }, logger)
-    expect(results).toHaveLength(1)
+    expect(results.map((result) => result.path)).toEqual(["About Me/Principles.md"])
   })
 
   it("skips a symlink whose target is a directory, not a file", async () => {
@@ -6118,7 +6432,7 @@ describe("getBacklinks", () => {
 
   it("returns empty for notes with no backlinks", () => {
     const backlinks = index.getBacklinks({ path: "island.md" }, logger)
-    expect(backlinks).toHaveLength(0)
+    expect(backlinks).toEqual([])
   })
 
   it("includes title in results", () => {
@@ -6374,7 +6688,7 @@ describe("getOutgoingLinks", () => {
       { path: "lonely.md", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
       logger,
     )
-    expect(links).toHaveLength(0)
+    expect(links).toEqual([])
   })
 })
 
@@ -6417,8 +6731,11 @@ describe("findOrphans", () => {
 
   it("finds notes with no incoming links", () => {
     const orphans = index.findOrphans({}, logger)
-    const orphanPaths = orphans.map((orphan) => orphan.path)
-    expect(orphanPaths).toContain("Projects/orphan.md")
+    expect(orphans.map((orphan) => orphan.path)).toEqual([
+      "Daily Notes/2026-05-13.md",
+      "Projects/orphan.md",
+      "hub.md",
+    ])
   })
 
   it("translates oversized exclusions while retaining and logging the SQLite diagnostic", () => {
@@ -6492,27 +6809,30 @@ describe("findOrphans", () => {
 
   it("excludes connected notes", () => {
     const orphans = index.findOrphans({}, logger)
-    const orphanPaths = orphans.map((orphan) => orphan.path)
-    expect(orphanPaths).not.toContain("connected.md")
+    expect(orphans.map((orphan) => orphan.path)).toEqual([
+      "Daily Notes/2026-05-13.md",
+      "Projects/orphan.md",
+      "hub.md",
+    ])
   })
 
   it("includes all folders when no exclusions provided", () => {
     const orphans = index.findOrphans({}, logger)
-    const orphanPaths = orphans.map((orphan) => orphan.path)
-    expect(orphanPaths).toContain("Daily Notes/2026-05-13.md")
+    expect(orphans.map((orphan) => orphan.path)).toEqual([
+      "Daily Notes/2026-05-13.md",
+      "Projects/orphan.md",
+      "hub.md",
+    ])
   })
 
   it("excludes Daily Notes when passed in excludeFolders", () => {
     const orphans = index.findOrphans({ excludeFolders: ["Daily Notes"] }, logger)
-    const orphanPaths = orphans.map((orphan) => orphan.path)
-    expect(orphanPaths).not.toContain("Daily Notes/2026-05-13.md")
+    expect(orphans.map((orphan) => orphan.path)).toEqual(["Projects/orphan.md", "hub.md"])
   })
 
   it("strips trailing slashes from excludeFolders before matching", () => {
     const orphans = index.findOrphans({ excludeFolders: ["Daily Notes/"] }, logger)
-    const orphanPaths = orphans.map((orphan) => orphan.path)
-    expect(orphanPaths).not.toContain("Daily Notes/2026-05-13.md")
-    expect(orphanPaths).toContain("Projects/orphan.md")
+    expect(orphans.map((orphan) => orphan.path)).toEqual(["Projects/orphan.md", "hub.md"])
   })
 
   it("does not exclude a sibling folder whose name starts with an excluded folder", () => {
@@ -6554,7 +6874,7 @@ describe("findOrphans", () => {
 
   it("respects limit", () => {
     const orphans = index.findOrphans({ limit: 1 }, logger)
-    expect(orphans).toHaveLength(1)
+    expect(orphans.map((orphan) => orphan.path)).toEqual(["Daily Notes/2026-05-13.md"])
   })
 
   it("returns NoteMetadata with all fields", () => {
@@ -6578,8 +6898,12 @@ describe("findOrphans", () => {
       logger,
     )
     const orphans = index.findOrphans({}, logger)
-    const orphanPaths = orphans.map((orphan) => orphan.path)
-    expect(orphanPaths).toContain("self-ref.md")
+    expect(orphans.map((orphan) => orphan.path)).toEqual([
+      "self-ref.md",
+      "Daily Notes/2026-05-13.md",
+      "Projects/orphan.md",
+      "hub.md",
+    ])
   })
 })
 
@@ -6621,7 +6945,7 @@ describe("forward reference resolution", () => {
       logger,
     )
     // Target absent → link stored unresolved → no backlink yet.
-    expect(index.getBacklinks({ path: "folder/target.md" }, logger)).toHaveLength(0)
+    expect(index.getBacklinks({ path: "folder/target.md" }, logger)).toEqual([])
 
     index.upsertNote(
       withBodyTags({
@@ -6647,7 +6971,7 @@ describe("forward reference resolution", () => {
       }),
       logger,
     )
-    expect(index.getBacklinks({ path: "Areas/Health/later.md" }, logger)).toHaveLength(0)
+    expect(index.getBacklinks({ path: "Areas/Health/later.md" }, logger)).toEqual([])
 
     index.upsertNote(
       withBodyTags({
@@ -6684,7 +7008,7 @@ describe("forward reference resolution", () => {
     )
     // The decoy's write swept the unresolved set; the link must not have
     // attached to it.
-    expect(index.getBacklinks({ path: "Health/later.md" }, logger)).toHaveLength(0)
+    expect(index.getBacklinks({ path: "Health/later.md" }, logger)).toEqual([])
 
     index.upsertNote(
       withBodyTags({
@@ -6696,7 +7020,7 @@ describe("forward reference resolution", () => {
     )
     const backlinks = index.getBacklinks({ path: "Areas/Health/later.md" }, logger)
     expect(backlinks).toEqual([{ path: "Areas/Work/early.md", title: "early", bytes: 100 }])
-    expect(index.getBacklinks({ path: "Health/later.md" }, logger)).toHaveLength(0)
+    expect(index.getBacklinks({ path: "Health/later.md" }, logger)).toEqual([])
   })
 })
 
@@ -6781,10 +7105,9 @@ describe("frontmatter links in the graph", () => {
       logger,
     )
     const orphanPaths = index.findOrphans({}, logger).map((orphan) => orphan.path)
-    // referenced only via frontmatter → connected, not an orphan
-    expect(orphanPaths).not.toContain("referenced.md")
-    // genuinely unreferenced → still an orphan (proves exclusion is selective)
-    expect(orphanPaths).toContain("true-orphan.md")
+    // referenced.md is linked only from frontmatter, so it is connected and absent.
+    // true-orphan.md is unreferenced, so it stays (the exclusion is selective).
+    expect(orphanPaths).toEqual(["true-orphan.md", "referencer.md"])
   })
 
   it("counts a target linked from both body and frontmatter as a single edge", () => {
@@ -8237,9 +8560,16 @@ describe("brokenLinkCount", () => {
       { path: "source.md", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
       logger,
     )
-    expect(outgoing).toHaveLength(1)
-    expect(outgoing[0]?.exists).toBe(false)
-    expect(outgoing[0]?.kind).toBe("note")
+    expect(outgoing).toEqual([
+      {
+        path: "Route",
+        title: null,
+        exists: false,
+        kind: "note",
+        bytes: null,
+        daily_note_forward_ref: false,
+      },
+    ])
   })
 
   it.each(["Daily Notes", "Daily Notes/", "Daily Notes///"])(
@@ -9044,7 +9374,7 @@ describe("modifiedOnDate", () => {
   it("excludes notes modified on other dates", () => {
     const results = index.modifiedOnDate({ date: "2026-06-15" }, logger)
     const paths = results.map((note) => note.path)
-    expect(paths).not.toContain("tomorrow-note.md")
+    expect(paths).toEqual(["today-late.md", "today-note.md"])
   })
 
   it("respects the limit parameter", () => {
@@ -9272,6 +9602,27 @@ It has multiple sentences to verify chunking works correctly.
       )
     })
 
+    it("names a note's distinct aliases on its chunk title line", async () => {
+      const mockEmbedder = createMockEmbedder()
+      const aliasIndex = createSearchIndex(":memory:", mockEmbedder)
+      const rawContent =
+        "---\ntitle: Avery Quinn\naliases: [Avery, Mom, avery quinn]\n---\n\nLives near the coast.\n"
+
+      const sourceVersion = seedEmbeddingSource(aliasIndex, {
+        notePath: "People/Avery Quinn.md",
+        rawContent,
+      })
+      await aliasIndex.embedNote(
+        { sourceVersion, notePath: "People/Avery Quinn.md", rawContent },
+        logger,
+      )
+
+      expect(mockEmbedder.embedText).toHaveBeenCalledTimes(1)
+      expect(mockEmbedder.embedText).toHaveBeenCalledWith(
+        "Avery Quinn (also known as Avery, Mom)\n\n\nLives near the coast.",
+      )
+    })
+
     it("content-hash gating skips unchanged chunks on re-embed", async () => {
       const mockEmbedder = createMockEmbedder()
       const embeddingIndex = createSearchIndex(":memory:", mockEmbedder)
@@ -9335,7 +9686,7 @@ It has multiple sentences to verify chunking works correctly.
       const fixture = await createEmbeddingRaceIndex("note")
       const originalSourceVersion = fixture.upsert(NOTE_FOR_EMBEDDING)
       await fixture.embed(NOTE_FOR_EMBEDDING, originalSourceVersion)
-      expect(fixture.chunks()).toHaveLength(1)
+      expect(fixture.chunks().map((chunk) => chunk.chunk_index)).toEqual([0])
       expect(fixture.vectorCount()).toBe(1)
 
       fixture.remove()
@@ -9347,7 +9698,7 @@ It has multiple sentences to verify chunking works correctly.
       const updatedSourceVersion = fixture.upsert(NOTE_FOR_EMBEDDING)
       await fixture.embed(NOTE_FOR_EMBEDDING, updatedSourceVersion)
       expect(fixture.embedder.embedText).toHaveBeenCalledTimes(1)
-      expect(fixture.chunks()).toHaveLength(1)
+      expect(fixture.chunks().map((chunk) => chunk.chunk_index)).toEqual([0])
       expect(fixture.vectorCount()).toBe(1)
     })
 
@@ -9422,7 +9773,7 @@ It has multiple sentences to verify chunking works correctly.
 
       // Verify the note was actually removed from the FTS index
       const results = noEmbedIndex.fullTextSearch({ query: "test note" }, logger)
-      expect(results).toHaveLength(0)
+      expect(results).toEqual([])
     })
   })
 
@@ -9489,10 +9840,10 @@ It has multiple sentences to verify chunking works correctly.
 
       expect(count).toBe(2)
       // One note failed, warn logged with the specific error
-      expect(warnSpy).toHaveBeenCalledWith(
-        "failed to embed note",
-        expect.objectContaining({ error: "[Error]: embedding failed" }),
-      )
+      expect(warnSpy).toHaveBeenCalledWith("failed to embed note", {
+        path: "note1.md",
+        error: "[Error]: embedding failed",
+      })
       // Both notes attempted embedding (first failed, second succeeded)
       expect(mockEmbedder.embedText).toHaveBeenCalledTimes(2)
       warnSpy.mockRestore()
@@ -9904,7 +10255,7 @@ Shared datefilter content for mtime boundary tests.
       },
       logger,
     )
-    expect(tagExcludedResults).toHaveLength(0)
+    expect(tagExcludedResults).toEqual([])
   })
 })
 
@@ -9955,13 +10306,14 @@ describe("canvas note catalog reuse", () => {
       logger,
     )
   }
-  const outgoingPaths = (search: SearchIndex): string[] =>
-    search
+  const outgoingPaths = (search: SearchIndex): string[] => {
+    return search
       .getOutgoingLinks(
         { path: "board.canvas", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
         logger,
       )
       .map((link) => link.path)
+  }
 
   it("avoids empty-canvas scans and shares one catalog across repeated linked saves", () => {
     const scans = observeCatalogScans()
@@ -10048,7 +10400,7 @@ describe("canvas note catalog reuse", () => {
     search.upsertNonMdFile("Target.canvas", 100)
     saveCanvas(search, "Target")
     poison.arm()
-    expect(() =>
+    expect(() => {
       search.upsertNote(
         withBodyTags({
           filePath: "Target.md",
@@ -10056,8 +10408,8 @@ describe("canvas note catalog reuse", () => {
           fileStat: testStat(1000),
         }),
         logger,
-      ),
-    ).toThrow(new Error(poison.message))
+      )
+    }).toThrow(new Error(poison.message))
     poison.disarm()
     saveCanvas(search, "Target")
     expect(outgoingPaths(search)).toEqual(["Target.canvas"])
@@ -11132,15 +11484,13 @@ describe("canvas file content and links", () => {
       )
       // JSON content IS indexed into FTS — searchable as raw text
       const { results } = await fileIndex.hybridSearch({ query: "searchable deployment" }, logger)
-      expect(results).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({
-            path: "data/export.json",
-            kind: "file",
-            extension: ".json",
-          }),
-        ]),
-      )
+      expect(
+        results.map((result) => ({
+          path: result.path,
+          kind: result.kind,
+          extension: result.extension,
+        })),
+      ).toEqual([{ path: "data/export.json", kind: "file", extension: ".json" }])
       // No graph links created — link extraction is canvas-only
       const backlinks = fileIndex.getBacklinks({ path: "Notes/architecture.md" }, logger)
       expect(backlinks).toEqual([])
@@ -11160,15 +11510,14 @@ describe("canvas file content and links", () => {
         logger,
       )
       const { results } = await fileIndex.hybridSearch({ query: "database cluster alpha" }, logger)
-      expect(results).toHaveLength(1)
-      expect(results[0]).toEqual(
-        expect.objectContaining({
-          path: "logs/server.log",
-          kind: "file",
-          extension: ".log",
-          title: "server",
-        }),
-      )
+      expect(
+        results.map((result) => ({
+          path: result.path,
+          kind: result.kind,
+          extension: result.extension,
+          title: result.title,
+        })),
+      ).toEqual([{ path: "logs/server.log", kind: "file", extension: ".log", title: "server" }])
     })
 
     it("truncates content exceeding MAX_INDEXED_CONTENT_BYTES", async () => {
@@ -11202,7 +11551,7 @@ describe("canvas file content and links", () => {
         { query: "zyxwvut ending marker" },
         logger,
       )
-      expect(truncatedResults).toHaveLength(0)
+      expect(truncatedResults).toEqual([])
     })
 
     it("removeFileContent clears non-canvas file content from FTS", async () => {
@@ -11224,14 +11573,14 @@ describe("canvas file content and links", () => {
         { query: "removable diagnostics" },
         logger,
       )
-      expect(beforeResults).toHaveLength(1)
+      expect(beforeResults.map((result) => result.path)).toEqual(["logs/app.log"])
       // Remove and verify it's gone
       fileIndex.removeFileContent({ filePath: "logs/app.log" }, logger)
       const { results: afterResults } = await fileIndex.hybridSearch(
         { query: "removable diagnostics" },
         logger,
       )
-      expect(afterResults).toHaveLength(0)
+      expect(afterResults).toEqual([])
     })
 
     it("keeps only a file's latest text searchable across repeated updates", async () => {
@@ -11348,8 +11697,7 @@ describe("canvas file content and links", () => {
         logger,
       )
       const paths = results.map((result) => result.path)
-      expect(paths).toContain("Projects/plan.md")
-      expect(paths).not.toContain("Diagrams/arch.canvas")
+      expect(paths).toEqual(["Projects/plan.md"])
     })
 
     it("hybridSearch excludes file content results when a type filter is active", async () => {
@@ -11378,8 +11726,7 @@ describe("canvas file content and links", () => {
         logger,
       )
       const paths = results.map((result) => result.path)
-      expect(paths).toContain("Projects/plan.md")
-      expect(paths).not.toContain("Diagrams/arch.canvas")
+      expect(paths).toEqual(["Projects/plan.md"])
     })
   })
 })
@@ -12073,8 +12420,9 @@ describe("committed embedding source versions", () => {
       .prepare<[], { mtime: number }>("SELECT mtime FROM file_content WHERE path = 'queued.txt'")
       .get()?.mtime
 
-    if (secondMtime === undefined || fileMtime === undefined)
+    if (secondMtime === undefined || fileMtime === undefined) {
       throw new Error("rebuild sources missing")
+    }
     fixture.searchIndex.removeNote("a.md")
     const noteVersion = fixture.searchIndex.upsertNote(
       withBodyTags({
@@ -12203,11 +12551,9 @@ describe("committed embedding source versions", () => {
     )
     const embedder = {
       embedText: vi.fn().mockResolvedValue(new Float32Array(384).fill(0.1)),
-      embedBatch: vi
-        .fn()
-        .mockImplementation((texts: string[]) =>
-          Promise.resolve(texts.map(() => new Float32Array(384).fill(0.1))),
-        ),
+      embedBatch: vi.fn().mockImplementation((texts: string[]) => {
+        return Promise.resolve(texts.map(() => new Float32Array(384).fill(0.1)))
+      }),
     }
     const dbPath = join(dir, "index.db")
     const index = createSearchIndex(dbPath, embedder, undefined, {
@@ -12852,6 +13198,73 @@ describe("trash entries (retention-sweep bookkeeping)", () => {
       trashedAt: trashTime.toUnixInteger(),
       fileIdentity: SAMPLE_FILE_IDENTITY,
     })
+  })
+})
+
+describe("note aliases in stored chunk text", () => {
+  const uniformEmbedder = () => ({
+    embedText: vi.fn().mockResolvedValue(new Float32Array(384).fill(0.1)),
+    embedBatch: vi.fn().mockImplementation((texts: string[]) => {
+      return Promise.resolve(texts.map(() => new Float32Array(384).fill(0.1)))
+    }),
+  })
+
+  /** Embeds one note into a file-backed index and returns its stored chunks. */
+  const embedAndReadChunks = async (params: {
+    notePath: string
+    rawContent: string
+  }): Promise<Array<{ chunk_text: string; content_hash: string }>> => {
+    const dir = await mkdtemp(join(tmpdir(), "alias-chunks-"))
+    onTestFinished(() => rm(dir, { recursive: true, force: true }))
+    const dbPath = join(dir, "index.db")
+    const chunkIndex = createSearchIndex(dbPath, uniformEmbedder())
+
+    const sourceVersion = seedEmbeddingSource(chunkIndex, params)
+    await chunkIndex.embedNote({ sourceVersion, ...params }, logger)
+
+    const inspect = new Database(dbPath, { readonly: true })
+    onTestFinished(() => {
+      inspect.close()
+    })
+    return inspect
+      .prepare<[string], { chunk_text: string; content_hash: string }>(
+        "SELECT chunk_text, content_hash FROM note_chunks WHERE note_path = ? ORDER BY chunk_index",
+      )
+      .all(params.notePath)
+  }
+
+  it("opens every chunk of a split note, its table of contents included, with the aliases", async () => {
+    const activeContent = Array.from({ length: 300 }, (_, wordIndex) => `active${wordIndex}`).join(
+      " ",
+    )
+    const doneContent = Array.from({ length: 300 }, (_, wordIndex) => `done${wordIndex}`).join(" ")
+
+    const chunks = await embedAndReadChunks({
+      notePath: "People/Biscuit.md",
+      rawContent: `---\naliases: [Pup]\n---\n\n## Active\n${activeContent}\n\n## Done\n${doneContent}`,
+    })
+
+    expect(chunks.map((chunk) => chunk.chunk_text)).toEqual([
+      `Biscuit (also known as Pup)\nSection: Active\n\n${activeContent}`,
+      `Biscuit (also known as Pup)\nSection: Done\n\n${doneContent}`,
+      "People > Biscuit (also known as Pup)\n\nActive\nDone",
+    ])
+  })
+
+  it("keeps the chunk text, and so the stored hash, of a note without aliases", async () => {
+    const expectedChunkText = "Bare Note\n\n\nBody without aliases."
+
+    const chunks = await embedAndReadChunks({
+      notePath: "bare.md",
+      rawContent: "---\ntitle: Bare Note\n---\n\nBody without aliases.\n",
+    })
+
+    expect(chunks).toEqual([
+      {
+        chunk_text: expectedChunkText,
+        content_hash: createHash("sha256").update(expectedChunkText).digest("hex"),
+      },
+    ])
   })
 })
 

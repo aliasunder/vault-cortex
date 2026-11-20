@@ -22,6 +22,7 @@ import {
   type MemoryEntry,
 } from "../obsidian-markdown/memory-entries.js"
 import { parseFrontmatterTags } from "../obsidian-markdown/tags.js"
+import { parseFrontmatterAliases } from "../obsidian-markdown/aliases.js"
 import { DEFAULT_STATUS_REGISTRY, tasks } from "../obsidian-markdown/tasks.js"
 import type { StatusClassification, TaskPriority, TaskStatus } from "../obsidian-markdown/tasks.js"
 import { contentHash, type Embedder } from "./embedder.js"
@@ -40,7 +41,9 @@ import { createActivityTracker } from "../../utils/activity-tracker.js"
 import {
   isString,
   coerceToArray,
+  buildChunkTitleLine,
   buildFtsMetadataText,
+  buildFtsNameText,
   escapeLikeWildcards,
   foldTag,
   NOTE_METADATA_COLUMNS_SQL,
@@ -484,6 +487,15 @@ const createStoredVectorLookup = (
   }
 }
 
+/** The note's `title` property when it is text, else its file name without `.md`. */
+const resolveNoteTitle = (params: {
+  frontmatter: Record<string, unknown>
+  notePath: string
+}): string => {
+  const { frontmatter, notePath } = params
+  return isString(frontmatter.title) ? frontmatter.title : basename(notePath, ".md")
+}
+
 // ── Factory ─────────────────────────────────────────────────────
 
 export const createSearchIndex = (
@@ -541,11 +553,12 @@ export const createSearchIndex = (
   sqliteVec.load(db)
 
   // FTS5 doesn't support ALTER TABLE ADD COLUMN. When opening a warm database
-  // that lacks the metadata column, drop the table so the CREATE below rebuilds
-  // it with the new schema. rebuildFromVault repopulates on every startup.
+  // that lacks the names column, which every older schema lacks, drop the table
+  // so the CREATE below rebuilds it with the new schema. rebuildFromVault
+  // repopulates on every startup.
   const ftsColumns = db.prepare<unknown[], { name: string }>("PRAGMA table_info(notes_fts)").all()
 
-  if (ftsColumns.length > 0 && !ftsColumns.some((column) => column.name === "metadata")) {
+  if (ftsColumns.length > 0 && !ftsColumns.some((column) => column.name === "names")) {
     db.exec("DROP TABLE notes_fts")
   }
 
@@ -578,9 +591,11 @@ export const createSearchIndex = (
     );
 
     -- A search match joins back to its notes row by path. UNINDEXED keeps
-    -- path out of keyword matching and saves index space.
+    -- path out of keyword matching and saves index space. names holds the
+    -- folded names EXACT_NAME_MATCH_SQL compares, and is UNINDEXED for the
+    -- same reasons.
     CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
-      path UNINDEXED, title, content, metadata, tokenize='porter unicode61'
+      path UNINDEXED, title, content, metadata, names UNINDEXED, tokenize='porter unicode61'
     );
 
     -- One row per link text in a source, so two spellings that reach one file
@@ -858,8 +873,16 @@ export const createSearchIndex = (
     RETURNING rowid
   `)
   const deleteFtsStmt = db.prepare<[number]>(`DELETE FROM notes_fts WHERE rowid = ?`)
-  const insertFtsStmt = db.prepare<[number, string, string, string, string]>(
-    `INSERT INTO notes_fts (rowid, path, title, content, metadata) VALUES (?, ?, ?, ?, ?)`,
+  const insertFtsStmt = db.prepare<{
+    rowid: number
+    path: string
+    title: string
+    content: string
+    metadata: string
+    names: string
+  }>(
+    `INSERT INTO notes_fts (rowid, path, title, content, metadata, names)
+     VALUES (@rowid, @path, @title, @content, @metadata, @names)`,
   )
   const removeNotesStmt = db.prepare<[string], { rowid: number }>(
     `DELETE FROM notes WHERE path = ? RETURNING rowid`,
@@ -1956,7 +1979,7 @@ export const createSearchIndex = (
 
     const note = {
       path: filePath,
-      title: isString(frontmatter.title) ? frontmatter.title : basename(filePath, ".md"),
+      title: resolveNoteTitle({ frontmatter, notePath: filePath }),
       content: noteBody,
       tags: JSON.stringify(tags),
       related: JSON.stringify(related),
@@ -1975,6 +1998,12 @@ export const createSearchIndex = (
     }
 
     const metadataText = buildFtsMetadataText(frontmatter)
+    // The FTS title column holds the aliases beside the title, so an alias match
+    // ranks like a title match; the notes row keeps the title alone
+    const { titleText: ftsTitleText, foldedNames: ftsFoldedNames } = buildFtsNameText({
+      title: note.title,
+      aliases: parseFrontmatterAliases(frontmatter),
+    })
 
     // Task rows carry the full immediate-parent folder (posix dirname), unlike
     // notes.folder which stores only the first path segment — task triage
@@ -2015,7 +2044,14 @@ export const createSearchIndex = (
       // RETURNING yields the inserted or updated row on every upsert.
       if (!upsertedNoteRow) throw new Error(`note upsert returned no row: ${note.path}`)
       deleteFtsStmt.run(upsertedNoteRow.rowid)
-      insertFtsStmt.run(upsertedNoteRow.rowid, note.path, note.title, note.content, metadataText)
+      insertFtsStmt.run({
+        rowid: upsertedNoteRow.rowid,
+        path: note.path,
+        title: ftsTitleText,
+        content: note.content,
+        metadata: metadataText,
+        names: ftsFoldedNames,
+      })
 
       deleteTasksStmt.run(note.path)
       // Line→blockId lookup so each child can resolve its parent's
@@ -2169,13 +2205,18 @@ export const createSearchIndex = (
 
     if (
       !isCurrentSourceVersion({ sourcePath: notePath, sourceVersion: params.sourceVersion }, logger)
-    )
+    ) {
       return 0
+    }
 
     // Re-parsing is pure, so this reads what upsertNote read; the unreadable-block
     // error is ignored because upsertNote already logged it
     const { data: frontmatter, content: noteBody } = parseNoteSkippingUnreadableBlock(rawContent)
-    const noteTitle = isString(frontmatter.title) ? frontmatter.title : basename(notePath, ".md")
+    const chunkTitleLine = buildChunkTitleLine({
+      title: resolveNoteTitle({ frontmatter, notePath }),
+      aliases: parseFrontmatterAliases(frontmatter),
+    })
+
     // Metadata enrichment changes chunk text, so every note re-embeds once
     // (content-hash gated) after the option flips — kept off until the
     // search-eval measurements justify it.
@@ -2186,7 +2227,7 @@ export const createSearchIndex = (
         })
       : null
     const chunks = chunkContent({
-      noteTitle,
+      noteTitle: chunkTitleLine,
       bodyContent: noteBody,
       metadataPrefix,
       sourcePath: notePath,
@@ -2264,8 +2305,9 @@ export const createSearchIndex = (
 
     if (
       !isCurrentSourceVersion({ sourcePath: notePath, sourceVersion: params.sourceVersion }, logger)
-    )
+    ) {
       return embeddedCount
+    }
 
     // chunkContent assigns indices 0 through length - 1, so a shortened note's
     // old tail starts at chunks.length; remove its vectors before their parent rows.
@@ -2413,8 +2455,9 @@ export const createSearchIndex = (
         { sourcePath: params.filePath, sourceVersion: params.sourceVersion },
         logger,
       )
-    )
+    ) {
       return 0
+    }
 
     const fileContentRow = selectFileContentForEmbeddingStmt.get(params.filePath)
 
@@ -2499,8 +2542,9 @@ export const createSearchIndex = (
         { sourcePath: params.filePath, sourceVersion: params.sourceVersion },
         logger,
       )
-    )
+    ) {
       return embeddedCount
+    }
 
     // chunkContent assigns indices 0 through length - 1, so a shortened file's
     // old tail starts at chunks.length; remove its vectors before their parent rows.
