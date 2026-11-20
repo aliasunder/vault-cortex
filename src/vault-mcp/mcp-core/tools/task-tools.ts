@@ -519,12 +519,12 @@ Parameters:
 - At least one change is required. Clearing is always explicit null — omitting a field leaves it untouched.
 - recurrence: a rule ending "when done" bases the next occurrence on the completion day. When set together with status "done", the new rule governs the next occurrence. Setting recurrence to null while completing removes the rule and completes without spawning.
 - on_completion: passed together with status, the submitted value governs the delete decision — "keep" while completing a "delete" task prevents the deletion.
-- position: applies to a heading move or an auto-done-lane move; otherwise it reorders the task within its current lane. Ignored when the task is deleted on completion.
+- position: applies to a heading move or an auto-done-lane move; otherwise it reorders the task within its current lane.
 
 Behavior: status "done" has side effects by task kind:
 - Kanban: moves the card and everything nested under it to the done lane (the lane whose first line is **Complete**, else the heading "Done", exact case), leaving nested checkboxes as they are; a sub-task stays under its parent.
-- Recurring (🔁): spawns the next occurrence, dates advanced per the rule, directly above the completed task, which keeps its nested lines. When the Tasks plugin's settings put the next recurrence on the line below, the spawn goes on the line directly below the task instead, so the task's nested lines then sit under the spawn. The spawn stays in the source lane with no block_id, 🆔, or ⛔ — follow up with assign_block_id on next_occurrence.line, except on an indented line of a Kanban board. Completing by line is NOT idempotent for recurring tasks (the spawn occupies the old line); prefer block_id.
-- Delete on completion (🏁 delete / [onCompletion:: delete]): removes the task line and its children instead of moving to done. With 🔁 + 🏁, the next occurrence is still created, and the completed task is removed.
+- Recurring (🔁): spawns the next occurrence, dates advanced per the rule, directly above the completed task, which keeps its nested lines. When the Tasks plugin's settings put the next recurrence on the line below, the spawn goes on the line directly below the task instead, so the task's nested lines then sit under the spawn. The spawn stays in the source lane with no 🆔 or ⛔, and no block_id unless next_block_id names one; otherwise follow up with assign_block_id on next_occurrence.line. Neither parameter sets an id on an indented line of a Kanban board. Retrying a completion by line can complete the spawn; prefer block_id.
+- Delete on completion (🏁 delete / [onCompletion:: delete]): removes the task line and its children instead of moving to done. With 🔁 + 🏁, the next occurrence is still created.
 
 Errors: (messages use camelCase names, e.g. assignBlockId for assign_block_id)
 ${noteNotFoundErrorEntry}
@@ -542,8 +542,9 @@ ${PATH_SAFETY_ERROR_ENTRY}
 - "cannot reorder within "X" — the heading appears N times" / "cannot place at position P under "X" — the heading appears N times" — the heading name is duplicated in the note: the task's own heading for a reorder in place, the one in heading for a move; for a cross-lane move use "top" or "bottom" (they place under the first match), or rename one section to make it unique
 ${describeHeadingNotFoundErrorEntry("the headings it can move to")}
 - "multiple done lanes detected" / "no done lane detected" — status "done" on a Kanban board with more than one lane whose first line is **Complete**, or with none and no "Done" heading; pass heading to pick the lane
-- "blockId ... already exists" / "blockId ... contains invalid characters" — assign_block_id must be unique in the note and match [a-zA-Z0-9-]+
-- "assignBlockId is not allowed" / "description ends in a block ID" / "subtask ... ends in a block ID" — a new ^id on an indented line of a Kanban board; leave the line without an id and target it by line, and drop any trailing ^id from the text
+- "blockId ... already exists" / "blockId ... contains invalid characters" — pick another id
+- "nextBlockId was given, but" — next_block_id needs a completion that creates a next occurrence; drop it otherwise
+- "assignBlockId is not allowed" / "nextBlockId is not allowed" / "description ends in a block ID" / "subtask ... ends in a block ID" — a new ^id on an indented line of a Kanban board; leave the line without an id and target it by line, and drop any trailing ^id from the text
 ${TASK_DATE_ERROR_ENTRY}
 - "description cannot be empty" / "addSubtasks cannot contain an empty item" / "description must be a single line" / "addSubtasks items must be a single line" — pass visible text on a single line
 ${TASK_ID_CHARACTERS_ERROR_ENTRY}
@@ -553,16 +554,16 @@ ${FILESYSTEM_ERROR_ENTRY}
 ${describePropertiesBlockErrorEntry()}
 ${OPENING_BLOCK_ERROR_ENTRY}
 
-Obsidian syntax: When description or add_subtasks text ends in a field the plugin's parser recognizes (an emoji field like "🔁 every week", or a Dataview [key:: value] field), with only other recognized fields after it, that text is read back as metadata. The write still succeeds; reword the text to clear the advisories the result carries. The ✅/❌ dates a status change adds or removes produce no advisories.
+Obsidian syntax: When description or add_subtasks text ends in a field the plugin's parser recognizes (an emoji field like "🔁 every week", or a Dataview [key:: value] field), with only other recognized fields after it, that text is read back as metadata. The write still succeeds; reword the text to clear the advisories the result carries.
 
 Returns: JSON { path, line, description, block_id, heading, subtasks, next_occurrence, changes, advisories, on_completion_applied }.
 - line is the task's final 1-based line number in the file; after an on_completion delete, the line the task occupied before removal.
 - description is the current text, and block_id and heading reflect the task after the update; block_id is omitted when the task has none, heading when the task sits above the first heading.
-- subtasks lists each checklist item add_subtasks wrote as { line, description } (omitted when none were added); checklist items are written without a block_id, so line is the handle for a follow-up update.
-- next_occurrence is present only when a completion spawned a recurring task's next occurrence: { line, description, due?, scheduled?, start? } with only the dates the occurrence has.
+- subtasks lists each checklist item add_subtasks wrote as { line, description } (omitted when none were added); items have no block_id, so update them by line.
+- next_occurrence is present only when a completion spawned a recurring task's next occurrence: { line, description, block_id?, due?, scheduled?, start? } with only the dates the occurrence has.
 - changes lists every field applied as "field: before → after", with "(none)" for an absent value; an add_subtasks change is listed under "subtasks", a spawn under "next_occurrence", and a 🏁 delete under "on_completion".
-- advisories (omitted when there are none) lists one sentence for each: a stored line that parses back differently than submitted (see Obsidian syntax above), a duplicate tag removed from the line, or a completed recurring task whose rule yields no next occurrence (unreadable rule text, or a finite rule with no occurrences left).
-- on_completion_applied is "delete", present only when the effective on_completion was delete (already on the task or set in the same call) and the task was transitioned to done.`,
+- advisories (omitted when there are none) lists one sentence for each: a stored line that parses back differently than submitted, a duplicate tag removed from the line, or a completed recurring task whose rule yields no next occurrence (unreadable rule text, or a finite rule with no occurrences left).
+- on_completion_applied is "delete", present only when the completion deleted the task.`,
       inputSchema: {
         path: z
           .string()
@@ -665,6 +666,13 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, next_occur
           .describe(
             "Add or replace the ^block-id on the task line, or null to remove it. Letters, digits, and hyphens only; must be unique within the note.",
           ),
+        next_block_id: z
+          .string()
+          .min(1)
+          .optional()
+          .describe(
+            "The ^block-id, without the ^, to give the next occurrence that completing a recurring task creates. Letters, digits, and hyphens only; must be new to the note.",
+          ),
         heading: z
           .string()
           .min(1)
@@ -705,6 +713,7 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, next_occur
         depends_on,
         add_subtasks,
         assign_block_id,
+        next_block_id,
         heading,
         position,
         format,
@@ -733,6 +742,7 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, next_occur
         dependsOn: depends_on,
         subtaskCount: add_subtasks?.length,
         assignBlockId: assign_block_id,
+        nextBlockId: next_block_id,
         heading,
         position,
         format,
@@ -761,6 +771,7 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, next_occur
               dependsOn: depends_on,
               addSubtasks: add_subtasks,
               assignBlockId: assign_block_id,
+              nextBlockId: next_block_id,
               heading,
               position,
               format,

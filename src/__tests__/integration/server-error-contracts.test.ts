@@ -3172,6 +3172,92 @@ describe("task errors", () => {
     )
   })
 
+  it("vault_update_task with next_block_id and a status other than done", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_update_task",
+      args: {
+        path: "Projects/alpha.md",
+        block_id: "alpha-task-1",
+        status: "in_progress",
+        next_block_id: "alpha-next",
+      },
+    })
+    expectToolError(
+      result,
+      "nextBlockId was given, but this update creates no next occurrence: the update does not complete the task",
+    )
+  })
+
+  it("vault_update_task with next_block_id on a task that is not recurring", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_update_task",
+      args: {
+        path: "Projects/alpha.md",
+        block_id: "alpha-task-1",
+        status: "done",
+        next_block_id: "alpha-next",
+      },
+    })
+    expectToolError(
+      result,
+      "nextBlockId was given, but this update creates no next occurrence: the task has no recurrence rule",
+    )
+  })
+
+  describe("next_block_id checked like assign_block_id", () => {
+    const writeRecurringNote = async (path: string): Promise<void> => {
+      const setupResult = await callTool({
+        client,
+        name: "vault_write_note",
+        args: {
+          path,
+          body: "## Habits\n\n- [ ] Stretch 🔁 every week 📅 2026-02-02 ^stretch\n- [ ] Other task ^taken\n",
+        },
+      })
+      onTestFinished(async () => {
+        await callTool({ client, name: "vault_delete_note", args: { path } })
+      })
+      expect(setupResult.isError).not.toBe(true)
+    }
+
+    it("vault_update_task with a next_block_id the note already holds", async () => {
+      await writeRecurringNote("Projects/next-id-duplicate.md")
+
+      const result = await callTool({
+        client,
+        name: "vault_update_task",
+        args: {
+          path: "Projects/next-id-duplicate.md",
+          block_id: "stretch",
+          status: "done",
+          next_block_id: "taken",
+        },
+      })
+      expectToolError(result, 'blockId "taken" already exists in this note')
+    })
+
+    it("vault_update_task with invalid next_block_id characters", async () => {
+      await writeRecurringNote("Projects/next-id-characters.md")
+
+      const result = await callTool({
+        client,
+        name: "vault_update_task",
+        args: {
+          path: "Projects/next-id-characters.md",
+          block_id: "stretch",
+          status: "done",
+          next_block_id: "bad id!",
+        },
+      })
+      expectToolError(
+        result,
+        'blockId "bad id!" contains invalid characters (allowed: letters, digits, hyphens)',
+      )
+    })
+  })
+
   it("vault_update_task with a nonexistent block_id", async () => {
     const result = await callTool({
       client,
@@ -3699,6 +3785,20 @@ describe("block ids on Kanban sub-tasks", () => {
     expectToolError(
       result,
       `assignBlockId is not allowed on an indented line on a Kanban board — ${KANBAN_REASON}`,
+    )
+  })
+
+  it("vault_update_task naming a next occurrence's block id from a Kanban sub-task", async () => {
+    await writeBoard("Projects/kb-next-id.md")
+
+    const result = await callTool({
+      client,
+      name: "vault_update_task",
+      args: { path: "Projects/kb-next-id.md", line: 7, status: "done", next_block_id: "kb-next" },
+    })
+    expectToolError(
+      result,
+      `nextBlockId is not allowed on an indented line on a Kanban board — ${KANBAN_REASON}`,
     )
   })
 

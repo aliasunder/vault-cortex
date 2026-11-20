@@ -1112,6 +1112,70 @@ describe("default config", () => {
       })
       expect(textContent(readback)).toBe("## Tasks\n\n- [ ] Keep the text 📅 2026-11-02\n")
     })
+
+    it("vault_update_task — next_block_id names the next occurrence, which a later call targets by it", async () => {
+      const setupResult = await callTool({
+        client,
+        name: "vault_write_note",
+        args: {
+          path: "Projects/recurring-next-id.md",
+          body: "## Habits\n\n- [ ] Stretch 🔁 every week 📅 2026-02-02 ^stretch\n",
+        },
+      })
+      onTestFinished(async () => {
+        await callTool({
+          client,
+          name: "vault_delete_note",
+          args: { path: "Projects/recurring-next-id.md" },
+        })
+      })
+      expect(setupResult.isError).not.toBe(true)
+
+      const completeResult = await callTool({
+        client,
+        name: "vault_update_task",
+        args: {
+          path: "Projects/recurring-next-id.md",
+          block_id: "stretch",
+          status: "done",
+          next_block_id: "stretch-2026-02-09",
+        },
+      })
+      expect(completeResult.isError).not.toBe(true)
+      expect(JSON.parse(textContent(completeResult))).toEqual({
+        path: "Projects/recurring-next-id.md",
+        line: 4,
+        description: "Stretch",
+        block_id: "stretch",
+        heading: "Habits",
+        next_occurrence: {
+          line: 3,
+          description: "Stretch",
+          block_id: "stretch-2026-02-09",
+          due: "2026-02-09",
+        },
+        changes: ["status: todo → done", "next_occurrence: (none) → line 3"],
+      })
+
+      const priorityResult = await callTool({
+        client,
+        name: "vault_update_task",
+        args: {
+          path: "Projects/recurring-next-id.md",
+          block_id: "stretch-2026-02-09",
+          priority: "high",
+        },
+      })
+      expect(priorityResult.isError).not.toBe(true)
+      expect(JSON.parse(textContent(priorityResult))).toEqual({
+        path: "Projects/recurring-next-id.md",
+        line: 3,
+        description: "Stretch",
+        block_id: "stretch-2026-02-09",
+        heading: "Habits",
+        changes: ["priority: (none) → high"],
+      })
+    })
   })
 
   describe("daily note tool", () => {

@@ -994,7 +994,6 @@ describe("task-mutations", () => {
       expect(doneSection).toBe(
         `\n- [x] In-progress task ➕ 2026-07-01 ✅ ${today()} ^active-task\n\n- [x] Completed ➕ 2026-06-01 ✅ 2026-06-15\n\n`,
       )
-      expect(result.changes).toEqual(["status: in_progress → done", "heading: Active → Done"])
     })
 
     it("auto-completes to the 'Done' lane, not a 'Done' heading inside the card", async () => {
@@ -1389,7 +1388,14 @@ title: Tasks
 
       const contentAfter = await readTestNote(vault, "board.md")
       expect(contentAfter).toBe(contentBefore)
-      expect(result.changes).toEqual([])
+      expect(result).toEqual({
+        path: "board.md",
+        line: 8,
+        description: "In-progress task",
+        block_id: "active-task",
+        heading: "Active",
+        changes: [],
+      })
     })
 
     it("format override writes done date in Dataview format", async () => {
@@ -2933,7 +2939,13 @@ kanban-plugin: board
         logger,
       )
 
-      expect(result.changes).toEqual(["status: todo → done"])
+      expect(result).toEqual({
+        path: "board.md",
+        line: 10,
+        description: "Sub-stage",
+        heading: "Active",
+        changes: ["status: todo → done"],
+      })
       // Sub-task completed in place under Active, not moved to Done
       expect(await readTestNote(vault, "board.md")).toBe(
         KANBAN_WITH_SUBITEMS.replace(
@@ -3197,7 +3209,14 @@ kanban-plugin: board
         logger,
       )
 
-      expect(result.changes).toEqual(["heading: Active → Done"])
+      expect(result).toEqual({
+        path: "agenda.md",
+        line: 7,
+        description: "Call dentist",
+        block_id: "call-dentist",
+        heading: "Done",
+        changes: ["heading: Active → Done"],
+      })
       const content = await readTestNote(vault, "agenda.md")
       expect(content).toBe(`## Active
 
@@ -3224,7 +3243,14 @@ kanban-plugin: board
         logger,
       )
 
-      expect(result.changes).toEqual(["heading: Active → Done"])
+      expect(result).toEqual({
+        path: "board.md",
+        line: 9,
+        description: "Quoted parent",
+        block_id: "quoted-parent",
+        heading: "Done",
+        changes: ["heading: Active → Done"],
+      })
       const content = await readTestNote(vault, "board.md")
       expect(content).toBe(`---
 kanban-plugin: board
@@ -3254,8 +3280,15 @@ kanban-plugin: board
         logger,
       )
 
-      expect(result.changes).toEqual(["subtasks: 1 → 2"])
-      expect(result.subtasks).toEqual([{ line: 9, description: "Stage 2" }])
+      expect(result).toEqual({
+        path: "board.md",
+        line: 7,
+        description: "Quoted parent",
+        block_id: "quoted-parent",
+        heading: "Active",
+        subtasks: [{ line: 9, description: "Stage 2" }],
+        changes: ["subtasks: 1 → 2"],
+      })
       const content = await readTestNote(vault, "board.md")
       expect(content).toBe(`---
 kanban-plugin: board
@@ -3295,7 +3328,14 @@ kanban-plugin: board
           logger,
         )
 
-        expect(result.heading).toBe("Ideas")
+        expect(result).toEqual({
+          path: "notes.md",
+          line: 9,
+          description: "Third",
+          block_id: "third",
+          heading: "Ideas",
+          changes: [`created: (none) → ${today()}`],
+        })
         const content = await readTestNote(vault, "notes.md")
         expect(content).toBe(
           `---\ntitle: Notes\n---\n\n## Ideas\n\n- [ ] First ^first\n- [ ] Second ^second\n- [ ] Third ➕ ${today()} ^third\n`,
@@ -3536,7 +3576,13 @@ kanban-plugin: board
           logger,
         )
 
-        expect(result.changes).toEqual([`created: (none) → ${today()}`])
+        expect(result).toEqual({
+          path: "tasks.md",
+          line: 7,
+          description: "Child task",
+          block_id: "child",
+          changes: [`created: (none) → ${today()}`],
+        })
         const content = await readTestNote(vault, "tasks.md")
         expect(content).toBe(
           `---\ntitle: Tasks\n---\n\n- [ ] Buy groceries ➕ 2026-07-01\n- [ ] Walk the dog ➕ 2026-07-02 ^walk-dog\n  - [ ] Child task ➕ ${today()} ^child\n- [x] Done task ➕ 2026-07-01 ✅ 2026-07-10\n`,
@@ -3559,7 +3605,13 @@ kanban-plugin: board
           logger,
         )
 
-        expect(result.line).toBe(9)
+        expect(result).toEqual({
+          path: "tasks.md",
+          line: 9,
+          description: "End task",
+          block_id: "end-task",
+          changes: [`created: (none) → ${today()}`],
+        })
         const content = await readTestNote(vault, "tasks.md")
         expect(content).toBe(
           `---\ntitle: Tasks\n---\n\n- [ ] Buy groceries ➕ 2026-07-01\n- [ ] Walk the dog ➕ 2026-07-02 ^walk-dog\n- [x] Done task ➕ 2026-07-01 ✅ 2026-07-10\n\n- [ ] End task ➕ ${today()} ^end-task\n`,
@@ -3584,7 +3636,14 @@ kanban-plugin: board
           logger,
         )
 
-        expect(result.heading).toBe("Active")
+        expect(result).toEqual({
+          path: "board.md",
+          line: 7,
+          description: "First card",
+          block_id: "first-card",
+          heading: "Active",
+          changes: [`created: (none) → ${today()}`],
+        })
         const content = await readTestNote(vault, "board.md")
         expect(content).toBe(
           `---\ntitle: Board\nkanban-plugin: board\n---\n\n## Active\n- [ ] First card ➕ ${today()} ^first-card\n\n## Done\n`,
@@ -3726,7 +3785,14 @@ kanban-plugin: board
           logger,
         )
 
-        expect(moved.changes).toEqual(["position: 2 → 1"])
+        expect(moved).toEqual({
+          path: "board.md",
+          line: 4,
+          description: "Second",
+          block_id: "second",
+          heading: "Active",
+          changes: ["position: 2 → 1"],
+        })
         expect(await readTestNote(vault, "board.md")).toBe(
           "## Active\n- [ ] Commented %%\n%%\n- [ ] Second ^second\n- [ ] First ^first\n",
         )
@@ -3867,7 +3933,14 @@ kanban-plugin: board
         const remainingCards = cards.slice(0, -1)
         const afterMove = remainingCards.toSpliced(1, 0, cards.at(-1) ?? "", inserted)
 
-        expect(moved.changes).toEqual(["position: 1001 → 2"])
+        expect(moved).toEqual({
+          path: "board.md",
+          line: prefix.split("\n").length + 1,
+          description: "Card 999",
+          block_id: "card-999",
+          heading: "Active",
+          changes: ["position: 1001 → 2"],
+        })
         expect(await readTestNote(vault, "board.md")).toBe(`${prefix}${afterMove.join("\n")}\n`)
         expect(fenceVisits).toBeLessThan(30 * cards.length)
       })
@@ -3890,7 +3963,14 @@ kanban-plugin: board
           logger,
         )
 
-        expect(result.heading).toBe("Active")
+        expect(result).toEqual({
+          path: "board.md",
+          line: 9,
+          description: "Inserted",
+          block_id: "inserted",
+          heading: "Active",
+          changes: [`created: (none) → ${today()}`],
+        })
         const content = await readTestNote(vault, "board.md")
         expect(content).toBe(
           `---\ntitle: Board\nkanban-plugin: board\n---\n\n## Active\n\n- [ ] First ^first\n- [ ] Inserted ➕ ${today()} ^inserted\n- [ ] Second ^second\n- [ ] Third ^third\n`,
@@ -4168,7 +4248,14 @@ kanban-plugin: board
         expect(content).toBe(
           `---\ntitle: Board\nkanban-plugin: board\n---\n\n## Active\n\n- [ ] Bravo ^bravo\n- [ ] Charlie ^charlie\n- [ ] Alpha ^alpha\n- [ ] Delta ^delta\n\n## Done\n`,
         )
-        expect(result.changes).toEqual(["position: 1 → 3"])
+        expect(result).toEqual({
+          path: "board.md",
+          line: 10,
+          description: "Alpha",
+          block_id: "alpha",
+          heading: "Active",
+          changes: ["position: 1 → 3"],
+        })
       })
 
       it("same-lane reorder is a no-op when already at the target position", async () => {
@@ -4190,7 +4277,14 @@ kanban-plugin: board
 
         const contentAfter = await readTestNote(vault, "board.md")
         expect(contentAfter).toBe(contentBefore)
-        expect(result.changes).toEqual([])
+        expect(result).toEqual({
+          path: "board.md",
+          line: 8,
+          description: "Alpha",
+          block_id: "alpha",
+          heading: "Active",
+          changes: [],
+        })
       })
 
       it("same-lane position=top is a no-op for the first card below a blank line", async () => {
@@ -4243,7 +4337,14 @@ kanban-plugin: board
         expect(content).toBe(
           `---\ntitle: Board\nkanban-plugin: board\n---\n\n## Active\n\n- [ ] Bravo ^bravo\n\n## Up Next\n\n- [ ] Charlie ^charlie\n- [ ] Alpha ^alpha\n- [ ] Delta ^delta\n`,
         )
-        expect(result.changes).toEqual(["heading: Active → Up Next", "position: 1 → 2"])
+        expect(result).toEqual({
+          path: "board.md",
+          line: 13,
+          description: "Alpha",
+          block_id: "alpha",
+          heading: "Up Next",
+          changes: ["heading: Active → Up Next", "position: 1 → 2"],
+        })
       })
 
       it("position-only call without heading or status succeeds", async () => {
@@ -4262,7 +4363,14 @@ kanban-plugin: board
           logger,
         )
 
-        expect(result.changes).toEqual(["position: 2 → 1"])
+        expect(result).toEqual({
+          path: "board.md",
+          line: 8,
+          description: "Bravo",
+          block_id: "bravo",
+          heading: "Active",
+          changes: ["position: 2 → 1"],
+        })
         const content = await readTestNote(vault, "board.md")
         expect(content).toBe(
           `---\ntitle: Board\nkanban-plugin: board\n---\n\n## Active\n\n- [ ] Bravo ^bravo\n- [ ] Alpha ^alpha\n\n## Done\n`,
@@ -4289,7 +4397,14 @@ kanban-plugin: board
         expect(content).toBe(
           `---\ntitle: Board\nkanban-plugin: board\n---\n\n## Active\n\n- [ ] Bravo ^bravo\n  - [ ] Sub-B1\n- [ ] Alpha ^alpha\n  - [ ] Sub-A1\n  - [ ] Sub-A2\n- [ ] Charlie ^charlie\n\n## Done\n`,
         )
-        expect(result.changes).toEqual(["position: 2 → 1"])
+        expect(result).toEqual({
+          path: "board.md",
+          line: 8,
+          description: "Bravo",
+          block_id: "bravo",
+          heading: "Active",
+          changes: ["position: 2 → 1"],
+        })
       })
 
       it("rejects position on a sub-task", async () => {
@@ -4333,7 +4448,14 @@ kanban-plugin: board
         expect(content).toBe(
           `---\ntitle: Board\nkanban-plugin: board\n---\n\n## Active\n\n- [ ] Bravo ^bravo\n- [ ] Charlie ^charlie\n- [ ] Alpha ^alpha\n\n## Done\n`,
         )
-        expect(result.changes).toEqual(["position: 1 → 3"])
+        expect(result).toEqual({
+          path: "board.md",
+          line: 10,
+          description: "Alpha",
+          block_id: "alpha",
+          heading: "Active",
+          changes: ["position: 1 → 3"],
+        })
       })
 
       it("same-lane reorder works in a lane whose heading has no text", async () => {
@@ -4416,7 +4538,14 @@ kanban-plugin: board
             "",
           ].join("\n"),
         )
-        expect(result.changes).toEqual(["position: 3 → 1"])
+        expect(result).toEqual({
+          path: "board.md",
+          line: 8,
+          description: "Charlie",
+          block_id: "charlie",
+          heading: "Active",
+          changes: ["position: 3 → 1"],
+        })
       })
 
       it("rejects position-only reorder on a task above all headings", async () => {
@@ -4812,11 +4941,15 @@ kanban-plugin: board
         // pushing it from position 1 → 2 in the post-spawn lane.
         // before-position 1 proves the count comes from the pre-spawn lane
         // (2 cards); linesWithSpawn would report 2.
-        expect(result.changes).toEqual([
-          "status: todo → done",
-          "position: 1 → 3",
-          "next_occurrence: (none) → line 7",
-        ])
+        expect(result).toEqual({
+          path: "notes.md",
+          line: 9,
+          description: "Water plants",
+          block_id: "water",
+          heading: "Habits",
+          next_occurrence: { line: 7, description: "Water plants", due: "2026-01-12" },
+          changes: ["status: todo → done", "position: 1 → 3", "next_occurrence: (none) → line 7"],
+        })
         const content = await readTestNote(vault, "notes.md")
         expect(content).toBe(
           `---\ntitle: Notes\n---\n\n## Habits\n\n- [ ] Water plants 🔁 every week 📅 2026-01-12\n- [ ] Read for 30 min ^read\n- [x] Water plants 🔁 every week 📅 2026-01-05 ✅ ${today()} ^water\n\n## Done\n`,
@@ -5077,8 +5210,14 @@ title: Tasks
       logger,
     )
 
-    expect(result.line).toBe(5)
-    expect(result.next_occurrence?.line).toBe(6)
+    expect(result).toEqual({
+      path: "tasks.md",
+      line: 5,
+      description: "Water plants",
+      block_id: "water-plants",
+      next_occurrence: { line: 6, description: "Water plants", due: "2026-01-12" },
+      changes: ["status: todo → done", "next_occurrence: (none) → line 6"],
+    })
     const content = await readTestNote(vault, "tasks.md")
     expect(content).toBe(
       `---\ntitle: Tasks\n---\n\n- [x] Water plants 🔁 every week 📅 2026-01-05 ➕ 2026-01-01 ✅ ${today()} ^water-plants\n- [ ] Water plants 🔁 every week 📅 2026-01-12\n`,
@@ -5180,7 +5319,14 @@ title: Tasks
       logger,
     )
 
-    expect(result.next_occurrence?.due).toBe("2026-01-12")
+    expect(result).toEqual({
+      path: "tasks.md",
+      line: 6,
+      description: "Habit",
+      block_id: "habit",
+      next_occurrence: { line: 5, description: "Habit", due: "2026-01-12" },
+      changes: ["status: todo → done", "next_occurrence: (none) → line 5"],
+    })
     const content = await readTestNote(vault, "tasks.md")
     expect(content).toBe(
       `---\ntitle: Tasks\n---\n\n- [ ] Habit 🔁 every week 📅 2026-01-12\n- [x] Habit 🔁 every week 📅 2026-01-05 ✅ ${today()} ^habit  \n`,
@@ -5207,11 +5353,18 @@ title: Tasks
       logger,
     )
 
-    expect(result.changes).toEqual([
-      "status: todo → done",
-      "due: 2026-01-27 → 2026-02-03",
-      "next_occurrence: (none) → line 5",
-    ])
+    expect(result).toEqual({
+      path: "tasks.md",
+      line: 6,
+      description: "Report",
+      block_id: "report",
+      next_occurrence: { line: 5, description: "Report", due: "2026-02-10" },
+      changes: [
+        "status: todo → done",
+        "due: 2026-01-27 → 2026-02-03",
+        "next_occurrence: (none) → line 5",
+      ],
+    })
     const content = await readTestNote(vault, "tasks.md")
     expect(content).toBe(
       `---\ntitle: Tasks\n---\n\n- [ ] Report 🔁 every week 📅 2026-02-10\n- [x] Report 🔁 every week 📅 2026-02-03 ✅ ${today()} ^report\n`,
@@ -5265,8 +5418,13 @@ title: Tasks
     )
 
     // The plugin treats a DONE-typed char as already done — no re-spawn.
-    expect(result.next_occurrence).toBeUndefined()
-    expect(result.advisories).toBeUndefined()
+    expect(result).toEqual({
+      path: "tasks.md",
+      line: 5,
+      description: "Deploy check",
+      block_id: "deploy",
+      changes: ["status: done → done"],
+    })
     const content = await readTestNote(vault, "tasks.md")
     expect(content).toBe(
       `---\ntitle: Tasks\n---\n\n- [x] Deploy check 🔁 every week 📅 2026-01-05 ✅ ${today()} ^deploy\n`,
@@ -5292,7 +5450,14 @@ title: Tasks
       logger,
     )
 
-    expect(result.next_occurrence?.due).toBe("2026-01-12")
+    expect(result).toEqual({
+      path: "tasks.md",
+      line: 6,
+      description: "Odd habit",
+      block_id: "odd",
+      next_occurrence: { line: 5, description: "Odd habit", due: "2026-01-12" },
+      changes: ["status: todo → done", "next_occurrence: (none) → line 5"],
+    })
   })
 
   it("keeps the spawn in the source lane while the completed card moves to Done", async () => {
@@ -5314,7 +5479,19 @@ title: Tasks
       logger,
     )
 
-    expect(result.next_occurrence?.line).toBe(7)
+    expect(result).toEqual({
+      path: "board.md",
+      line: 11,
+      description: "Weekly review",
+      block_id: "weekly",
+      heading: "Done",
+      next_occurrence: { line: 7, description: "Weekly review", due: "2026-01-12" },
+      changes: [
+        "status: todo → done",
+        "heading: Active → Done",
+        "next_occurrence: (none) → line 7",
+      ],
+    })
     const content = await readTestNote(vault, "board.md")
     expect(content).toBe(
       `---\nkanban-plugin: board\n---\n\n## Active\n\n- [ ] Weekly review 🔁 every week 📅 2026-01-12\n- [ ] Other task ➕ 2026-07-01\n\n## Done\n- [x] Weekly review 🔁 every week 📅 2026-01-05 ✅ ${today()} ^weekly\n\n- [x] Old ➕ 2026-06-01 ✅ 2026-06-15\n`,
@@ -5343,8 +5520,19 @@ title: Tasks
       logger,
     )
 
-    expect(result.heading).toBe("Archive")
-    expect(result.next_occurrence?.line).toBe(7)
+    expect(result).toEqual({
+      path: "board.md",
+      line: 12,
+      description: "Weekly review",
+      block_id: "weekly",
+      heading: "Archive",
+      next_occurrence: { line: 7, description: "Weekly review", due: "2026-01-12" },
+      changes: [
+        "status: todo → done",
+        "heading: Active → Archive",
+        "next_occurrence: (none) → line 7",
+      ],
+    })
     const content = await readTestNote(vault, "board.md")
     expect(content).toBe(
       `---\nkanban-plugin: board\n---\n\n## Active\n\n- [ ] Weekly review 🔁 every week 📅 2026-01-12\n\n## Archive\n\n**Complete**\n- [x] Weekly review 🔁 every week 📅 2026-01-05 ✅ ${today()} ^weekly\n\n- [x] Old ➕ 2026-06-01 ✅ 2026-06-15\n`,
@@ -5372,7 +5560,18 @@ title: Tasks
       logger,
     )
 
-    expect(result.next_occurrence?.line).toBe(8)
+    expect(result).toEqual({
+      path: "tasks.md",
+      line: 5,
+      description: "Water plants",
+      block_id: "water-plants",
+      subtasks: [
+        { line: 6, description: "Refill the can" },
+        { line: 7, description: "Check the fern" },
+      ],
+      next_occurrence: { line: 8, description: "Water plants", due: "2026-01-12" },
+      changes: ["status: todo → done", "subtasks: 0 → 2", "next_occurrence: (none) → line 8"],
+    })
     const content = await readTestNote(vault, "tasks.md")
     expect(content).toBe(
       `---\ntitle: Tasks\n---\n\n- [x] Water plants 🔁 every week 📅 2026-01-05 ➕ 2026-01-01 ✅ ${today()} ^water-plants\n  - [ ] Refill the can\n  - [ ] Check the fern\n- [ ] Water plants 🔁 every week 📅 2026-01-12\n`,
@@ -5403,7 +5602,19 @@ title: Tasks
       logger,
     )
 
-    expect(result.next_occurrence?.line).toBe(7)
+    expect(result).toEqual({
+      path: "board.md",
+      line: 11,
+      description: "Weekly review",
+      block_id: "weekly",
+      heading: "Done",
+      next_occurrence: { line: 7, description: "Weekly review", due: "2026-01-12" },
+      changes: [
+        "status: todo → done",
+        "heading: Active → Done",
+        "next_occurrence: (none) → line 7",
+      ],
+    })
     const content = await readTestNote(vault, "board.md")
     expect(content).toBe(
       `---\nkanban-plugin: board\n---\n\n## Active\n\n- [ ] Weekly review 🔁 every week 📅 2026-01-12\n  - [ ] Prep notes\n\n## Done\n- [x] Weekly review 🔁 every week 📅 2026-01-05 ✅ ${today()} ^weekly\n\n- [x] Old ➕ 2026-06-01 ✅ 2026-06-15\n`,
@@ -5434,10 +5645,20 @@ title: Tasks
     // The subtask appends to the completed task, and the done-lane move
     // takes the entire completed block (task + subtask) to Done. The spawn
     // stays alone in Active at line 7.
-    expect(result.next_occurrence).toEqual({
-      line: 7,
+    expect(result).toEqual({
+      path: "board.md",
+      line: 10,
       description: "Deploy",
-      due: "2026-01-12",
+      block_id: "deploy",
+      heading: "Done",
+      subtasks: [{ line: 11, description: "Smoke test" }],
+      next_occurrence: { line: 7, description: "Deploy", due: "2026-01-12" },
+      changes: [
+        "status: todo → done",
+        "heading: Active → Done",
+        "subtasks: 0 → 1",
+        "next_occurrence: (none) → line 7",
+      ],
     })
     const content = await readTestNote(vault, "board.md")
     expect(content).toBe(
@@ -5466,7 +5687,19 @@ title: Tasks
 
     // The completed card's reinsertion under Done sits above the spawn and
     // shifts it by one line — the reported line must account for that.
-    expect(result.next_occurrence?.line).toBe(12)
+    expect(result).toEqual({
+      path: "board.md",
+      line: 6,
+      description: "Weekly review",
+      block_id: "weekly",
+      heading: "Done",
+      next_occurrence: { line: 12, description: "Weekly review", due: "2026-01-12" },
+      changes: [
+        "status: todo → done",
+        "heading: Active → Done",
+        "next_occurrence: (none) → line 12",
+      ],
+    })
     const content = await readTestNote(vault, "board.md")
     expect(content).toBe(
       `---\nkanban-plugin: board\n---\n\n## Done\n- [x] Weekly review 🔁 every week 📅 2026-01-05 ✅ ${today()} ^weekly\n\n- [x] Old ➕ 2026-06-01 ✅ 2026-06-15\n\n## Active\n\n- [ ] Weekly review 🔁 every week 📅 2026-01-12\n`,
@@ -5496,8 +5729,21 @@ title: Tasks
       logger,
     )
 
-    expect(result.next_occurrence?.line).toBe(13)
-    expect(result.subtasks).toEqual([{ line: 7, description: "Prep notes" }])
+    expect(result).toEqual({
+      path: "board.md",
+      line: 6,
+      description: "Weekly review",
+      block_id: "weekly",
+      heading: "Done",
+      subtasks: [{ line: 7, description: "Prep notes" }],
+      next_occurrence: { line: 13, description: "Weekly review", due: "2026-01-12" },
+      changes: [
+        "status: todo → done",
+        "heading: Active → Done",
+        "subtasks: 0 → 1",
+        "next_occurrence: (none) → line 13",
+      ],
+    })
     const content = await readTestNote(vault, "board.md")
     expect(content).toBe(
       `---\nkanban-plugin: board\n---\n\n## Done\n- [x] Weekly review 🔁 every week 📅 2026-01-05 ✅ ${today()} ^weekly\n  - [ ] Prep notes\n\n- [x] Old ➕ 2026-06-01 ✅ 2026-06-15\n\n## Active\n\n- [ ] Weekly review 🔁 every week 📅 2026-01-12\n`,
@@ -5525,7 +5771,13 @@ title: Tasks
       logger,
     )
 
-    expect(result.next_occurrence?.line).toBe(6)
+    expect(result).toEqual({
+      path: "tasks.md",
+      line: 7,
+      description: "Daily standup",
+      next_occurrence: { line: 6, description: "Daily standup", due: "2026-01-06" },
+      changes: ["status: todo → done", "next_occurrence: (none) → line 6"],
+    })
     const content = await readTestNote(vault, "tasks.md")
     expect(content).toBe(
       `---\ntitle: Tasks\n---\n\n- [ ] Daily standup 🔁 every day 📅 2026-01-06\n- [ ] Daily standup 🔁 every day 📅 2026-01-06\n- [x] Daily standup 🔁 every day 📅 2026-01-05 ✅ ${today()}\n`,
@@ -5588,7 +5840,13 @@ title: Tasks
       logger,
     )
 
-    expect(result.next_occurrence?.line).toBe(6)
+    expect(result).toEqual({
+      path: "tasks.md",
+      line: 7,
+      description: "Daily child",
+      next_occurrence: { line: 6, description: "Daily child", due: "2026-01-06" },
+      changes: ["status: todo → done", "next_occurrence: (none) → line 6"],
+    })
     const content = await readTestNote(vault, "tasks.md")
     expect(content).toBe(
       `---\ntitle: Tasks\n---\n\n- [ ] Parent card ➕ 2026-07-01 ^parent\n  - [ ] Daily child 🔁 every day 📅 2026-01-06\n  - [x] Daily child 🔁 every day 📅 2026-01-05 ✅ ${today()}\n`,
@@ -5614,10 +5872,16 @@ title: Tasks
       logger,
     )
 
-    expect(result.next_occurrence).toBeUndefined()
-    expect(result.advisories).toEqual([
-      'The task was completed, but its recurrence rule "whenever" is not a rule the Tasks plugin recognizes, so no next occurrence was created.',
-    ])
+    expect(result).toEqual({
+      path: "tasks.md",
+      line: 5,
+      description: "Fuzzy habit",
+      block_id: "fuzzy",
+      changes: ["status: todo → done"],
+      advisories: [
+        'The task was completed, but its recurrence rule "whenever" is not a rule the Tasks plugin recognizes, so no next occurrence was created.',
+      ],
+    })
     const content = await readTestNote(vault, "tasks.md")
     expect(content).toBe(
       `---\ntitle: Tasks\n---\n\n- [x] Fuzzy habit 🔁 whenever 📅 2026-01-05 ✅ ${today()} ^fuzzy\n`,
@@ -5644,12 +5908,18 @@ title: Tasks
       logger,
     )
 
-    expect(result.next_occurrence).toBeUndefined()
-    expect(result.advisories).toEqual([
-      'The task was completed, but its recurrence rule "whenever" is not a rule the Tasks plugin recognizes, so no next occurrence was created.',
-      'description: the line was written as submitted, but the stored description parses back as "Fuzzy habit" — the trailing "✅ 2026-01-01" was read as task metadata',
-      `done: submitted "${today()}" but the stored line parses back "2026-01-01"`,
-    ])
+    expect(result).toEqual({
+      path: "tasks.md",
+      line: 5,
+      description: "Fuzzy habit",
+      block_id: "fuzzy",
+      changes: ["status: todo → done", "description: Fuzzy habit → Fuzzy habit"],
+      advisories: [
+        'The task was completed, but its recurrence rule "whenever" is not a rule the Tasks plugin recognizes, so no next occurrence was created.',
+        'description: the line was written as submitted, but the stored description parses back as "Fuzzy habit" — the trailing "✅ 2026-01-01" was read as task metadata',
+        `done: submitted "${today()}" but the stored line parses back "2026-01-01"`,
+      ],
+    })
   })
 
   it("completes with an advisory when a finite rule is exhausted", async () => {
@@ -5671,10 +5941,16 @@ title: Tasks
       logger,
     )
 
-    expect(result.next_occurrence).toBeUndefined()
-    expect(result.advisories).toEqual([
-      'The task was completed, but its recurrence rule "every day for 1 times" produced no next occurrence, so none was created.',
-    ])
+    expect(result).toEqual({
+      path: "tasks.md",
+      line: 5,
+      description: "One-shot",
+      block_id: "one-shot",
+      changes: ["status: todo → done"],
+      advisories: [
+        'The task was completed, but its recurrence rule "every day for 1 times" produced no next occurrence, so none was created.',
+      ],
+    })
   })
 
   it("does not spawn or advise when an already-done task is set to done again", async () => {
@@ -5696,9 +5972,13 @@ title: Tasks
       logger,
     )
 
-    expect(result.next_occurrence).toBeUndefined()
-    expect(result.advisories).toBeUndefined()
-    expect(result.changes).toEqual(["status: done → done"])
+    expect(result).toEqual({
+      path: "tasks.md",
+      line: 5,
+      description: "Done habit",
+      block_id: "done-habit",
+      changes: ["status: done → done"],
+    })
   })
 
   it("moves the done date to today when an already-done task is set to done again", async () => {
@@ -5766,8 +6046,13 @@ title: Tasks
       logger,
     )
 
-    expect(result.next_occurrence).toBeUndefined()
-    expect(result.advisories).toBeUndefined()
+    expect(result).toEqual({
+      path: "tasks.md",
+      line: 5,
+      description: "Water plants",
+      block_id: "water-plants",
+      changes: ["status: todo → cancelled"],
+    })
     const content = await readTestNote(vault, "tasks.md")
     expect(content).toBe(
       `---\ntitle: Tasks\n---\n\n- [-] Water plants 🔁 every week 📅 2026-01-05 ➕ 2026-01-01 ❌ ${today()} ^water-plants\n`,
@@ -5823,7 +6108,17 @@ title: Tasks
       logger,
     )
 
-    expect(result.changes).toEqual(["due: (none) → 2026-05-01", "description: Old text → Ship it"])
+    expect(result).toEqual({
+      path: "tasks.md",
+      line: 5,
+      description: "Ship it",
+      block_id: "prose",
+      changes: ["due: (none) → 2026-05-01", "description: Old text → Ship it"],
+      advisories: [
+        'description: the line was written as submitted, but the stored description parses back as "Ship it" — the trailing "✅ 2026-01-01" was read as task metadata',
+        'done: the stored line parses back "2026-01-01" although nothing set it — description text was read as this field',
+      ],
+    })
     const content = await readTestNote(vault, "tasks.md")
     expect(content).toBe(
       "---\ntitle: Tasks\n---\n\n- [ ] Ship it ✅ 2026-01-01 ➕ 2026-01-01 📅 2026-05-01 ^prose\n",
@@ -5849,7 +6144,13 @@ title: Tasks
       logger,
     )
 
-    expect(result.changes).toEqual(["recurrence: (none) → every week"])
+    expect(result).toEqual({
+      path: "tasks.md",
+      line: 5,
+      description: "Chore",
+      block_id: "chore",
+      changes: ["recurrence: (none) → every week"],
+    })
     // The rule lands before the dates, matching the create-path field order.
     const content = await readTestNote(vault, "tasks.md")
     expect(content).toBe(
@@ -5872,7 +6173,13 @@ title: Tasks
       logger,
     )
 
-    expect(result.changes).toEqual(["recurrence: every week → (none)"])
+    expect(result).toEqual({
+      path: "tasks.md",
+      line: 5,
+      description: "Water plants",
+      block_id: "water-plants",
+      changes: ["recurrence: every week → (none)"],
+    })
     const content = await readTestNote(vault, "tasks.md")
     expect(content).toBe(
       "---\ntitle: Tasks\n---\n\n- [ ] Water plants 📅 2026-01-05 ➕ 2026-01-01 ^water-plants\n",
@@ -5918,8 +6225,13 @@ title: Tasks
     )
 
     // The spawn reads post-edit state: the rule is gone before completion.
-    expect(result.next_occurrence).toBeUndefined()
-    expect(result.advisories).toBeUndefined()
+    expect(result).toEqual({
+      path: "tasks.md",
+      line: 5,
+      description: "Water plants",
+      block_id: "water-plants",
+      changes: ["status: todo → done", "recurrence: every week → (none)"],
+    })
     const content = await readTestNote(vault, "tasks.md")
     expect(content).toBe(
       `---\ntitle: Tasks\n---\n\n- [x] Water plants 📅 2026-01-05 ➕ 2026-01-01 ✅ ${today()} ^water-plants\n`,
@@ -5946,7 +6258,18 @@ title: Tasks
       logger,
     )
 
-    expect(result.next_occurrence?.due).toBe("2026-01-12")
+    expect(result).toEqual({
+      path: "tasks.md",
+      line: 6,
+      description: "Chore",
+      block_id: "chore",
+      next_occurrence: { line: 5, description: "Chore", due: "2026-01-12" },
+      changes: [
+        "status: todo → done",
+        "recurrence: (none) → every week",
+        "next_occurrence: (none) → line 5",
+      ],
+    })
     const content = await readTestNote(vault, "tasks.md")
     expect(content).toBe(
       `---\ntitle: Tasks\n---\n\n- [ ] Chore 🔁 every week 📅 2026-01-12\n- [x] Chore 🔁 every week 📅 2026-01-05 ✅ ${today()} ^chore\n`,
@@ -5974,11 +6297,17 @@ title: Tasks
       logger,
     )
 
-    expect(result.changes).toEqual([
-      `created: (none) → ${today()}`,
-      "recurrence: (none) → every week",
-      "due: (none) → 2026-01-05",
-    ])
+    expect(result).toEqual({
+      path: "tasks.md",
+      line: 7,
+      description: "Weekly chore",
+      block_id: "weekly-chore",
+      changes: [
+        `created: (none) → ${today()}`,
+        "recurrence: (none) → every week",
+        "due: (none) → 2026-01-05",
+      ],
+    })
     const content = await readTestNote(vault, "tasks.md")
     expect(content).toBe(
       `---\ntitle: Tasks\n---\n\n- [ ] Existing ➕ 2026-01-01\n\n- [ ] Weekly chore 🔁 every week ➕ ${today()} 📅 2026-01-05 ^weekly-chore\n`,
@@ -6075,12 +6404,340 @@ title: Tasks
       logger,
     )
 
-    expect(result.next_occurrence?.scheduled).toBe("2026-01-12")
+    expect(result).toEqual({
+      path: "tasks.md",
+      line: 6,
+      description: "Odd dates",
+      block_id: "odd-dates",
+      next_occurrence: { line: 5, description: "Odd dates", scheduled: "2026-01-12" },
+      changes: ["status: todo → done", "next_occurrence: (none) → line 5"],
+    })
     const content = await readTestNote(vault, "tasks.md")
     expect(content).toBe(
       `---\ntitle: Tasks\n---\n\n- [ ] Odd dates 🔁 every week ⏳ 2026-01-12\n- [x] Odd dates 🔁 every week 📅 2026-02-30 ⏳ 2026-01-05 ✅ ${today()} ^odd-dates\n`,
     )
   })
+})
+
+describe("naming the next occurrence's block id", () => {
+  it("writes the named id on a next occurrence spawned above the completed task", async () => {
+    const vault = await createVault()
+    await writeTestNote(vault, "tasks.md", RECURRING_NOTE)
+
+    const result = await taskMutations.updateTask(
+      {
+        statusRegistry: DEFAULT_STATUS_REGISTRY,
+        vaultPath: vault,
+        path: "tasks.md",
+        blockId: "water-plants",
+        status: "done",
+        nextBlockId: "water-plants-2",
+      },
+      logger,
+    )
+
+    expect(result).toEqual({
+      path: "tasks.md",
+      line: 6,
+      description: "Water plants",
+      block_id: "water-plants",
+      next_occurrence: {
+        line: 5,
+        description: "Water plants",
+        block_id: "water-plants-2",
+        due: "2026-01-12",
+      },
+      changes: ["status: todo → done", "next_occurrence: (none) → line 5"],
+    })
+    expect(await readTestNote(vault, "tasks.md")).toBe(
+      `---\ntitle: Tasks\n---\n\n- [ ] Water plants 🔁 every week 📅 2026-01-12 ^water-plants-2\n- [x] Water plants 🔁 every week 📅 2026-01-05 ➕ 2026-01-01 ✅ ${today()} ^water-plants\n`,
+    )
+  })
+
+  it("writes the named id on a next occurrence spawned below with recurrenceOnNextLine", async () => {
+    const vault = await createVault()
+    await writeTasksPluginConfig(vault, { recurrenceOnNextLine: true })
+    await writeTestNote(vault, "tasks.md", RECURRING_NOTE)
+
+    const result = await taskMutations.updateTask(
+      {
+        statusRegistry: DEFAULT_STATUS_REGISTRY,
+        vaultPath: vault,
+        path: "tasks.md",
+        blockId: "water-plants",
+        status: "done",
+        nextBlockId: "water-plants-2",
+      },
+      logger,
+    )
+
+    expect(result).toEqual({
+      path: "tasks.md",
+      line: 5,
+      description: "Water plants",
+      block_id: "water-plants",
+      next_occurrence: {
+        line: 6,
+        description: "Water plants",
+        block_id: "water-plants-2",
+        due: "2026-01-12",
+      },
+      changes: ["status: todo → done", "next_occurrence: (none) → line 6"],
+    })
+    expect(await readTestNote(vault, "tasks.md")).toBe(
+      `---\ntitle: Tasks\n---\n\n- [x] Water plants 🔁 every week 📅 2026-01-05 ➕ 2026-01-01 ✅ ${today()} ^water-plants\n- [ ] Water plants 🔁 every week 📅 2026-01-12 ^water-plants-2\n`,
+    )
+  })
+
+  it("keeps the named next occurrence in the source lane while the completed card moves to Done", async () => {
+    const vault = await createVault()
+    await writeTestNote(
+      vault,
+      "board.md",
+      `---\nkanban-plugin: board\n---\n\n## Active\n\n- [ ] Weekly review 🔁 every week 📅 2026-01-05 ^weekly\n- [ ] Other task ➕ 2026-07-01\n\n## Done\n\n- [x] Old ➕ 2026-06-01 ✅ 2026-06-15\n`,
+    )
+
+    const result = await taskMutations.updateTask(
+      {
+        statusRegistry: DEFAULT_STATUS_REGISTRY,
+        vaultPath: vault,
+        path: "board.md",
+        blockId: "weekly",
+        status: "done",
+        nextBlockId: "weekly-2",
+      },
+      logger,
+    )
+
+    expect(result).toEqual({
+      path: "board.md",
+      line: 11,
+      description: "Weekly review",
+      block_id: "weekly",
+      heading: "Done",
+      next_occurrence: {
+        line: 7,
+        description: "Weekly review",
+        block_id: "weekly-2",
+        due: "2026-01-12",
+      },
+      changes: [
+        "status: todo → done",
+        "heading: Active → Done",
+        "next_occurrence: (none) → line 7",
+      ],
+    })
+    expect(await readTestNote(vault, "board.md")).toBe(
+      `---\nkanban-plugin: board\n---\n\n## Active\n\n- [ ] Weekly review 🔁 every week 📅 2026-01-12 ^weekly-2\n- [ ] Other task ➕ 2026-07-01\n\n## Done\n- [x] Weekly review 🔁 every week 📅 2026-01-05 ✅ ${today()} ^weekly\n\n- [x] Old ➕ 2026-06-01 ✅ 2026-06-15\n`,
+    )
+  })
+
+  it("writes the named id on the next occurrence of a task deleted on completion", async () => {
+    const vault = await createVault()
+    await writeTestNote(
+      vault,
+      "tasks.md",
+      `---\ntitle: Tasks\n---\n\n## Active\n\n- [ ] Water plants 🔁 every week 🏁 delete 📅 2026-07-07 ^water\n- [ ] Other task ➕ 2026-07-01 ^other\n`,
+    )
+
+    const result = await taskMutations.updateTask(
+      {
+        statusRegistry: DEFAULT_STATUS_REGISTRY,
+        vaultPath: vault,
+        path: "tasks.md",
+        blockId: "water",
+        status: "done",
+        nextBlockId: "water-next",
+      },
+      logger,
+    )
+
+    expect(result).toEqual({
+      path: "tasks.md",
+      line: 8,
+      description: "Water plants",
+      block_id: "water",
+      heading: "Active",
+      next_occurrence: {
+        line: 7,
+        description: "Water plants",
+        block_id: "water-next",
+        due: "2026-07-14",
+      },
+      changes: [
+        "status: todo → done",
+        "next_occurrence: (none) → line 7",
+        "on_completion: task removed (🏁 delete)",
+      ],
+      on_completion_applied: "delete",
+    })
+    expect(await readTestNote(vault, "tasks.md")).toBe(
+      `---\ntitle: Tasks\n---\n\n## Active\n\n- [ ] Water plants 🔁 every week 🏁 delete 📅 2026-07-14 ^water-next\n- [ ] Other task ➕ 2026-07-01 ^other\n`,
+    )
+  })
+
+  it("writes the named id on a Dataview-format next occurrence", async () => {
+    const vault = await createVault()
+    await writeTasksPluginConfig(vault, { taskFormat: "dataview" })
+    await writeTestNote(
+      vault,
+      "tasks.md",
+      "---\ntitle: Tasks\n---\n\n- [ ] DV habit [repeat:: every week] [due:: 2026-01-05] ^dv\n",
+    )
+
+    const result = await taskMutations.updateTask(
+      {
+        statusRegistry: DEFAULT_STATUS_REGISTRY,
+        vaultPath: vault,
+        path: "tasks.md",
+        blockId: "dv",
+        status: "done",
+        nextBlockId: "dv-2",
+      },
+      logger,
+    )
+
+    expect(result).toEqual({
+      path: "tasks.md",
+      line: 6,
+      description: "DV habit",
+      block_id: "dv",
+      next_occurrence: {
+        line: 5,
+        description: "DV habit",
+        block_id: "dv-2",
+        due: "2026-01-12",
+      },
+      changes: ["status: todo → done", "next_occurrence: (none) → line 5"],
+    })
+    expect(await readTestNote(vault, "tasks.md")).toBe(
+      `---\ntitle: Tasks\n---\n\n- [ ] DV habit [repeat:: every week] [due:: 2026-01-12] ^dv-2\n- [x] DV habit [repeat:: every week] [due:: 2026-01-05] [completion:: ${today()}] ^dv\n`,
+    )
+  })
+
+  // Every refusal fires before the write, so the note keeps its exact bytes.
+  it.each([
+    {
+      label: "a status other than done",
+      note: RECURRING_NOTE,
+      update: { blockId: "water-plants", status: "in_progress", nextBlockId: "next" },
+      message:
+        "nextBlockId was given, but this update creates no next occurrence: the update does not complete the task",
+    },
+    {
+      label: "an edit that leaves the status as it is",
+      note: RECURRING_NOTE,
+      update: { blockId: "water-plants", description: "Water the ferns", nextBlockId: "next" },
+      message:
+        "nextBlockId was given, but this update creates no next occurrence: the update does not complete the task",
+    },
+    {
+      label: "a task that is already done",
+      note: "---\ntitle: Tasks\n---\n\n- [x] Water plants 🔁 every week 📅 2026-01-05 ✅ 2026-01-06 ^water-plants\n",
+      update: { blockId: "water-plants", status: "done", nextBlockId: "next" },
+      message:
+        "nextBlockId was given, but this update creates no next occurrence: the task is already done",
+    },
+    {
+      label: "a task with no recurrence rule",
+      note: "---\ntitle: Tasks\n---\n\n- [ ] Plain task ➕ 2026-01-01 ^plain\n",
+      update: { blockId: "plain", status: "done", nextBlockId: "next" },
+      message:
+        "nextBlockId was given, but this update creates no next occurrence: the task has no recurrence rule",
+    },
+    {
+      label: "an unreadable recurrence rule",
+      note: "---\ntitle: Tasks\n---\n\n- [ ] Fuzzy habit 🔁 whenever 📅 2026-01-05 ^fuzzy\n",
+      update: { blockId: "fuzzy", status: "done", nextBlockId: "next" },
+      message:
+        'nextBlockId was given, but this update creates no next occurrence: its recurrence rule "whenever" is not a rule the Tasks plugin recognizes',
+    },
+    {
+      label: "a finite rule with no occurrences left",
+      note: "---\ntitle: Tasks\n---\n\n- [ ] One-shot 🔁 every day for 1 times 📅 2026-01-05 ^one-shot\n",
+      update: { blockId: "one-shot", status: "done", nextBlockId: "next" },
+      message:
+        'nextBlockId was given, but this update creates no next occurrence: its recurrence rule "every day for 1 times" produced no next occurrence',
+    },
+    {
+      label: "an id another line holds",
+      note: `${RECURRING_NOTE}- [ ] Other task ^taken\n`,
+      update: { blockId: "water-plants", status: "done", nextBlockId: "taken" },
+      message: 'blockId "taken" already exists in this note',
+    },
+    {
+      label: "the completed task's own id",
+      note: RECURRING_NOTE,
+      update: { blockId: "water-plants", status: "done", nextBlockId: "water-plants" },
+      message: 'blockId "water-plants" already exists in this note',
+    },
+    {
+      label: "an id the same call removes with assignBlockId",
+      note: RECURRING_NOTE,
+      update: {
+        blockId: "water-plants",
+        status: "done",
+        assignBlockId: "water-plants-old",
+        nextBlockId: "water-plants",
+      },
+      message: 'blockId "water-plants" already exists in this note',
+    },
+    {
+      label: "the id of a task deleted on completion",
+      note: "---\ntitle: Tasks\n---\n\n- [ ] Water plants 🔁 every week 🏁 delete 📅 2026-07-07 ^water\n",
+      update: { blockId: "water", status: "done", nextBlockId: "water" },
+      message: 'blockId "water" already exists in this note',
+    },
+    {
+      label: "the same call's assignBlockId",
+      note: RECURRING_NOTE,
+      update: {
+        blockId: "water-plants",
+        status: "done",
+        assignBlockId: "fresh-id",
+        nextBlockId: "fresh-id",
+      },
+      message: 'blockId "fresh-id" already exists in this note',
+    },
+    {
+      label: "an id with invalid characters",
+      note: RECURRING_NOTE,
+      update: { blockId: "water-plants", status: "done", nextBlockId: "bad id" },
+      message: 'blockId "bad id" contains invalid characters (allowed: letters, digits, hyphens)',
+    },
+    {
+      label: "an empty id",
+      note: RECURRING_NOTE,
+      update: { blockId: "water-plants", status: "done", nextBlockId: "" },
+      message: 'blockId "" contains invalid characters (allowed: letters, digits, hyphens)',
+    },
+    {
+      label: "an indented line on a Kanban board",
+      note: "---\nkanban-plugin: board\n---\n\n## Active\n\n- [ ] Card ^card\n  - [ ] Water 🔁 every week 📅 2026-01-05\n",
+      update: { line: 8, status: "done", nextBlockId: "next" },
+      message:
+        "nextBlockId is not allowed on an indented line on a Kanban board — the Kanban plugin copies an indented line's block ID onto its card when it saves the board",
+    },
+  ] as const)(
+    "refuses nextBlockId for $label and leaves the note unchanged",
+    async ({ note, update, message }) => {
+      const vault = await createVault()
+      await writeTestNote(vault, "tasks.md", note)
+
+      await expect(
+        taskMutations.updateTask(
+          {
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
+            vaultPath: vault,
+            path: "tasks.md",
+            ...update,
+          },
+          logger,
+        ),
+      ).rejects.toThrow(new Error(message))
+      expect(await readTestNote(vault, "tasks.md")).toBe(note)
+    },
+  )
 })
 
 describe("round-trip advisories", () => {
@@ -6157,10 +6814,17 @@ describe("round-trip advisories", () => {
         logger,
       )
 
-      expect(result.advisories).toEqual([
-        'description: the line was written as submitted, but the stored description parses back as "check" — the trailing "[repeat:: every week]" was read as task metadata',
-        'recurrence: the stored line parses back "every week" although nothing set it — description text was read as this field',
-      ])
+      expect(result).toEqual({
+        path: "tasks.md",
+        line: 9,
+        description: "check [repeat:: every week]",
+        block_id: "dv-check",
+        changes: [`created: (none) → ${today()}`],
+        advisories: [
+          'description: the line was written as submitted, but the stored description parses back as "check" — the trailing "[repeat:: every week]" was read as task metadata',
+          'recurrence: the stored line parses back "every week" although nothing set it — description text was read as this field',
+        ],
+      })
     })
 
     it("says the stored description parses back empty when the whole submitted text is consumed", async () => {
@@ -6178,10 +6842,17 @@ describe("round-trip advisories", () => {
         logger,
       )
 
-      expect(result.advisories).toEqual([
-        'description: the line was written as submitted, but the stored description parses back empty — the trailing "🔁 every day" was read as task metadata',
-        'recurrence: the stored line parses back "every day" although nothing set it — description text was read as this field',
-      ])
+      expect(result).toEqual({
+        path: "tasks.md",
+        line: 9,
+        description: "🔁 every day",
+        block_id: "all-meta",
+        changes: [`created: (none) → ${today()}`],
+        advisories: [
+          'description: the line was written as submitted, but the stored description parses back empty — the trailing "🔁 every day" was read as task metadata',
+          'recurrence: the stored line parses back "every day" although nothing set it — description text was read as this field',
+        ],
+      })
       const content = await readTestNote(vault, "tasks.md")
       expect(content).toBe(
         `---\ntitle: Tasks\n---\n\n- [ ] Buy groceries ➕ 2026-07-01\n- [ ] Walk the dog ➕ 2026-07-02 ^walk-dog\n- [x] Done task ➕ 2026-07-01 ✅ 2026-07-10\n\n- [ ] 🔁 every day ➕ ${today()} ^all-meta\n`,
@@ -6204,7 +6875,13 @@ describe("round-trip advisories", () => {
         logger,
       )
 
-      expect(result.advisories).toBeUndefined()
+      expect(result).toEqual({
+        path: "tasks.md",
+        line: 9,
+        description: "Water plants",
+        block_id: "water",
+        changes: [`created: (none) → ${today()}`, "recurrence: (none) → every week"],
+      })
       const content = await readTestNote(vault, "tasks.md")
       expect(content).toBe(
         `---\ntitle: Tasks\n---\n\n- [ ] Buy groceries ➕ 2026-07-01\n- [ ] Walk the dog ➕ 2026-07-02 ^walk-dog\n- [x] Done task ➕ 2026-07-01 ✅ 2026-07-10\n\n- [ ] Water plants 🔁 every week ➕ ${today()} ^water\n`,
@@ -6227,9 +6904,20 @@ describe("round-trip advisories", () => {
         logger,
       )
 
-      expect(result.advisories).toEqual([
-        'subtask "check 🔁 every week": written as submitted, but its stored text parses back as "check" — the trailing "🔁 every week" was read as task metadata',
-      ])
+      expect(result).toEqual({
+        path: "tasks.md",
+        line: 9,
+        description: "Ship the feature",
+        block_id: "ship",
+        subtasks: [
+          { line: 10, description: "Design" },
+          { line: 11, description: "check 🔁 every week" },
+        ],
+        changes: [`created: (none) → ${today()}`, "subtasks: 0 → 2"],
+        advisories: [
+          'subtask "check 🔁 every week": written as submitted, but its stored text parses back as "check" — the trailing "🔁 every week" was read as task metadata',
+        ],
+      })
     })
   })
 
@@ -6258,14 +6946,17 @@ describe("round-trip advisories", () => {
       expect(content).toBe(
         "---\ntitle: Tasks\n---\n\n- [ ] Fix ⛔ prose ➕ 2026-09-01 ⛔ real-dep ^my-task\n",
       )
-      expect(result.advisories).toEqual([
-        'description: the line was written as submitted, but the stored description parses back as "Fix" — the trailing "⛔ prose" was read as task metadata',
-        'depends_on: submitted "real-dep" but the stored line parses back "prose"',
-      ])
-      expect(result.changes).toEqual([
-        "depends_on: old-dep → real-dep",
-        "description: Old desc → Fix",
-      ])
+      expect(result).toEqual({
+        path: "tasks.md",
+        line: 5,
+        description: "Fix",
+        block_id: "my-task",
+        changes: ["depends_on: old-dep → real-dep", "description: Old desc → Fix"],
+        advisories: [
+          'description: the line was written as submitted, but the stored description parses back as "Fix" — the trailing "⛔ prose" was read as task metadata',
+          'depends_on: submitted "real-dep" but the stored line parses back "prose"',
+        ],
+      })
     })
 
     it("serializes exactly one task_id field when the new description contains an id signifier", async () => {
@@ -6292,10 +6983,17 @@ describe("round-trip advisories", () => {
       expect(content).toBe(
         "---\ntitle: Tasks\n---\n\n- [ ] Fix 🆔 prose ➕ 2026-09-01 🆔 new-id ^t1\n",
       )
-      expect(result.advisories).toEqual([
-        'description: the line was written as submitted, but the stored description parses back as "Fix" — the trailing "🆔 prose" was read as task metadata',
-        'task_id: submitted "new-id" but the stored line parses back "prose"',
-      ])
+      expect(result).toEqual({
+        path: "tasks.md",
+        line: 5,
+        description: "Fix",
+        block_id: "t1",
+        changes: ["task_id: old-id → new-id", "description: Old → Fix"],
+        advisories: [
+          'description: the line was written as submitted, but the stored description parses back as "Fix" — the trailing "🆔 prose" was read as task metadata',
+          'task_id: submitted "new-id" but the stored line parses back "prose"',
+        ],
+      })
     })
 
     it("serializes exactly one due-date field when the new description contains a date signifier", async () => {
@@ -6322,10 +7020,17 @@ describe("round-trip advisories", () => {
       expect(content).toBe(
         "---\ntitle: Tasks\n---\n\n- [ ] Fix 📅 2026-12-31 ➕ 2026-09-01 📅 2026-10-01 ^t2\n",
       )
-      expect(result.advisories).toEqual([
-        'description: the line was written as submitted, but the stored description parses back as "Fix" — the trailing "📅 2026-12-31" was read as task metadata',
-        'due: submitted "2026-10-01" but the stored line parses back "2026-12-31"',
-      ])
+      expect(result).toEqual({
+        path: "tasks.md",
+        line: 5,
+        description: "Fix",
+        block_id: "t2",
+        changes: ["due: 2026-09-15 → 2026-10-01", "description: Old → Fix"],
+        advisories: [
+          'description: the line was written as submitted, but the stored description parses back as "Fix" — the trailing "📅 2026-12-31" was read as task metadata',
+          'due: submitted "2026-10-01" but the stored line parses back "2026-12-31"',
+        ],
+      })
     })
 
     it("omits advisories when a clean description update leaves a pre-existing recurrence in place", async () => {
@@ -6379,10 +7084,17 @@ describe("round-trip advisories", () => {
         logger,
       )
 
-      expect(result.advisories).toEqual([
-        'description: the line was written as submitted, but the stored description parses back as "Fix" — the trailing "📅 2026-12-31" was read as task metadata',
-        'due: previously "2026-01-01", but the stored line now parses back "2026-12-31" — this call\'s edits changed what the line parses as this field',
-      ])
+      expect(result).toEqual({
+        path: "tasks.md",
+        line: 5,
+        description: "Fix",
+        block_id: "t1",
+        changes: ["description: Old → Fix"],
+        advisories: [
+          'description: the line was written as submitted, but the stored description parses back as "Fix" — the trailing "📅 2026-12-31" was read as task metadata',
+          'due: previously "2026-01-01", but the stored line now parses back "2026-12-31" — this call\'s edits changed what the line parses as this field',
+        ],
+      })
     })
 
     it("omits advisories when clearing the last metadata field migrates a trailing tag into the description slot", async () => {
@@ -6438,9 +7150,14 @@ describe("round-trip advisories", () => {
       expect(content).toBe(
         "---\ntitle: Tasks\n---\n\n- [ ] Fix ⛔ prose ➕ 2026-09-01 ⛔ new-dep ^t1\n",
       )
-      expect(result.advisories).toEqual([
-        'depends_on: submitted "new-dep" but the stored line parses back "prose"',
-      ])
+      expect(result).toEqual({
+        path: "tasks.md",
+        line: 5,
+        description: "Fix",
+        block_id: "t1",
+        changes: ["depends_on: prose → new-dep"],
+        advisories: ['depends_on: submitted "new-dep" but the stored line parses back "prose"'],
+      })
     })
 
     it("restamps the real completion date, not a description date the parser read as metadata, and restamps stably", async () => {
@@ -6580,7 +7297,13 @@ describe("round-trip advisories", () => {
 
       // #urgent is in the description only, #review is in the metadata tail
       // only — neither is duplicated, no dedup advisory fires.
-      expect(result.advisories).toBeUndefined()
+      expect(result).toEqual({
+        path: "tasks.md",
+        line: 5,
+        description: "Fix bug #urgent #review",
+        block_id: "x",
+        changes: ["description: Fix bug #review → Fix bug #urgent #review"],
+      })
       const content = await readTestNote(vault, "tasks.md")
       expect(content).toBe(
         "---\ntitle: Tasks\n---\n\n- [ ] Fix bug #urgent 📅 2026-01-01 #review ^x\n",
@@ -6606,7 +7329,13 @@ describe("round-trip advisories", () => {
         logger,
       )
 
-      expect(result.advisories).toBeUndefined()
+      expect(result).toEqual({
+        path: "tasks.md",
+        line: 5,
+        description: "Fix crash #urgent",
+        block_id: "x",
+        changes: ["description: Fix bug #urgent → Fix crash #urgent"],
+      })
       const content = await readTestNote(vault, "tasks.md")
       expect(content).toBe("---\ntitle: Tasks\n---\n\n- [ ] Fix crash 📅 2026-01-01 #urgent ^x\n")
     })
@@ -6637,10 +7366,17 @@ describe("round-trip advisories", () => {
       expect(content).toBe(
         `---\ntitle: Tasks\n---\n\n- [x] Finish ✅ 2026-05-05 ➕ 2026-07-01 ✅ ${today()} ^t\n`,
       )
-      expect(result.advisories).toEqual([
-        'description: the line was written as submitted, but the stored description parses back as "Finish" — the trailing "✅ 2026-05-05" was read as task metadata',
-        `done: submitted "${today()}" but the stored line parses back "2026-05-05"`,
-      ])
+      expect(result).toEqual({
+        path: "tasks.md",
+        line: 5,
+        description: "Finish",
+        block_id: "t",
+        changes: ["status: todo → done", "description: Old → Finish"],
+        advisories: [
+          'description: the line was written as submitted, but the stored description parses back as "Finish" — the trailing "✅ 2026-05-05" was read as task metadata',
+          `done: submitted "${today()}" but the stored line parses back "2026-05-05"`,
+        ],
+      })
     })
 
     it("preserves a description cancelled-date signifier through a combined status change and reports both divergences", async () => {
@@ -6667,10 +7403,17 @@ describe("round-trip advisories", () => {
       expect(content).toBe(
         `---\ntitle: Tasks\n---\n\n- [-] Archive ❌ 2026-05-04 ➕ 2026-07-01 ❌ ${today()} ^t\n`,
       )
-      expect(result.advisories).toEqual([
-        'description: the line was written as submitted, but the stored description parses back as "Archive" — the trailing "❌ 2026-05-04" was read as task metadata',
-        `cancelled: submitted "${today()}" but the stored line parses back "2026-05-04"`,
-      ])
+      expect(result).toEqual({
+        path: "tasks.md",
+        line: 5,
+        description: "Archive",
+        block_id: "t",
+        changes: ["status: todo → cancelled", "description: Old → Archive"],
+        advisories: [
+          'description: the line was written as submitted, but the stored description parses back as "Archive" — the trailing "❌ 2026-05-04" was read as task metadata',
+          `cancelled: submitted "${today()}" but the stored line parses back "2026-05-04"`,
+        ],
+      })
     })
 
     it("omits recurrence advisory when recurrence is set via the param", async () => {
@@ -6692,7 +7435,13 @@ describe("round-trip advisories", () => {
         logger,
       )
 
-      expect(result.advisories).toBeUndefined()
+      expect(result).toEqual({
+        path: "tasks.md",
+        line: 5,
+        description: "Water plants",
+        block_id: "water",
+        changes: ["recurrence: (none) → every week"],
+      })
       const content = await readTestNote(vault, "tasks.md")
       expect(content).toBe(
         "---\ntitle: Tasks\n---\n\n- [ ] Water plants 🔁 every week ➕ 2026-01-01 ^water\n",
@@ -6718,7 +7467,13 @@ describe("round-trip advisories", () => {
         logger,
       )
 
-      expect(result.advisories).toBeUndefined()
+      expect(result).toEqual({
+        path: "tasks.md",
+        line: 5,
+        description: "Water plants",
+        block_id: "water",
+        changes: ["recurrence: every week → (none)"],
+      })
       const content = await readTestNote(vault, "tasks.md")
       expect(content).toBe("---\ntitle: Tasks\n---\n\n- [ ] Water plants ➕ 2026-01-01 ^water\n")
     })
@@ -6738,9 +7493,17 @@ describe("round-trip advisories", () => {
         logger,
       )
 
-      expect(result.advisories).toEqual([
-        'subtask "check 🔁 every week": written as submitted, but its stored text parses back as "check" — the trailing "🔁 every week" was read as task metadata',
-      ])
+      expect(result).toEqual({
+        path: "tasks.md",
+        line: 6,
+        description: "Walk the dog",
+        block_id: "walk-dog",
+        subtasks: [{ line: 7, description: "check 🔁 every week" }],
+        changes: ["subtasks: 0 → 1"],
+        advisories: [
+          'subtask "check 🔁 every week": written as submitted, but its stored text parses back as "check" — the trailing "🔁 every week" was read as task metadata',
+        ],
+      })
     })
   })
 
@@ -7859,7 +8622,14 @@ title: Tasks
         logger,
       )
 
-      expect(result.changes).toEqual(["subtasks: 1 → 2"])
+      expect(result).toEqual({
+        path: "tasks.md",
+        line: 5,
+        description: "Card",
+        block_id: "card",
+        subtasks: [{ line: 8, description: "New stage" }],
+        changes: ["subtasks: 1 → 2"],
+      })
 
       const content = await readTestNote(vault, "tasks.md")
       expect(content).toBe(
@@ -7936,7 +8706,13 @@ title: Tasks
         logger,
       )
 
-      expect(result.changes).toEqual(["status: todo → cancelled"])
+      expect(result).toEqual({
+        path: "tasks.md",
+        line: 5,
+        description: "Task",
+        block_id: "task",
+        changes: ["status: todo → cancelled"],
+      })
       const content = await readTestNote(vault, "tasks.md")
       expect(content).toBe(
         `---\ntitle: Tasks\n---\n\n- [-] Task ➕ 2026-07-01 ❌ ${today()} ^task\n`,
@@ -7967,7 +8743,14 @@ title: Tasks
 
       // Position 2 lands above the [>] line, which the supplied registry
       // reads as an ordinary todo card.
-      expect(result.line).toBe(9)
+      expect(result).toEqual({
+        path: "board.md",
+        line: 9,
+        description: "Inserted",
+        block_id: "inserted",
+        heading: "Active",
+        changes: [`created: (none) → ${today()}`],
+      })
       const content = await readTestNote(vault, "board.md")
       expect(content).toBe(
         `---\ntitle: Board\nkanban-plugin: board\n---\n\n## Active\n\n- [ ] Card A ^card-a\n- [ ] Inserted ➕ ${today()} ^inserted\n- [>] Forwarded ref\n- [ ] Card B ^card-b\n`,
@@ -8046,8 +8829,13 @@ title: Tasks
         logger,
       )
 
-      expect(result.description).toBe("Real task")
-      expect(result.changes).toEqual(["status: todo → done"])
+      expect(result).toEqual({
+        path: "tasks.md",
+        line: 9,
+        description: "Real task",
+        block_id: "real",
+        changes: ["status: todo → done"],
+      })
     })
 
     it("skips a fenced match and finds the real task with the same block-id", async () => {
@@ -8069,8 +8857,13 @@ title: Tasks
         logger,
       )
 
-      expect(result.description).toBe("Real task")
-      expect(result.changes).toEqual(["status: todo → done"])
+      expect(result).toEqual({
+        path: "tasks.md",
+        line: 9,
+        description: "Real task",
+        block_id: "shared-id",
+        changes: ["status: todo → done"],
+      })
     })
 
     it("skips a fenced match and finds the real parent with the same block-id", async () => {
@@ -8093,7 +8886,13 @@ title: Tasks
         logger,
       )
 
-      expect(result.description).toBe("Child task")
+      expect(result).toEqual({
+        path: "tasks.md",
+        line: 10,
+        description: "Child task",
+        block_id: "child-of-shared",
+        changes: [`created: (none) → ${today()}`],
+      })
     })
 
     it("createTask succeeds when the block-id exists only inside a fenced block", async () => {
@@ -8115,8 +8914,13 @@ title: Tasks
         logger,
       )
 
-      expect(result.description).toBe("New task")
-      expect(result.block_id).toBe("taken")
+      expect(result).toEqual({
+        path: "tasks.md",
+        line: 11,
+        description: "New task",
+        block_id: "taken",
+        changes: [`created: (none) → ${today()}`],
+      })
     })
 
     it("updateTask rejects a line-addressed task inside a fenced code block", async () => {
@@ -8307,7 +9111,13 @@ kanban-plugin: board
       logger,
     )
 
-    expect(result.description).toBe("Real task")
+    expect(result).toEqual({
+      path: "tasks.md",
+      line: 6,
+      description: "Real task",
+      block_id: "shared",
+      changes: ["priority: (none) → high"],
+    })
     expect(await readTestNote(vault, "tasks.md")).toBe(
       "---\ntitle: Tasks\n---\n\n- [>] Forwarded elsewhere ^shared\n- [ ] Real task ⏫ ^shared\n",
     )
@@ -8547,7 +9357,14 @@ title: Plan
       logger,
     )
 
-    expect(result.changes).toEqual(["block_id: other → other-card"])
+    expect(result).toEqual({
+      path: "board.md",
+      line: 11,
+      description: "Other card",
+      block_id: "other-card",
+      heading: "Active",
+      changes: ["block_id: other → other-card"],
+    })
     expect(await readTestNote(vault, "board.md")).toBe(
       BOARD.replace("- [ ] Other card ^other\n", "- [ ] Other card ^other-card\n"),
     )
@@ -8568,7 +9385,13 @@ title: Plan
       logger,
     )
 
-    expect(result.changes).toEqual(["block_id: (none) → child"])
+    expect(result).toEqual({
+      path: "plan.md",
+      line: 6,
+      description: "Child",
+      block_id: "child",
+      changes: ["block_id: (none) → child"],
+    })
     expect(await readTestNote(vault, "plan.md")).toBe(
       PLAIN_NOTE.replace("  - [ ] Child\n", "  - [ ] Child ^child\n"),
     )
@@ -8621,7 +9444,13 @@ title: Plan
       logger,
     )
 
-    expect(result.changes).toEqual(["block_id: (none) → (none)"])
+    expect(result).toEqual({
+      path: "board.md",
+      line: 8,
+      description: "Existing sub-task",
+      heading: "Active",
+      changes: ["block_id: (none) → (none)"],
+    })
     expect(await readTestNote(vault, "board.md")).toBe(BOARD)
   })
 
@@ -8711,9 +9540,17 @@ title: Plan
       logger,
     )
 
-    expect(result.advisories).toEqual([
-      'subtask "Step ^step-id": written as submitted, but its stored text parses back as "Step" — the trailing "^step-id" was read as task metadata',
-    ])
+    expect(result).toEqual({
+      path: "plan.md",
+      line: 5,
+      description: "Parent",
+      block_id: "parent",
+      subtasks: [{ line: 7, description: "Step ^step-id" }],
+      changes: ["subtasks: 1 → 2"],
+      advisories: [
+        'subtask "Step ^step-id": written as submitted, but its stored text parses back as "Step" — the trailing "^step-id" was read as task metadata',
+      ],
+    })
     expect(await readTestNote(vault, "plan.md")).toBe(
       PLAIN_NOTE.replace("  - [ ] Child\n", "  - [ ] Child\n  - [ ] Step ^step-id\n"),
     )
@@ -8735,9 +9572,17 @@ title: Plan
       logger,
     )
 
-    expect(result.advisories).toEqual([
-      'subtask "Step ^step-id": written as submitted, but its stored text parses back as "Step" — the trailing "^step-id" was read as task metadata',
-    ])
+    expect(result).toEqual({
+      path: "plan.md",
+      line: 8,
+      description: "New task",
+      block_id: "new-task",
+      subtasks: [{ line: 9, description: "Step ^step-id" }],
+      changes: [`created: (none) → ${today()}`, "subtasks: 0 → 1"],
+      advisories: [
+        'subtask "Step ^step-id": written as submitted, but its stored text parses back as "Step" — the trailing "^step-id" was read as task metadata',
+      ],
+    })
     expect(await readTestNote(vault, "plan.md")).toBe(
       `${PLAIN_NOTE}\n- [ ] New task ➕ ${today()} ^new-task\n  - [ ] Step ^step-id\n`,
     )
@@ -8841,7 +9686,14 @@ title: Plan
       logger,
     )
 
-    expect(result.block_id).toBe("other")
+    expect(result).toEqual({
+      path: "board.md",
+      line: 11,
+      description: "Other card renamed ^typed",
+      block_id: "other",
+      heading: "Active",
+      changes: ["description: Other card → Other card renamed ^typed"],
+    })
     expect(await readTestNote(vault, "board.md")).toBe(
       BOARD.replace("- [ ] Other card ^other\n", "- [ ] Other card renamed ^typed ^other\n"),
     )
