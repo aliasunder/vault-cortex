@@ -1,8 +1,8 @@
 // Syncs the optional env blocks from deploy/<mode>/.env.example into the
-// CLI's env.ts constants. The deploy/ .env.example files are the single
-// source of truth for optional variable documentation.
+// CLI's env-templates.ts constants. The deploy/ .env.example files are the
+// single source of truth for optional variable documentation.
 //
-// cli/src/__tests__/templates.test.ts fails CI when these drift; this script is
+// cli/src/rules/__tests__/templates.test.ts fails CI when these drift; this script is
 // the one-command fix.
 //
 // Usage: npm run sync:cli-env-blocks
@@ -18,10 +18,10 @@ const resolvePath = (repoRelative: string): string => fileURLToPath(new URL(repo
 
 /** Header prepended to each optional block in the CLI-generated .env. */
 const CLI_OPTIONAL_HEADER = `# Optional ──────────────────────────────────────────────────
-# To change a setting: run "npx vault-cortex@latest configure", or edit
-# its value here (uncommenting it first if needed) and apply with
-# "npx vault-cortex@latest restart" (plain docker restart does not
-# re-read this file).
+# To change a setting: run "npx vault-cortex@latest configure --dir
+# <this folder>", or edit its value here (uncommenting it first if
+# needed) and apply with "npx vault-cortex@latest restart --dir
+# <this folder>" (plain docker restart does not re-read this file).
 
 `
 
@@ -53,7 +53,7 @@ const removeVaultPasswordBlock = (optionalContent: string): string => {
 }
 
 /**
- * Replaces content between sync markers in env.ts. Markers are line comments
+ * Replaces content between sync markers in env-templates.ts. Markers are line comments
  * like `// sync:local-optional:begin` and `// sync:local-optional:end`.
  */
 const replaceSyncBlock = ({
@@ -72,7 +72,7 @@ const replaceSyncBlock = ({
   const endIndex = fileContent.indexOf(endMarker)
 
   if (beginIndex === -1 || endIndex === -1) {
-    throw new Error(`sync markers for '${blockName}' not found in env.ts`)
+    throw new Error(`sync markers for '${blockName}' not found in env-templates.ts`)
   }
 
   const beforeBlock = fileContent.slice(0, beginIndex + beginMarker.length)
@@ -96,26 +96,31 @@ const envSources = [
   },
 ]
 
-const envTsPath = resolvePath("cli/src/env.ts")
+const envTemplatesPath = resolvePath("cli/src/rules/env-templates.ts")
 // Mutable — each loop iteration replaces a different sync block in the file content
-let envTsContent = readFileSync(envTsPath, "utf8")
+let envTemplatesContent = readFileSync(envTemplatesPath, "utf8")
 
 for (const { envExample, blockName, constName, transform } of envSources) {
   const exampleContent = readFileSync(resolvePath(envExample), "utf8")
   const optionalSection = extractOptionalSection(exampleContent)
   const transformedSection = transform(optionalSection)
 
-  const escapedSection = transformedSection.replaceAll("`", "\\`")
+  // The section goes inside a template literal, where a backslash starts an
+  // escape, a backtick ends the literal and `${` starts an interpolation.
+  const escapedSection = transformedSection
+    .replaceAll("\\", "\\\\")
+    .replaceAll("`", "\\`")
+    .replaceAll("${", "\\${")
 
   const blockContent = `const ${constName} = \`${CLI_OPTIONAL_HEADER}${escapedSection}\`
 `
 
-  envTsContent = replaceSyncBlock({
-    fileContent: envTsContent,
+  envTemplatesContent = replaceSyncBlock({
+    fileContent: envTemplatesContent,
     blockName,
     newContent: blockContent,
   })
-  console.log(`synced ${envExample} optional section -> env.ts ${constName}`)
+  console.log(`synced ${envExample} optional section -> env-templates.ts ${constName}`)
 }
 
-writeFileSync(envTsPath, envTsContent)
+writeFileSync(envTemplatesPath, envTemplatesContent)

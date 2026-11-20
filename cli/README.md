@@ -252,6 +252,12 @@ During `init --mode remote`, this flow is offered automatically.
   runtime (e.g. OrbStack, Colima, Podman) to run the server — the CLI
   manages the container through the `docker` command (on Linux, see
   [Docker Engine](https://docs.docker.com/engine/install/))
+- An install folder (`--dir`, `./vault-cortex` by default) that you own
+  and that other users on the machine can't change: its `.env` holds your
+  server's token. On macOS and Linux, every command refuses a folder
+  another user owns, every user can change, or (on macOS) shares with
+  others through its access list, and `init` creates the folder
+  owner-only.
 
 ## Docs
 

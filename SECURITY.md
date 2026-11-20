@@ -449,6 +449,19 @@ server's own auth tokens) are handled:
   Compose, or the CLI's `restart` command, which re-creates the
   container (a plain `docker restart` keeps the old value). Any
   suspected exposure triggers immediate rotation.
+- **The CLI's `.env`** — the `npx vault-cortex` CLI writes `.env` as a
+  new file, then renames it into place, so a `.env` that is a link
+  becomes a regular file. On macOS and Linux, the CLI also:
+  - makes the new file readable only by its owner (mode 0600) and, under
+    sudo, gives it to the user who ran sudo;
+  - creates the install folder owner-only (0700) in `init`, and on macOS
+    without ACL entries;
+  - refuses, in every command, an install folder that another user owns,
+    that every user can change, or that on macOS has (or whose `.env`
+    has) an ACL entry letting others in.
+
+  Windows has no Unix owners or mode bits, so none of these apply there.
+
 - **Enforcement** — Gitleaks scans every PR and push to main for
   committed secrets (see [Automated Scanning](#automated-scanning)).
 

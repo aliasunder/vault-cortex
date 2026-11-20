@@ -6,10 +6,11 @@
 # A commit is listed when its diff under cli/ adds or removes a line that none
 # of these rules skips:
 # - blank lines
-# - lines in files under cli/src/__tests__/
+# - lines in files under any __tests__/ folder in cli/src/
 # - the "version" line of cli/package.json (the release bump)
 # - in .ts files, lines that start, after any indent, with #, //, /* or *:
-#   comments, and the comment text of the .env templates in cli/src/env.ts.
+#   comments, and the comment text of the .env templates in
+#   cli/src/rules/env-templates.ts.
 #   A # line shaped like a setting (# KEY=value) still counts: the templates
 #   ship optional settings commented out, for the user to uncomment.
 
@@ -57,7 +58,8 @@ has_counted_change() {
   '
 }
 
-CLI_PATHSPEC=(cli/ ':(exclude)cli/src/__tests__/')
+# The glob form excludes every __tests__ folder under cli/src/, at any depth.
+CLI_PATHSPEC=(cli/ ':(exclude,glob)cli/src/**/__tests__/**')
 
 # Hex hashes only, so word splitting in the loop below is safe. Merge commits
 # are skipped: the commits a merge brings in are checked on their own.

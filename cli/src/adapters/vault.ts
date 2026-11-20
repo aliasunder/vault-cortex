@@ -1,0 +1,71 @@
+import { existsSync, statSync } from "node:fs"
+import { homedir } from "node:os"
+import { join, resolve } from "node:path"
+
+export type VaultPathValidation =
+  | { kind: "ok"; path: string }
+  | { kind: "warn"; path: string; message: string }
+  | { kind: "error"; message: string }
+
+/**
+ * Expands a leading `~` or `~/` to the user's home directory. Everything
+ * else (including Windows backslash paths) is left untouched.
+ */
+export const expandTilde = (input: string, home: string = homedir()): string => {
+  if (input === "~") return home
+  if (input.startsWith("~/")) return join(home, input.slice(2))
+  return input
+}
+
+/** Matches a line break, including the Unicode line and paragraph separators. */
+const LINE_BREAK = /[\r\n\u2028\u2029]/
+
+/** Matches a control character, such as an escape or a tab. */
+const CONTROL_CHARACTER = /\p{Cc}/u
+
+/**
+ * Validates a candidate Obsidian vault path. A missing or non-directory
+ * path is an error; a directory without a `.obsidian/` folder is only a
+ * warning — vault-cortex works on any folder of Markdown files.
+ */
+export const validateVaultPath = (input: string): VaultPathValidation => {
+  const trimmed = input.trim()
+
+  if (trimmed === "") return { kind: "error", message: "Vault path is required." }
+  // The checks below read the resolved path, which is what .env and the
+  // messages hold, so a relative path is checked along with the working folder.
+  const absolutePath = resolve(expandTilde(trimmed))
+
+  // The path is written into .env as one line.
+  if (LINE_BREAK.test(absolutePath)) {
+    return { kind: "error", message: "Vault path must not contain a line break." }
+  }
+  if (/[*?[]/.test(trimmed)) {
+    return {
+      kind: "error",
+      message: "Vault path must not contain glob characters (*, ?, [).",
+    }
+  }
+  // Each message below prints the path, and a terminal acts on a control
+  // character instead of showing it.
+  if (CONTROL_CHARACTER.test(absolutePath)) {
+    return { kind: "error", message: "Vault path must not contain a control character." }
+  }
+  if (!existsSync(absolutePath)) {
+    return { kind: "error", message: `Path does not exist: ${absolutePath}` }
+  }
+  if (!statSync(absolutePath).isDirectory()) {
+    return {
+      kind: "error",
+      message: `Path is not a directory: ${absolutePath}`,
+    }
+  }
+  if (!existsSync(join(absolutePath, ".obsidian"))) {
+    return {
+      kind: "warn",
+      path: absolutePath,
+      message: `${absolutePath} doesn't look like an Obsidian vault (no .obsidian folder).`,
+    }
+  }
+  return { kind: "ok", path: absolutePath }
+}

@@ -1,0 +1,290 @@
+import type { Mode } from "../adapters/docker.js"
+import {
+  DEFAULT_BIND_ADDRESSES,
+  describeInvalidEnvBindAddress,
+  isValidBindAddress,
+} from "./bind-address.js"
+import { DEFAULT_PORT, describeInvalidEnvPort, isValidPort } from "./ports.js"
+
+/**
+ * The value of each variable's last active (uncommented) line in a .env
+ * file, trimmed but still quoted. The last line wins because
+ * `docker run --env-file` lets the last duplicate win, even an empty one.
+ */
+export type EnvValues = ReadonlyMap<string, string>
+
+/** Matches every active (uncommented) assignment line, capturing the name and the raw value. */
+const ENV_ASSIGNMENT_LINES = /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/gm
+
+/**
+ * Matches a line break of any kind. parseEnvValues ends a line at the
+ * Unicode line and paragraph separators too, so those count.
+ */
+const ENV_LINE_BREAK = /[\r\n\u2028\u2029]/
+
+/**
+ * Throws when a value would not stay on its own .env line: a line break
+ * would split it into two lines. The vault path and PUBLIC_URL checks refuse
+ * a line break first, with a clearer message.
+ */
+export const assertSingleLineEnvValues = (
+  values: Readonly<Record<string, string | undefined>>,
+): void => {
+  const multiLineSetting = Object.entries(values).find(([, value]) => {
+    if (!value) return false
+    return ENV_LINE_BREAK.test(value)
+  })
+
+  if (multiLineSetting) {
+    throw new Error(`${multiLineSetting[0]} must not contain a line break.`)
+  }
+}
+
+/** Matches a value wrapped in one pair of matching quotes, capturing the inside. */
+const SURROUNDING_QUOTES = /^(["'])(.*)\1$/
+
+/**
+ * Used when .env sets no INSTANCE_NAME: the container name and volume prefix
+ * every install had before the setting existed, so those installs keep their data.
+ */
+export const DEFAULT_INSTANCE_NAME = "vault-cortex"
+
+/**
+ * Compose's project-name rule plus Docker's two-character minimum for container
+ * names, so the container, the Compose project and the volume prefix are one string.
+ */
+const INSTANCE_NAME_PATTERN = /^[a-z0-9][a-z0-9_-]+$/
+
+export const parseEnvValues = (envContent: string): EnvValues => {
+  const assignments = [...envContent.matchAll(ENV_ASSIGNMENT_LINES)]
+  // A later duplicate replaces an earlier one in the Map, so the last line wins.
+  return new Map(assignments.map(([, name, rawValue]) => [name, rawValue.trim()]))
+}
+
+/**
+ * Strips matching surrounding quotes from a value — `"foo"` → `foo`,
+ * `'bar'` → `bar`, `unquoted` → `unquoted`. Only strips when the
+ * opening and closing quote characters match.
+ */
+const stripSurroundingQuotes = (value: string): string => {
+  const quoteMatch = SURROUNDING_QUOTES.exec(value)
+  return quoteMatch ? quoteMatch[2] : value
+}
+
+/**
+ * A variable's value without one pair of surrounding quotes, as
+ * envFile.stripQuotedValues leaves it before docker run. A commented-out or
+ * missing line returns undefined, which means the server uses its built-in
+ * default; an empty line returns "".
+ */
+export const readEnvValue = (envValues: EnvValues, name: string): string | undefined => {
+  const rawValue = envValues.get(name)
+
+  if (rawValue === undefined) return undefined
+  return stripSurroundingQuotes(rawValue)
+}
+
+export type PortRead = { kind: "ok"; port: number } | { kind: "invalid"; message: string }
+
+/**
+ * Reads the host port:
+ * - a missing line or empty value means DEFAULT_PORT;
+ * - any other value that is not a port is reported, never corrected, because
+ *   the CLI would map one port while PUBLIC_URL names another.
+ */
+export const readEnvPort = (envValues: EnvValues): PortRead => {
+  const portValue = readEnvValue(envValues, "PORT")
+
+  if (!portValue) return { kind: "ok", port: DEFAULT_PORT }
+  if (!isValidPort(portValue)) {
+    return { kind: "invalid", message: describeInvalidEnvPort(portValue) }
+  }
+  return { kind: "ok", port: Number(portValue) }
+}
+
+export type BindAddressRead =
+  { kind: "ok"; bindAddress: string } | { kind: "invalid"; message: string }
+
+/**
+ * Reads the host address to publish the port on:
+ * - a missing line or empty value means the mode's default, which is empty
+ *   (no address) for a remote install;
+ * - any other value that is not an address is reported, never corrected,
+ *   because a guess could publish the server wider than the user meant.
+ */
+export const readEnvBindAddress = (envValues: EnvValues, mode: Mode): BindAddressRead => {
+  const bindAddress = readEnvValue(envValues, "BIND_ADDRESS")
+
+  if (!bindAddress) return { kind: "ok", bindAddress: DEFAULT_BIND_ADDRESSES[mode] }
+  if (!isValidBindAddress(bindAddress)) {
+    return { kind: "invalid", message: describeInvalidEnvBindAddress(bindAddress) }
+  }
+  return { kind: "ok", bindAddress }
+}
+
+/** Returns why a candidate instance name is invalid, or undefined when it is valid. */
+export const describeInvalidInstanceName = (candidateName: string): string | undefined => {
+  if (INSTANCE_NAME_PATTERN.test(candidateName)) return undefined
+  return `"${candidateName}" is not a valid instance name — use at least two lowercase letters, digits, hyphens or underscores, starting with a letter or digit.`
+}
+
+export type InstanceNameRead =
+  { kind: "ok"; instanceName: string } | { kind: "invalid"; message: string }
+
+/**
+ * Reads INSTANCE_NAME:
+ * - a missing line or empty value means DEFAULT_INSTANCE_NAME;
+ * - an invalid value is reported, never corrected, because the name decides
+ *   which volumes hold the install's data.
+ */
+export const readEnvInstanceName = (envValues: EnvValues): InstanceNameRead => {
+  const instanceName = readEnvValue(envValues, "INSTANCE_NAME")
+
+  if (!instanceName) return { kind: "ok", instanceName: DEFAULT_INSTANCE_NAME }
+  const invalidReason = describeInvalidInstanceName(instanceName)
+
+  if (invalidReason) return { kind: "invalid", message: `INSTANCE_NAME ${invalidReason}` }
+  return { kind: "ok", instanceName }
+}
+
+/** Reads the host vault path; undefined when the line is missing or empty. */
+export const readEnvVaultPath = (envValues: EnvValues): string | undefined => {
+  return readEnvValue(envValues, "VAULT_PATH") || undefined
+}
+
+/**
+ * Reads the public URL. Returns undefined when the line is missing or empty,
+ * which is how start spots a .env the server would refuse (including one
+ * from the old compose-based CLI, which never wrote the line).
+ */
+export const readEnvPublicUrl = (envValues: EnvValues): string | undefined => {
+  // A whitespace-only value, quoted or not, counts as empty, as it does in
+  // the server's check of the required variable.
+  const unquotedValue = readEnvValue(envValues, "PUBLIC_URL")?.trim()
+  // Strip trailing slashes, as validatePublicUrl does: consumers append paths
+  // to this base, and a hand-edited `https://host/` would otherwise print
+  // broken `//mcp` connect URLs.
+  const normalizedPublicUrl = unquotedValue?.replace(/\/+$/, "")
+  return normalizedPublicUrl || undefined
+}
+
+/** Remote mode requires an OBSIDIAN_AUTH_TOKEN line, even an empty one; local has none. */
+export const detectMode = (envValues: EnvValues): Mode => {
+  return envValues.has("OBSIDIAN_AUTH_TOKEN") ? "remote" : "local"
+}
+
+/**
+ * Reads the OBSIDIAN_AUTH_TOKEN value. Returns undefined when the line is
+ * missing or the value is empty — `OBSIDIAN_AUTH_TOKEN=""` included, since
+ * the CLI strips quotes before docker run. Quotes stay in a returned value,
+ * because init writes it back into the regenerated .env.
+ */
+export const readEnvObsidianToken = (envValues: EnvValues): string | undefined => {
+  const unquotedValue = readEnvValue(envValues, "OBSIDIAN_AUTH_TOKEN")?.trim()
+
+  return unquotedValue ? envValues.get("OBSIDIAN_AUTH_TOKEN") : undefined
+}
+
+/**
+ * A trailing `/mcp` path segment, optionally followed by slashes, anchored to
+ * the end of a URL's pathname (`/MCP`, `/mcp/` match too via the `i` flag —
+ * WHATWG URL preserves path case). The server owns the `/mcp` endpoint and
+ * appends it when building the connect URL, so PUBLIC_URL must be the base
+ * origin; a re-included `/mcp` is rejected, not silently rewritten.
+ */
+const TRAILING_MCP_PATH = /\/mcp\/*$/i
+
+/**
+ * Parses an http(s) URL with the WHATWG `URL` constructor, returning null for
+ * anything it can't be: bad syntax, a missing scheme, or a non-http(s)
+ * protocol (`ws:`, `file:`, ...). More robust than a `startsWith` check, which
+ * would pass malformed inputs like `https://` or `https://a b.com`.
+ */
+const parseHttpUrl = (value: string): URL | null => {
+  try {
+    const url = new URL(value)
+    return url.protocol === "http:" || url.protocol === "https:" ? url : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Matches a URL host as `new URL(...).hostname` gives it (lowercase, with
+ * international names already converted to xn-- form): letters, digits,
+ * dots, hyphens and underscores, or an IPv6 address in brackets.
+ */
+const PLAIN_URL_HOST = /^(?:[a-z0-9._-]+|\[[0-9a-f:.]+\])$/
+
+/**
+ * Matches whitespace (tabs and line breaks included), control characters and
+ * backslashes, which the URL parser drops or rewrites, so the parsed URL the
+ * checks read would differ from the text the CLI stores.
+ */
+const URL_CHARACTER_THE_PARSER_REWRITES = /[\s\p{Cc}\\]/u
+
+export type PublicUrlValidation = { kind: "ok"; url: string } | { kind: "error"; message: string }
+
+/** Validates a PUBLIC_URL value: must be a bare http(s) origin — no path, credentials, query, or fragment. */
+export const validatePublicUrl = (input: string): PublicUrlValidation => {
+  const trimmed = input.trim()
+  const url = parseHttpUrl(trimmed)
+
+  if (!url) {
+    return {
+      kind: "error",
+      message:
+        "PUBLIC_URL must be a full http:// or https:// URL (e.g. https://vault.example.com).",
+    }
+  }
+  if (url.username || url.password) {
+    return {
+      kind: "error",
+      message: "PUBLIC_URL must not contain credentials (user:password@).",
+    }
+  }
+  // The CLI prints PUBLIC_URL unquoted in commands to paste into a shell, and
+  // the URL parser accepts shell punctuation in a host.
+  if (!PLAIN_URL_HOST.test(url.hostname)) {
+    return {
+      kind: "error",
+      message:
+        "PUBLIC_URL's host may use only letters, digits, dots, hyphens and underscores, or be an IPv6 address in brackets.",
+    }
+  }
+  // Raw-string check: url.search/url.hash return "" for bare delimiters
+  // (WHATWG spec treats empty-string and null query/fragment identically),
+  // so a parsed-property check misses "https://host/?" and "https://host/#".
+  if (trimmed.includes("?") || trimmed.includes("#")) {
+    return {
+      kind: "error",
+      message: "PUBLIC_URL must be a bare origin — no query string (?...) or fragment (#...).",
+    }
+  }
+  if (TRAILING_MCP_PATH.test(url.pathname)) {
+    return {
+      kind: "error",
+      message:
+        "Leave /mcp off PUBLIC_URL — it's the base URL and the server adds /mcp itself (e.g. https://vault.example.com).",
+    }
+  }
+  if (url.pathname.replace(/\/+$/, "") !== "") {
+    return {
+      kind: "error",
+      message:
+        "PUBLIC_URL must be a bare origin — no path (e.g. https://vault.example.com, not https://vault.example.com/vault/).",
+    }
+  }
+  // PUBLIC_URL is stored and printed as typed, not as parsed. This check runs
+  // last, so input the checks above also refuse keeps their clearer message.
+  if (URL_CHARACTER_THE_PARSER_REWRITES.test(trimmed)) {
+    return {
+      kind: "error",
+      message:
+        "PUBLIC_URL must not contain spaces, tabs, line breaks, control characters or backslashes.",
+    }
+  }
+  // Trim trailing slashes so the connect URL is `${base}/mcp`, never
+  // `${base}//mcp`.
+  return { kind: "ok", url: trimmed.replace(/\/+$/, "") }
+}

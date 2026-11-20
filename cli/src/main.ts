@@ -1,11 +1,11 @@
-import { runConfigure } from "./configure.js"
-import { createDockerRunner } from "./docker.js"
-import { runGetSyncToken } from "./get-sync-token.js"
-import { runInit } from "./init.js"
-import { runDown, runLogs, runRestart, runStart } from "./lifecycle.js"
+import { createDockerRunner } from "./adapters/docker.js"
+import { createPrompts } from "./adapters/prompts.js"
+import { runConfigure } from "./commands/configure.js"
+import { runGetSyncToken } from "./commands/get-sync-token.js"
+import { runInit } from "./commands/init.js"
+import { runDown, runLogs, runRestart, runStart } from "./commands/lifecycle.js"
+import { runUpgrade } from "./commands/upgrade.js"
 import { buildProgram } from "./program.js"
-import { createPrompts } from "./prompts.js"
-import { runUpgrade } from "./upgrade.js"
 
 export const run = async (version: string): Promise<void> => {
   const program = buildProgram({
