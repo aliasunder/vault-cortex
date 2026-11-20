@@ -9,7 +9,11 @@ import { linearizeCanvas } from "../obsidian-markdown/canvas.js"
 import { getExtensionsOfKind, getFileKind } from "../obsidian-markdown/file-kinds.js"
 import { canvasImport, createPdfDocumentProxy } from "../obsidian-markdown/pdf-engine.js"
 import { toPdfData } from "../obsidian-markdown/pdf.js"
-import { decodeTextBuffer, NUL_SEARCH_WINDOW_BYTES } from "../../utils/decode-text-buffer.js"
+import {
+  decodeTextBuffer,
+  decodeUtf8OrNull,
+  NUL_SEARCH_WINDOW_BYTES,
+} from "../../utils/decode-text-buffer.js"
 import { describeErrorForLog } from "../../utils/describe-error.js"
 import { fitImageToByteBudget } from "../../utils/fit-image-to-byte-budget.js"
 import type { FittedImage } from "../../utils/fit-image-to-byte-budget.js"
@@ -70,17 +74,14 @@ const notValidUtf8Message = (path: string): string => {
   return `not valid UTF-8: "${path}" cannot be returned as text`
 }
 
-/** Decodes an asset buffer as UTF-8 for a read that promises the file verbatim:
- *  - invalid byte sequences throw, where the default decoder would substitute
- *    U+FFFD for each one;
- *  - a leading byte-order mark is kept;
- *  - NUL bytes are accepted, unlike decodeTextBuffer. */
+/** Decodes an asset buffer as UTF-8 for a read that promises the file verbatim,
+ *  throwing on bytes that are not UTF-8 rather than substituting U+FFFD.
+ *  Unlike decodeTextBuffer, it accepts NUL bytes. */
 const decodeUtf8AcceptingNul = (params: { buffer: Buffer; path: string }): string => {
-  try {
-    return new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(params.buffer)
-  } catch (error) {
-    throw new Error(notValidUtf8Message(params.path), { cause: error })
-  }
+  const text = decodeUtf8OrNull(params.buffer)
+
+  if (text === null) throw new Error(notValidUtf8Message(params.path))
+  return text
 }
 
 type ReadAsset = Readonly<{ buffer: Buffer; bytes: number; extension: string }>

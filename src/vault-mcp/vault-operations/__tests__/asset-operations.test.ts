@@ -556,6 +556,15 @@ describe("readAssetContent — UTF-8 files outside the dedicated types", () => {
     ).rejects.toThrow(new Error('not valid UTF-8: "latin1.html" cannot be returned as text'))
   })
 
+  it("refuses a CSV file that is not UTF-8", async () => {
+    // 0xE9 is "é" in Latin-1 and never a complete UTF-8 sequence
+    stubReadAsset({ buffer: Buffer.from([0x61, 0x2c, 0xe9, 0x0a]), extension: ".csv" })
+
+    await expect(
+      assetOperations.readAssetContent({ ...defaultParams, path: "latin1.csv" }, logger),
+    ).rejects.toThrow(new Error('not valid UTF-8: "latin1.csv" cannot be returned as text'))
+  })
+
   it("keeps reading a log that opens with NUL bytes, since the dedicated text formats skip the NUL check", async () => {
     const buffer = Buffer.concat([Buffer.alloc(4), Buffer.from("boot ok\n", "utf8")])
     stubReadAsset({ buffer, extension: ".log" })
