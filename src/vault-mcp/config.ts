@@ -5,6 +5,7 @@ import envVar from "env-var"
 import { DateTime } from "luxon"
 import { momentToLuxonFormat, findUnsupportedTokens } from "./obsidian-markdown/moment-format.js"
 import { logger } from "../logger.js"
+import { stripTrailingSlashes } from "../utils/strip-trailing-slashes.js"
 import { isToolName } from "./mcp-core/tool-registry.js"
 import type { ToolName } from "./mcp-core/tool-registry.js"
 
@@ -16,7 +17,7 @@ const vaultFolderName = z
   .string()
   .min(1, "folder name cannot be empty")
   // Strip leading/trailing whitespace and any trailing path separators
-  .transform((value) => value.trim().replace(/\/+$/, ""))
+  .transform((value) => stripTrailingSlashes(value.trim()))
   .pipe(
     z
       .string()

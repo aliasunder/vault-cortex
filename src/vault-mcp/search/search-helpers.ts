@@ -5,6 +5,7 @@ import { DateTime } from "luxon"
 import { mtimeToIso } from "../../utils/mtime-to-iso.js"
 import type { LeadingCallout } from "../obsidian-markdown/callouts.js"
 import { isRecord } from "../../utils/is-record.js"
+import { stripTrailingSlashes } from "../../utils/strip-trailing-slashes.js"
 import { findAliasesKey } from "../obsidian-markdown/aliases.js"
 import type { NoteRow, NoteMetadata, SearchResult, TaskRow, TaskEntry } from "./search-index.js"
 
@@ -167,10 +168,6 @@ const parseLeadingCalloutJson = (json: string): LeadingCallout => {
 }
 
 // ── Folder paths and LIKE patterns ────────────────────────────
-
-/** Strips trailing slashes so folder paths produce clean LIKE patterns
- *  (e.g. `"Projects/"` → `"Projects"`, avoiding `Projects//%`). */
-export const stripTrailingSlashes = (folder: string): string => folder.replace(/\/+$/, "")
 
 /** Escapes LIKE-wildcard characters (`\`, `%`, `_`) in a value so it is
  *  matched literally in a `LIKE ... ESCAPE '\'` clause. */
