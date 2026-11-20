@@ -61,8 +61,8 @@ mechanism-level detail.
 - `resolveSafePath()` resolves then prefix-checks every user-supplied
   path — `../../etc/passwd` throws before any filesystem access
 - A path longer than any Linux filesystem accepts (more than 4,095 bytes)
-  is refused before any other work on it — a note, file or folder path, and
-  the memory file name of a memory write
+  is refused before path resolution or a write lock sees it — a note, file
+  or folder path, and the memory file name of a memory write
 - Protected-path checks run on the canonical vault-relative form of the
   resolved path (`resolveVaultRelativePath()`), with a case-folded
   comparison — an aliased spelling (`\` separators,
