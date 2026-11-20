@@ -74,8 +74,8 @@ const notValidUtf8Message = (path: string): string => {
   return `not valid UTF-8: "${path}" cannot be returned as text`
 }
 
-/** Decodes an asset buffer as UTF-8 for a read that promises the file verbatim,
- *  throwing on bytes that are not UTF-8 rather than substituting U+FFFD.
+/** Decodes an asset buffer as UTF-8, throwing on bytes that are not UTF-8
+ *  rather than substituting U+FFFD, which would silently alter the text.
  *  Unlike decodeTextBuffer, it accepts NUL bytes. */
 const decodeUtf8AcceptingNul = (params: { buffer: Buffer; path: string }): string => {
   const text = decodeUtf8OrNull(params.buffer)
