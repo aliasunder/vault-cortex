@@ -46,7 +46,8 @@ From v1.0.0, these change only in a major release:
   refused, and its message keeps naming the fix; the exact wording may
   change in any release
 - **Settings** — environment variable names, their accepted values, what
-  each value does, and their defaults
+  each value does, and their defaults, except that a numeric limit's
+  default may rise, as "Not covered" says
 - **Deployment contract** — the image name, its Docker Hub mirror and the
   tags (`:latest` is the server alone, `:remote` bundles Obsidian Sync,
   `:vX.Y.Z` and `:vX.Y.Z-remote` pin a release), the container's port
