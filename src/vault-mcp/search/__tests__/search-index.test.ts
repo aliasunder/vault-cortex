@@ -10590,6 +10590,40 @@ describe("vectors reused by chunk text", () => {
   )
 
   it.each(sourceKinds)(
+    "$label: a long run of chunks that reuse a stored vector yields to the event loop",
+    async ({ sourceKind }) => {
+      const embedder = createTextVectorEmbedder()
+      const fixture = await createEmbeddingRaceIndex(sourceKind, embedder)
+      // 2,560 one-line sections with the same text: one model call for the
+      // first section, 2,559 chunks that reuse its vector without awaiting
+      // anything, and one more call for the table-of-contents chunk
+      const content = Array.from({ length: 2_560 }, () => "## same\nword").join("\n")
+
+      // Counts the turns of the event loop while the embed runs. The counter
+      // stops when the test ends, so a failed embed cannot leave it running.
+      let eventLoopTurns = 0
+      let embedRunning = true
+      onTestFinished(() => {
+        embedRunning = false
+      })
+      const countTurn = (): void => {
+        if (!embedRunning) return
+        eventLoopTurns++
+        setImmediate(countTurn)
+      }
+      setImmediate(countTurn)
+      await saveAndEmbed(fixture, content)
+      embedRunning = false
+
+      expect(embedder.embedText).toHaveBeenCalledTimes(2)
+      // Nothing else in the embed waits for the event loop, so each turn is
+      // one yield: before chunks 256, 512 and so on up to 2,560, the
+      // table-of-contents chunk
+      expect(eventLoopTurns).toBe(10)
+    },
+  )
+
+  it.each(sourceKinds)(
     "$label: two new chunks with identical text call the model once and both hold its vector",
     async ({ sourceKind }) => {
       const embedder = createTextVectorEmbedder()
