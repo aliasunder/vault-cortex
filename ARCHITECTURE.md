@@ -1022,6 +1022,15 @@ and before each new registration, logged as `oauth_clients_swept`:
   can appear, and the sweep bounds how long they stay
 - A registration's JSON body is capped at 8 KB, which bounds how much disk
   each of those rows takes
+- A partial index on the issue time of registrations that never signed in
+  lets each sweep read only the rows it deletes, so rows still inside their
+  hour add nothing to the cost of a later registration
+- A registration SQLite cannot read back (JSON nested past its 1,000-level
+  limit) is refused with `invalid_client_metadata`, because one such stored
+  row would make every sweep fail, and with it every later `/register` and
+  the next boot
+- Boot deletes every registration that never signed in and that SQLite
+  cannot read, logged as `oauth_unreadable_clients_deleted`
 - Adding `signed_in_at` to an existing `oauth.db` sets it on every row
   already there, in the same transaction, and logs
   `oauth_clients_marked_signed_in` with the count when there was at least

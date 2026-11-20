@@ -359,6 +359,10 @@ while the owner decides are bounded:
   `request body too large`; real clients send under 500 bytes
 - **Rate-limited** — 5 registrations per minute per client IP (an IPv6
   client by its /56), the same limit and key as `/authorize`
+- **Readable** — a registration the database cannot read back (JSON
+  nested more than 1,000 levels deep) is refused with
+  `invalid_client_metadata`, so no stored registration can stop the sweep,
+  later registrations or the server's boot
 - **Swept** — a registration that has not signed in within an hour is
   deleted at the next boot or registration. Consent follows registration
   within minutes, and a consent request and an authorization code each live
