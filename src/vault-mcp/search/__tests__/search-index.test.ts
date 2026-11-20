@@ -4349,7 +4349,7 @@ describe("rebuildFromVault deferred PDF content", () => {
     expect(fixture.embedder.embedText).toHaveBeenCalledTimes(2)
   })
 
-  it("embeds nothing for a PDF whose text is unchanged on a second rebuild", async () => {
+  it("embeds nothing for a rebuild PDF whose extracted text is unchanged", async () => {
     const fixture = await createPdfRebuildFixture()
     const targetChunkIds = () => {
       return fixture.database
@@ -4465,6 +4465,9 @@ describe("rebuildFromVault deferred PDF content", () => {
       { file_path: "Survivor.PDF", chunk_text: "Survivor\n\nNew newcobalt" },
       { file_path: "decoy.txt", chunk_text: "decoy\n\nDecoy controlsun" },
     ])
+    expect(
+      fixture.database.prepare("SELECT COUNT(*) AS count FROM file_content_vectors").get(),
+    ).toEqual({ count: 2 })
   })
 
   it("answers from a PDF's kept vectors while its text is pending, then re-embeds its changed chunk", async () => {
@@ -4550,7 +4553,7 @@ describe("rebuildFromVault deferred PDF content", () => {
     { label: "at", maxFileBytes: 18, extracted: true },
     { label: "above", maxFileBytes: 17, extracted: false },
   ])(
-    "keeps current filename metadata for a PDF $label the input byte limit",
+    "keeps current filename metadata for a PDF $label the input byte limit, with vectors only when extracted",
     async ({ maxFileBytes, extracted }) => {
       const fixture = await createPdfRebuildFixture()
       fixture.extractForIndex.mockResolvedValue({
@@ -4751,6 +4754,7 @@ describe("rebuildFromVault deferred PDF content", () => {
       )
     },
   )
+
   it("keeps a newer watcher write's vectors when extraction of the rebuild's version fails", async () => {
     const fixture = await createPdfRebuildFixture()
     const warnSpy = vi.spyOn(logger, "warn")
