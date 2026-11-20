@@ -361,7 +361,9 @@ while the owner decides are bounded:
 `oauth.db` are bounded:
 
 - **Size-capped** — a registration body over 8 KB is refused with
-  `request body too large`; real clients send under 500 bytes
+  `request body too large`, and a registration whose stored JSON would
+  exceed 9 KB with `invalid_client_metadata`; real clients store under
+  500 bytes
 - **Rate-limited** — 5 registrations per minute per client IP (an IPv6
   client by its /56), the same limit and key as `/authorize`
 - **Swept** — a registration that has not signed in within an hour is

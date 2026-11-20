@@ -132,7 +132,8 @@ export const createOAuthRoutes = ({
   // Ahead of the SDK's /register handler, whose own JSON parser accepts 100 KB
   // and whose metadata schema caps no field. The SDK's parser finds the body
   // already read and keeps it. /register needs no sign-in, so without the cap
-  // anyone could store 100 KB per registration until the sweep ran.
+  // anyone could make the server parse 100 KB per registration. What is
+  // stored has its own cap (MAX_STORED_CLIENT_BYTES in oauth-provider.ts).
   router.post("/register", express.json({ limit: REGISTRATION_BODY_LIMIT }))
 
   // SDK-managed OAuth routes — /.well-known/*, /authorize, /token, /register, /revoke

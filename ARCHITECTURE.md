@@ -910,7 +910,7 @@ description of the grant.
   - a request whose parameters exceed 8 KB of JSON is refused with
     `invalid_request`, logged as `oauth_authorize_rejected`;
   - a held request keeps its client's ID rather than a copy of the
-    registration, which can run to 8 KB, and lookups load the registration
+    registration, which can run to 9 KB, and lookups load the registration
     from the database.
 
   A restart drops them all.
@@ -1022,8 +1022,11 @@ and before each new registration, logged as `oauth_clients_swept`:
   page, so only the owner adds rows that stay
 - The per-IP `/register` rate limit bounds how fast rows that never sign in
   can appear, and the sweep bounds how long they stay
-- A registration's JSON body is capped at 8 KB, which bounds how much disk
-  each of those rows takes
+- A registration's JSON body is capped at 8 KB, which bounds what
+  `/register` parses
+- A registration whose stored JSON would exceed 9 KB is refused with
+  `invalid_client_metadata`, which bounds how much disk each of those rows
+  takes; the 1 KB over the body cap covers the credentials the server adds
 - A partial index orders the registrations that never signed in by issue
   time, so each sweep reads only the rows past their hour, which it deletes;
   rows still inside their hour add nothing to the cost of a later
