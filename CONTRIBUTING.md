@@ -357,10 +357,11 @@ Variables, in the order the deploy form shows them (everything after the six inp
 
 Any edit to these two tables is a change to the live template, whether it is
 the image tag, a variable's presence, default or description, the port, or the
-health path. No test checks the live template, so re-publish it in the
-Composer as part of the same pull request and say so in the pull request, or
-the deploy form keeps showing the old text. Existing deployments keep their
-settings until their owners redeploy.
+health path. No test checks the live template, and only the maintainer can
+re-publish it, so a pull request that edits either table says so in its
+description; the maintainer re-publishes the template in the Composer when the
+pull request merges, or the deploy form keeps showing the old text. Existing
+deployments keep their settings until their owners redeploy.
 
 ## License
 
