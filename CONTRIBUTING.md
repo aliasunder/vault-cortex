@@ -355,9 +355,12 @@ Variables, in the order the deploy form shows them (everything after the six inp
 | `SYNC_MODE`                       | `bidirectional`                       | Sync direction: bidirectional, pull-only (edits made on the server stay on the server and are never uploaded), or mirror-remote (Obsidian Sync overwrites edits made on the server, so the server always matches your vault). An invalid value stops the container at boot                                                                                                                                           |
 | `CONFLICT_STRATEGY`               | `merge`                               | Obsidian Sync conflict resolution: merge integrates changes automatically; conflict writes a separate conflict file                                                                                                                                                                                                                                                                                                  |
 
-Update the template whenever the image tag, a boot-required variable, the
-port, or the health path changes, then re-publish; existing deployments keep
-their settings until their owners redeploy.
+Any edit to these two tables is a change to the live template, whether it is
+the image tag, a variable's presence, default or description, the port, or the
+health path. No test checks the live template, so re-publish it in the
+Composer as part of the same pull request, or the deploy form keeps showing
+the old text. Existing deployments keep their settings until their owners
+redeploy.
 
 ## License
 
