@@ -4,7 +4,7 @@ Where vault-cortex is heading over roughly the next year — and what it
 deliberately won't do. Priorities shift with real-world usage, and this
 document is updated when they do.
 
-_Last updated: 2026-11-11._
+_Last updated: 2026-11-20._
 
 ## Direction
 
@@ -57,11 +57,6 @@ that vault-cortex can use as it is, on day one.
 
 Finding a task by its subject without listing the whole board: a text
 query on task listings, and the same for tags by meaning.
-
-### v1.0.0 — a stability contract
-
-A v1 release that MCP clients can build on, with a written compatibility
-policy for what future versions may change.
 
 ### Obsidian parity after 1.0
 
