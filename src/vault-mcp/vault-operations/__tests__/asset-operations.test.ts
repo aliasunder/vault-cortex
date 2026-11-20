@@ -437,7 +437,7 @@ describe("readAssetContent — PDF page rendering (raw: true)", () => {
   })
 })
 
-describe("readAssetContent — UTF-8 files outside the dedicated types", () => {
+describe("readAssetContent — UTF-8 text decoding", () => {
   /** Stubs readAsset with the given bytes, reporting the extension lowercased
    *  as readAsset does. */
   const stubReadAsset = (params: { buffer: Buffer; extension: string }): void => {
@@ -556,6 +556,34 @@ describe("readAssetContent — UTF-8 files outside the dedicated types", () => {
     ).rejects.toThrow(new Error('not valid UTF-8: "latin1.html" cannot be returned as text'))
   })
 
+  it("refuses a CSV file that is not UTF-8", async () => {
+    // 0xE9 is "é" in Latin-1 and never a complete UTF-8 sequence
+    stubReadAsset({ buffer: Buffer.from([0x61, 0x2c, 0xe9, 0x0a]), extension: ".csv" })
+
+    await expect(
+      assetOperations.readAssetContent({ ...defaultParams, path: "latin1.csv" }, logger),
+    ).rejects.toThrow(new Error('not valid UTF-8: "latin1.csv" cannot be returned as text'))
+  })
+
+  // The JSON stays parseable, so a decoder that substituted U+FFFD would return
+  // the Canvas instead of refusing
+  it.each([
+    { label: "an outline read", raw: false },
+    { label: "a raw read", raw: true },
+  ])("refuses a Canvas that is not UTF-8 on $label", async ({ raw }) => {
+    // 0xE9 is "é" in Latin-1 and never a complete UTF-8 sequence
+    const buffer = Buffer.concat([
+      Buffer.from('{"nodes":[{"id":"t1","type":"text","text":"caf', "utf8"),
+      Buffer.from([0xe9]),
+      Buffer.from('","x":0,"y":0,"width":200,"height":100}],"edges":[]}', "utf8"),
+    ])
+    stubReadAsset({ buffer, extension: ".canvas" })
+
+    await expect(
+      assetOperations.readAssetContent({ ...defaultParams, path: "latin1.canvas", raw }, logger),
+    ).rejects.toThrow(new Error('not valid UTF-8: "latin1.canvas" cannot be returned as text'))
+  })
+
   it("keeps reading a log that opens with NUL bytes, since the dedicated text formats skip the NUL check", async () => {
     const buffer = Buffer.concat([Buffer.alloc(4), Buffer.from("boot ok\n", "utf8")])
     stubReadAsset({ buffer, extension: ".log" })
@@ -569,25 +597,55 @@ describe("readAssetContent — UTF-8 files outside the dedicated types", () => {
   })
 })
 
-// The tool text says a read drops a leading byte-order mark, so both decode
-// paths are pinned: text formats and every other UTF-8 file
+// The tool text promises a byte-exact read, so every decode path is pinned:
+// text formats, a raw Canvas, and every other UTF-8 file
 describe("readAssetContent — byte-order mark", () => {
   const BYTE_ORDER_MARK = Buffer.from([0xef, 0xbb, 0xbf])
+  const BYTE_ORDER_MARK_TEXT = String.fromCodePoint(0xfeff)
 
   it.each([
-    { label: "a text format", path: "exports/data.json", extension: ".json", source: '{"a":1}\n' },
+    { label: "a CSV file", path: "exports/data.csv", extension: ".csv", source: "name,qty\n" },
+    {
+      label: "a Canvas read raw",
+      path: "Boards/Roadmap.canvas",
+      extension: ".canvas",
+      source: '{"nodes":[],"edges":[]}',
+      raw: true,
+    },
     { label: "an HTML page", path: "pages/home.html", extension: ".html", source: "<p>hi</p>\n" },
+    { label: "a script", path: "tools/sync.py", extension: ".py", source: "import os\n" },
+    { label: "an other-kind file", path: "config/app.ini", extension: ".ini", source: "a=1\n" },
   ])(
-    "drops a leading byte-order mark from $label and keeps the rest byte-exact",
-    async ({ path, extension, source }) => {
+    "keeps a leading byte-order mark on $label, returning every byte",
+    async ({ path, extension, source, raw }) => {
       const buffer = Buffer.concat([BYTE_ORDER_MARK, Buffer.from(source)])
       mockedReadAsset.mockResolvedValue({ buffer, bytes: buffer.length, extension })
 
-      const result = await assetOperations.readAssetContent({ ...defaultParams, path }, logger)
+      const result = await assetOperations.readAssetContent({ ...defaultParams, path, raw }, logger)
 
-      expect(result).toEqual({ kind: "text", text: source, path })
+      expect(result).toEqual({ kind: "text", text: `${BYTE_ORDER_MARK_TEXT}${source}`, path })
     },
   )
+
+  it("returns the outline of a Canvas that starts with a byte-order mark", async () => {
+    const canvasSource = JSON.stringify({
+      nodes: [{ id: "t1", type: "text", text: "Launch plan", x: 0, y: 0, width: 200, height: 100 }],
+      edges: [],
+    })
+    const buffer = Buffer.concat([BYTE_ORDER_MARK, Buffer.from(canvasSource)])
+    mockedReadAsset.mockResolvedValue({ buffer, bytes: buffer.length, extension: ".canvas" })
+
+    const result = await assetOperations.readAssetContent(
+      { ...defaultParams, path: "Boards/Roadmap.canvas" },
+      logger,
+    )
+
+    expect(result).toEqual({
+      kind: "text",
+      text: "# Canvas: 1 node, 0 edges\n\n[text]\nLaunch plan",
+      path: "Boards/Roadmap.canvas",
+    })
+  })
 })
 
 // Each stub reports the extension lowercased, as readAsset does, while the path

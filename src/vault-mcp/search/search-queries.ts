@@ -29,6 +29,8 @@ import {
   NESTED_TAG_PREDICATE_SQL,
   noteHasTagCondition,
   NOTE_METADATA_COLUMNS_SQL,
+  EXACT_NAME_MATCH_SQL,
+  toNameLookupText,
 } from "./search-helpers.js"
 import type { FileContentFtsRow } from "./search-helpers.js"
 import type {
@@ -323,32 +325,43 @@ export const fullTextSearch = (
   const sanitizedQuery = sanitizeFtsQuery(params.query)
   const noteFilterSql = buildNoteFilterSql(params.filters)
   const conditions = ["notes_fts MATCH ?", ...noteFilterSql.conditions]
-  const queryParams = [sanitizedQuery, ...noteFilterSql.parameters]
 
   const limit = Math.max(0, Math.floor(params.limit ?? 20))
   const snippetTokens = params.snippet_tokens ?? 30
   // Opt-in: the leading callout is omitted by default to keep this hot-path
   // result lean; callers triaging which note to open can request it.
   const includeLeadingCallout = params.include_leading_callout ?? false
-  queryParams.push(limit)
 
-  // FTS5 rank is negative (lower = better), negated for human-friendly scoring.
-  // The path tie-break keeps equal-bm25 rows in the same order across index
-  // rebuilds — without it they arrive in insertion order, which follows the
-  // directory listing.
+  // The name check reads the raw query, because sanitizing it for MATCH
+  // rewrites its punctuation and quoting. A query with no name text sanitizes
+  // to a MATCH that finds nothing, so no row is checked against it.
+  const nameLookupText = toNameLookupText(params.query)
+
+  // Positional parameters bind in the order they appear in the SQL text: the
+  // name text in the SELECT list, then the WHERE clause's, then LIMIT.
+  const queryParams = [nameLookupText, sanitizedQuery, ...noteFilterSql.parameters, limit]
+
+  // Exact-name matches sort first, then FTS5's rank orders the rest. The path
+  // tie-break keeps equal-rank rows in the same order across index rebuilds;
+  // without it they arrive in insertion order, which follows the directory
+  // listing.
   //
-  // snippetTokens is interpolated (not a bound ?) because it sits in the
-  // SELECT list before the WHERE params; a ? here would mis-align the
-  // positional binding with queryParams.
+  // n.title is the note's title alone, while notes_fts.title also holds its
+  // aliases. snippet() takes its column by index, and 2 is the content column.
+  //
+  // snippetTokens is interpolated as a coerced number rather than bound, so
+  // queryParams lists every bound parameter.
   const sql = `
     SELECT n.path, n.title,
            snippet(notes_fts, 2, '', '', '...', ${Number(snippetTokens)}) as snippet,
-           rank * -1 as score, n.tags, n.body_tags, n.folder, n.type, n.created, n.mtime,
+           ${EXACT_NAME_MATCH_SQL} as is_exact_name,
+           rank * -1 as rank_score,
+           n.tags, n.body_tags, n.folder, n.type, n.created, n.mtime,
            n.bytes${includeLeadingCallout ? ", n.leading_callout" : ""}
     FROM notes_fts
     JOIN notes n ON n.path = notes_fts.path
     WHERE ${conditions.join(" AND ")}
-    ORDER BY rank, n.path
+    ORDER BY is_exact_name DESC, rank, n.path
     LIMIT ?
   `
 
@@ -369,22 +382,37 @@ export const fullTextSearch = (
           | "bytes"
         > & {
           snippet: string
-          score: number
+          is_exact_name: number
+          rank_score: number
           leading_callout?: string | null
         }
       >(sql)
       .all(...queryParams)
 
-    /** The result contract caps scores at four significant digits; SQL ranks
-     * at full precision, so returned scores can tie without reordering hits. */
-    const results: SearchResult[] = rows.map((row) =>
-      noteRowToSearchResult({
+    // An exact-name match adds the best negated rank among the returned rows
+    // to its own. FTS5 keeps every rank below zero, so an exact-name match
+    // outscores every other returned row, and the scores descend in the order
+    // the query sorted the rows, so a higher score still means a more relevant
+    // result.
+    const bestRankScore = rows.reduce(
+      // Spreading the rows into Math.max overflows the call stack past about
+      // 100,000 rows.
+      (bestScore, row) => Math.max(bestScore, row.rank_score),
+      -Infinity,
+    )
+
+    const results: SearchResult[] = rows.map((row) => {
+      const score = row.is_exact_name ? row.rank_score + bestRankScore : row.rank_score
+
+      return noteRowToSearchResult({
         row,
         snippet: row.snippet,
-        score: Number(row.score.toPrecision(4)),
+        // The result contract caps scores at four significant digits; SQL ranks
+        // at full precision, so returned scores can tie without reordering hits
+        score: Number(score.toPrecision(4)),
         includeLeadingCallout,
-      }),
-    )
+      })
+    })
     logger.info("full text search", {
       query: params.query,
       resultCount: results.length,

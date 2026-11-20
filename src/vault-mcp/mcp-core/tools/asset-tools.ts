@@ -128,7 +128,7 @@ Parameters:
 - raw: true switches a canvas or PDF to its other form. A canvas returns its exact JSON source (geometry, ids, colors) instead of the outline. A PDF returns each page rendered as an image instead of extracted text, showing layout, diagrams, tables, and formatting; only the first ${config.maxPdfRenderPages} pages are rendered, and later pages are readable only as text, without raw.
 - start_line and limit page any text result as a line window. The text output cap (a fixed ${MAX_TEXT_OUTPUT_BYTES / 1024} KiB) applies to each window, so one very long line can still overflow it; paging never gets around the file-size cap.
 
-Behavior: A paged window comes back with \\n line endings and no trailing newline, preceded by a metadata line stating the window, the total line count, and where to continue ("data.csv — lines 51–100 of 400 (continue with start_line: 101)"); an unpaged read of a text file returns the file byte-exact, except that a leading byte-order mark is dropped.
+Behavior: A paged window comes back with \\n line endings and no trailing newline, preceded by a metadata line stating the window, the total line count, and where to continue ("data.csv — lines 51–100 of 400 (continue with start_line: 101)"); an unpaged read of a text file returns the file byte-exact.
 
 Errors:
 - "not a file: … is a markdown note" — the path ends in .md${whenToolEnabledText("vault_read_note", "; read notes with vault_read_note")}

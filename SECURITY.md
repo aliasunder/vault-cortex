@@ -12,7 +12,9 @@ notes below describe what the maintainer uses.
 
 - **Authentication and authorization** — OAuth 2.1 (Authorization Code + PKCE),
   per-client secrets (`client_secret_post`), JWT tokens (HS256), static bearer
-  token fallback, Express middleware (defense in depth)
+  token fallback, all checked by Express middleware on every protected
+  request. Only the maintainer's reference deployment adds a second check in
+  front of it (see [Reference deployment](#reference-deployment-maintainers-iac--not-required-by-adopters))
 - **Express server** — handles MCP protocol messages, OAuth flows, and the
   consent page. On the `:remote` image it also serves the `/setup` sign-in
   page until a working Sync token is on the volume (see
@@ -22,9 +24,9 @@ notes below describe what the maintainer uses.
 - **File system access** — vault reads and writes. Path traversal is blocked by
   `resolveSafePath()` (resolve + prefix check), and hidden paths (any
   dot-prefixed segment, e.g. `.obsidian/`) are rejected for every read and
-  write. Protected paths prevent deletion of sensitive folders, and
-  `READONLY_MODE=true` removes every vault-writing tool from the server
-  entirely
+  write. Notes in protected folders (`PROTECTED_PATHS`) can't be deleted or
+  moved, no note can be moved into one, and `READONLY_MODE=true` removes
+  every vault-writing tool from the server entirely
 - **Docker image** — two targets from one Dockerfile: `local` (`:latest`,
   tini + MCP server) and `remote` (`:remote`, s6-overlay supervising
   obsidian-sync + MCP server in a single container, sharing a `/vault`
@@ -234,6 +236,11 @@ The server, and the `:remote` image's setup mode, set these headers:
 
 - `POST /mcp` parses JSON up to 5 MB only after bearer validation, so a request
   without a valid token is refused before its body is read
+- A `vault_list_notes` glob in a `/mcp` request body is matched in a worker
+  thread stopped after 2 seconds, so no glob can hold the server's main thread
+- At most one glob worker per CPU core runs at a time, and never more than
+  four; up to four calls per worker wait for a free worker within the same
+  2 seconds, and further glob calls fail at once
 - A rejected request body produces one short warning without a stack, and
   the logger caps every logged string at 256 code points (error text and
   stack traces at 4,096)
@@ -363,6 +370,10 @@ while the owner decides are bounded:
   10 minutes, so a sign-in the sweep cuts off is one that started late; a
   client whose registration was swept is told at `/authorize` how to
   reconnect
+- **Readable** — a registration the database cannot read back (JSON
+  nested more than 1,000 levels deep) is refused with
+  `invalid_client_metadata`, and boot deletes any that an earlier version
+  stored and that never signed in
 
 ### Symlink safety
 

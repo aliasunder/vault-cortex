@@ -29,7 +29,9 @@ const HEADING_REGEX = /^ {0,3}(#{1,6})(?:[ \t](.*))?$/
  *  or more `#` at the end of the text, after a space or tab or as the whole
  *  text. `## Title ##` reads as `Title`, and `### ###` as an empty heading. */
 const stripClosingHashes = (text: string): string => {
-  // Each suffix run is consumed once, including a failed space-only suffix.
+  // Three backward scans, each over its own run of characters, keep the work
+  // linear in the text's length. When no `#` sits before the trailing spaces,
+  // the scan stops and the text comes back unchanged.
   let boundary = text.length
 
   while (boundary > 0 && (text[boundary - 1] === " " || text[boundary - 1] === "\t")) boundary -= 1
@@ -40,9 +42,11 @@ const stripClosingHashes = (text: string): string => {
   const hashStart = boundary
 
   while (boundary > 0 && (text[boundary - 1] === " " || text[boundary - 1] === "\t")) boundary -= 1
-  const hasClosingHashSeparator = hashStart === 0 || boundary < hashStart
+  const hashesAreWholeText = hashStart === 0
+  const hashesFollowSpace = boundary < hashStart
+  const isClosingSequence = hashesAreWholeText || hashesFollowSpace
 
-  return hasClosingHashSeparator ? text.slice(0, boundary) : text
+  return isClosingSequence ? text.slice(0, boundary) : text
 }
 
 /** Matches setext heading underlines per CommonMark §4.3: 0-3 leading spaces,
@@ -106,16 +110,19 @@ export const findTrailingCommentBlockStart = (lines: readonly string[]): number 
     }
 
     if (wasOpen && !commentOpen) {
-      const validCloser = line.trimEnd().endsWith(COMMENT_DELIMITER)
-      lastClosedBlock = validCloser ? { startLine: commentOpenLine, endLine: i } : null
+      // Text after a closing `%%` on the same line is content below the block,
+      // so a block that closes mid-line cannot be the trailing one.
+      const closerEndsLine = line.trimEnd().endsWith(COMMENT_DELIMITER)
+      lastClosedBlock = closerEndsLine ? { startLine: commentOpenLine, endLine: i } : null
       continue
     }
 
+    // An inline comment both starts and ends its line with `%%`, so it
+    // always closes at the line's end.
     const isInlineComment = !wasOpen && !commentOpen && commentResult.lineIsComment
 
     if (isInlineComment) {
-      const validCloser = line.trimEnd().endsWith(COMMENT_DELIMITER)
-      lastClosedBlock = validCloser ? { startLine: i, endLine: i } : null
+      lastClosedBlock = { startLine: i, endLine: i }
     }
   }
 
@@ -235,6 +242,9 @@ export const parseHeadings = (lines: readonly string[]): HeadingInfo[] => {
   // run to EOF, but must stop before a trailing `%% %%` comment block (e.g. a
   // Kanban board's `%% kanban:settings %%`) so replace/append don't clobber it.
   const trailingCommentBlockStart = findTrailingCommentBlockStart(lines)
+
+  // Every body starts out ending at EOF or at the trailing block; the loop
+  // below moves the end up for each heading that a later heading closes.
   const completedHeadings = collectedHeadings.map((heading) => ({
     ...heading,
     bodyEndLine: Math.max(heading.bodyStartLine, trailingCommentBlockStart),
@@ -278,6 +288,32 @@ export const linesBeforeFirstHeading = (
   return lines.slice(0, regionEndLine)
 }
 
+// Thirty covers every heading of nearly every real note. A listed heading runs
+// about 75 characters in an error, so a note with 200 headings gets an error
+// of about 2 KB instead of 15 KB.
+export const MAX_LISTED_HEADINGS = 30
+
+/** Formats `<lead>: <labels>`, where `lead` is the text before the list and the
+ *  labels are comma-joined in document order.
+ *  - With no labels, it says `<lead>: (none)`.
+ *  - Past `MAX_LISTED_HEADINGS` labels, only the first 30 are listed, and the
+ *    count follows the lead: `<lead> (first 30 of 202): <first 30 labels>`.
+ *  - The count sits before the list, because a count after it would read as
+ *    part of a last heading that ends in parentheses, such as "Log (newest first)". */
+export const formatHeadingList = ({
+  lead,
+  labels,
+}: {
+  lead: string
+  labels: readonly string[]
+}): string => {
+  if (labels.length === 0) return `${lead}: (none)`
+  if (labels.length <= MAX_LISTED_HEADINGS) return `${lead}: ${labels.join(", ")}`
+
+  const listedLabels = labels.slice(0, MAX_LISTED_HEADINGS).join(", ")
+  return `${lead} (first ${MAX_LISTED_HEADINGS} of ${labels.length}): ${listedLabels}`
+}
+
 /** Case-sensitive heading lookup. Errors on 0 or 2+ matches. Headings are
  *  parsed from a note's body, so the ambiguity error adds `bodyStartFileLine`,
  *  the 0-based file line the body starts on, to name the file's own lines. */
@@ -300,14 +336,14 @@ export const findHeading = ({
   const matches = headings.filter(
     (heading) => heading.text === searchText && (level === undefined || heading.level === level),
   )
+  const [firstMatch] = matches
 
-  if (matches.length === 0) {
-    const availableHeadings = headings
-      .map((heading) => `${"#".repeat(heading.level)} ${heading.text}`)
-      .join(", ")
-    throw new Error(
-      `heading not found: "${searchText}". Available headings: ${availableHeadings || "(none)"}`,
-    )
+  if (!firstMatch) {
+    const availableHeadings = formatHeadingList({
+      lead: "Available headings",
+      labels: headings.map((heading) => `${"#".repeat(heading.level)} ${heading.text}`),
+    })
+    throw new Error(`heading not found: "${searchText}". ${availableHeadings}`)
   }
 
   if (matches.length > 1) {
@@ -323,11 +359,5 @@ export const findHeading = ({
       `ambiguous heading: "${searchText}" matches ${matches.length} sections: ${matchedHeadings}`,
     )
   }
-
-  const result = matches[0]
-
-  if (!result) {
-    throw new Error(`heading not found: "${searchText}"`)
-  }
-  return result
+  return firstMatch
 }

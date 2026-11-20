@@ -22,6 +22,7 @@ import {
   type MemoryEntry,
 } from "../obsidian-markdown/memory-entries.js"
 import { parseFrontmatterTags } from "../obsidian-markdown/tags.js"
+import { parseFrontmatterAliases } from "../obsidian-markdown/aliases.js"
 import { DEFAULT_STATUS_REGISTRY, tasks } from "../obsidian-markdown/tasks.js"
 import type { StatusClassification, TaskPriority, TaskStatus } from "../obsidian-markdown/tasks.js"
 import { contentHash, type Embedder } from "./embedder.js"
@@ -40,7 +41,9 @@ import { createActivityTracker } from "../../utils/activity-tracker.js"
 import {
   isString,
   coerceToArray,
+  buildChunkTitleLine,
   buildFtsMetadataText,
+  buildFtsNameText,
   escapeLikeWildcards,
   foldTag,
   NOTE_METADATA_COLUMNS_SQL,
@@ -134,6 +137,12 @@ const fileTextToIndexedText = (params: {
   }
 }
 
+/** The full parent folder of a vault-relative path, or "" at the vault root,
+ *  where posix.dirname returns ".". */
+const getParentFolder = (filePath: string): string => {
+  return filePath.includes("/") ? posix.dirname(filePath) : ""
+}
+
 // ── Types ───────────────────────────────────────────────────────
 
 /** A note path with its best-chunk distance from a vector KNN query. */
@@ -151,6 +160,7 @@ export type SearchResult = {
   tags: string[]
   /** The `#tags` written in a note's body, each spelling once; absent when there are none. */
   body_tags?: string[]
+  /** A note's top-level folder or a file's full parent folder, "" at the vault root. */
   folder: string
   type: string | null
   created?: string
@@ -449,6 +459,13 @@ const readStoredBodyTags = (
  *    inference every 5 seconds, so a 30-second call pays for about six. */
 const BACKGROUND_EMBED_MAX_WAIT_MS = 5000
 
+/** How many chunks a note or file embed loop handles between yields to the
+ *  event loop. A chunk whose text or vector is already stored makes no model
+ *  call, so a long run of them would otherwise never let a tool call in; each
+ *  such chunk costs up to about a tenth of a millisecond, so a run this long
+ *  holds the thread for a few tens of milliseconds at most. */
+const CHUNKS_PER_EVENT_LOOP_YIELD = 256
+
 /** A stored chunk's content hash and the raw bytes of its vector. */
 type StoredVectorRow = { content_hash: string; embedding: Buffer }
 
@@ -482,6 +499,15 @@ const createStoredVectorLookup = (
       loadVectorsByHash().set(hash, vectorBytes)
     },
   }
+}
+
+/** The note's `title` property when it is text, else its file name without `.md`. */
+const resolveNoteTitle = (params: {
+  frontmatter: Record<string, unknown>
+  notePath: string
+}): string => {
+  const { frontmatter, notePath } = params
+  return isString(frontmatter.title) ? frontmatter.title : basename(notePath, ".md")
 }
 
 // ── Factory ─────────────────────────────────────────────────────
@@ -541,11 +567,12 @@ export const createSearchIndex = (
   sqliteVec.load(db)
 
   // FTS5 doesn't support ALTER TABLE ADD COLUMN. When opening a warm database
-  // that lacks the metadata column, drop the table so the CREATE below rebuilds
-  // it with the new schema. rebuildFromVault repopulates on every startup.
+  // that lacks the names column, which every older schema lacks, drop the table
+  // so the CREATE below rebuilds it with the new schema. rebuildFromVault
+  // repopulates on every startup.
   const ftsColumns = db.prepare<unknown[], { name: string }>("PRAGMA table_info(notes_fts)").all()
 
-  if (ftsColumns.length > 0 && !ftsColumns.some((column) => column.name === "metadata")) {
+  if (ftsColumns.length > 0 && !ftsColumns.some((column) => column.name === "names")) {
     db.exec("DROP TABLE notes_fts")
   }
 
@@ -578,9 +605,11 @@ export const createSearchIndex = (
     );
 
     -- A search match joins back to its notes row by path. UNINDEXED keeps
-    -- path out of keyword matching and saves index space.
+    -- path out of keyword matching and saves index space. names holds the
+    -- folded names EXACT_NAME_MATCH_SQL compares, and is UNINDEXED for the
+    -- same reasons.
     CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
-      path UNINDEXED, title, content, metadata, tokenize='porter unicode61'
+      path UNINDEXED, title, content, metadata, names UNINDEXED, tokenize='porter unicode61'
     );
 
     -- One row per link text in a source, so two spellings that reach one file
@@ -858,8 +887,16 @@ export const createSearchIndex = (
     RETURNING rowid
   `)
   const deleteFtsStmt = db.prepare<[number]>(`DELETE FROM notes_fts WHERE rowid = ?`)
-  const insertFtsStmt = db.prepare<[number, string, string, string, string]>(
-    `INSERT INTO notes_fts (rowid, path, title, content, metadata) VALUES (?, ?, ?, ?, ?)`,
+  const insertFtsStmt = db.prepare<{
+    rowid: number
+    path: string
+    title: string
+    content: string
+    metadata: string
+    names: string
+  }>(
+    `INSERT INTO notes_fts (rowid, path, title, content, metadata, names)
+     VALUES (@rowid, @path, @title, @content, @metadata, @names)`,
   )
   const removeNotesStmt = db.prepare<[string], { rowid: number }>(
     `DELETE FROM notes WHERE path = ? RETURNING rowid`,
@@ -988,12 +1025,22 @@ export const createSearchIndex = (
     `SELECT path FROM non_md_files WHERE path LIKE '%/' || ? ESCAPE '\\' ORDER BY length(path), path LIMIT 1`,
   )
   // ── File content prepared statements (conditional on fileToolsEnabled) ──
-  // Each file_content_fts row has its file_content row's rowid, as the notes
-  // statements above explain.
+  // Each file_content_fts row has its file_content row's rowid, as the comment
+  // above upsertNotesStmt explains.
   const upsertFileContentStmt = fileToolsEnabled
-    ? db.prepare<[string, string, string, string, number, number], { rowid: number }>(
+    ? db.prepare<
+        {
+          path: string
+          title: string
+          content: string
+          folder: string
+          mtime: number
+          bytes: number
+        },
+        { rowid: number }
+      >(
         `INSERT INTO file_content (path, title, content, folder, mtime, bytes)
-         VALUES (?, ?, ?, ?, ?, ?)
+         VALUES (@path, @title, @content, @folder, @mtime, @bytes)
          ON CONFLICT (path) DO UPDATE SET
            title = excluded.title, content = excluded.content, folder = excluded.folder,
            mtime = excluded.mtime, bytes = excluded.bytes
@@ -1657,10 +1704,13 @@ export const createSearchIndex = (
 
   // ── File content indexing ─────────────────────────────────────
 
-  /** Pass the returned source version to embedFileContent for this upsert.
-   *  - Canvas JSON is linearized for FTS and parsed for graph links regardless of fileToolsEnabled.
+  /** Indexes a file and returns its source version, a token embedFileContent checks so that an
+   *  embed of this content is dropped once a later write replaces it.
+   *  - Canvas JSON is linearized for FTS, and its graph links are parsed regardless of
+   *    fileToolsEnabled.
    *  - An HTML page arrives as its source and is indexed as its visible text.
-   *  - Other files supply rendered text; FTS storage requires fileToolsEnabled and caps UTF-8 bytes. */
+   *  - Other files supply rendered text.
+   *  - FTS storage requires fileToolsEnabled and caps UTF-8 bytes. */
   const upsertFileContent = (
     params: {
       filePath: string
@@ -1670,45 +1720,43 @@ export const createSearchIndex = (
     },
     logger: Logger,
   ): symbol => {
-    const extension = posix.extname(params.filePath)
     const isCanvas = isCanvasPath(params.filePath)
-    const contentToIndex = fileTextToIndexedText({
-      filePath: params.filePath,
-      fileText: params.rawContent,
-      fileBytes: params.fileStat.size,
-    })
-
-    const contentBytes = Buffer.byteLength(contentToIndex, "utf8")
-    const needsTruncation = contentBytes > MAX_INDEXED_CONTENT_BYTES
-    const truncatedContent = needsTruncation
-      ? getUtf8BytePrefix(contentToIndex, MAX_INDEXED_CONTENT_BYTES)
-      : contentToIndex
-
-    if (needsTruncation) {
-      logger.debug("truncated file content for FTS indexing", {
-        path: params.filePath,
-        originalBytes: contentBytes,
-        cappedBytes: MAX_INDEXED_CONTENT_BYTES,
-      })
-    }
-
     const canvasLinks = isCanvas
       ? extractCanvasLinks(params.rawContent)
       : { fileCardPaths: [], textCardLinks: [] }
 
     db.transaction(() => {
-      // FTS indexing — gated behind fileToolsEnabled
+      // The FTS statements exist only when fileToolsEnabled is on.
       if (upsertFileContentStmt && deleteFileContentFtsStmt && insertFileContentFtsStmt) {
-        const title = basename(params.filePath, extension)
-        const folder = posix.dirname(params.filePath)
-        const upsertedRow = upsertFileContentStmt.get(
-          params.filePath,
+        const contentToIndex = fileTextToIndexedText({
+          filePath: params.filePath,
+          fileText: params.rawContent,
+          fileBytes: params.fileStat.size,
+        })
+
+        const contentBytes = Buffer.byteLength(contentToIndex, "utf8")
+        const needsTruncation = contentBytes > MAX_INDEXED_CONTENT_BYTES
+        const truncatedContent = needsTruncation
+          ? getUtf8BytePrefix(contentToIndex, MAX_INDEXED_CONTENT_BYTES)
+          : contentToIndex
+
+        if (needsTruncation) {
+          logger.debug("truncated file content for FTS indexing", {
+            path: params.filePath,
+            originalBytes: contentBytes,
+            cappedBytes: MAX_INDEXED_CONTENT_BYTES,
+          })
+        }
+
+        const title = basename(params.filePath, posix.extname(params.filePath))
+        const upsertedRow = upsertFileContentStmt.get({
+          path: params.filePath,
           title,
-          truncatedContent,
-          folder,
-          Math.round(params.fileStat.mtimeMs),
-          params.fileStat.size,
-        )
+          content: truncatedContent,
+          folder: getParentFolder(params.filePath),
+          mtime: Math.round(params.fileStat.mtimeMs),
+          bytes: params.fileStat.size,
+        })
 
         // RETURNING yields the inserted or updated row on every upsert.
         if (!upsertedRow) throw new Error(`file content upsert returned no row: ${params.filePath}`)
@@ -1716,7 +1764,7 @@ export const createSearchIndex = (
         insertFileContentFtsStmt.run(upsertedRow.rowid, params.filePath, title, truncatedContent)
       }
 
-      // Link extraction — canvas only, unconditional (graph integrity)
+      // A canvas's links feed backlinks and the graph, which do not depend on fileToolsEnabled.
       if (isCanvas) {
         deleteLinksStmt.run(params.filePath)
 
@@ -1956,7 +2004,7 @@ export const createSearchIndex = (
 
     const note = {
       path: filePath,
-      title: isString(frontmatter.title) ? frontmatter.title : basename(filePath, ".md"),
+      title: resolveNoteTitle({ frontmatter, notePath: filePath }),
       content: noteBody,
       tags: JSON.stringify(tags),
       related: JSON.stringify(related),
@@ -1975,12 +2023,18 @@ export const createSearchIndex = (
     }
 
     const metadataText = buildFtsMetadataText(frontmatter)
+    // The FTS title column holds the aliases beside the title, so an alias match
+    // ranks like a title match; the notes row keeps the title alone
+    const { titleText: ftsTitleText, foldedNames: ftsFoldedNames } = buildFtsNameText({
+      title: note.title,
+      aliases: parseFrontmatterAliases(frontmatter),
+    })
 
-    // Task rows carry the full immediate-parent folder (posix dirname), unlike
+    // Task rows carry the full immediate-parent folder, unlike
     // notes.folder which stores only the first path segment — task triage
     // needs project-level attribution ("Code Projects/vault-cortex", not
     // "Code Projects").
-    const taskFolder = filePath.includes("/") ? posix.dirname(filePath) : ""
+    const taskFolder = getParentFolder(filePath)
     // Tasks read the whole file, not noteBody, so their line numbers match the
     // file's lines; extractTasks skips the properties block with
     // splitPropertiesBlock, the same split noteBody comes from
@@ -2015,7 +2069,14 @@ export const createSearchIndex = (
       // RETURNING yields the inserted or updated row on every upsert.
       if (!upsertedNoteRow) throw new Error(`note upsert returned no row: ${note.path}`)
       deleteFtsStmt.run(upsertedNoteRow.rowid)
-      insertFtsStmt.run(upsertedNoteRow.rowid, note.path, note.title, note.content, metadataText)
+      insertFtsStmt.run({
+        rowid: upsertedNoteRow.rowid,
+        path: note.path,
+        title: ftsTitleText,
+        content: note.content,
+        metadata: metadataText,
+        names: ftsFoldedNames,
+      })
 
       deleteTasksStmt.run(note.path)
       // Line→blockId lookup so each child can resolve its parent's
@@ -2169,13 +2230,18 @@ export const createSearchIndex = (
 
     if (
       !isCurrentSourceVersion({ sourcePath: notePath, sourceVersion: params.sourceVersion }, logger)
-    )
+    ) {
       return 0
+    }
 
     // Re-parsing is pure, so this reads what upsertNote read; the unreadable-block
     // error is ignored because upsertNote already logged it
     const { data: frontmatter, content: noteBody } = parseNoteSkippingUnreadableBlock(rawContent)
-    const noteTitle = isString(frontmatter.title) ? frontmatter.title : basename(notePath, ".md")
+    const chunkTitleLine = buildChunkTitleLine({
+      title: resolveNoteTitle({ frontmatter, notePath }),
+      aliases: parseFrontmatterAliases(frontmatter),
+    })
+
     // Metadata enrichment changes chunk text, so every note re-embeds once
     // (content-hash gated) after the option flips — kept off until the
     // search-eval measurements justify it.
@@ -2186,7 +2252,7 @@ export const createSearchIndex = (
         })
       : null
     const chunks = chunkContent({
-      noteTitle,
+      noteTitle: chunkTitleLine,
       bodyContent: noteBody,
       metadataPrefix,
       sourcePath: notePath,
@@ -2205,6 +2271,10 @@ export const createSearchIndex = (
     let reusedCount = 0
 
     for (const chunk of chunks) {
+      if (chunk.index > 0 && chunk.index % CHUNKS_PER_EVENT_LOOP_YIELD === 0) {
+        await setImmediateAsync()
+      }
+
       const hash = contentHash(chunk.text)
 
       // Skip if content hasn't changed
@@ -2264,8 +2334,9 @@ export const createSearchIndex = (
 
     if (
       !isCurrentSourceVersion({ sourcePath: notePath, sourceVersion: params.sourceVersion }, logger)
-    )
+    ) {
       return embeddedCount
+    }
 
     // chunkContent assigns indices 0 through length - 1, so a shortened note's
     // old tail starts at chunks.length; remove its vectors before their parent rows.
@@ -2413,8 +2484,9 @@ export const createSearchIndex = (
         { sourcePath: params.filePath, sourceVersion: params.sourceVersion },
         logger,
       )
-    )
+    ) {
       return 0
+    }
 
     const fileContentRow = selectFileContentForEmbeddingStmt.get(params.filePath)
 
@@ -2442,6 +2514,10 @@ export const createSearchIndex = (
     let reusedCount = 0
 
     for (const chunk of chunks) {
+      if (chunk.index > 0 && chunk.index % CHUNKS_PER_EVENT_LOOP_YIELD === 0) {
+        await setImmediateAsync()
+      }
+
       const hash = contentHash(chunk.text)
 
       if (existingHashes.get(chunk.index) === hash) continue
@@ -2499,8 +2575,9 @@ export const createSearchIndex = (
         { sourcePath: params.filePath, sourceVersion: params.sourceVersion },
         logger,
       )
-    )
+    ) {
       return embeddedCount
+    }
 
     // chunkContent assigns indices 0 through length - 1, so a shortened file's
     // old tail starts at chunks.length; remove its vectors before their parent rows.

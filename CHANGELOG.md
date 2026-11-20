@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.57.7] — 2026-11-20
+
+### Bug Fixes
+
+- **search:** Keep splitting a note for embedding proportional to its length (#799)
+- **search:** Report a vault-root file's folder as an empty string (#793)
+- **search:** Find notes by their aliases (#800)
+
+### Documentation
+
+- **env:** Say semantic search fills in after startup instead of a slow first start (#794)
+
+### Other Changes
+
+- **docker:** Stop the first-sync boot tests depending on stdout/stderr interleaving (#798)
+- **docker:** Set /app ownership on COPY so node_modules ships once (#796)
+
 ## [0.57.6] — 2026-11-15
 
 ### Bug Fixes

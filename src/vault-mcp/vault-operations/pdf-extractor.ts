@@ -2,11 +2,11 @@ import { execFile, spawn, type ChildProcess } from "node:child_process"
 import { on as iterateEvents } from "node:events"
 import { readFile } from "node:fs/promises"
 import { env as inheritedEnvironment } from "node:process"
-import { extname } from "node:path"
 import { fileURLToPath } from "node:url"
 import { promisify } from "node:util"
 import type { Logger } from "../../logger.js"
 import { describeErrorForLog } from "../../utils/describe-error.js"
+import { siblingModuleUrl } from "../../utils/sibling-module-url.js"
 import type { AssetTextResult } from "./asset-text.js"
 import type { PdfTextResult } from "../obsidian-markdown/pdf.js"
 import { pdfReplySchema, type PdfReply, type PdfRequest } from "./pdf-extraction-protocol.js"
@@ -47,11 +47,8 @@ const LINUX_DATA_BUDGET_MIB = 512
 /** Matches a process's current data allocation (VmData) in its Linux proc status. */
 const VM_DATA_PATTERN = /^VmData:\s+(?<vmDataKiB>\d+)\s+kB$/m
 const execFileAsync = promisify(execFile)
-// The child's extension follows this module's, so a run from source spawns the .ts child and a
-// compiled build spawns the .js one.
-const MODULE_EXTENSION = extname(fileURLToPath(import.meta.url))
 const CHILD_ENTRY = fileURLToPath(
-  new URL(`./pdf-extraction-child${MODULE_EXTENSION}`, import.meta.url),
+  siblingModuleUrl({ name: "pdf-extraction-child", besideModule: import.meta.url }),
 )
 // The child's paths and byte cap arrive over IPC, so it gets only what Node and tsx need to run;
 // the server's tokens and vault settings never enter the process that parses untrusted PDFs.
