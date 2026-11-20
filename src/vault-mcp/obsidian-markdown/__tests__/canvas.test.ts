@@ -34,6 +34,9 @@ const canvasJson = (
   edges: Record<string, unknown>[] = [],
 ): string => JSON.stringify({ nodes, edges })
 
+/** U+FEFF, which a Windows editor can write at the start of a UTF-8 file. */
+const BYTE_ORDER_MARK = "\uFEFF"
+
 describe("linearizeCanvas", () => {
   it("renders ungrouped text, file, and link nodes with their content", () => {
     const json = canvasJson([
@@ -303,6 +306,18 @@ describe("linearizeCanvas", () => {
   it("throws on unparseable JSON", () => {
     expect(() => linearizeCanvas("{not json")).toThrow(/^invalid \.canvas JSON: /)
   })
+
+  it("skips a leading byte-order mark", () => {
+    const json = `${BYTE_ORDER_MARK}${canvasJson([textNode({ id: "a", text: "Launch plan" })])}`
+
+    expect(linearizeCanvas(json)).toBe("# Canvas: 1 node, 0 edges\n\n[text]\nLaunch plan")
+  })
+
+  it("throws on a second leading byte-order mark, which is not JSON", () => {
+    const json = `${BYTE_ORDER_MARK}${BYTE_ORDER_MARK}${canvasJson([textNode({})])}`
+
+    expect(() => linearizeCanvas(json)).toThrow(/^invalid \.canvas JSON: /)
+  })
 })
 
 describe("extractCanvasLinks", () => {
@@ -479,6 +494,18 @@ describe("extractCanvasLinks", () => {
   it("throws on unparseable JSON", () => {
     expect(() => extractCanvasLinks("{not json")).toThrow(/^invalid \.canvas JSON: /)
   })
+
+  it("reads the links of a canvas that starts with a byte-order mark", () => {
+    const json = `${BYTE_ORDER_MARK}${canvasJson([
+      fileNode("f1", "Notes/Plan.md"),
+      textNode({ id: "t1", text: "See [[Backlog]]" }),
+    ])}`
+
+    expect(extractCanvasLinks(json)).toEqual({
+      fileCardPaths: ["Notes/Plan.md"],
+      textCardLinks: ["Backlog"],
+    })
+  })
 })
 
 describe("rewriteCanvasLinks", () => {
@@ -530,6 +557,41 @@ describe("rewriteCanvasLinks", () => {
       ].join("\n"),
       linksRewritten: 2,
     })
+  })
+
+  it("rewrites a canvas that starts with a byte-order mark and saves it without the mark", () => {
+    const result = rewriteCanvasLinks({
+      canvasJson: `${BYTE_ORDER_MARK}${obsidianCanvas}`,
+      rewriteCardText,
+      rewriteFilePath,
+    })
+
+    expect(result).toEqual({
+      content: [
+        "{",
+        '\t"nodes":[',
+        '\t\t{"id":"f1","type":"file","file":"Projects/Note.md","subpath":"#Goals","x":0,"y":0,"width":400,"height":400,"color":"4"},',
+        '\t\t{"id":"t1","type":"text","text":"See [[Projects/Note]]\\nand [[Other]]","x":500,"y":0,"width":250,"height":60},',
+        '\t\t{"id":"f2","type":"file","file":"Other.md","x":0,"y":500,"width":400,"height":400},',
+        '\t\t{"id":"t2","type":"text","text":"No links here","x":500,"y":500,"width":250,"height":60}',
+        "\t],",
+        '\t"edges":[',
+        '\t\t{"id":"e1","fromNode":"f1","fromSide":"right","toNode":"t1","toSide":"left","label":"see"}',
+        "\t]",
+        "}",
+      ].join("\n"),
+      linksRewritten: 2,
+    })
+  })
+
+  it("returns null for a canvas that starts with a byte-order mark and has no matching link", () => {
+    const result = rewriteCanvasLinks({
+      canvasJson: `${BYTE_ORDER_MARK}${obsidianCanvas}`,
+      rewriteCardText: (text) => ({ text, linksRewritten: 0 }),
+      rewriteFilePath: () => null,
+    })
+
+    expect(result).toBeNull()
   })
 
   it("returns null when no link changes, so the caller leaves the file alone", () => {

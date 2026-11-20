@@ -259,10 +259,15 @@ const groupBy = <Key, Item>(
   return buckets
 }
 
-/** Parses canvas JSON with a contextual error message on failure. */
+/** Parses canvas JSON with a contextual error message on failure. A leading
+ *  byte-order mark, which some Windows editors write, is skipped first:
+ *  JSON.parse rejects it, and RFC 8259 §8.1 lets a JSON parser ignore it.
+ *  https://www.rfc-editor.org/rfc/rfc8259#section-8.1 */
 const parseCanvasJson = (canvasJson: string): unknown => {
+  const jsonText = canvasJson.startsWith("\uFEFF") ? canvasJson.slice(1) : canvasJson
+
   try {
-    return JSON.parse(canvasJson)
+    return JSON.parse(jsonText)
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     throw new Error(`invalid .canvas JSON: ${message}`, { cause: error })
