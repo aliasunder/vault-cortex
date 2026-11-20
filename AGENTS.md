@@ -310,12 +310,15 @@ vault data API.
 
 `cli/src/` follows the same rule as the server: a module's folder is decided by
 what it depends on. `bin.ts`, `main.ts` and `program.ts` are the wiring and the
-only loose files. The tree under "Structure" lists what each folder holds.
+only loose files. The "Structure" tree lists what each folder holds.
 
-At runtime, `adapters/` imports nothing internal, `rules/` imports only other
-rules, `steps/` imports rules, adapters and other steps, and `commands/`
-imports steps, rules and adapters.
-
+- **Runtime imports point down:**
+  - `adapters/` imports nothing internal.
+  - `rules/` imports only other rules.
+  - `steps/` imports rules, adapters and other steps.
+  - `commands/` imports all three.
+- **Type-only imports cross any layer,** as in the server: `rules/` takes the
+  `Mode`, `DaemonStatus` and `PublishedPort` types from `adapters/docker.ts`.
 - **Shared logic moves down.** When two commands need the same step, it goes
   in `steps/`, never in one command for the other to import. A step can also
   hold one command's sub-flow that is too large for the command's file, as
@@ -326,12 +329,11 @@ imports steps, rules and adapters.
 - **Pure decisions stay out of prompts.** A rule returns its decision as data
   (`decidePort`), and a step acts on it, so `--yes` and the interactive flow
   share one decision.
-- **Type-only imports cross any layer,** as in the server: `rules/` takes the
-  `Mode`, `DaemonStatus` and `PublishedPort` types from `adapters/docker.ts`.
 - **Export style** follows the server's test: a module that performs
-  operations (runs or removes a container, writes a file) exports one
-  namespace object, and a module that only decides, asks or reads exports
-  named functions.
+  operations (runs or removes a container, writes a file, prints to the
+  terminal) exports one namespace object (`envFile`), or a factory returning
+  one (`createDockerRunner`, `createPrompts`), and a module that only
+  decides, asks or reads exports named functions.
 
 Lint enforces the direction: `eslint.config.ts` has one
 `no-restricted-imports` block per CLI folder, and every folder but `adapters/`
