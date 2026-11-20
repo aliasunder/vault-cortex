@@ -330,10 +330,10 @@ only loose files. The "Structure" tree lists what each folder holds.
   (`decidePort`), and a step acts on it, so `--yes` and the interactive flow
   share one decision.
 - **Export style** follows the server's test: a module that performs
-  operations (runs or removes a container, writes a file) exports one
-  namespace object (`envFile`), or a factory returning one
-  (`createDockerRunner`), and a module that only decides, asks or reads
-  exports named functions.
+  operations (runs or removes a container, writes a file, prints to the
+  terminal) exports one namespace object (`envFile`), or a factory returning
+  one (`createDockerRunner`, `createPrompts`), and a module that only
+  decides, asks or reads exports named functions.
 
 Lint enforces the direction: `eslint.config.ts` has one
 `no-restricted-imports` block per CLI folder, and every folder but `adapters/`
