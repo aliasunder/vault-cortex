@@ -28,6 +28,9 @@ vi.mock("../vault-filesystem.js", { spy: true })
 
 const PROTECTED = ["About Me", "Daily Notes"] as const
 
+/** U+FEFF, which a Windows editor can write at the start of a UTF-8 file. */
+const BYTE_ORDER_MARK = "\uFEFF"
+
 /** A name one byte under the 255-byte name limit of APFS and ext4. */
 const NAME_ONE_BYTE_UNDER_LIMIT = `${"n".repeat(251)}.md`
 
@@ -1235,6 +1238,90 @@ describe("moveNote — Canvas sources", () => {
       updated_notes: ["Board.canvas"],
       pruned_empty_folders: 0,
     })
+  })
+
+  /** A Canvas holding a file card and a text-card link to Inbox/Note.md. */
+  const noteLinkingCanvas = obsidianCanvas([
+    '{"id":"f1","type":"file","file":"Inbox/Note.md","x":0,"y":0,"width":400,"height":400}',
+    '{"id":"t1","type":"text","text":"See [[Inbox/Note]]","x":500,"y":0,"width":250,"height":60}',
+  ])
+  const rewrittenNoteLinkingCanvas = obsidianCanvas([
+    '{"id":"f1","type":"file","file":"Projects/Note.md","x":0,"y":0,"width":400,"height":400}',
+    '{"id":"t1","type":"text","text":"See [[Projects/Note]]","x":500,"y":0,"width":250,"height":60}',
+  ])
+
+  it("rewrites a backlink-source Canvas that starts with a byte-order mark and saves it without the mark", async () => {
+    const { writeFixture, moveNote, readNote } = setupVault()
+    await writeFixture("Inbox/Note.md", "# Note\n")
+    await writeFixture("Board.canvas", `${BYTE_ORDER_MARK}${noteLinkingCanvas}`)
+
+    const result = await moveNote({
+      oldPath: "Inbox/Note.md",
+      newPath: "Projects/Note.md",
+      backlinkSources: ["Board.canvas"],
+    })
+
+    expect(await readNote("Board.canvas")).toBe(rewrittenNoteLinkingCanvas)
+    expect(result).toEqual({
+      moved_to: "Projects/Note.md",
+      links_updated: 2,
+      updated_notes: ["Board.canvas"],
+      pruned_empty_folders: 0,
+    })
+  })
+
+  it("finds and rewrites a Canvas that starts with a byte-order mark when the index has not recorded it", async () => {
+    const { writeFixture, moveNote, readNote, logger } = setupVault()
+    await writeFixture("Inbox/Note.md", "# Note\n")
+    // No backlink sources are passed, so the move's own scan has to parse it.
+    await writeFixture("Board.canvas", `${BYTE_ORDER_MARK}${noteLinkingCanvas}`)
+
+    const result = await moveNote({ oldPath: "Inbox/Note.md", newPath: "Projects/Note.md" })
+
+    expect(await readNote("Board.canvas")).toBe(rewrittenNoteLinkingCanvas)
+    expect(result).toEqual({
+      moved_to: "Projects/Note.md",
+      links_updated: 2,
+      updated_notes: ["Board.canvas"],
+      pruned_empty_folders: 0,
+    })
+    expect(vi.mocked(logger.info)).toHaveBeenCalledWith(
+      "backlink verification discovered sources the index missed",
+      {
+        from: "Inbox/Note.md",
+        to: "Projects/Note.md",
+        additionalSources: ["Board.canvas"],
+        attempt: 0,
+      },
+    )
+    // The scan skipped the Canvas with this warning while the mark broke its
+    // parse, so it must not fire, whatever its context.
+    expect(vi.mocked(logger.warn)).not.toHaveBeenCalledWith(
+      "backlink scan: skipping a file that could not be read or parsed",
+      expect.anything(),
+    )
+  })
+
+  it("leaves a backlink-source Canvas that starts with a byte-order mark and links elsewhere byte-identical", async () => {
+    const { writeFixture, moveNote, readNote } = setupVault()
+    await writeFixture("Inbox/Note.md", "# Note\n")
+    await writeFixture("Archive/Note.md", "# Archived note\n")
+    const decoyWithMark = `${BYTE_ORDER_MARK}${sameNameDecoyCanvas}`
+    await writeFixture("Decoy.canvas", decoyWithMark)
+
+    const result = await moveNote({
+      oldPath: "Inbox/Note.md",
+      newPath: "Projects/Note.md",
+      backlinkSources: ["Decoy.canvas"],
+    })
+
+    expect(result).toEqual({
+      moved_to: "Projects/Note.md",
+      links_updated: 0,
+      updated_notes: [],
+      pruned_empty_folders: 0,
+    })
+    expect(await readNote("Decoy.canvas")).toBe(decoyWithMark)
   })
 
   it("leaves a file card written as a bare name or a relative path unchanged and does not report its Canvas", async () => {
