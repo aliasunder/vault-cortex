@@ -12,9 +12,11 @@ to get started.
    [ShellCheck](https://www.shellcheck.net) release the repo pins for macOS
    and Linux on x86_64 and arm64
 
-   **Windows:** no ShellCheck build is pinned for Windows, so run
-   `npm run lint:shell` and commit shell-script changes from
-   [WSL](https://learn.microsoft.com/windows/wsl/install).
+   **Windows:** work from
+   [WSL](https://learn.microsoft.com/windows/wsl/install). Native Windows
+   can't run the server outside Docker, because its path handling assumes
+   `/` separators. No ShellCheck build is pinned for Windows either, so
+   `npm run lint:shell` and commits that change a shell script fail there.
 
 2. **Clone and install:**
 
