@@ -180,6 +180,13 @@ Whichever path you pick, the server is replaceable and your vault isn't. Your no
 | **Remote · self-hosted** | VPS + Obsidian Sync — access from any device | [`deploy/remote/`](https://github.com/aliasunder/vault-cortex/tree/main/deploy/remote/) |
 | **Remote · AWS (SST)** | IaC reference deployment — automated infra, defense-in-depth auth | [`DEPLOY.md`](https://github.com/aliasunder/vault-cortex/blob/main/DEPLOY.md) |
 
+## Versioning
+
+[VERSIONING.md](https://github.com/aliasunder/vault-cortex/blob/main/VERSIONING.md) says which parts of the server, CLI and
+deployment stay stable across releases, and how breaking changes are flagged.
+
+---
+
 
 ## License
 
