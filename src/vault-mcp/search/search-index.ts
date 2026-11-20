@@ -2615,6 +2615,17 @@ export const createSearchIndex = (
     await embedAndStoreFileChunks(params, logger)
   }
 
+  /** Removes a note's chunks and their vectors, and does nothing when notes are not embedded.
+   *  The vectors go first, because their delete finds them through the chunk rows. */
+  const removeNoteChunksAndVectors = (notePath: string): void => {
+    if (!deleteVectorsForNoteStmt || !deleteChunksForNoteStmt) return
+
+    db.transaction(() => {
+      deleteVectorsForNoteStmt.run(notePath)
+      deleteChunksForNoteStmt.run(notePath)
+    })()
+  }
+
   /** Removes a note from the notes table, FTS index, links, tasks, vectors,
    *  and — for memory files — the entry-granular index. Links that resolved
    *  to the note re-resolve, to another file or to their text. A watcher rename
@@ -2632,10 +2643,7 @@ export const createSearchIndex = (
       deleteLinksStmt.run(filePath)
       reResolveLinksTo(filePath)
       deleteTasksStmt.run(filePath)
-      if (deleteVectorsForNoteStmt && deleteChunksForNoteStmt) {
-        deleteVectorsForNoteStmt.run(filePath)
-        deleteChunksForNoteStmt.run(filePath)
-      }
+      removeNoteChunksAndVectors(filePath)
       if (memoryFile) {
         removeMemoryEntriesForFile(memoryFile)
       }
@@ -3160,16 +3168,10 @@ export const createSearchIndex = (
               .map((chunkPath) => chunkPath.note_path)
 
             const deletedPaths = indexedChunkPaths.filter((path) => !readableNotePaths.has(path))
-            const hasDeletedNotes =
-              deletedPaths.length > 0 && deleteVectorsForNoteStmt && deleteChunksForNoteStmt
 
-            if (hasDeletedNotes) {
-              // One transaction per note, so a crash cannot leave a chunk row whose vector is gone
+            if (deletedPaths.length > 0) {
               for (const path of deletedPaths) {
-                db.transaction(() => {
-                  deleteVectorsForNoteStmt.run(path)
-                  deleteChunksForNoteStmt.run(path)
-                })()
+                removeNoteChunksAndVectors(path)
               }
               logger.info("cleaned up vectors for deleted notes", {
                 count: deletedPaths.length,
