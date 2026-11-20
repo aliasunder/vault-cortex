@@ -7,18 +7,16 @@ server up and runs it). This document says which parts of each a version
 number covers, how a covered part is retired, and how the two versions
 relate.
 
-The policy takes effect at v1.0.0. Before that, any 0.x release may
-include a breaking change, announced as
-[How breaking changes are announced](#how-breaking-changes-are-announced)
-describes.
+The policy applies from v1.0.0 onward. The 0.x releases before it carried
+no compatibility promise.
 
 ## What a version number promises
 
-| Release | May contain                                                                                                                      |
-| ------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| Major   | Breaking changes to a covered part, each listed under ⚠ BREAKING CHANGES in the release notes                                    |
-| Minor   | New tools, prompts (the guided workflows a client lists), optional parameters and prompt arguments, response fields and settings |
-| Patch   | Bug fixes and dependency updates                                                                                                 |
+| Release | May contain                                                                                                                                                                                          |
+| ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Major   | Breaking changes to a covered part, each listed under ⚠ BREAKING CHANGES in the release notes                                                                                                        |
+| Minor   | New tools, prompts (the guided workflows a client lists), optional parameters and prompt arguments, response fields and settings, and a required parameter, prompt argument or setting made optional |
+| Patch   | Bug fixes and dependency updates                                                                                                                                                                     |
 
 Each row may also contain what the rows below it list, and any change the
 "Not covered" list allows. A dependency update that changes a covered part,
@@ -30,6 +28,9 @@ breaking:
 
 - A new tool, prompt, optional parameter or prompt argument, response field
   or setting
+- A required parameter, prompt argument or setting made optional, because
+  every call that worked before still works; making an optional one
+  required is a breaking change
 - A fix to behavior that only ever worked by accident and was never
   documented, such as a path spelling the tool's description already said
   is refused
@@ -37,12 +38,14 @@ breaking:
 
 ## Covered
 
-From v1.0.0, these change only in a major release:
+These change only in a major release:
 
-- **MCP tool surface** — tool names, parameter names and types, which
-  parameters are required, response fields, the refusal of unknown
-  parameters by every tool that takes any, prompt names and their required
-  arguments, and the MCP protocol versions the server accepts
+- **MCP tool surface** — tool names, parameter names and types, response
+  fields, the refusal of unknown parameters by every tool that takes any,
+  prompt names and their arguments, and the MCP protocol versions the
+  server accepts. An optional parameter or prompt argument becomes required
+  only in a major release; a required one may become optional in a minor,
+  as the list above says
 - **Error contracts** — each tool's description, which your MCP client
   shows, lists its failures under `Errors:`. A listed failure stays
   refused, and its message keeps naming the fix; the exact wording may
