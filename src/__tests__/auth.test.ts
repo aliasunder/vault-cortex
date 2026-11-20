@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process"
 import { describe, it, expect } from "vitest"
 import {
   canonicalResourceUri,
@@ -7,6 +8,13 @@ import {
   parseBearer,
   tokenBindingForServer,
 } from "../auth.js"
+
+/** A quadratic scan of a run this long takes minutes; a linear one takes
+ *  milliseconds. */
+const LONG_RUN_LENGTH = 1_000_000
+
+/** Leaves room for the child's tsx start-up on a loaded machine. */
+const CHILD_DEADLINE_MS = 20_000
 
 describe("tokenBindingForServer", () => {
   it("derives the issuer with a trailing slash and the audience without one", () => {
@@ -83,6 +91,32 @@ describe("canonicalResourceUri", () => {
       "https://mcp.example.com/mcp",
     )
   })
+
+  it(
+    "keeps a path of a million slashes followed by another character within a child deadline",
+    () => {
+      const authUrl = new URL("../auth.ts", import.meta.url).href
+      const output = execFileSync(
+        process.execPath,
+        [
+          "--import",
+          "tsx",
+          "--input-type=module",
+          "--eval",
+          `
+      import { canonicalResourceUri } from ${JSON.stringify(authUrl)};
+      const path = '/'.repeat(${LONG_RUN_LENGTH}) + 'x';
+      const canonical = canonicalResourceUri(new URL('https://mcp.example.com' + path));
+      process.stdout.write(String(canonical === 'https://mcp.example.com' + path));
+    `,
+        ],
+        { encoding: "utf8", timeout: CHILD_DEADLINE_MS, killSignal: "SIGKILL" },
+      )
+
+      expect(output).toBe("true")
+    },
+    CHILD_DEADLINE_MS + 5_000,
+  )
 })
 
 describe("safeEqual", () => {

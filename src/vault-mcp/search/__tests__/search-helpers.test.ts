@@ -16,7 +16,6 @@ import {
   fileContentRowToSearchResult,
   buildSnippetFromChunkText,
   escapeLikeWildcards,
-  stripTrailingSlashes,
   dayToEpochMsRange,
   foldTag,
   normalizeTagQuery,
@@ -899,29 +898,5 @@ describe("escapeLikeWildcards", () => {
 
   it("leaves normal text unchanged", () => {
     expect(escapeLikeWildcards("Projects/Alpha")).toBe("Projects/Alpha")
-  })
-})
-
-// ── Folder paths ──────────────────────────────────────────────
-
-describe("stripTrailingSlashes", () => {
-  it("strips a single trailing slash", () => {
-    expect(stripTrailingSlashes("Projects/")).toBe("Projects")
-  })
-
-  it("strips multiple trailing slashes", () => {
-    expect(stripTrailingSlashes("Projects///")).toBe("Projects")
-  })
-
-  it("leaves paths without trailing slashes unchanged", () => {
-    expect(stripTrailingSlashes("Projects/Alpha")).toBe("Projects/Alpha")
-  })
-
-  it("preserves internal slashes", () => {
-    expect(stripTrailingSlashes("Projects/Alpha/Beta/")).toBe("Projects/Alpha/Beta")
-  })
-
-  it("handles a bare folder name", () => {
-    expect(stripTrailingSlashes("Projects")).toBe("Projects")
   })
 })

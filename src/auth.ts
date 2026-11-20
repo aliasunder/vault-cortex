@@ -2,6 +2,7 @@
 
 import { timingSafeEqual } from "node:crypto"
 import type { Request } from "express"
+import { stripTrailingSlashes } from "./utils/strip-trailing-slashes.js"
 
 /** Constant-time string comparison. Compares against itself on length mismatch to avoid timing leaks. */
 export const safeEqual = (a: string, b: string): boolean => {
@@ -28,8 +29,7 @@ export const headerAsString = (value: string | string[] | undefined): string | u
  * https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization#canonical-server-uri
  */
 export const canonicalResourceUri = (resource: URL): string => {
-  const pathWithoutTrailingSlash = resource.pathname.replace(/\/+$/, "")
-  return `${resource.origin}${pathWithoutTrailingSlash}`
+  return `${resource.origin}${stripTrailingSlashes(resource.pathname)}`
 }
 
 /** The MCP endpoint's URL, derived from a deployment's public URL. Resolved

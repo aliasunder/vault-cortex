@@ -37,7 +37,7 @@ import {
   type OpenFence,
   type CommentResult,
 } from "../obsidian-markdown/lines.js"
-import { levenshteinDistance } from "../../utils/levenshtein-distance.js"
+import { isWithinEditDistance } from "../../utils/levenshtein-distance.js"
 import { DateTime } from "luxon"
 import type { Logger } from "../../logger.js"
 
@@ -279,9 +279,12 @@ const decodeBasicHtmlEntities = (text: string): string => {
   })
 }
 
-/** Matches the canonical "(newest first)" suffix at the end of a section
- *  name, with any surrounding whitespace. */
-const NEWEST_FIRST_SUFFIX_PATTERN = /\s*\(newest first\)\s*$/i
+/** Matches the canonical "(newest first)" suffix, and any whitespace after
+ *  it, at the end of a section name. Whitespace before the suffix is left to
+ *  sectionComparisonForm's trim: matching it here would let a match start at
+ *  every character of a long whitespace run, which takes time quadratic in
+ *  the run's length. */
+const NEWEST_FIRST_SUFFIX_PATTERN = /\(newest first\)\s*$/i
 
 /** Canonical comparison form for near-duplicate detection: entity decoding,
  *  case folding, whitespace collapsing, and the "(newest first)" suffix
@@ -339,7 +342,11 @@ const findNearMissSection = (
     const editBudget = nearMissEditBudget(shorterNameLength)
 
     if (editBudget === 0) return false
-    return levenshteinDistance(existingForm, requestedForm) <= editBudget
+    return isWithinEditDistance({
+      first: existingForm,
+      second: requestedForm,
+      maxDistance: editBudget,
+    })
   }
   return sections.find(isNearMissOfRequested)
 }
