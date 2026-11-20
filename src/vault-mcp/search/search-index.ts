@@ -1806,6 +1806,7 @@ export const createSearchIndex = (
   const removeFileChunksAndVectors = (filePath: string): void => {
     if (!deleteFileVectorsForPathStmt || !deleteFileChunksForPathStmt) return
 
+    // Both deletes share a transaction, so a crash cannot leave a chunk row whose vector is gone
     db.transaction(() => {
       deleteFileVectorsForPathStmt.run(filePath)
       deleteFileChunksForPathStmt.run(filePath)
@@ -2620,6 +2621,7 @@ export const createSearchIndex = (
   const removeNoteChunksAndVectors = (notePath: string): void => {
     if (!deleteVectorsForNoteStmt || !deleteChunksForNoteStmt) return
 
+    // Both deletes share a transaction, so a crash cannot leave a chunk row whose vector is gone
     db.transaction(() => {
       deleteVectorsForNoteStmt.run(notePath)
       deleteChunksForNoteStmt.run(notePath)
