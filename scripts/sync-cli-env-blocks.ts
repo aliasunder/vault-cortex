@@ -2,7 +2,7 @@
 // CLI's env.ts constants. The deploy/ .env.example files are the single
 // source of truth for optional variable documentation.
 //
-// cli/src/templates.test.ts fails CI when these drift; this script is
+// cli/src/__tests__/templates.test.ts fails CI when these drift; this script is
 // the one-command fix.
 //
 // Usage: npm run sync:cli-env-blocks
