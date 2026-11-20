@@ -55,8 +55,8 @@ From v1.0.0, these change only in a major release:
   `/home/obsidian/.config` for Sync state in `:remote`, or one
   `STORAGE_ROOT` volume), the `PUID`/`PGID` settings of the `:remote`
   image, and the HTTP routes: `/mcp`, `/healthz`, `/setup`, and the OAuth
-  routes `/authorize`, `/token`, `/register`, `/revoke` and the
-  `/.well-known/` discovery documents
+  routes `/authorize`, `/token`, `/register`, `/revoke`, `/oauth/decide`
+  and the `/.well-known/` discovery documents
 - **CLI** — command names, flags, the files `init` writes and where it
   writes them, and the minimum Node.js version
 - **Vault conventions the server reads and writes** — memory files (dated
