@@ -9,7 +9,11 @@ import { linearizeCanvas } from "../obsidian-markdown/canvas.js"
 import { getExtensionsOfKind, getFileKind } from "../obsidian-markdown/file-kinds.js"
 import { canvasImport, createPdfDocumentProxy } from "../obsidian-markdown/pdf-engine.js"
 import { toPdfData } from "../obsidian-markdown/pdf.js"
-import { decodeTextBuffer, NUL_SEARCH_WINDOW_BYTES } from "../../utils/decode-text-buffer.js"
+import {
+  decodeTextBuffer,
+  decodeUtf8OrNull,
+  NUL_SEARCH_WINDOW_BYTES,
+} from "../../utils/decode-text-buffer.js"
 import { describeErrorForLog } from "../../utils/describe-error.js"
 import { fitImageToByteBudget } from "../../utils/fit-image-to-byte-budget.js"
 import type { FittedImage } from "../../utils/fit-image-to-byte-budget.js"
@@ -70,16 +74,14 @@ const notValidUtf8Message = (path: string): string => {
   return `not valid UTF-8: "${path}" cannot be returned as text`
 }
 
-/** Decodes an asset buffer as UTF-8, rejecting invalid byte sequences — text
- *  is promised verbatim, and the default decoder would silently substitute
- *  U+FFFD for every undecodable byte instead. Unlike decodeTextBuffer, it
- *  accepts NUL bytes. */
-const decodeUtf8Strict = (params: { buffer: Buffer; path: string }): string => {
-  try {
-    return new TextDecoder("utf-8", { fatal: true }).decode(params.buffer)
-  } catch (error) {
-    throw new Error(notValidUtf8Message(params.path), { cause: error })
-  }
+/** Decodes an asset buffer as UTF-8, throwing on bytes that are not UTF-8
+ *  rather than substituting U+FFFD, which would silently alter the text.
+ *  Unlike decodeTextBuffer, it accepts NUL bytes. */
+const decodeUtf8AcceptingNul = (params: { buffer: Buffer; path: string }): string => {
+  const text = decodeUtf8OrNull(params.buffer)
+
+  if (text === null) throw new Error(notValidUtf8Message(params.path))
+  return text
 }
 
 type ReadAsset = Readonly<{ buffer: Buffer; bytes: number; extension: string }>
@@ -87,7 +89,7 @@ type ReadAsset = Readonly<{ buffer: Buffer; bytes: number; extension: string }>
 /** Builds the text result for a file outside the dedicated types (HTML pages,
  *  scripts, files with no extension), refusing binary data and bytes that are
  *  not UTF-8. */
-const buildUtf8SourceResult = (params: {
+const buildTextResultRefusingBinary = (params: {
   asset: ReadAsset
   path: string
   startLine?: number | undefined
@@ -311,7 +313,7 @@ const readAssetContent = async (
         maxImageOutputBytes: params.maxImageOutputBytes,
       })
     case "canvas": {
-      const canvasSource = decodeUtf8Strict({ buffer: asset.buffer, path })
+      const canvasSource = decodeUtf8AcceptingNul({ buffer: asset.buffer, path })
       const text = raw ? canvasSource : linearizeCanvas(canvasSource)
       return buildTextResult({ text, path, startLine, limit })
     }
@@ -338,13 +340,13 @@ const readAssetContent = async (
     }
     case "text": {
       // No NUL byte check here, so a NUL-padded log keeps reading
-      const text = decodeUtf8Strict({ buffer: asset.buffer, path })
+      const text = decodeUtf8AcceptingNul({ buffer: asset.buffer, path })
       return buildTextResult({ text, path, startLine, limit })
     }
     case "html":
     case "script":
     case "other":
-      return buildUtf8SourceResult({ asset, path, startLine, limit })
+      return buildTextResultRefusingBinary({ asset, path, startLine, limit })
   }
 }
 

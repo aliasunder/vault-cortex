@@ -906,6 +906,33 @@ describe("file watcher — obsolete events and embedding queues", () => {
     },
   )
 
+  it("indexes a canvas that starts with a byte-order mark on an add event", async () => {
+    const { testVault, search, fire } = await createControlledWatcher()
+    await writeFile(join(testVault, "target.md"), "# Target\n")
+    await fire("add", "target.md")
+    // U+FEFF first, as a Windows editor can save it; the card text holds a
+    // word no other file has, so a search hit can only come from this canvas.
+    const canvasWithMark = `\uFEFF${JSON.stringify({
+      nodes: [
+        { id: "text", type: "text", x: 0, y: 0, width: 100, height: 100, text: "quartzite" },
+        { id: "file", type: "file", x: 0, y: 200, width: 100, height: 100, file: "target.md" },
+      ],
+      edges: [],
+    })}`
+    await writeFile(join(testVault, "board.canvas"), canvasWithMark)
+
+    await fire("add", "board.canvas")
+
+    expect(search.getBacklinks({ path: "target.md" }, logger).map((link) => link.path)).toEqual([
+      "board.canvas",
+    ])
+    expect(
+      (await search.hybridSearch({ query: "quartzite" }, logger)).results.map(
+        (result) => result.path,
+      ),
+    ).toEqual(["board.canvas"])
+  })
+
   it("reports both independent unlink failures and recovers on a later event", async () => {
     const { testVault, search, database, fire } = await createControlledWatcher()
     await writeFile(join(testVault, "content.txt"), "currentopal")
