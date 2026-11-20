@@ -1142,11 +1142,19 @@ describe("default config", () => {
         },
       })
       expect(completeResult.isError).not.toBe(true)
-      expect(JSON.parse(textContent(completeResult)).next_occurrence).toEqual({
-        line: 3,
+      expect(JSON.parse(textContent(completeResult))).toEqual({
+        path: "Projects/recurring-next-id.md",
+        line: 4,
         description: "Stretch",
-        block_id: "stretch-2026-02-09",
-        due: "2026-02-09",
+        block_id: "stretch",
+        heading: "Habits",
+        next_occurrence: {
+          line: 3,
+          description: "Stretch",
+          block_id: "stretch-2026-02-09",
+          due: "2026-02-09",
+        },
+        changes: ["status: todo → done", "next_occurrence: (none) → line 3"],
       })
 
       const priorityResult = await callTool({

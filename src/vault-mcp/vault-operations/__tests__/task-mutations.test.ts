@@ -6010,11 +6010,18 @@ describe("naming the next occurrence's block id", () => {
       logger,
     )
 
-    expect(result.next_occurrence).toEqual({
-      line: 6,
+    expect(result).toEqual({
+      path: "tasks.md",
+      line: 5,
       description: "Water plants",
-      block_id: "water-plants-2",
-      due: "2026-01-12",
+      block_id: "water-plants",
+      next_occurrence: {
+        line: 6,
+        description: "Water plants",
+        block_id: "water-plants-2",
+        due: "2026-01-12",
+      },
+      changes: ["status: todo → done", "next_occurrence: (none) → line 6"],
     })
     expect(await readTestNote(vault, "tasks.md")).toBe(
       `---\ntitle: Tasks\n---\n\n- [x] Water plants 🔁 every week 📅 2026-01-05 ➕ 2026-01-01 ✅ ${today()} ^water-plants\n- [ ] Water plants 🔁 every week 📅 2026-01-12 ^water-plants-2\n`,
@@ -6041,11 +6048,23 @@ describe("naming the next occurrence's block id", () => {
       logger,
     )
 
-    expect(result.next_occurrence).toEqual({
-      line: 7,
+    expect(result).toEqual({
+      path: "board.md",
+      line: 11,
       description: "Weekly review",
-      block_id: "weekly-2",
-      due: "2026-01-12",
+      block_id: "weekly",
+      heading: "Done",
+      next_occurrence: {
+        line: 7,
+        description: "Weekly review",
+        block_id: "weekly-2",
+        due: "2026-01-12",
+      },
+      changes: [
+        "status: todo → done",
+        "heading: Active → Done",
+        "next_occurrence: (none) → line 7",
+      ],
     })
     expect(await readTestNote(vault, "board.md")).toBe(
       `---\nkanban-plugin: board\n---\n\n## Active\n\n- [ ] Weekly review 🔁 every week 📅 2026-01-12 ^weekly-2\n- [ ] Other task ➕ 2026-07-01\n\n## Done\n- [x] Weekly review 🔁 every week 📅 2026-01-05 ✅ ${today()} ^weekly\n\n- [x] Old ➕ 2026-06-01 ✅ 2026-06-15\n`,
@@ -6105,7 +6124,7 @@ describe("naming the next occurrence's block id", () => {
       "---\ntitle: Tasks\n---\n\n- [ ] DV habit [repeat:: every week] [due:: 2026-01-05] ^dv\n",
     )
 
-    await taskMutations.updateTask(
+    const result = await taskMutations.updateTask(
       {
         statusRegistry: DEFAULT_STATUS_REGISTRY,
         vaultPath: vault,
@@ -6117,6 +6136,19 @@ describe("naming the next occurrence's block id", () => {
       logger,
     )
 
+    expect(result).toEqual({
+      path: "tasks.md",
+      line: 6,
+      description: "DV habit",
+      block_id: "dv",
+      next_occurrence: {
+        line: 5,
+        description: "DV habit",
+        block_id: "dv-2",
+        due: "2026-01-12",
+      },
+      changes: ["status: todo → done", "next_occurrence: (none) → line 5"],
+    })
     expect(await readTestNote(vault, "tasks.md")).toBe(
       `---\ntitle: Tasks\n---\n\n- [ ] DV habit [repeat:: every week] [due:: 2026-01-12] ^dv-2\n- [x] DV habit [repeat:: every week] [due:: 2026-01-05] [completion:: ${today()}] ^dv\n`,
     )
@@ -6203,6 +6235,12 @@ describe("naming the next occurrence's block id", () => {
       note: RECURRING_NOTE,
       update: { blockId: "water-plants", status: "done", nextBlockId: "bad id" },
       message: 'blockId "bad id" contains invalid characters (allowed: letters, digits, hyphens)',
+    },
+    {
+      label: "an empty id",
+      note: RECURRING_NOTE,
+      update: { blockId: "water-plants", status: "done", nextBlockId: "" },
+      message: 'blockId "" contains invalid characters (allowed: letters, digits, hyphens)',
     },
     {
       label: "an indented line on a Kanban board",
