@@ -4952,8 +4952,14 @@ title: Tasks
       logger,
     )
 
-    expect(result.line).toBe(5)
-    expect(result.next_occurrence?.line).toBe(6)
+    expect(result).toEqual({
+      path: "tasks.md",
+      line: 5,
+      description: "Water plants",
+      block_id: "water-plants",
+      next_occurrence: { line: 6, description: "Water plants", due: "2026-01-12" },
+      changes: ["status: todo → done", "next_occurrence: (none) → line 6"],
+    })
     const content = await readTestNote(vault, "tasks.md")
     expect(content).toBe(
       `---\ntitle: Tasks\n---\n\n- [x] Water plants 🔁 every week 📅 2026-01-05 ➕ 2026-01-01 ✅ ${today()} ^water-plants\n- [ ] Water plants 🔁 every week 📅 2026-01-12\n`,
@@ -5055,7 +5061,14 @@ title: Tasks
       logger,
     )
 
-    expect(result.next_occurrence?.due).toBe("2026-01-12")
+    expect(result).toEqual({
+      path: "tasks.md",
+      line: 6,
+      description: "Habit",
+      block_id: "habit",
+      next_occurrence: { line: 5, description: "Habit", due: "2026-01-12" },
+      changes: ["status: todo → done", "next_occurrence: (none) → line 5"],
+    })
     const content = await readTestNote(vault, "tasks.md")
     expect(content).toBe(
       `---\ntitle: Tasks\n---\n\n- [ ] Habit 🔁 every week 📅 2026-01-12\n- [x] Habit 🔁 every week 📅 2026-01-05 ✅ ${today()} ^habit  \n`,
@@ -5140,8 +5153,13 @@ title: Tasks
     )
 
     // The plugin treats a DONE-typed char as already done — no re-spawn.
-    expect(result.next_occurrence).toBeUndefined()
-    expect(result.advisories).toBeUndefined()
+    expect(result).toEqual({
+      path: "tasks.md",
+      line: 5,
+      description: "Deploy check",
+      block_id: "deploy",
+      changes: ["status: done → done"],
+    })
     const content = await readTestNote(vault, "tasks.md")
     expect(content).toBe(
       `---\ntitle: Tasks\n---\n\n- [x] Deploy check 🔁 every week 📅 2026-01-05 ✅ ${today()} ^deploy\n`,
@@ -5167,7 +5185,14 @@ title: Tasks
       logger,
     )
 
-    expect(result.next_occurrence?.due).toBe("2026-01-12")
+    expect(result).toEqual({
+      path: "tasks.md",
+      line: 6,
+      description: "Odd habit",
+      block_id: "odd",
+      next_occurrence: { line: 5, description: "Odd habit", due: "2026-01-12" },
+      changes: ["status: todo → done", "next_occurrence: (none) → line 5"],
+    })
   })
 
   it("keeps the spawn in the source lane while the completed card moves to Done", async () => {
@@ -5189,7 +5214,19 @@ title: Tasks
       logger,
     )
 
-    expect(result.next_occurrence?.line).toBe(7)
+    expect(result).toEqual({
+      path: "board.md",
+      line: 11,
+      description: "Weekly review",
+      block_id: "weekly",
+      heading: "Done",
+      next_occurrence: { line: 7, description: "Weekly review", due: "2026-01-12" },
+      changes: [
+        "status: todo → done",
+        "heading: Active → Done",
+        "next_occurrence: (none) → line 7",
+      ],
+    })
     const content = await readTestNote(vault, "board.md")
     expect(content).toBe(
       `---\nkanban-plugin: board\n---\n\n## Active\n\n- [ ] Weekly review 🔁 every week 📅 2026-01-12\n- [ ] Other task ➕ 2026-07-01\n\n## Done\n- [x] Weekly review 🔁 every week 📅 2026-01-05 ✅ ${today()} ^weekly\n\n- [x] Old ➕ 2026-06-01 ✅ 2026-06-15\n`,
@@ -5218,8 +5255,19 @@ title: Tasks
       logger,
     )
 
-    expect(result.heading).toBe("Archive")
-    expect(result.next_occurrence?.line).toBe(7)
+    expect(result).toEqual({
+      path: "board.md",
+      line: 12,
+      description: "Weekly review",
+      block_id: "weekly",
+      heading: "Archive",
+      next_occurrence: { line: 7, description: "Weekly review", due: "2026-01-12" },
+      changes: [
+        "status: todo → done",
+        "heading: Active → Archive",
+        "next_occurrence: (none) → line 7",
+      ],
+    })
     const content = await readTestNote(vault, "board.md")
     expect(content).toBe(
       `---\nkanban-plugin: board\n---\n\n## Active\n\n- [ ] Weekly review 🔁 every week 📅 2026-01-12\n\n## Archive\n\n**Complete**\n- [x] Weekly review 🔁 every week 📅 2026-01-05 ✅ ${today()} ^weekly\n\n- [x] Old ➕ 2026-06-01 ✅ 2026-06-15\n`,
@@ -5247,7 +5295,18 @@ title: Tasks
       logger,
     )
 
-    expect(result.next_occurrence?.line).toBe(8)
+    expect(result).toEqual({
+      path: "tasks.md",
+      line: 5,
+      description: "Water plants",
+      block_id: "water-plants",
+      subtasks: [
+        { line: 6, description: "Refill the can" },
+        { line: 7, description: "Check the fern" },
+      ],
+      next_occurrence: { line: 8, description: "Water plants", due: "2026-01-12" },
+      changes: ["status: todo → done", "subtasks: 0 → 2", "next_occurrence: (none) → line 8"],
+    })
     const content = await readTestNote(vault, "tasks.md")
     expect(content).toBe(
       `---\ntitle: Tasks\n---\n\n- [x] Water plants 🔁 every week 📅 2026-01-05 ➕ 2026-01-01 ✅ ${today()} ^water-plants\n  - [ ] Refill the can\n  - [ ] Check the fern\n- [ ] Water plants 🔁 every week 📅 2026-01-12\n`,
@@ -5278,7 +5337,19 @@ title: Tasks
       logger,
     )
 
-    expect(result.next_occurrence?.line).toBe(7)
+    expect(result).toEqual({
+      path: "board.md",
+      line: 11,
+      description: "Weekly review",
+      block_id: "weekly",
+      heading: "Done",
+      next_occurrence: { line: 7, description: "Weekly review", due: "2026-01-12" },
+      changes: [
+        "status: todo → done",
+        "heading: Active → Done",
+        "next_occurrence: (none) → line 7",
+      ],
+    })
     const content = await readTestNote(vault, "board.md")
     expect(content).toBe(
       `---\nkanban-plugin: board\n---\n\n## Active\n\n- [ ] Weekly review 🔁 every week 📅 2026-01-12\n  - [ ] Prep notes\n\n## Done\n- [x] Weekly review 🔁 every week 📅 2026-01-05 ✅ ${today()} ^weekly\n\n- [x] Old ➕ 2026-06-01 ✅ 2026-06-15\n`,
@@ -5309,10 +5380,20 @@ title: Tasks
     // The subtask appends to the completed task, and the done-lane move
     // takes the entire completed block (task + subtask) to Done. The spawn
     // stays alone in Active at line 7.
-    expect(result.next_occurrence).toEqual({
-      line: 7,
+    expect(result).toEqual({
+      path: "board.md",
+      line: 10,
       description: "Deploy",
-      due: "2026-01-12",
+      block_id: "deploy",
+      heading: "Done",
+      subtasks: [{ line: 11, description: "Smoke test" }],
+      next_occurrence: { line: 7, description: "Deploy", due: "2026-01-12" },
+      changes: [
+        "status: todo → done",
+        "heading: Active → Done",
+        "subtasks: 0 → 1",
+        "next_occurrence: (none) → line 7",
+      ],
     })
     const content = await readTestNote(vault, "board.md")
     expect(content).toBe(
@@ -5341,7 +5422,19 @@ title: Tasks
 
     // The completed card's reinsertion under Done sits above the spawn and
     // shifts it by one line — the reported line must account for that.
-    expect(result.next_occurrence?.line).toBe(12)
+    expect(result).toEqual({
+      path: "board.md",
+      line: 6,
+      description: "Weekly review",
+      block_id: "weekly",
+      heading: "Done",
+      next_occurrence: { line: 12, description: "Weekly review", due: "2026-01-12" },
+      changes: [
+        "status: todo → done",
+        "heading: Active → Done",
+        "next_occurrence: (none) → line 12",
+      ],
+    })
     const content = await readTestNote(vault, "board.md")
     expect(content).toBe(
       `---\nkanban-plugin: board\n---\n\n## Done\n- [x] Weekly review 🔁 every week 📅 2026-01-05 ✅ ${today()} ^weekly\n\n- [x] Old ➕ 2026-06-01 ✅ 2026-06-15\n\n## Active\n\n- [ ] Weekly review 🔁 every week 📅 2026-01-12\n`,
@@ -5371,8 +5464,21 @@ title: Tasks
       logger,
     )
 
-    expect(result.next_occurrence?.line).toBe(13)
-    expect(result.subtasks).toEqual([{ line: 7, description: "Prep notes" }])
+    expect(result).toEqual({
+      path: "board.md",
+      line: 6,
+      description: "Weekly review",
+      block_id: "weekly",
+      heading: "Done",
+      subtasks: [{ line: 7, description: "Prep notes" }],
+      next_occurrence: { line: 13, description: "Weekly review", due: "2026-01-12" },
+      changes: [
+        "status: todo → done",
+        "heading: Active → Done",
+        "subtasks: 0 → 1",
+        "next_occurrence: (none) → line 13",
+      ],
+    })
     const content = await readTestNote(vault, "board.md")
     expect(content).toBe(
       `---\nkanban-plugin: board\n---\n\n## Done\n- [x] Weekly review 🔁 every week 📅 2026-01-05 ✅ ${today()} ^weekly\n  - [ ] Prep notes\n\n- [x] Old ➕ 2026-06-01 ✅ 2026-06-15\n\n## Active\n\n- [ ] Weekly review 🔁 every week 📅 2026-01-12\n`,
@@ -5400,7 +5506,13 @@ title: Tasks
       logger,
     )
 
-    expect(result.next_occurrence?.line).toBe(6)
+    expect(result).toEqual({
+      path: "tasks.md",
+      line: 7,
+      description: "Daily standup",
+      next_occurrence: { line: 6, description: "Daily standup", due: "2026-01-06" },
+      changes: ["status: todo → done", "next_occurrence: (none) → line 6"],
+    })
     const content = await readTestNote(vault, "tasks.md")
     expect(content).toBe(
       `---\ntitle: Tasks\n---\n\n- [ ] Daily standup 🔁 every day 📅 2026-01-06\n- [ ] Daily standup 🔁 every day 📅 2026-01-06\n- [x] Daily standup 🔁 every day 📅 2026-01-05 ✅ ${today()}\n`,
@@ -5463,7 +5575,13 @@ title: Tasks
       logger,
     )
 
-    expect(result.next_occurrence?.line).toBe(6)
+    expect(result).toEqual({
+      path: "tasks.md",
+      line: 7,
+      description: "Daily child",
+      next_occurrence: { line: 6, description: "Daily child", due: "2026-01-06" },
+      changes: ["status: todo → done", "next_occurrence: (none) → line 6"],
+    })
     const content = await readTestNote(vault, "tasks.md")
     expect(content).toBe(
       `---\ntitle: Tasks\n---\n\n- [ ] Parent card ➕ 2026-07-01 ^parent\n  - [ ] Daily child 🔁 every day 📅 2026-01-06\n  - [x] Daily child 🔁 every day 📅 2026-01-05 ✅ ${today()}\n`,
@@ -5489,10 +5607,16 @@ title: Tasks
       logger,
     )
 
-    expect(result.next_occurrence).toBeUndefined()
-    expect(result.advisories).toEqual([
-      'The task was completed, but its recurrence rule "whenever" is not a rule the Tasks plugin recognizes, so no next occurrence was created.',
-    ])
+    expect(result).toEqual({
+      path: "tasks.md",
+      line: 5,
+      description: "Fuzzy habit",
+      block_id: "fuzzy",
+      changes: ["status: todo → done"],
+      advisories: [
+        'The task was completed, but its recurrence rule "whenever" is not a rule the Tasks plugin recognizes, so no next occurrence was created.',
+      ],
+    })
     const content = await readTestNote(vault, "tasks.md")
     expect(content).toBe(
       `---\ntitle: Tasks\n---\n\n- [x] Fuzzy habit 🔁 whenever 📅 2026-01-05 ✅ ${today()} ^fuzzy\n`,
@@ -5519,12 +5643,18 @@ title: Tasks
       logger,
     )
 
-    expect(result.next_occurrence).toBeUndefined()
-    expect(result.advisories).toEqual([
-      'The task was completed, but its recurrence rule "whenever" is not a rule the Tasks plugin recognizes, so no next occurrence was created.',
-      'description: the line was written as submitted, but the stored description parses back as "Fuzzy habit" — the trailing "✅ 2026-01-01" was read as task metadata',
-      `done: submitted "${today()}" but the stored line parses back "2026-01-01"`,
-    ])
+    expect(result).toEqual({
+      path: "tasks.md",
+      line: 5,
+      description: "Fuzzy habit",
+      block_id: "fuzzy",
+      changes: ["status: todo → done", "description: Fuzzy habit → Fuzzy habit"],
+      advisories: [
+        'The task was completed, but its recurrence rule "whenever" is not a rule the Tasks plugin recognizes, so no next occurrence was created.',
+        'description: the line was written as submitted, but the stored description parses back as "Fuzzy habit" — the trailing "✅ 2026-01-01" was read as task metadata',
+        `done: submitted "${today()}" but the stored line parses back "2026-01-01"`,
+      ],
+    })
   })
 
   it("completes with an advisory when a finite rule is exhausted", async () => {
@@ -5546,10 +5676,16 @@ title: Tasks
       logger,
     )
 
-    expect(result.next_occurrence).toBeUndefined()
-    expect(result.advisories).toEqual([
-      'The task was completed, but its recurrence rule "every day for 1 times" produced no next occurrence, so none was created.',
-    ])
+    expect(result).toEqual({
+      path: "tasks.md",
+      line: 5,
+      description: "One-shot",
+      block_id: "one-shot",
+      changes: ["status: todo → done"],
+      advisories: [
+        'The task was completed, but its recurrence rule "every day for 1 times" produced no next occurrence, so none was created.',
+      ],
+    })
   })
 
   it("does not spawn or advise when an already-done task is set to done again", async () => {
@@ -5571,9 +5707,13 @@ title: Tasks
       logger,
     )
 
-    expect(result.next_occurrence).toBeUndefined()
-    expect(result.advisories).toBeUndefined()
-    expect(result.changes).toEqual(["status: done → done"])
+    expect(result).toEqual({
+      path: "tasks.md",
+      line: 5,
+      description: "Done habit",
+      block_id: "done-habit",
+      changes: ["status: done → done"],
+    })
   })
 
   it("moves the done date to today when an already-done task is set to done again", async () => {
@@ -5641,8 +5781,13 @@ title: Tasks
       logger,
     )
 
-    expect(result.next_occurrence).toBeUndefined()
-    expect(result.advisories).toBeUndefined()
+    expect(result).toEqual({
+      path: "tasks.md",
+      line: 5,
+      description: "Water plants",
+      block_id: "water-plants",
+      changes: ["status: todo → cancelled"],
+    })
     const content = await readTestNote(vault, "tasks.md")
     expect(content).toBe(
       `---\ntitle: Tasks\n---\n\n- [-] Water plants 🔁 every week 📅 2026-01-05 ➕ 2026-01-01 ❌ ${today()} ^water-plants\n`,
@@ -5793,8 +5938,13 @@ title: Tasks
     )
 
     // The spawn reads post-edit state: the rule is gone before completion.
-    expect(result.next_occurrence).toBeUndefined()
-    expect(result.advisories).toBeUndefined()
+    expect(result).toEqual({
+      path: "tasks.md",
+      line: 5,
+      description: "Water plants",
+      block_id: "water-plants",
+      changes: ["status: todo → done", "recurrence: every week → (none)"],
+    })
     const content = await readTestNote(vault, "tasks.md")
     expect(content).toBe(
       `---\ntitle: Tasks\n---\n\n- [x] Water plants 📅 2026-01-05 ➕ 2026-01-01 ✅ ${today()} ^water-plants\n`,
@@ -5821,7 +5971,18 @@ title: Tasks
       logger,
     )
 
-    expect(result.next_occurrence?.due).toBe("2026-01-12")
+    expect(result).toEqual({
+      path: "tasks.md",
+      line: 6,
+      description: "Chore",
+      block_id: "chore",
+      next_occurrence: { line: 5, description: "Chore", due: "2026-01-12" },
+      changes: [
+        "status: todo → done",
+        "recurrence: (none) → every week",
+        "next_occurrence: (none) → line 5",
+      ],
+    })
     const content = await readTestNote(vault, "tasks.md")
     expect(content).toBe(
       `---\ntitle: Tasks\n---\n\n- [ ] Chore 🔁 every week 📅 2026-01-12\n- [x] Chore 🔁 every week 📅 2026-01-05 ✅ ${today()} ^chore\n`,
@@ -5950,7 +6111,14 @@ title: Tasks
       logger,
     )
 
-    expect(result.next_occurrence?.scheduled).toBe("2026-01-12")
+    expect(result).toEqual({
+      path: "tasks.md",
+      line: 6,
+      description: "Odd dates",
+      block_id: "odd-dates",
+      next_occurrence: { line: 5, description: "Odd dates", scheduled: "2026-01-12" },
+      changes: ["status: todo → done", "next_occurrence: (none) → line 5"],
+    })
     const content = await readTestNote(vault, "tasks.md")
     expect(content).toBe(
       `---\ntitle: Tasks\n---\n\n- [ ] Odd dates 🔁 every week ⏳ 2026-01-12\n- [x] Odd dates 🔁 every week 📅 2026-02-30 ⏳ 2026-01-05 ✅ ${today()} ^odd-dates\n`,
