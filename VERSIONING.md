@@ -7,18 +7,18 @@ server up and runs it. This document says which parts of each a version
 number covers, how a covered part is retired, and how the two versions
 relate.
 
-The policy takes effect at v1.0.0. Before that, a 0.x minor release may
+The policy takes effect at v1.0.0. Before that, any 0.x release may
 include a breaking change, announced as
 [How breaking changes are announced](#how-breaking-changes-are-announced)
-describes; a 0.x patch never does.
+describes.
 
 ## What a version number promises
 
-| Release | May contain                                                                                                                         |
-| ------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| Major   | Breaking changes to a covered part, each listed under ⚠ BREAKING CHANGES in the release notes                                       |
-| Minor   | New tools, prompts (the guided workflows a client lists), parameters, response fields and settings; changes to anything not covered |
-| Patch   | Bug fixes and dependency updates                                                                                                    |
+| Release | May contain                                                                                        |
+| ------- | -------------------------------------------------------------------------------------------------- |
+| Major   | Breaking changes to a covered part, each listed under ⚠ BREAKING CHANGES in the release notes      |
+| Minor   | New tools, prompts (the guided workflows a client lists), parameters, response fields and settings |
+| Patch   | Bug fixes and dependency updates                                                                   |
 
 Each row may also contain what the rows below it list. A dependency update
 that changes a covered part, such as the CLI's minimum Node.js version,
@@ -38,28 +38,32 @@ or returns different fields. These are not breaking:
 From v1.0.0, these change only in a major release:
 
 - **MCP tool surface** — tool names, parameter names and types, which
-  parameters are required, response fields, and the refusal of unknown
-  parameters
-- **Error contracts** — each tool's description, which every MCP client
+  parameters are required, response fields, the refusal of unknown
+  parameters by every tool that takes any, prompt names and their
+  arguments, and the MCP protocol versions the server accepts
+- **Error contracts** — each tool's description, which your MCP client
   shows, lists its failures under `Errors:`. A listed failure stays
   refused, and its message keeps naming the fix; the exact wording may
   change in any release
 - **Settings** — environment variable names, their accepted values, what
   each value does, and their defaults
-- **Deployment contract** — the image name and tags (`:latest` is the
-  server alone, `:remote` bundles Obsidian Sync, `:vX.Y.Z` and
-  `:vX.Y.Z-remote` pin a release), the container's port `8000`, the volume
-  paths `/vault` and `/data`, the `PUID`/`PGID` settings, and the HTTP
-  routes: `/mcp`, `/healthz`, `/setup`, and the OAuth routes `/authorize`,
-  `/token`, `/register`, `/revoke` and the `/.well-known/` discovery
-  documents
+- **Deployment contract** — the image name, its Docker Hub mirror and the
+  tags (`:latest` is the server alone, `:remote` bundles Obsidian Sync,
+  `:vX.Y.Z` and `:vX.Y.Z-remote` pin a release), the container's port
+  `8000`, the volume paths (`/vault` and `/data`, plus
+  `/home/obsidian/.config` for Sync state in `:remote`, or one
+  `STORAGE_ROOT` volume), the `PUID`/`PGID` settings of the `:remote`
+  image, and the HTTP routes: `/mcp`, `/healthz`, `/setup`, and the OAuth
+  routes `/authorize`, `/token`, `/register`, `/revoke` and the
+  `/.well-known/` discovery documents
 - **CLI** — command names, flags, the files `init` writes and where it
   writes them, and the minimum Node.js version
 - **Vault conventions the server reads and writes** — memory files (dated
   entries under headings in the `About Me/` folder), the Tasks plugin's
   emoji and Dataview fields, Kanban boards with lanes as headings,
   `^block-id` references, the Obsidian link forms the server resolves, and
-  the daily-notes settings in `.obsidian/`
+  the settings it reads in `.obsidian/`: daily notes, the trash setting
+  and the Tasks plugin's format
 
 ## Not covered
 
@@ -114,12 +118,11 @@ policy:
   either: only the latest release is maintained, and fixes are not
   backported (see
   [SECURITY.md → Supported Versions](./SECURITY.md#supported-versions)).
-- **CLI** — the version of the npm package. The CLI always runs the newest
-  image, through the moving `:latest` and `:remote` tags, and each CLI
-  release is tested against that image, so run it as
-  `npx vault-cortex@latest` as the guides show. A deployment that pins an
-  image tag runs the container with Docker directly. A CLI major is cut
-  when a command, flag or generated file changes incompatibly, or when its
+- **CLI** — the version of the npm package. `init` and `upgrade` pull the
+  moving `:latest` and `:remote` tags, so a server major reaches a CLI
+  install on its next `upgrade`; to pin a release, run the image with
+  Docker directly, as the deploy guides show. A CLI major is cut when a
+  command, flag or generated file changes incompatibly, or when its
   minimum Node.js version rises.
 
 ## What enforces this
