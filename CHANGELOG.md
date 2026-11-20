@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.57.8] — 2026-11-20
+
+### Bug Fixes
+
+- **oauth:** Keep unauthenticated registrations from slowing or stopping the client sweep (#807)
+- **tools:** List at most 30 headings in missing-heading errors (#802)
+- **tools:** Match vault_list_notes globs in a worker with a 2-second limit (#801)
+- Index Canvas files that start with a byte-order mark and keep the mark on file reads (#805)
+
+### Documentation
+
+- **contributing:** Tell Windows contributors to run ShellCheck from WSL (#804)
+- Resolve contradictions in README and SECURITY.md (#797)
+
+### Maintenance
+
+- **deps:** Bump node from `54f84b4` to `af02d57` (#809)
+- **deps:** Bump the production group across 1 directory with 3 updates (#810)
+
 ## [0.57.7] — 2026-11-20
 
 ### Bug Fixes
