@@ -12330,6 +12330,9 @@ describe("scripts", () => {
       ],
     })
 
+    expect(
+      database.prepare("SELECT content FROM file_content WHERE path = ?").get("marked.py"),
+    ).toEqual({ content: `${String.fromCodePoint(0xfeff)}markedopal = 1\n` })
     expect(keywordPaths(database, "markedopal")).toEqual(["marked.py"])
   })
 
