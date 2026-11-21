@@ -326,7 +326,8 @@ export const linearizeCanvas = (canvasJson: string): string => {
 
 /** The two kinds of link a canvas holds, each deduplicated in JSON order. */
 type CanvasLinks = {
-  /** The `file` path of every file card, an exact vault path. */
+  /** The `file` path of every file card within the link-target limit, an
+   *  exact vault path. */
   fileCardPaths: string[]
   /** The targets of the links typed in text cards, without any heading or
    *  alias, before resolution. */

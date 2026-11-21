@@ -356,7 +356,8 @@ const countLeadingParentSegments = (segments: readonly string[]): number => {
  *  match for it. A target fits when it is:
  *  - at most MAX_PATH_BYTES of UTF-8, in any shape;
  *  - at most MAX_RELATIVE_LINK_BYTES, with every ".." segment before every
- *    other segment, as in a link from the current file.
+ *    other segment, ignoring "." and empty ones, as in a link from the
+ *    current file.
  *
  *  Two steps cost more than linear time on a longer crafted target:
  *  - normalizing it with posix.join;
