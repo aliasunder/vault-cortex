@@ -137,7 +137,7 @@ Link targets have a length limit, because normalizing and deduplicating a longer
 
 - **Up to 4,095 bytes** (Linux's longest path): any target.
 - **Up to 10,236 bytes:** a target whose `..` segments all come first, which covers the longest link Obsidian writes from the current file.
-- **Longer:** skipped at extraction, never resolved, and left out of backlinks and broken-link lists. A Canvas file card follows the same rule.
+- **Any other target:** skipped at extraction, never resolved, and left out of backlinks and broken-link lists. A Canvas file card follows the same rule.
 
 The "path from current file" tier also skips a target whose leading `..` segments climb above the vault root, since no vault file lies there.
 
