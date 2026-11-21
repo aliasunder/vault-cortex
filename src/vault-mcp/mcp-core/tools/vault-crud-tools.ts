@@ -493,7 +493,7 @@ Behavior:
 
 Errors:
 - "note already exists" — set overwrite: true to replace it
-${NOTE_EXTENSION_ERROR_ENTRY}
+- 'path must end in ".md"' — add the extension to a note's path${whenToolEnabledText("vault_write_file", "; write other files (.canvas, .base, .json) with vault_write_file")}
 - "cannot write note …: that path is not a file" — a folder already has this name; choose another path
 ${PATH_SAFETY_ERROR_ENTRY}
 ${CONCURRENT_WRITE_REREAD_ERROR_ENTRY}

@@ -203,8 +203,8 @@ LOG_DIR=none
 # LOG_MAX_DAILY_MB=25
 
 # Windows users: set this to true. Makes a vault stored on a C: drive work
-# through Docker Desktop (switches the file watcher to polling and note moves
-# to rename-based writes). Only strictly needed when your vault is on a C:
+# through Docker Desktop (switches the file watcher to polling, and note moves
+# and new files to rename-based writes). Only strictly needed when your vault is on a C:
 # drive rather than inside WSL2, but harmless to enable for any Windows setup.
 WINDOWS_MODE=false
 `
@@ -245,8 +245,8 @@ RERANK_MODE=blended
 
 # Windows bind-mount mode (default: false).
 # Set to true when your vault is on a Windows drive (Docker Desktop).
-# Enables polling for the file watcher and rename-based moves across
-# the Docker Desktop/WSL2 bridge.
+# Enables polling for the file watcher and rename-based moves and file
+# creation across the Docker Desktop/WSL2 bridge.
 WINDOWS_MODE=false
 
 # Largest file vault_read_file will read, in bytes (default: 52428800 = 50 MiB).
