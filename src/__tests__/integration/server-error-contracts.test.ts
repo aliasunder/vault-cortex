@@ -2612,6 +2612,20 @@ describe("vault_write_file refusals", () => {
     expect(result).toEqual(toolError(`cannot write file "${folderPath}": that path is not a file`))
   })
 
+  it("refuses a path that a broken symlink occupies", async () => {
+    const linkPath = "Broken Link.json"
+    const linkFullPath = join(serverVaultPath, linkPath)
+    await symlink(join(serverVaultPath, "Missing Link Target.json"), linkFullPath)
+    onTestFinished(() => rm(linkFullPath))
+
+    const result = await callTool({
+      client,
+      name: "vault_write_file",
+      args: { path: linkPath, content: "{}", overwrite: true },
+    })
+    expect(result).toEqual(toolError(`cannot write file "${linkPath}": that path is not a file`))
+  })
+
   it.each([
     {
       label: "an absolute container path",
