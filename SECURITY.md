@@ -114,11 +114,13 @@ mechanism-level detail.
   `dataviewjs` block that `vault_write_note` writes into a note.
   `DISABLED_TOOLS=vault_write_file` removes this tool and keeps file reads,
   while note writes stay on; `READONLY_MODE=true` hides both.
-- The path checks are lexical: a visible symlink is followed for reads and
-  for writes wherever it points, so a folder symlink into `.obsidian/` or
-  outside the vault lets `vault_write_file` save files there. Creating such
-  a symlink requires direct filesystem access — no tool can create one, and
-  anyone with that access can already read and write those files.
+- The path checks are lexical: a visible folder symlink is followed for
+  reads and for writes wherever it points, so one into `.obsidian/` or
+  outside the vault lets `vault_write_file` save files there. A symlink at a
+  file's own path is read through but never written through: a broken one
+  is refused, and an overwrite replaces the link with a regular file.
+  Creating a symlink requires direct filesystem access — no tool can create
+  one, and anyone with that access can already read and write those files.
 
 ### Read-only mode
 
