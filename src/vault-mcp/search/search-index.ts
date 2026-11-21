@@ -1553,12 +1553,16 @@ export const createSearchIndex = (
    *  The exact, relative and stem tiers run with exact letter case first, and
    *  the two path-suffix tiers ignore ASCII letter case, as LIKE does. Only
    *  when every tier misses do the exact, relative and stem comparisons run
-   *  again with ASCII letter case folded. */
+   *  again with ASCII letter case folded. A target over the link-target limit
+   *  resolves to null, as in links.resolveAsset. */
   const resolveNonMarkdownFile = (params: {
     target: string
     sourcePath?: string
   }): string | null => {
     const { target, sourcePath } = params
+
+    if (!links.isWithinLinkTargetLimit(target)) return null
+
     const relativeTarget = sourcePath ? links.joinToSourceFolder(sourcePath, target) : null
 
     return (
