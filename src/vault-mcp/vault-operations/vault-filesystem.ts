@@ -135,6 +135,14 @@ export const resolveVaultRelativePath = (params: {
   return toVaultRelativePath(relativePath)
 }
 
+/** Refuses a markdown note where a non-markdown file is expected, the one
+ *  boundary between the note tools and the file tools. It reads the resolved
+ *  path, so a trailing "/" or "/." on the path as sent cannot hide a note. */
+export const assertNotMarkdownNote = (params: { fullPath: string; path: string }): void => {
+  if (!params.fullPath.endsWith(".md")) return
+  throw new Error(`not a file: "${params.path}" is a markdown note`)
+}
+
 /** True when the path sits under one of the protected folders (memory, daily
  *  notes). The comparison is case-folded so a case-aliased spelling can't slip
  *  past the guard on a case-insensitive filesystem (macOS/Windows bind
@@ -1048,11 +1056,7 @@ const readAsset = async (
   logger: Logger,
 ): Promise<{ buffer: Buffer; bytes: number; extension: string }> => {
   const fullPath = resolveSafePath(params.vaultPath, params.path)
-
-  // Checked on the resolved path, so a trailing "/" or "/." cannot hide a note
-  if (fullPath.endsWith(".md")) {
-    throw new Error(`not a file: "${params.path}" is a markdown note`)
-  }
+  assertNotMarkdownNote({ fullPath, path: params.path })
 
   const fileStats = await statOrNull(fullPath)
 

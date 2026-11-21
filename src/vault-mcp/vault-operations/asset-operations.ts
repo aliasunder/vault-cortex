@@ -4,6 +4,7 @@ import { getMeta, renderPageAsImage } from "unpdf"
 import type { PDFDocumentProxy } from "unpdf/pdfjs"
 import {
   atomicWriteFile,
+  assertNotMarkdownNote,
   atomicWriteFileExclusive,
   resolveSafePath,
   vaultFs,
@@ -431,8 +432,7 @@ const saveNewFile = async (
  * - `.canvas`, `.json` or `.base` content that would break its format.
  * Inside the write lock it creates any missing parent folders, then refuses
  * an existing file without `overwrite`, a folder at the path, and an existing
- * file readAssetContent reads as binary. Folders it created stay after those
- * refusals.
+ * file readAssetContent reads as binary.
  */
 const writeAssetContent = async (
   params: {
@@ -449,9 +449,7 @@ const writeAssetContent = async (
 
   // The type checks read the resolved path, the file the save writes, so a
   // trailing "/" or "/." on the path cannot hide a note, an image or a canvas.
-  if (fullPath.endsWith(".md")) {
-    throw new Error(`not a file: "${path}" is a markdown note`)
-  }
+  assertNotMarkdownNote({ fullPath, path })
 
   const fileKind = getFileKind(fullPath)
 

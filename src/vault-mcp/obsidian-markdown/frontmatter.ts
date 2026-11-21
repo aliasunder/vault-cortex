@@ -83,7 +83,7 @@ const SPLIT_ONLY_OPTIONS = {
   engines: { yaml: { parse: (): Record<string, unknown> => ({}) } },
 }
 
-const stripLeadingBom = (content: string): string => {
+export const stripLeadingBom = (content: string): string => {
   return content.startsWith("\uFEFF") ? content.slice(1) : content
 }
 
@@ -272,7 +272,7 @@ const duplicateKeyOffset = (pair: Pair): number => {
  *  library's own duplicate check reports for it (same message, same
  *  position), or undefined. Keys are checked in the order the library
  *  composes them, so the first duplicate found is the library's first. */
-export const findFirstDuplicateKey = (document: Document): YAMLParseError | undefined => {
+const findFirstDuplicateKey = (document: Document): YAMLParseError | undefined => {
   // A stack of pending steps; the last one pushed runs next.
   const steps: DuplicateKeyStep[] = [{ kind: "node", node: document.contents }]
 
@@ -322,42 +322,57 @@ export const findFirstDuplicateKey = (document: Document): YAMLParseError | unde
 }
 
 /**
+ * Parses YAML text and finds its first error, with that error's 1-based line
+ * and column. A syntax error is reported ahead of any duplicate key, wherever
+ * each sits; a text whose only problem is a duplicate key gets the error the
+ * library's own duplicate check reports for it.
+ */
+export const parseYamlWithFirstError = (
+  yamlText: string,
+): {
+  document: Document
+  firstError: Readonly<{ error: YAMLParseError; line: number; column: number }> | undefined
+} => {
+  // Each call gets its own counter, because a shared one keeps counting
+  // across parses and reports later errors on the wrong line.
+  const lineCounter = new LineCounter()
+  // - prettyErrors would append its own position and a multi-line excerpt of
+  //   the text to each message; callers state the position themselves.
+  // - uniqueKeys: false turns off the library's duplicate-key check, which
+  //   compares each key with every earlier key in its map; findFirstDuplicateKey
+  //   finds the same first duplicate in one pass.
+  // - keepSourceTokens keeps the source tokens duplicateKeyOffset reads to
+  //   place that error where the library would.
+  const document = parseDocument(yamlText, {
+    prettyErrors: false,
+    lineCounter,
+    uniqueKeys: false,
+    keepSourceTokens: true,
+  })
+  const error = document.errors[0] ?? findFirstDuplicateKey(document)
+
+  if (!error) return { document, firstError: undefined }
+
+  const { line, col } = lineCounter.linePos(error.pos[0])
+  return { document, firstError: { error, line, column: col } }
+}
+
+/**
  * Reads a raw properties block with the `yaml` package (YAML 1.2 core
  * schema). That schema reads no untagged value as a timestamp, so datetime
  * properties like `created` stay plain strings instead of becoming Dates
  * that would stringify back as UTC-Z.
  */
 const readPropertiesBlock = (blockText: string): PropertiesBlockReading => {
-  // - Each call gets its own counter, because a shared one keeps counting
-  //   across parses and reports later errors on the wrong line.
-  // - The block text from splitPropertiesBlock starts with the end of the
-  //   opener line, line break included, and keeps the note's line breaks, so
-  //   line N of the block is line N of the note.
-  const lineCounter = new LineCounter()
-  // - prettyErrors would append its own position and a multi-line excerpt of
-  //   the block to each message; the message below states the position itself.
-  // - uniqueKeys: false turns off the library's duplicate-key check, which
-  //   compares each key with every earlier key in its map; findFirstDuplicateKey
-  //   finds the same first duplicate in one pass.
-  // - keepSourceTokens keeps the source tokens duplicateKeyOffset reads to
-  //   place that error where the library would.
-  const document = parseDocument(blockText, {
-    prettyErrors: false,
-    lineCounter,
-    uniqueKeys: false,
-    keepSourceTokens: true,
-  })
-  // A syntax error is reported ahead of any duplicate key, wherever each
-  // sits. A block whose only problem is a duplicate key gets the error the
-  // library's own check reports for it.
-  const firstError = document.errors[0] ?? findFirstDuplicateKey(document)
+  // The block text from splitPropertiesBlock starts with the end of the opener
+  // line, line break included, and keeps the note's line breaks, so line N of
+  // the block is line N of the note.
+  const { document, firstError } = parseYamlWithFirstError(blockText)
 
   if (firstError) {
-    const [errorStartOffset] = firstError.pos
-    const { line, col } = lineCounter.linePos(errorStartOffset)
     return unreadableReading({
-      message: `properties block is not valid YAML at line ${line}, column ${col}: ${firstError.message}`,
-      cause: firstError,
+      message: `properties block is not valid YAML at line ${firstError.line}, column ${firstError.column}: ${firstError.error.message}`,
+      cause: firstError.error,
     })
   }
 

@@ -1,17 +1,13 @@
 import { posix } from "node:path"
-import { isMap, LineCounter, parseDocument } from "yaml"
+import { isMap } from "yaml"
 import { assertCanvasTopLevel } from "./canvas.js"
-import { findFirstDuplicateKey } from "./frontmatter.js"
-
-const BYTE_ORDER_MARK = String.fromCodePoint(0xfeff)
+import { parseYamlWithFirstError, stripLeadingBom } from "./frontmatter.js"
 
 const assertJsonSyntax = (jsonText: string): void => {
-  // JSON.parse rejects a leading byte-order mark, and RFC 8259 §8.1 lets a JSON parser skip it:
-  // https://www.rfc-editor.org/rfc/rfc8259#section-8.1
-  const textWithoutMark = jsonText.startsWith(BYTE_ORDER_MARK) ? jsonText.slice(1) : jsonText
-
   try {
-    JSON.parse(textWithoutMark)
+    // JSON.parse rejects a leading byte-order mark, and RFC 8259 §8.1 lets a JSON parser skip it:
+    // https://www.rfc-editor.org/rfc/rfc8259#section-8.1
+    JSON.parse(stripLeadingBom(jsonText))
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     throw new Error(`invalid JSON: ${message}`, { cause: error })
@@ -20,27 +16,13 @@ const assertJsonSyntax = (jsonText: string): void => {
 
 /** A Bases file is YAML whose top level is a mapping, or an empty document. */
 const assertBaseSyntax = (baseText: string): void => {
-  const lineCounter = new LineCounter()
-
-  // - uniqueKeys: false turns off the library's duplicate-key check, which
-  //   compares each key with every earlier key in its map, so a large mapping
-  //   would take minutes; findFirstDuplicateKey finds the same first
-  //   duplicate in one pass.
-  // - keepSourceTokens keeps the tokens findFirstDuplicateKey reads to place
-  //   its error.
-  const document = parseDocument(baseText, {
-    prettyErrors: false,
-    lineCounter,
-    uniqueKeys: false,
-    keepSourceTokens: true,
-  })
-  const firstError = document.errors[0] ?? findFirstDuplicateKey(document)
+  const { document, firstError } = parseYamlWithFirstError(baseText)
 
   if (firstError) {
-    const { line, col } = lineCounter.linePos(firstError.pos[0])
-    throw new Error(`invalid .base YAML at line ${line}, column ${col}: ${firstError.message}`, {
-      cause: firstError,
-    })
+    throw new Error(
+      `invalid .base YAML at line ${firstError.line}, column ${firstError.column}: ${firstError.error.message}`,
+      { cause: firstError.error },
+    )
   }
 
   const isEmptyDocument = document.contents === null

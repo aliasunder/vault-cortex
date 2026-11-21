@@ -671,17 +671,10 @@ enabled by default. Set `FILE_TOOLS_ENABLED=false` in your `.env` to hide them.
 To keep reading files but turn off writing them, set
 `DISABLED_TOOLS=vault_write_file` instead.
 
-The server holds only the attachment types Obsidian Sync delivers, which
-`SYNC_FILE_TYPES` sets (see [Configuration](#configuration)):
-
-- Canvases and Bases always sync, and SVG files sync as images.
-- CSV, JSON and other text files sync only when `SYNC_FILE_TYPES` includes
-  `unsupported` and each device turns on **Sync all other types**. Otherwise a
-  text file you expect is missing from the server, and one an agent writes
-  stays on the server.
-
-The **Changed `.env`?** note under [Restart](#restart) gives the command that
-applies a new `SYNC_FILE_TYPES`.
+Text files other than canvases, Bases and SVGs sync only when
+`SYNC_FILE_TYPES` includes `unsupported`. Until it does, a CSV you expect is
+missing from the server, and one an agent writes stays on it; see
+`SYNC_FILE_TYPES` under [Configuration](#configuration).
 
 ## Read-only mode
 
