@@ -1126,6 +1126,27 @@ describe("writeAssetContent — creating", () => {
     ).rejects.toThrow(new Error('cannot write file "exports.json": that path is not a file'))
   })
 
+  it.each([
+    { label: "a create", overwrite: false },
+    { label: "an overwrite", overwrite: true },
+  ])(
+    "refuses a broken symlink at the path and leaves it in place ($label)",
+    async ({ overwrite }) => {
+      const vaultPath = await makeTempVault()
+      const missingTarget = join(vaultPath, "missing.json")
+      await symlink(missingTarget, join(vaultPath, "broken.json"))
+
+      await expect(
+        assetOperations.writeAssetContent(
+          { ...writeDefaults, vaultPath, path: "broken.json", content: "{}", overwrite },
+          logger,
+        ),
+      ).rejects.toThrow(new Error('cannot write file "broken.json": that path is not a file'))
+      expect(await readlink(join(vaultPath, "broken.json"))).toBe(missingTarget)
+      expect(await readdir(vaultPath)).toEqual(["broken.json"])
+    },
+  )
+
   it("refuses a symlink to a folder and leaves the link in place", async () => {
     const vaultPath = await makeTempVault()
     await mkdir(join(vaultPath, "real-folder"))

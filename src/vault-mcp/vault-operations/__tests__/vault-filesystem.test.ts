@@ -195,6 +195,14 @@ describe("atomicWriteFile", () => {
     })
   })
 
+  /** The permission bits the process umask leaves on a file created with every
+   *  bit set, so the expected modes hold under any contributor's umask. */
+  const bitsTheUmaskKeeps = async (): Promise<number> => {
+    const probe = join(vault, "umask-probe")
+    await writeFile(probe, "", { mode: 0o777 })
+    return (await stat(probe)).mode & 0o777
+  }
+
   it.each([
     { label: "a private file", mode: 0o600 },
     { label: "an executable script", mode: 0o755 },
@@ -206,7 +214,7 @@ describe("atomicWriteFile", () => {
     await atomicWriteFile({ filePath: target, content: "after\n" }, logger)
 
     expect(await readFile(target, "utf8")).toBe("after\n")
-    expect((await stat(target)).mode & 0o777).toBe(mode)
+    expect((await stat(target)).mode & 0o777).toBe(mode & (await bitsTheUmaskKeeps()))
   })
 
   it("never copies the setuid, setgid or sticky bit of the file it replaces", async () => {
@@ -220,7 +228,7 @@ describe("atomicWriteFile", () => {
     await atomicWriteFile({ filePath: target, content: "after\n" }, logger)
 
     expect(await readFile(target, "utf8")).toBe("after\n")
-    expect((await stat(target)).mode & 0o7777).toBe(0o755)
+    expect((await stat(target)).mode & 0o7777).toBe(0o755 & (await bitsTheUmaskKeeps()))
   })
 
   it("saves a note whose name is one byte under the filesystem's name limit", async () => {

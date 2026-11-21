@@ -260,7 +260,7 @@ Errors:
 - "file already exists" — set overwrite: true to replace it
 - "not a file: … is a markdown note" — the path ends in .md${whenToolEnabledText("vault_write_note", "; write notes with vault_write_note")}
 - "cannot write … as text" — the path names an image or a PDF; save it outside the server
-- "cannot write file …: that path is not a file" — a folder already has this name; choose another path
+- "cannot write file …: that path is not a file" — a folder or a broken symlink already has this name; choose another path
 ${PATH_SAFETY_ERROR_ENTRY}
 ${CONTENT_CONTROL_CHARACTER_ERROR_ENTRY}
 - "invalid .canvas JSON" / "invalid JSON" / "invalid .base YAML" — .canvas and .json must be valid JSON (a canvas: an object whose nodes and edges, when present, are arrays), .base YAML with a mapping at the top; fix what the message names

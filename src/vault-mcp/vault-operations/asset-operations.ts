@@ -26,7 +26,7 @@ import {
 } from "../../utils/decode-text-buffer.js"
 import { describeErrorForLog } from "../../utils/describe-error.js"
 import { withExclusiveFileLock } from "../../utils/file-write-lock.js"
-import { readFileBytePrefixOrNull, statOrNull } from "../../utils/fs.js"
+import { lstatOrNull, readFileBytePrefixOrNull, statOrNull } from "../../utils/fs.js"
 import { isErrnoException } from "../../utils/is-errno-exception.js"
 import { fitImageToByteBudget } from "../../utils/fit-image-to-byte-budget.js"
 import type { FittedImage } from "../../utils/fit-image-to-byte-budget.js"
@@ -400,6 +400,9 @@ const assertExistingFileIsText = async (params: {
 
 const fileExistsMessage = (path: string): string => `file already exists: "${path}"`
 
+const notAFileMessage = (path: string): string =>
+  `cannot write file "${path}": that path is not a file`
+
 /** Saves a file that must be new. The save is exclusive, so a file that
  *  appeared since the existence check (Obsidian Sync delivering the same path)
  *  is never replaced. */
@@ -431,8 +434,8 @@ const saveNewFile = async (
  * - content with a control character other than tab, LF or CR;
  * - `.canvas`, `.json` or `.base` content that would break its format.
  * Inside the write lock it creates any missing parent folders, then refuses
- * an existing file without `overwrite`, a folder at the path, and an existing
- * file readAssetContent reads as binary.
+ * an existing file without `overwrite`, a folder or a broken symlink at the
+ * path, and an existing file readAssetContent reads as binary.
  */
 const writeAssetContent = async (
   params: {
@@ -466,14 +469,17 @@ const writeAssetContent = async (
     await mkdir(dirname(fullPath), { recursive: true })
 
     const existingStats = await statOrNull(fullPath)
+    // stat follows a symlink, so a link whose target is missing reads as no
+    // file, while the exclusive save below would refuse it as an existing one:
+    // a refusal that overwrite cannot clear.
+    const isDanglingLink = !existingStats && Boolean(await lstatOrNull(fullPath))
 
+    if (isDanglingLink) throw new Error(notAFileMessage(path))
     if (existingStats) {
       // The rename that saves the file would replace a folder symlink, and
       // assertExistingFileIsText would fail reading a folder, so anything but a
       // file stops here.
-      if (!existingStats.isFile()) {
-        throw new Error(`cannot write file "${path}": that path is not a file`)
-      }
+      if (!existingStats.isFile()) throw new Error(notAFileMessage(path))
       if (!overwrite) throw new Error(fileExistsMessage(path))
       await assertExistingFileIsText({ fullPath, path })
       await atomicWriteFile({ filePath: fullPath, content }, logger)
