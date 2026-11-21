@@ -468,7 +468,7 @@ const writeAssetContent = async (
 
     if (existingStats) {
       // The rename that saves the file would replace a folder symlink, and
-      // assertExistingFileIsText would fail opening a folder, so anything but a
+      // assertExistingFileIsText would fail reading a folder, so anything but a
       // file stops here.
       if (!existingStats.isFile()) {
         throw new Error(`cannot write file "${path}": that path is not a file`)

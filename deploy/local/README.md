@@ -325,9 +325,10 @@ For each install:
 Vault Cortex runs in a Linux container, so on Windows it reaches your vault through
 Docker Desktop's WSL2 bridge. Two things need a non-default code path across that
 bridge: live re-indexing (the file watcher's native filesystem events don't cross it)
-and `vault_move_note` (its atomic hard-link write isn't supported there). **Setting
-`WINDOWS_MODE=true` handles both** — the watcher switches to polling and moves use a
-rename-based write — so a vault on a `C:\` drive works out of the box:
+and the atomic hard-link write that `vault_move_note` and `vault_write_file` use to
+create a file (hard links aren't supported there). **Setting `WINDOWS_MODE=true`
+handles both** — the watcher switches to polling and that write becomes
+rename-based — so a vault on a `C:\` drive works out of the box:
 
 ```bash
 # in .env
@@ -335,8 +336,9 @@ VAULT_PATH=C:\Users\you\MyVault
 WINDOWS_MODE=true
 ```
 
-`WINDOWS_MODE` is safe to leave on for any Windows setup; reading, writing, and search
-work with or without it — it only changes how re-indexing and moves are done.
+`WINDOWS_MODE` is safe to leave on for any Windows setup; reading, search, and other
+writes work with or without it — it only changes how re-indexing and that write are
+done.
 
 **For best performance**, keep the vault inside the WSL2 filesystem (ext4) instead —
 native filesystem events are lighter than polling, and you can leave `WINDOWS_MODE`

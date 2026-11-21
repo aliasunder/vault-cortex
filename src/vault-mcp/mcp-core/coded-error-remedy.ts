@@ -40,9 +40,9 @@ const describeSystemErrorRemedy = (error: SystemError): string => {
       // Any other ENOTDIR or EEXIST means a folder in the path changed between
       // two steps of the call:
       // - reads treat ENOTDIR as no file (utils/fs.ts);
-      // - both exclusive creates catch their EEXIST: note-mover.ts around
-      //   atomicWriteFileExclusive, and claimTrashTarget in
-      //   vault-filesystem.ts.
+      // - every exclusive create catches its EEXIST: note-mover.ts and
+      //   saveNewFile in asset-operations.ts around atomicWriteFileExclusive,
+      //   and claimTrashTarget in vault-filesystem.ts.
       return CHANGED_DURING_CALL_REMEDY
     }
     case "EACCES":
