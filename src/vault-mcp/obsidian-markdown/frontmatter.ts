@@ -321,6 +321,8 @@ const findFirstDuplicateKey = (document: Document): YAMLParseError | undefined =
   return undefined
 }
 
+type FirstYamlError = Readonly<{ error: YAMLParseError; line: number; column: number }>
+
 /**
  * Parses YAML text and finds its first error, with that error's 1-based line
  * and column. A syntax error is reported ahead of any duplicate key, wherever
@@ -329,13 +331,11 @@ const findFirstDuplicateKey = (document: Document): YAMLParseError | undefined =
  */
 export const parseYamlWithFirstError = (
   yamlText: string,
-): {
-  document: Document
-  firstError: Readonly<{ error: YAMLParseError; line: number; column: number }> | undefined
-} => {
+): { document: Document; firstError: FirstYamlError | undefined } => {
   // Each call gets its own counter, because a shared one keeps counting
   // across parses and reports later errors on the wrong line.
   const lineCounter = new LineCounter()
+
   // - prettyErrors would append its own position and a multi-line excerpt of
   //   the text to each message; callers state the position themselves.
   // - uniqueKeys: false turns off the library's duplicate-key check, which

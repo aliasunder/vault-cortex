@@ -476,19 +476,17 @@ const writeAssetContent = async (
       }
       if (!overwrite) throw new Error(fileExistsMessage(path))
       await assertExistingFileIsText({ fullPath, path })
-    }
-
-    // The save follows existingStats, not overwrite: a file that appears after
-    // the stat was never checked, so a path that was missing is created
-    // exclusively even with overwrite.
-    if (existingStats) {
       await atomicWriteFile({ filePath: fullPath, content }, logger)
     } else {
+      // The path was missing at the stat, so the save is exclusive even with
+      // overwrite. A file that appears after the stat was never checked, and
+      // the exclusive save refuses to replace it.
       await saveNewFile(
         { fullPath, path, content, hardLinksSupported: !params.windowsBindMount },
         logger,
       )
     }
+
     logger.info("wrote file", {
       path,
       beforeBytes: existingStats?.size ?? 0,

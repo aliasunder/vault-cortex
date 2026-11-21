@@ -136,8 +136,7 @@ export const resolveVaultRelativePath = (params: {
 }
 
 /** Refuses a markdown note where a non-markdown file is expected, the one
- *  boundary between the note tools and the file tools. It reads the resolved
- *  path, so a trailing "/" or "/." on the path as sent cannot hide a note. */
+ *  boundary between the note tools and the file tools. */
 export const assertNotMarkdownNote = (params: { fullPath: string; path: string }): void => {
   if (!params.fullPath.endsWith(".md")) return
   throw new Error(`not a file: "${params.path}" is a markdown note`)
@@ -247,14 +246,15 @@ export const atomicWriteFile = async (
   logger: Logger,
 ): Promise<void> => {
   const tmpPath = tempSavePath(params.filePath)
+
   // The temp file takes the target's permission bits, so an edit keeps a
   // private file private and an executable script runnable; the process umask
   // still removes its own bits.
   const targetStats = await statOrNull(params.filePath)
-  const permissionMode = targetStats ? { mode: targetStats.mode & PERMISSION_BITS } : {}
+  const modeOption = targetStats ? { mode: targetStats.mode & PERMISSION_BITS } : {}
 
   try {
-    await writeFile(tmpPath, params.content, { encoding: "utf8", ...permissionMode })
+    await writeFile(tmpPath, params.content, { encoding: "utf8", ...modeOption })
     await rename(tmpPath, params.filePath)
   } catch (err) {
     // A failed write never strands its temp file
@@ -1066,6 +1066,7 @@ const readAsset = async (
   logger: Logger,
 ): Promise<{ buffer: Buffer; bytes: number; extension: string }> => {
   const fullPath = resolveSafePath(params.vaultPath, params.path)
+
   // Checked on the resolved path, so a trailing "/" or "/." cannot hide a note
   assertNotMarkdownNote({ fullPath, path: params.path })
 

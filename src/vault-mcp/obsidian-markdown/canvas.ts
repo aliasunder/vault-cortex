@@ -182,9 +182,9 @@ const EDGE_NAME_CODE_POINT_LIMIT = 100
 
 const graphemeSegmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" })
 
-/** The name an edge line shows for a node: its display name cut to whole
- *  graphemes within EDGE_NAME_CODE_POINT_LIMIT code points, ending in an
- *  ellipsis when anything was cut. */
+/** Cuts the node's display name to whole graphemes within
+ *  EDGE_NAME_CODE_POINT_LIMIT code points, ending in an ellipsis when anything
+ *  was cut. */
 const edgeLineName = (node: CanvasNode): string => {
   const name = displayName(node)
 
@@ -196,8 +196,9 @@ const edgeLineName = (node: CanvasNode): string => {
     .toArray()
     .join("")
   const cutIndex = codePointPrefix.length
+  const nameFitsLimit = cutIndex === name.length
 
-  if (cutIndex === name.length) return name
+  if (nameFitsLimit) return name
 
   // Whether the cut splits a grapheme depends on the text before it and the
   // one code point after it, at most two UTF-16 units.
