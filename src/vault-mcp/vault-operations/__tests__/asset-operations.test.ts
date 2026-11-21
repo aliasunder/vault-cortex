@@ -58,7 +58,7 @@ vi.mock("../../../utils/fit-image-to-byte-budget.js", () => ({
 
 import { atomicWriteFileExclusive, vaultFs } from "../vault-filesystem.js"
 import { fitImageToByteBudget } from "../../../utils/fit-image-to-byte-budget.js"
-import { readFileBytePrefixOrNull } from "../../../utils/fs.js"
+import { readFileBytePrefixOrNull, statOrNull } from "../../../utils/fs.js"
 
 const mockedReadAsset = vi.mocked(vaultFs.readAsset)
 const mockedListAssets = vi.mocked(vaultFs.listAssets)
@@ -992,6 +992,7 @@ const mockedAtomicWriteFileExclusive = vi.mocked(atomicWriteFileExclusive)
 const actualFs =
   await vi.importActual<typeof import("../../../utils/fs.js")>("../../../utils/fs.js")
 const mockedReadFileBytePrefixOrNull = vi.mocked(readFileBytePrefixOrNull)
+const mockedStatOrNull = vi.mocked(statOrNull)
 
 const makeTempVault = async (): Promise<string> => {
   const vaultPath = await mkdtemp(join(tmpdir(), "asset-write-test-"))
@@ -1146,6 +1147,24 @@ describe("writeAssetContent — creating", () => {
       expect(await readdir(vaultPath)).toEqual(["broken.json"])
     },
   )
+
+  it("refuses a file that appears between the existence check and the link check as existing", async () => {
+    const vaultPath = await makeTempVault()
+    await writeFile(join(vaultPath, "plan.json"), "from sync", "utf8")
+    // Stands in for Obsidian Sync writing the path just after the existence check missed it
+    mockedStatOrNull.mockResolvedValueOnce(null)
+
+    await expect(
+      assetOperations.writeAssetContent(
+        { ...writeDefaults, vaultPath, path: "plan.json", content: "{}", overwrite: true },
+        logger,
+      ),
+    ).rejects.toThrow(new Error('file already exists: "plan.json"'))
+    expect(await readFile(join(vaultPath, "plan.json"), "utf8")).toBe("from sync")
+    expect(await readdir(vaultPath)).toEqual(["plan.json"])
+    expect(mockedStatOrNull).toHaveBeenCalledTimes(1)
+    expect(mockedStatOrNull).toHaveBeenCalledWith(join(vaultPath, "plan.json"))
+  })
 
   it("refuses a symlink to a folder and leaves the link in place", async () => {
     const vaultPath = await makeTempVault()

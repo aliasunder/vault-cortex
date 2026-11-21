@@ -472,7 +472,8 @@ const writeAssetContent = async (
     // stat follows a symlink, so a link whose target is missing reads as no
     // file, while the exclusive save below would refuse it as an existing one:
     // a refusal that overwrite cannot clear.
-    const isDanglingLink = !existingStats && Boolean(await lstatOrNull(fullPath))
+    const isDanglingLink =
+      !existingStats && Boolean((await lstatOrNull(fullPath))?.isSymbolicLink())
 
     if (isDanglingLink) throw new Error(notAFileMessage(path))
     if (existingStats) {
