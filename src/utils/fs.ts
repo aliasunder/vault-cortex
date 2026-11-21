@@ -52,6 +52,25 @@ export const readFileTextPrefix = async (params: {
     : decoder.end(readBytes)
 }
 
+/** Reads at most maxBytes from the start of a file, returning null instead of
+ *  throwing when nothing exists at the path (ENOENT) or a parent is a file
+ *  (ENOTDIR). Any other error propagates. */
+export const readFileBytePrefixOrNull = async (params: {
+  path: string
+  maxBytes: number
+}): Promise<Buffer | null> => {
+  const byteLimit = Math.floor(params.maxBytes)
+
+  if (byteLimit < 1) return Buffer.alloc(0)
+  try {
+    // end is inclusive, so the stream stops after byteLimit bytes
+    return await streamToBuffer(createReadStream(params.path, { start: 0, end: byteLimit - 1 }))
+  } catch (error) {
+    if (isMissingPathError(error)) return null
+    throw error
+  }
+}
+
 /** Stats a path, returning null instead of throwing when nothing exists there
  *  (ENOENT) or a parent is a file (ENOTDIR). Any other error propagates. */
 export const statOrNull = async (path: string): Promise<Stats | null> => {
