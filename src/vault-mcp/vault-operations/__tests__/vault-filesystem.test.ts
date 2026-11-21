@@ -3803,6 +3803,16 @@ describe("readAsset", () => {
     ).rejects.toThrow('not a file: "note.md" is a markdown note')
   })
 
+  it.each([
+    { label: "a trailing slash", path: "note.md/" },
+    { label: "a trailing dot segment", path: "note.md/." },
+  ])("rejects a .md path hidden behind $label", async ({ path }) => {
+    await writeFile(join(vault, "note.md"), "# note", "utf8")
+    await expect(readAsset({ vaultPath: vault, path, maxBytes: 1024 }, logger)).rejects.toThrow(
+      new Error(`not a file: "${path}" is a markdown note`),
+    )
+  })
+
   it("blocks path traversal out of the vault", async () => {
     await expect(
       readAsset({ vaultPath: vault, path: "../outside.png", maxBytes: 1024 }, logger),

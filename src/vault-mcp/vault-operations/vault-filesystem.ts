@@ -1047,10 +1047,13 @@ const readAsset = async (
   params: { vaultPath: string; path: string; maxBytes: number },
   logger: Logger,
 ): Promise<{ buffer: Buffer; bytes: number; extension: string }> => {
-  if (params.path.endsWith(".md")) {
+  const fullPath = resolveSafePath(params.vaultPath, params.path)
+
+  // Checked on the resolved path, so a trailing "/" or "/." cannot hide a note
+  if (fullPath.endsWith(".md")) {
     throw new Error(`not a file: "${params.path}" is a markdown note`)
   }
-  const fullPath = resolveSafePath(params.vaultPath, params.path)
+
   const fileStats = await statOrNull(fullPath)
 
   if (!fileStats || !fileStats.isFile()) {
