@@ -341,13 +341,12 @@ export const extractCanvasLinks = (canvasJson: string): CanvasLinks => {
 
   const rawNodes = isRecord(parsed) && Array.isArray(parsed.nodes) ? parsed.nodes : []
   const nodes = rawNodes.map(parseNode).filter((node) => node !== null)
-  // A file card names a vault path, so one over the link-target limit names
-  // no file, and deduplicating it would cost what a long link target does.
-  const fileCardPaths = nodes.flatMap((node) => {
-    const namesLinkablePath =
-      node.type === "file" && node.file && links.isWithinLinkTargetLimit(node.file)
-    return namesLinkablePath ? [node.file] : []
-  })
+  // A file card holds an exact vault path, which always fits the link-target
+  // limit, so a card over it names no file. Skipping such cards keeps the Set
+  // below from slowing as links.isWithinLinkTargetLimit describes.
+  const fileCardPaths = nodes
+    .flatMap((node) => (node.type === "file" && node.file ? [node.file] : []))
+    .filter(links.isWithinLinkTargetLimit)
   const cardTexts = nodes.flatMap((node) => (node.type === "text" && node.text ? [node.text] : []))
   // A text card is plain Markdown with no properties block.
   const noFrontmatter = {}
@@ -410,7 +409,9 @@ export const rewriteCanvasLinks = (params: {
   if (!isRecord(parsed) || !Array.isArray(parsed.nodes)) return null
 
   // Nodes pass through parseNode, the same check extractCanvasLinks applies,
-  // so the rewrite touches exactly the cards that function reads.
+  // so the rewrite reaches every card that function reads. It also reaches the
+  // file cards over the link-target limit that extraction skips, which name no
+  // file.
   const rewriteNode = (rawNode: unknown): NodeRewrite => {
     const node = parseNode(rawNode)
     const unchanged = { node: rawNode, linksRewritten: 0 }
