@@ -7390,6 +7390,7 @@ describe("link-target limits", () => {
       logger,
     )
 
+    expect(joinSpy).toHaveBeenCalledTimes(1)
     expect(joinSpy).toHaveBeenCalledWith("a", "../x.md")
     expect(
       index
@@ -7402,7 +7403,7 @@ describe("link-target limits", () => {
   })
 
   it(
-    "indexes a note holding a 1 MB link target of a long segment and '/b/..' pairs within a child deadline, keeping only its real link",
+    "indexes a note holding a 1 MB link target with a '..' after a name within a child deadline, keeping only its real link",
     () => {
       const searchIndexUrl = new URL("../search-index.ts", import.meta.url).href
       const loggerUrl = new URL("../../../logger.ts", import.meta.url).href
@@ -7430,7 +7431,7 @@ describe("link-target limits", () => {
   )
 
   it(
-    "re-resolves 2,000 stored links whose texts hold control characters in time linear in their count",
+    "re-resolves 2,000 stored links whose texts hold control characters to a new note in time linear in their count",
     () => {
       const helperPath = new URL("./helpers/link-memo-growth.ts", import.meta.url)
       const output = execFileSync(process.execPath, ["--import", "tsx", helperPath.pathname], {
@@ -7442,7 +7443,23 @@ describe("link-target limits", () => {
       const { measurements } = JSON.parse(output)
       const [small, large] = measurements
 
-      expect(measurements.map(({ count }: { count: number }) => count)).toEqual([250, 2_000])
+      type SourceTargets = { unresolved: number; resolved: string[] }
+      type Measurement = { count: number; before: SourceTargets; after: SourceTargets }
+
+      expect(
+        measurements.map(({ count, before, after }: Measurement) => ({ count, before, after })),
+      ).toEqual([
+        {
+          count: 250,
+          before: { unresolved: 250, resolved: [] },
+          after: { unresolved: 0, resolved: ["real.md"] },
+        },
+        {
+          count: 2_000,
+          before: { unresolved: 2_000, resolved: [] },
+          after: { unresolved: 0, resolved: ["real.md"] },
+        },
+      ])
       expect(large.leastMs).toBeLessThanOrEqual(
         Math.max(TIMING_FLOOR_MS, small.leastMs) * 8 * LINEAR_GROWTH_ALLOWANCE,
       )

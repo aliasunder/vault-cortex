@@ -22,6 +22,10 @@ const suffixDistinctTargets = (count: number): string[] => {
   })
 }
 
+/** A target within the limit, listed after the long ones. Extraction keeps it,
+ *  which shows the timed call reads past every long target. */
+const KEPT_TARGET = "kept.md"
+
 const buildInput = (targets: readonly string[]): string => {
   if (variant === "extract") return targets.map((target) => `[[${target}]]`).join("\n")
 
@@ -31,17 +35,17 @@ const buildInput = (targets: readonly string[]): string => {
   return JSON.stringify({ nodes: fileCards, edges: [] })
 }
 
-const countKeptTargets = (input: string): number => {
-  if (variant === "extract") return links.extractAll(input, {}).length
-  return extractCanvasLinks(input).fileCardPaths.length
+const extractTargets = (input: string): string[] => {
+  if (variant === "extract") return links.extractAll(input, {})
+  return extractCanvasLinks(input).fileCardPaths
 }
 
 const measurements = LINK_COUNTS.map((count) => {
-  const input = buildInput(suffixDistinctTargets(count))
-  const kept = countKeptTargets(input)
+  const input = buildInput([...suffixDistinctTargets(count), KEPT_TARGET])
+  const kept = extractTargets(input)
   const elapsedRuns = Array.from({ length: RUNS }, () => {
     const start = performance.now()
-    countKeptTargets(input)
+    extractTargets(input)
     return performance.now() - start
   })
   return { count, kept, leastMs: Math.min(...elapsedRuns) }

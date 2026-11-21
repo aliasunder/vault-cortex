@@ -1133,6 +1133,12 @@ describe("link-target limits", () => {
     expect(links.extractFromBody(`[[${kept}]]\n[[${leadingParentTarget(10_237)}]]`)).toEqual([kept])
   })
 
+  it("ignores '.' and empty segments when checking that a target's '..' segments all lead", () => {
+    const kept = `.//${leadingParentTarget(8000)}`
+
+    expect(links.extractFromBody(`[[${kept}]] [[${interleavedTarget(4096)}]]`)).toEqual([kept])
+  })
+
   it("measures a target in UTF-8 bytes, so 2,052 UTF-16 units of 4,096 bytes are skipped", () => {
     const multiByteTarget = `xx/b/../${"é".repeat(2044)}`
 
@@ -1276,7 +1282,7 @@ describe("link-target limits", () => {
   })
 
   it(
-    "deduplicates 2,000 suffix-distinct 16,384-character targets in time linear in their count",
+    "skips 2,000 targets over the link-target limit in time linear in their count, keeping a short one",
     () => {
       const helperPath = new URL("./helpers/link-target-growth.ts", import.meta.url)
       const output = execFileSync(
@@ -1288,10 +1294,10 @@ describe("link-target limits", () => {
       const [small, large] = measurements
 
       expect(
-        measurements.map(({ count, kept }: { count: number; kept: number }) => ({ count, kept })),
+        measurements.map(({ count, kept }: { count: number; kept: string[] }) => ({ count, kept })),
       ).toEqual([
-        { count: 250, kept: 0 },
-        { count: 2_000, kept: 0 },
+        { count: 250, kept: ["kept.md"] },
+        { count: 2_000, kept: ["kept.md"] },
       ])
       expect(large.leastMs).toBeLessThanOrEqual(
         Math.max(TIMING_FLOOR_MS, small.leastMs) * 8 * LINEAR_GROWTH_ALLOWANCE,

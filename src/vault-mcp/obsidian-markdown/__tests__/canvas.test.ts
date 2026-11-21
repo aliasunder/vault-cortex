@@ -364,7 +364,7 @@ describe("extractCanvasLinks", () => {
   })
 
   it(
-    "deduplicates 2,000 suffix-distinct 16,384-character file card paths in time linear in their count",
+    "skips 2,000 file card paths over the link-target limit in time linear in their count, keeping a short one",
     () => {
       const helperPath = new URL("./helpers/link-target-growth.ts", import.meta.url)
       const output = execFileSync(
@@ -376,10 +376,10 @@ describe("extractCanvasLinks", () => {
       const [small, large] = measurements
 
       expect(
-        measurements.map(({ count, kept }: { count: number; kept: number }) => ({ count, kept })),
+        measurements.map(({ count, kept }: { count: number; kept: string[] }) => ({ count, kept })),
       ).toEqual([
-        { count: 250, kept: 0 },
-        { count: 2_000, kept: 0 },
+        { count: 250, kept: ["kept.md"] },
+        { count: 2_000, kept: ["kept.md"] },
       ])
       expect(large.leastMs).toBeLessThanOrEqual(
         Math.max(TIMING_FLOOR_MS, small.leastMs) * 8 * LINEAR_GROWTH_ALLOWANCE,
