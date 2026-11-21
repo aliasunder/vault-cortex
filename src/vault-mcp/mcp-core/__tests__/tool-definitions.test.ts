@@ -1826,7 +1826,11 @@ describe("MEMORY_ENABLED=false", () => {
 })
 
 describe("FILE_TOOLS_ENABLED=false", () => {
-  const FILE_TOOLS = [TOOL_NAMES.VAULT_READ_FILE, TOOL_NAMES.VAULT_LIST_FILES] as const
+  const FILE_TOOLS = [
+    TOOL_NAMES.VAULT_READ_FILE,
+    TOOL_NAMES.VAULT_WRITE_FILE,
+    TOOL_NAMES.VAULT_LIST_FILES,
+  ] as const
 
   const FILE_TOOL_SET = new Set<string>(FILE_TOOLS)
   const EXPECTED_NON_FILE_TOOLS = ALL_TOOL_NAMES.filter((toolName) => !FILE_TOOL_SET.has(toolName))
@@ -3896,6 +3900,8 @@ describe("DISABLED_TOOLS", () => {
     "Prefer vault_update_properties for property-only edits (no body round-trip)."
   const WRITE_NOTE_MEMORY_LINE =
     "Prefer vault_update_memory for appending dated entries to About Me/ memory files."
+  const WRITE_NOTE_FILE_LINE =
+    "For a non-markdown file (.canvas, .base, .json), use vault_write_file."
 
   it.each([
     {
@@ -3926,6 +3932,7 @@ describe("DISABLED_TOOLS", () => {
         partialEditLine,
         WRITE_NOTE_PROPERTIES_LINE,
         WRITE_NOTE_MEMORY_LINE,
+        WRITE_NOTE_FILE_LINE,
       ].join("\n"),
     )
   })
@@ -3968,6 +3975,7 @@ describe("DISABLED_TOOLS", () => {
         "Prefer vault_patch_note or vault_replace_in_note to change part of a note.",
         WRITE_NOTE_PROPERTIES_LINE,
         WRITE_NOTE_MEMORY_LINE,
+        WRITE_NOTE_FILE_LINE,
       ],
     },
     {
@@ -3977,12 +3985,23 @@ describe("DISABLED_TOOLS", () => {
         WRITE_NOTE_WHEN_TO_USE,
         "Prefer vault_patch_note or vault_replace_in_note to change part of a note.",
         WRITE_NOTE_MEMORY_LINE,
+        WRITE_NOTE_FILE_LINE,
+      ],
+    },
+    {
+      label: "drops the vault_write_file line when that tool is disabled",
+      disabledTools: "vault_write_file",
+      expectedLines: [
+        WRITE_NOTE_WHEN_TO_USE,
+        "Prefer vault_patch_note or vault_replace_in_note to change part of a note.",
+        WRITE_NOTE_PROPERTIES_LINE,
+        WRITE_NOTE_MEMORY_LINE,
       ],
     },
     {
       label: "leaves only the when-to-use line when every routing tool is disabled",
       disabledTools:
-        "vault_update_properties,vault_update_memory,vault_patch_note,vault_replace_in_note",
+        "vault_update_properties,vault_update_memory,vault_patch_note,vault_replace_in_note,vault_write_file",
       expectedLines: [WRITE_NOTE_WHEN_TO_USE],
     },
   ])("vault_write_note's when-to-use $label", ({ disabledTools, expectedLines }) => {

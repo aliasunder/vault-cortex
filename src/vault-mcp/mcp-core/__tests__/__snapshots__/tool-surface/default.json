@@ -1929,9 +1929,48 @@
       }
     },
     {
+      "name": "vault_write_file",
+      "title": "Write File",
+      "description": "Create a non-markdown text file, or with overwrite: true replace one.\n\nExample: vault_write_file({ path: \"Boards/Roadmap.canvas\", content: \"{\\\"nodes\\\":[],\\\"edges\\\":[]}\" })\nExample: vault_write_file({ path: \"Bases/Books.base\", content: \"views:\\n  - type: table\\n    name: All\\n\", overwrite: true })\n\nWhen to use: Editing a canvas, a Base or a data file (.json, .csv, .svg, .txt, a script) from a client without local file tools. Read the current source first with vault_read_file (raw: true for a canvas), then write the whole file back with overwrite: true. For .md notes use vault_write_note.\n\nBehavior: content is saved byte for byte. An overwrite keeps no copy of the replaced file.\n\nErrors:\n- \"file already exists\" — set overwrite: true to replace it\n- \"not a file: … is a markdown note\" — the path ends in .md; write notes with vault_write_note\n- \"cannot write … as text\" — images and PDFs cannot be written\n- \"cannot write file …: that path is not a file\" — a folder already has this name; choose another path\n- \"absolute path blocked\" / \"path traversal blocked\" / \"hidden path blocked\" — pass a vault-relative path with no dot-prefixed part\n- \"content contains a control character\" — remove the character the message names\n- \"invalid .canvas JSON\" / \"invalid JSON\" / \"invalid .base YAML\" — .canvas and .json must be valid JSON (a canvas: an object whose nodes and edges are arrays), .base YAML with a mapping at the top; fix what the message names\n- \"cannot overwrite …: it holds binary data\" — the file holds a NUL byte early on (an HTML page, a script or an unlisted type); replace or remove it outside the server, or write to another path\n- \"ENAMETOOLONG: …\" or another filesystem error — the message says what to do\n\nObsidian syntax: .canvas is JSON Canvas 1.0: nodes carry id, type (text, file, link or group), x, y, width and height, plus text, file, url or label; edges carry id, fromNode and toNode. .base is Obsidian Bases YAML (filters, formulas, properties, views).\n\nReturns: \"Wrote <path>\".",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Vault-relative path including the extension (e.g. \"Boards/Roadmap.canvas\"). Must NOT end in \".md\". Parent folders are created as needed. Use the exact letter case."
+          },
+          "content": {
+            "type": "string",
+            "description": "The file's complete text."
+          },
+          "overwrite": {
+            "default": false,
+            "description": "Allow replacing an existing file (default: false).",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "path",
+          "content"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
       "name": "vault_write_note",
       "title": "Write Note",
-      "description": "Create a markdown note, or with overwrite: true replace an existing note's body.\n\nExample: vault_write_note({ path: \"Projects/notes.md\", body: \"# Notes\\n\\nProject notes here.\", properties: { tags: [\"project\"], type: \"project\" } })\nExample: vault_write_note({ path: \"Projects/notes.md\", body: \"Updated content.\", overwrite: true })\n\nWhen to use: Creating a new note, or replacing a whole note's body.\nPrefer vault_patch_note or vault_replace_in_note to change part of a note.\nPrefer vault_update_properties for property-only edits (no body round-trip).\nPrefer vault_update_memory for appending dated entries to About Me/ memory files.\n\nBehavior:\n- Properties merge with any existing properties when overwriting (new keys added, matching keys overwritten, keys set to null removed, unmentioned keys preserved); overwriting without properties keeps the existing property values.\n- A new note leaves out keys set to null.\n\nErrors:\n- \"note already exists\" — set overwrite: true to replace it\n- \"path must end in …\" — add the .md extension\n- \"cannot write note …: that path is not a file\" — a folder already has this name; choose another path\n- \"absolute path blocked\" / \"path traversal blocked\" / \"hidden path blocked\" — pass a vault-relative path with no dot-prefixed part\n- \"concurrent write in progress\" — a write to this note is in flight; re-read it and retry\n- \"body contains a control character\" — remove the character the message names\n- \"ENAMETOOLONG: …\" or another filesystem error — the message says what to do\n- \"properties block …\" — with overwrite: true, the note's properties block can't be read, or a rewrite would lose it; the error says how to repair it\n- \"the note would open with a properties block …\" — a note without properties would start with --- lines around text that can't be properties; the error says how to avoid it\n\nObsidian syntax: Body is Obsidian Flavored Markdown (no escaping applied). Watch for: #word = tag (escape with \\#), [[ = wikilink, %% = comment block. In properties: quote wikilink values (\"[[Note]]\"), use YAML lists for tags, keep property types consistent (string/number/list mismatches cause silent query failures).\n\nReturns: \"Wrote <path>\".",
+      "description": "Create a markdown note, or with overwrite: true replace an existing note's body.\n\nExample: vault_write_note({ path: \"Projects/notes.md\", body: \"# Notes\\n\\nProject notes here.\", properties: { tags: [\"project\"], type: \"project\" } })\nExample: vault_write_note({ path: \"Projects/notes.md\", body: \"Updated content.\", overwrite: true })\n\nWhen to use: Creating a new note, or replacing a whole note's body.\nPrefer vault_patch_note or vault_replace_in_note to change part of a note.\nPrefer vault_update_properties for property-only edits (no body round-trip).\nPrefer vault_update_memory for appending dated entries to About Me/ memory files.\nFor a non-markdown file (.canvas, .base, .json), use vault_write_file.\n\nBehavior:\n- Properties merge with any existing properties when overwriting (new keys added, matching keys overwritten, keys set to null removed, unmentioned keys preserved); overwriting without properties keeps the existing property values.\n- A new note leaves out keys set to null.\n\nErrors:\n- \"note already exists\" — set overwrite: true to replace it\n- \"path must end in …\" — add the .md extension\n- \"cannot write note …: that path is not a file\" — a folder already has this name; choose another path\n- \"absolute path blocked\" / \"path traversal blocked\" / \"hidden path blocked\" — pass a vault-relative path with no dot-prefixed part\n- \"concurrent write in progress\" — a write to this note is in flight; re-read it and retry\n- \"body contains a control character\" — remove the character the message names\n- \"ENAMETOOLONG: …\" or another filesystem error — the message says what to do\n- \"properties block …\" — with overwrite: true, the note's properties block can't be read, or a rewrite would lose it; the error says how to repair it\n- \"the note would open with a properties block …\" — a note without properties would start with --- lines around text that can't be properties; the error says how to avoid it\n\nObsidian syntax: Body is Obsidian Flavored Markdown (no escaping applied). Watch for: #word = tag (escape with \\#), [[ = wikilink, %% = comment block. In properties: quote wikilink values (\"[[Note]]\"), use YAML lists for tags, keep property types consistent (string/number/list mismatches cause silent query failures).\n\nReturns: \"Wrote <path>\".",
       "inputSchema": {
         "type": "object",
         "properties": {

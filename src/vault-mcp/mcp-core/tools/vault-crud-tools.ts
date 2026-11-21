@@ -468,6 +468,10 @@ Returns: JSON array of every matching vault-relative path (e.g. ["Notes/idea.md"
       "vault_update_memory",
       `Prefer vault_update_memory for appending dated entries to ${config.memoryDir}/ memory files.`,
     ),
+    whenToolEnabledText(
+      "vault_write_file",
+      "For a non-markdown file (.canvas, .base, .json), use vault_write_file.",
+    ),
   ]
     .filter(Boolean)
     .map((line) => `\n${line}`)

@@ -1059,6 +1059,25 @@ describe("filesystem errors name the path vault-relative and carry their remedy"
     })
   })
 
+  it("vault_write_file on a file name too long for the filesystem", async () => {
+    const longFileName = `${"a".repeat(300)}.json`
+
+    const result = await callTool({
+      client,
+      name: "vault_write_file",
+      args: { path: longFileName, content: "{}" },
+    })
+    expect(result).toEqual({
+      content: [
+        {
+          type: "text",
+          text: `[Error]: ENAMETOOLONG: name too long, stat '${longFileName}'. ${PATH_TOO_LONG_REMEDY}`,
+        },
+      ],
+      isError: true,
+    })
+  })
+
   it("vault_read_file on a file name too long for the filesystem", async () => {
     const longFileName = `${"a".repeat(300)}.png`
 
@@ -2528,6 +2547,153 @@ describe("binary file", () => {
       ],
       isError: true,
     })
+  })
+})
+
+// ── vault_write_file refusals ────────────────────────────────
+
+describe("vault_write_file refusals", () => {
+  /** The whole error result the transport returns for `message`. */
+  const toolError = (message: string): ToolResult => ({
+    content: [{ type: "text", text: `[Error]: ${message}` }],
+    isError: true,
+  })
+
+  /** The message JSON.parse gives for `text`, read the way the server reads it. */
+  const jsonParseMessage = (text: string): string => {
+    try {
+      JSON.parse(text)
+    } catch (error) {
+      return error instanceof Error ? error.message : String(error)
+    }
+    throw new Error(`expected JSON.parse to refuse ${text}`)
+  }
+
+  it("refuses an existing file without overwrite", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_write_file",
+      args: { path: "test-data.txt", content: "replacement" },
+    })
+    expect(result).toEqual(toolError('file already exists: "test-data.txt"'))
+  })
+
+  it("refuses a markdown note", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_write_file",
+      args: { path: "Projects/alpha.md", content: "# Replaced" },
+    })
+    expect(result).toEqual(toolError('not a file: "Projects/alpha.md" is a markdown note'))
+  })
+
+  it("refuses an image path", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_write_file",
+      args: { path: "diagram.png", content: "<svg/>" },
+    })
+    expect(result).toEqual(
+      toolError('cannot write "diagram.png" as text: images and PDFs are binary files'),
+    )
+  })
+
+  it("refuses a path that a folder occupies", async () => {
+    const folderPath = "Folder Named Like A File.json"
+    const folderFullPath = join(serverVaultPath, folderPath)
+    await mkdir(folderFullPath)
+    onTestFinished(() => rm(folderFullPath, { recursive: true }))
+
+    const result = await callTool({
+      client,
+      name: "vault_write_file",
+      args: { path: folderPath, content: "{}", overwrite: true },
+    })
+    expect(result).toEqual(toolError(`cannot write file "${folderPath}": that path is not a file`))
+  })
+
+  it.each([
+    {
+      label: "an absolute container path",
+      path: () => `${serverVaultPath}/injected.canvas`,
+      message: (path: string) => `absolute path blocked: "${path}" must be vault-relative`,
+    },
+    {
+      label: "a path that escapes the vault",
+      path: () => "../outside.canvas",
+      message: (path: string) => `path traversal blocked: "${path}" escapes vault root`,
+    },
+    {
+      label: "a hidden path",
+      path: () => ".obsidian/app.json",
+      message: (path: string) => `hidden path blocked: "${path}" targets a hidden file or folder`,
+    },
+  ])("refuses $label", async ({ path, message }) => {
+    const filePath = path()
+
+    const result = await callTool({
+      client,
+      name: "vault_write_file",
+      args: { path: filePath, content: "{}" },
+    })
+    expect(result).toEqual(toolError(message(filePath)))
+  })
+
+  it("refuses content holding a control character", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_write_file",
+      args: { path: "Scratch/bell.txt", content: "a\u0007b" },
+    })
+    expect(result).toEqual(
+      toolError(
+        "content contains a control character (U+0007 at position 1) — control characters other than tab, LF, and CR are not allowed",
+      ),
+    )
+  })
+
+  it.each([
+    {
+      label: "a canvas whose top level is an array",
+      path: "Scratch/list.canvas",
+      content: "[]",
+      message: () => "invalid .canvas JSON: the top level must be an object",
+    },
+    {
+      label: "a .json file that is not JSON",
+      path: "Scratch/broken.json",
+      content: "{",
+      message: () => `invalid JSON: ${jsonParseMessage("{")}`,
+    },
+    {
+      label: "a Base whose top level is a list",
+      path: "Scratch/list.base",
+      content: "- a\n- b\n",
+      message: () => "invalid .base YAML: the top level must be a mapping",
+    },
+  ])("refuses $label", async ({ path, content, message }) => {
+    const result = await callTool({ client, name: "vault_write_file", args: { path, content } })
+    expect(result).toEqual(toolError(message()))
+  })
+
+  it("refuses to replace a file holding binary data", async () => {
+    const filePath = "Archive.bin"
+    const fileFullPath = join(serverVaultPath, filePath)
+    const binaryBytes = Buffer.from([0x50, 0x4b, 0x03, 0x04, 0x14, 0x00, 0x00, 0x00])
+    await writeFile(fileFullPath, binaryBytes)
+    onTestFinished(() => rm(fileFullPath))
+
+    const result = await callTool({
+      client,
+      name: "vault_write_file",
+      args: { path: filePath, content: "text", overwrite: true },
+    })
+    expect(result).toEqual(
+      toolError(
+        `cannot overwrite "${filePath}": it holds binary data (a NUL byte in its first 8,000 bytes). Replace or remove it outside the server, or write to another path`,
+      ),
+    )
+    expect(await readFile(fileFullPath)).toEqual(binaryBytes)
   })
 })
 
