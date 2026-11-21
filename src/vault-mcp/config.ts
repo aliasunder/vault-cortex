@@ -150,7 +150,8 @@ export type VaultConfig = Readonly<{
   /** "Windows mode": the vault is bind-mounted from a Windows drive into Docker
    *  Desktop, so it crosses the Docker Desktop ↔ WSL2 bridge. Enables filesystem
    *  polling for the watcher (inotify doesn't cross the bridge) and a
-   *  rename-based exclusive write for moves (hard links aren't supported there).
+   *  rename-based exclusive write for note moves and the new files
+   *  vault_write_file creates (hard links aren't supported there).
    *  Set via WINDOWS_MODE; safe to leave on for any Windows setup. */
   windowsBindMount: boolean
   /** Per-read byte cap for vault_read_file (memory guard); a PDF above it is found in search

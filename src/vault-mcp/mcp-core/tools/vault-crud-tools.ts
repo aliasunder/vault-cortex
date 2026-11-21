@@ -16,6 +16,7 @@ import type { ToolRegistrationContext } from "./tool-helpers.js"
 import {
   BLANK_LINES_NEVER_DOUBLE_CLAUSE,
   CONCURRENT_WRITE_RETRY_ERROR_ENTRY,
+  CONTENT_CONTROL_CHARACTER_ERROR_ENTRY,
   EDIT_SAVE_RULES_SENTENCE,
   FILESYSTEM_ERROR_ENTRY,
   HEADING_LIST_CAP_CLAUSE,
@@ -36,8 +37,6 @@ import {
 const HEADING_NOT_FOUND_ERROR_ENTRY = `- "heading not found" — the message lists the available headings; ${HEADING_LIST_CAP_CLAUSE}`
 const EMPTY_HEADING_ERROR_ENTRY =
   '- "heading cannot be empty" — heading is whitespace only; pass the heading\'s text'
-const CONTENT_CONTROL_CHARACTER_ERROR_ENTRY =
-  '- "content contains a control character" — remove the character the message names'
 const AMBIGUOUS_SPAN_ANCHOR_ERROR_ENTRY =
   '- "ambiguous start anchor …" / "ambiguous end anchor …" — the anchor matches multiple lines; use a longer fragment or set first_match: true'
 

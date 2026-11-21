@@ -54,7 +54,8 @@ export const readFileTextPrefix = async (params: {
 
 /** Reads at most maxBytes from the start of a file, returning null instead of
  *  throwing when nothing exists at the path (ENOENT) or a parent is a file
- *  (ENOTDIR). Any other error propagates. */
+ *  (ENOTDIR). Any other error propagates. A maxBytes below 1 returns an empty
+ *  buffer without opening the path. */
 export const readFileBytePrefixOrNull = async (params: {
   path: string
   maxBytes: number
@@ -62,6 +63,7 @@ export const readFileBytePrefixOrNull = async (params: {
   const byteLimit = Math.floor(params.maxBytes)
 
   if (byteLimit < 1) return Buffer.alloc(0)
+
   try {
     // end is inclusive, so the stream stops after byteLimit bytes
     return await streamToBuffer(createReadStream(params.path, { start: 0, end: byteLimit - 1 }))

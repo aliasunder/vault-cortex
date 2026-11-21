@@ -667,21 +667,27 @@ and [templates/memory](../../templates/memory/README.md) for the file format.
 
 File tools (`vault_read_file`, `vault_write_file`, `vault_list_files`) are
 enabled by default. Set `FILE_TOOLS_ENABLED=false` in your `.env` to hide them —
-useful when Obsidian Sync has attachment syncing disabled and no files exist on
-disk.
+useful when Obsidian Sync has attachment syncing disabled.
 
 To keep reading files but turn off writing them, set
 `DISABLED_TOOLS=vault_write_file` instead.
 
-The server holds only the attachment types Obsidian Sync delivers, and a CSV,
-JSON or other text file an agent writes reaches your devices only when those
-types sync; canvases and Bases always sync. If a file you expect is missing on
-either side, check `SYNC_FILE_TYPES` under [Configuration](#configuration).
+The server holds only the attachment types Obsidian Sync delivers, which
+`SYNC_FILE_TYPES` sets (see [Configuration](#configuration)):
+
+- Canvases and Bases always sync, and SVG files sync as images.
+- CSV, JSON and other text files sync only when `SYNC_FILE_TYPES` includes
+  `unsupported` and each device turns on **Sync all other types**. Otherwise a
+  text file you expect is missing from the server, and one an agent writes
+  stays on the server.
+
+The **Changed `.env`?** note under [Restart](#restart) gives the command that
+applies a new `SYNC_FILE_TYPES`.
 
 ## Read-only mode
 
 Set `READONLY_MODE=true` in your `.env` to hide every tool that edits,
-creates, moves, or deletes notes. The memory folder is not auto-created.
+creates, moves, or deletes notes or files. The memory folder is not auto-created.
 Connected clients can read and search but never edit.
 
 Need finer control? `DISABLED_TOOLS` hides exactly the tools you name,

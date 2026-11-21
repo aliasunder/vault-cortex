@@ -32,15 +32,18 @@ import type { FittedImage } from "../../utils/fit-image-to-byte-budget.js"
 import type { Logger } from "../../logger.js"
 
 /**
- * Asset operations use-case — the grouped read/browse surface over the
+ * Asset operations use-case — the grouped read/write/browse surface over the
  * vault's non-markdown files, composing vaultFs primitives with the parsers
- * and the image pipeline. Two operations share the domain:
+ * and the image pipeline. Three operations share the domain:
  *
  * - `readAssetContent` dispatches one file to its most useful representation:
  *   images fitted to a byte budget, canvases linearized (or their raw JSON
  *   source), PDFs as extracted text (or rendered page images), and every other
  *   file decoded verbatim as UTF-8 text — whole, or as a 1-based line window
  *   when paging params are supplied.
+ * - `writeAssetContent` creates or replaces one text file, refusing images,
+ *   PDFs, malformed `.canvas`/`.json`/`.base` content, and an existing file
+ *   the read side treats as binary.
  * - `buildAssetListing` browses many: extension-filtered, counted per
  *   extension over the full filtered set, and capped to a statted slice.
  *   There is no pagination — `limit` caps the returned entries, and
@@ -372,7 +375,10 @@ const NUL_REFUSING_KINDS: ReadonlySet<FileKind> = new Set(["html", "script", "ot
 /** Throws when the file at fullPath is one readAssetContent would refuse as
  *  binary, so text never replaces it. Reads only the leading window, whatever
  *  the file's size. */
-const assertOccupantIsText = async (params: { fullPath: string; path: string }): Promise<void> => {
+const assertExistingFileIsText = async (params: {
+  fullPath: string
+  path: string
+}): Promise<void> => {
   if (!NUL_REFUSING_KINDS.has(getFileKind(params.fullPath))) return
 
   const leadingBytes = await readFileBytePrefixOrNull({
@@ -380,8 +386,10 @@ const assertOccupantIsText = async (params: { fullPath: string; path: string }):
     maxBytes: NUL_SEARCH_WINDOW_BYTES,
   })
 
-  // A file removed since the stat has nothing left to protect
-  if (!leadingBytes?.includes(0)) return
+  // null means the file was deleted after writeAssetContent found it, so
+  // nothing is left to protect
+  if (!leadingBytes) return
+  if (!leadingBytes.includes(0)) return
   throw new Error(
     `cannot overwrite "${params.path}": it holds binary data (a NUL byte in its first ` +
       `${NUL_SEARCH_WINDOW_BYTES.toLocaleString("en-US")} bytes). Replace or remove it ` +
@@ -389,11 +397,13 @@ const assertOccupantIsText = async (params: { fullPath: string; path: string }):
   )
 }
 
+const fileExistsMessage = (path: string): string => `file already exists: "${path}"`
+
 /** Saves a file that must be new. The save is exclusive, so a file that
  *  appeared since the existence check (Obsidian Sync delivering the same path)
  *  is never replaced. */
 const saveNewFile = async (
-  params: { fullPath: string; path: string; content: string; windowsBindMount: boolean },
+  params: { fullPath: string; path: string; content: string; hardLinksSupported: boolean },
   logger: Logger,
 ): Promise<void> => {
   try {
@@ -401,13 +411,13 @@ const saveNewFile = async (
       {
         filePath: params.fullPath,
         content: params.content,
-        hardLinksSupported: !params.windowsBindMount,
+        hardLinksSupported: params.hardLinksSupported,
       },
       logger,
     )
   } catch (error) {
     if (isErrnoException(error, "EEXIST")) {
-      throw new Error(`file already exists: "${params.path}"`, { cause: error })
+      throw new Error(fileExistsMessage(params.path), { cause: error })
     }
     throw error
   }
@@ -419,8 +429,10 @@ const saveNewFile = async (
  * - a markdown note, an image or a PDF path;
  * - content with a control character other than tab, LF or CR;
  * - `.canvas`, `.json` or `.base` content that would break its format.
- * Inside the write lock it then refuses an existing file without `overwrite`,
- * a folder at the path, and an existing file readAssetContent reads as binary.
+ * Inside the write lock it creates any missing parent folders, then refuses
+ * an existing file without `overwrite`, a folder at the path, and an existing
+ * file readAssetContent reads as binary. Folders it created stay after those
+ * refusals.
  */
 const writeAssetContent = async (
   params: {
@@ -452,29 +464,32 @@ const writeAssetContent = async (
   await withExclusiveFileLock(fullPath, async () => {
     await mkdir(dirname(fullPath), { recursive: true })
 
-    const occupant = await statOrNull(fullPath)
+    const existingStats = await statOrNull(fullPath)
 
-    // The rename that saves the file would replace a folder symlink, and the
-    // occupant check would fail opening a folder, so anything but a file stops here.
-    if (occupant && !occupant.isFile()) {
-      throw new Error(`cannot write file "${path}": that path is not a file`)
+    if (existingStats) {
+      // The rename that saves the file would replace a folder symlink, and
+      // assertExistingFileIsText would fail opening a folder, so anything but a
+      // file stops here.
+      if (!existingStats.isFile()) {
+        throw new Error(`cannot write file "${path}": that path is not a file`)
+      }
+      if (!overwrite) throw new Error(fileExistsMessage(path))
+      await assertExistingFileIsText({ fullPath, path })
     }
-    if (occupant && !overwrite) {
-      throw new Error(`file already exists: "${path}"`)
-    }
-    if (occupant) await assertOccupantIsText({ fullPath, path })
 
+    // The save follows overwrite, not existingStats: a file can appear after
+    // the stat, and only a create must refuse to replace it.
     if (overwrite) {
       await atomicWriteFile({ filePath: fullPath, content }, logger)
     } else {
       await saveNewFile(
-        { fullPath, path, content, windowsBindMount: params.windowsBindMount },
+        { fullPath, path, content, hardLinksSupported: !params.windowsBindMount },
         logger,
       )
     }
     logger.info("wrote file", {
       path,
-      beforeBytes: occupant?.size ?? 0,
+      beforeBytes: existingStats?.size ?? 0,
       afterBytes: Buffer.byteLength(content, "utf8"),
     })
   })
@@ -561,7 +576,7 @@ const buildAssetListing = async (
   }
 }
 
-/** The asset operations surface — one namespace for the grouped read/browse
+/** The asset operations surface — one namespace for the grouped read/write/browse
  *  functionality, matching the folder's operation modules (noteMover,
  *  vaultPatcher, taskMutations). */
 export const assetOperations = {

@@ -108,10 +108,12 @@ mechanism-level detail.
   non-markdown text file, whatever its extension — the same reach
   `vault_write_note` has over notes. It refuses hidden paths (so nothing under
   `.obsidian/`: no plugin, snippet or setting), notes, images and PDFs, and an
-  existing file `vault_read_file` refuses as binary. A community plugin that runs scripts from
-  a visible folder (Templater's user scripts, Dataview's `dv.view()`) will run
-  one this tool writes, as it already runs a `dataviewjs` block in a note.
-  `DISABLED_TOOLS=vault_write_file` removes the tool and keeps file reads.
+  existing file `vault_read_file` refuses as binary. A community plugin that
+  runs scripts from a visible folder (Templater's user scripts, Dataview's
+  `dv.view()`) will run one this tool writes, as Dataview already runs a
+  `dataviewjs` block that `vault_write_note` writes into a note.
+  `DISABLED_TOOLS=vault_write_file` removes this tool and keeps file reads,
+  while note writes stay on; `READONLY_MODE=true` hides both.
 - The hidden-path check is lexical: a visible symlink whose target is a
   hidden path is followed. Creating such a symlink requires direct
   filesystem access — no tool can create one, and anyone with that

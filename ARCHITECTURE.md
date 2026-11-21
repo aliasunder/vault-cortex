@@ -367,11 +367,11 @@ Link queries use a `links` table populated during indexing:
 
 ### Files
 
-| Tool               | Input                             | Annotation   |
-| ------------------ | --------------------------------- | ------------ |
-| `vault_read_file`  | `path, raw?, start_line?, limit?` | readOnlyHint |
-| `vault_write_file` | `path, content, overwrite?`       | destructive  |
-| `vault_list_files` | `folder?, extensions?, limit?`    | readOnlyHint |
+| Tool               | Input                             | Annotation      |
+| ------------------ | --------------------------------- | --------------- |
+| `vault_read_file`  | `path, raw?, start_line?, limit?` | readOnlyHint    |
+| `vault_write_file` | `path, content, overwrite?`       | destructiveHint |
+| `vault_list_files` | `folder?, extensions?, limit?`    | readOnlyHint    |
 
 `vault_read_file` reads non-markdown vault files, dispatching on the file's kind to the most useful representation per type. `obsidian-markdown/file-kinds.ts` maps the lowercased extension to a kind, so `Report.PDF` is a PDF. Reads, indexing, the note mover and the link tools take every non-markdown file's kind from it:
 
@@ -404,10 +404,10 @@ The extension-to-representation routing above is implemented by the `vault-opera
 
 1. **Refused by path:** `.md` (notes belong to `vault_write_note`), and the image and PDF kinds, which text input cannot produce. Every other path is writable, as on the read side.
 2. **Refused by content, before any file access:** control characters other than tab, LF and CR (the guard `vault_write_note` applies), and syntax that would break the format: `.canvas` must be JSON Canvas 1.0's top level (an object whose `nodes` and `edges`, when present, are arrays), `.json` valid JSON, `.base` YAML with a mapping or nothing at the top (`obsidian-markdown/text-file-syntax.ts`). A leading byte-order mark is skipped for parsing only. The Base check parses with the library's duplicate-key detection off and finds the first duplicate in one pass, as properties blocks do, so the check's time grows linearly with a Base's key count rather than quadratically.
-3. **Inside the write lock:** an existing file without `overwrite` is refused; a folder at the path is refused. With `overwrite`, the existing file's first 8,000 bytes are read, and a NUL byte refuses the write for HTML pages, scripts and unlisted types, the files the read list's item 5 refuses as binary, so text never replaces a file the read side treats as binary. Text and canvas kinds skip that check, as they do on read.
+3. **Inside the write lock,** after missing parent folders are created: an existing file without `overwrite` is refused; a folder at the path is refused. With `overwrite`, the existing file's first 8,000 bytes are read, and a NUL byte refuses the write for HTML pages, scripts and unlisted types, the files the read list's item 5 refuses as binary, so text never replaces a file the read side treats as binary. Text and canvas kinds skip that check, as they do on read.
 4. **The save** is atomic. A create is exclusive (`atomicWriteFileExclusive`), so a file Obsidian Sync delivers between the existence check and the save is never replaced; an overwrite renames over the path, last writer wins against writers outside the server, as for notes. No copy of a replaced file is kept.
 
-The tool's content reaches the server inside one MCP request, which the router caps at 5 MB. On an Obsidian Sync vault, written canvases and Bases always sync, while other text files reach other devices only when `SYNC_FILE_TYPES` includes `unsupported`.
+The tool's content reaches the server inside one MCP request, which the router caps at 5 MB. On an Obsidian Sync vault, written canvases and Bases always sync and SVG files sync as images, while other text files reach other devices only when `SYNC_FILE_TYPES` includes `unsupported`.
 
 `vault_list_files` is the discovery surface (also `vault-operations/asset-operations.ts`): a filesystem walk (`vaultFs.listAssets` — filesystem truth, deliberately not the index), folder and case-insensitive extension filters, per-extension counts computed over the full filtered set, and byte sizes statted only for the returned slice.
 

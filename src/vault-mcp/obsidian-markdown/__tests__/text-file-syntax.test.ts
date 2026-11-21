@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest"
 import { assertTextFileSyntax } from "../text-file-syntax.js"
 import { LINEAR_GROWTH_ALLOWANCE } from "./helpers/linear-timing.js"
 
-const BYTE_ORDER_MARK = "﻿"
+const BYTE_ORDER_MARK = String.fromCodePoint(0xfeff)
 
 /** The message JSON.parse gives for `text`, read the way production reads it. */
 const jsonParseMessage = (text: string): string => {

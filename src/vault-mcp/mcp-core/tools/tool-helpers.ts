@@ -307,6 +307,10 @@ export const FILESYSTEM_ERROR_ENTRY =
 export const PATH_SAFETY_ERROR_ENTRY =
   '- "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — pass a vault-relative path with no dot-prefixed part'
 
+/** The Errors entry of a tool whose `content` parameter refuses control characters. */
+export const CONTENT_CONTROL_CHARACTER_ERROR_ENTRY =
+  '- "content contains a control character" — remove the character the message names'
+
 /** The Errors entry of a tool whose path must name a markdown note. */
 export const NOTE_EXTENSION_ERROR_ENTRY = '- "path must end in …" — add the .md extension'
 

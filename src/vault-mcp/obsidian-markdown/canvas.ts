@@ -278,10 +278,13 @@ const parseCanvasJson = (canvasJson: string): unknown => {
   }
 }
 
-/** Throws unless the text parses as JSON Canvas 1.0's top level
- *  (https://jsoncanvas.org/spec/1.0/): one object whose `nodes` and `edges`,
- *  when present, are arrays. Stricter than linearizeCanvas, which reads any
- *  JSON, so a write cannot save a canvas Obsidian has no nodes to read from. */
+/**
+ * Throws unless the text parses as JSON Canvas 1.0's top level
+ * (https://jsoncanvas.org/spec/1.0/), which is stricter than linearizeCanvas,
+ * a reader that accepts any JSON:
+ * - the top level is an object, and `{}` is an empty canvas;
+ * - `nodes` and `edges` are arrays when present, as the spec makes both optional.
+ */
 export const assertCanvasTopLevel = (canvasJson: string): void => {
   const parsed = parseCanvasJson(canvasJson)
 
@@ -289,7 +292,8 @@ export const assertCanvasTopLevel = (canvasJson: string): void => {
     throw new Error("invalid .canvas JSON: the top level must be an object")
   }
   for (const listKey of ["nodes", "edges"]) {
-    // null is refused too: it is no array, and a canvas omits a list it lacks
+    // A null list is refused: the spec types each list as an array, and a
+    // canvas without one leaves the key out instead of setting it to null
     if (parsed[listKey] !== undefined && !Array.isArray(parsed[listKey])) {
       throw new Error(`invalid .canvas JSON: "${listKey}" must be an array`)
     }

@@ -3,10 +3,12 @@ import { isMap, LineCounter, parseDocument } from "yaml"
 import { assertCanvasTopLevel } from "./canvas.js"
 import { findFirstDuplicateKey } from "./frontmatter.js"
 
+const BYTE_ORDER_MARK = String.fromCodePoint(0xfeff)
+
 const assertJsonSyntax = (jsonText: string): void => {
   // JSON.parse rejects a leading byte-order mark, and RFC 8259 §8.1 lets a JSON parser skip it:
   // https://www.rfc-editor.org/rfc/rfc8259#section-8.1
-  const textWithoutMark = jsonText.startsWith("﻿") ? jsonText.slice(1) : jsonText
+  const textWithoutMark = jsonText.startsWith(BYTE_ORDER_MARK) ? jsonText.slice(1) : jsonText
 
   try {
     JSON.parse(textWithoutMark)
@@ -19,6 +21,7 @@ const assertJsonSyntax = (jsonText: string): void => {
 /** A Bases file is YAML whose top level is a mapping, or an empty document. */
 const assertBaseSyntax = (baseText: string): void => {
   const lineCounter = new LineCounter()
+
   // - uniqueKeys: false turns off the library's duplicate-key check, which
   //   compares each key with every earlier key in its map, so a large mapping
   //   would take minutes; findFirstDuplicateKey finds the same first

@@ -1,4 +1,4 @@
-/** Asset tool registration — reading and discovering non-markdown vault files. */
+/** Asset tool registration — reading, writing and discovering non-markdown vault files. */
 
 import { z } from "zod"
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js"
@@ -11,6 +11,7 @@ import type { FileKind } from "../../obsidian-markdown/file-kinds.js"
 import { TOOL_NAMES } from "../tool-registry.js"
 import type { ToolRegistrationContext } from "./tool-helpers.js"
 import {
+  CONTENT_CONTROL_CHARACTER_ERROR_ENTRY,
   describeTextWindow,
   FILESYSTEM_ERROR_ENTRY,
   LISTING_FILESYSTEM_ERROR_ENTRY,
@@ -261,7 +262,7 @@ Errors:
 - "cannot write … as text" — the path names an image or a PDF, which this tool cannot write; save it outside the server
 - "cannot write file …: that path is not a file" — a folder already has this name; choose another path
 ${PATH_SAFETY_ERROR_ENTRY}
-- "content contains a control character" — remove the character the message names
+${CONTENT_CONTROL_CHARACTER_ERROR_ENTRY}
 - "invalid .canvas JSON" / "invalid JSON" / "invalid .base YAML" — .canvas and .json must be valid JSON (a canvas: an object whose nodes and edges, when present, are arrays), .base YAML with a mapping at the top; fix what the message names
 - "cannot overwrite …: it holds binary data" — the file at the path holds a NUL byte near its start; replace or remove it outside the server, or write to another path
 ${FILESYSTEM_ERROR_ENTRY}

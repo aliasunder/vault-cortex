@@ -1015,7 +1015,7 @@ describe("writeAssetContent — creating", () => {
 
   it("keeps a byte-order mark and CRLF line endings byte for byte", async () => {
     const vaultPath = await makeTempVault()
-    const content = "﻿views:\r\n  - type: table\r\n"
+    const content = `${String.fromCodePoint(0xfeff)}views:\r\n  - type: table\r\n`
 
     await assetOperations.writeAssetContent(
       { ...writeDefaults, vaultPath, path: "Bases/books.base", content },
