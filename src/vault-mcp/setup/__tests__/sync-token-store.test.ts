@@ -1,6 +1,6 @@
 import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { dirname, join } from "node:path"
 import { describe, expect, it, onTestFinished, vi } from "vitest"
 import type { Logger } from "../../../logger.js"
 import { syncTokenStore } from "../sync-token-store.js"
@@ -37,7 +37,7 @@ describe("syncTokenStore.writeSyncToken", () => {
 
     expect(await readFile(tokenFilePath, "utf8")).toBe("tok-1")
     expect(await permissionBits(tokenFilePath)).toBe(0o600)
-    expect(await permissionBits(join(tokenFilePath, ".."))).toBe(0o700)
+    expect(await permissionBits(dirname(tokenFilePath))).toBe(0o700)
     expect(logger.infoCalls).toEqual([["sync_token_written", { path: tokenFilePath }]])
   })
 
@@ -49,16 +49,16 @@ describe("syncTokenStore.writeSyncToken", () => {
     await syncTokenStore.writeSyncToken({ tokenFilePath, token: "new" }, logger)
 
     expect(await readFile(tokenFilePath, "utf8")).toBe("new")
-    expect(await readdir(join(tokenFilePath, ".."))).toEqual(["auth_token"])
+    expect(await readdir(dirname(tokenFilePath))).toEqual(["auth_token"])
   })
 
   it("tightens a pre-existing token directory to 0700", async () => {
     const tokenFilePath = await tempTokenPath()
-    await mkdir(join(tokenFilePath, ".."), { recursive: true, mode: 0o755 })
+    await mkdir(dirname(tokenFilePath), { recursive: true, mode: 0o755 })
 
     await syncTokenStore.writeSyncToken({ tokenFilePath, token: "tok-1" }, recordingLogger())
 
-    expect(await permissionBits(join(tokenFilePath, ".."))).toBe(0o700)
+    expect(await permissionBits(dirname(tokenFilePath))).toBe(0o700)
   })
 
   it("tightens a leftover staging file's mode before it becomes the token", async () => {

@@ -10,7 +10,7 @@ import {
   writeFile,
 } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { dirname, join } from "node:path"
 import { assetOperations } from "../asset-operations.js"
 import type { PdfExtractor } from "../pdf-extractor.js"
 import { logger } from "../../../logger.js"
@@ -1282,7 +1282,7 @@ describe("writeAssetContent — overwriting", () => {
     { label: "a script", path: "scripts/run.py" },
   ])("refuses to replace $label that holds binary data", async ({ path }) => {
     const vaultPath = await makeTempVault()
-    await mkdir(join(vaultPath, path, ".."), { recursive: true })
+    await mkdir(join(vaultPath, dirname(path)), { recursive: true })
     await writeFile(join(vaultPath, path), BINARY_BYTES)
 
     await expect(
@@ -1304,7 +1304,7 @@ describe("writeAssetContent — overwriting", () => {
     { label: "a canvas holding a NUL", path: "Boards/plan.canvas", content: "{}" },
   ])("replaces $label, which vault_read_file reads as text", async ({ path, content }) => {
     const vaultPath = await makeTempVault()
-    await mkdir(join(vaultPath, path, ".."), { recursive: true })
+    await mkdir(join(vaultPath, dirname(path)), { recursive: true })
     await writeFile(join(vaultPath, path), Buffer.from("old\u0000\u0000\u0000", "utf8"))
 
     await assetOperations.writeAssetContent(
@@ -1383,7 +1383,7 @@ describe("writeAssetContent — overwriting", () => {
     "refuses to replace a $kind file exactly when vault_read_file refuses it as binary",
     async ({ path, readRefusesAsBinary }) => {
       const vaultPath = await makeTempVault()
-      await mkdir(join(vaultPath, path, ".."), { recursive: true })
+      await mkdir(join(vaultPath, dirname(path)), { recursive: true })
       await writeFile(join(vaultPath, path), BINARY_BYTES)
       // The read stub serves the same bytes the write inspects on disk
       mockedReadAsset.mockResolvedValue({

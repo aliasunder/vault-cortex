@@ -263,7 +263,7 @@ Errors:
 - "cannot write file …: that path is not a file" — a folder or a broken symlink already has this name; choose another path
 ${PATH_SAFETY_ERROR_ENTRY}
 ${CONTENT_CONTROL_CHARACTER_ERROR_ENTRY}
-- "invalid .canvas JSON" / "invalid JSON" / "invalid .base YAML" — .canvas and .json must be valid JSON (a canvas: an object whose nodes and edges, when present, are arrays), .base YAML with a mapping at the top; fix what the message names
+- "invalid .canvas JSON" / "invalid JSON" / "invalid .base YAML" — .canvas and .json must be valid JSON (a canvas: an object whose nodes and edges, when present, are arrays), .base YAML with a mapping, or nothing, at the top; fix what the message names
 - "cannot overwrite …: it holds binary data" — the file at the path holds a NUL byte near its start; replace or remove it outside the server, or write to another path
 ${FILESYSTEM_ERROR_ENTRY}
 
