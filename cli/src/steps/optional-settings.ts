@@ -129,7 +129,8 @@ const OPTIONAL_SETTINGS: OptionalSetting[] = [
     kind: "toggle",
     name: "FILE_TOOLS_ENABLED",
     label: "File tools",
-    question: "Enable file tools (read images, PDFs, and other non-Markdown files)?",
+    question:
+      "Enable file tools (read images and PDFs, and read and write other non-Markdown files)?",
   },
   {
     kind: "toggle",

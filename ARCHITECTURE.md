@@ -44,7 +44,7 @@ this repo's own IaC provisions (Lightsail + API Gateway via SST, walkthrough in
 The MCP surface is **tools + prompts** — model-driven tools plus user-initiated prompt workflows (see [MCP Prompts](#mcp-prompts)). Behind it, capabilities fall into three groups with different availability semantics:
 
 - **Base surface — always on:** vault CRUD (read/write, heading-targeted patching, note moving with link rewriting), FTS5 keyword search, property discovery, daily notes, task queries and mutations, and the link graph.
-- **Toggleable feature groups:** the About Me/ memory layer for AI personalization (`MEMORY_ENABLED`) and non-markdown file reading (`FILE_TOOLS_ENABLED`) — images, canvases, PDFs, and data files, each in the form most useful to an agent. Independent opt-outs — either can be disabled without affecting anything else. A third switch cuts across the groups: `READONLY_MODE` hides every vault-writing tool while leaving all reads, search, and indexing untouched. A fourth, `DISABLED_TOOLS`, subtracts individually named tools for finer control.
+- **Toggleable feature groups:** the About Me/ memory layer for AI personalization (`MEMORY_ENABLED`) and non-markdown file reading and writing (`FILE_TOOLS_ENABLED`) — images, canvases, PDFs, and data files, each in the form most useful to an agent, with text formats writable. Independent opt-outs — either can be disabled without affecting anything else. A third switch cuts across the groups: `READONLY_MODE` hides every vault-writing tool while leaving all reads, search, and indexing untouched. A fourth, `DISABLED_TOOLS`, subtracts individually named tools for finer control.
 - **Search enhancement ladder:** unlike the toggles above, each rung builds on the previous. Keyword search → sqlite-vec vector similarity fused via RRF (`EMBEDDING_ENABLED`; local ONNX embeddings, no external API) → cross-encoder reranking with position-aware score blending for intent-heavy queries where keywords and vectors both miss (`RERANK_MODE`). Each step is opt-out with graceful fallback to the one below.
 
 ## Design Constraints
@@ -370,6 +370,7 @@ Link queries use a `links` table populated during indexing:
 | Tool               | Input                             | Annotation   |
 | ------------------ | --------------------------------- | ------------ |
 | `vault_read_file`  | `path, raw?, start_line?, limit?` | readOnlyHint |
+| `vault_write_file` | `path, content, overwrite?`       | destructive  |
 | `vault_list_files` | `folder?, extensions?, limit?`    | readOnlyHint |
 
 `vault_read_file` reads non-markdown vault files, dispatching on the file's kind to the most useful representation per type. `obsidian-markdown/file-kinds.ts` maps the lowercased extension to a kind, so `Report.PDF` is a PDF. Reads, indexing, the note mover and the link tools take every non-markdown file's kind from it:
@@ -398,6 +399,15 @@ Link queries use a `links` table populated during indexing:
    - bytes that are not UTF-8
 
 The extension-to-representation routing above is implemented by the `vault-operations/asset-operations.ts` use-case. Beneath it, every read goes through `vaultFs.readAsset`, which applies the same `resolveSafePath` traversal + hidden-path guards as notes, rejects `.md` paths (notes belong to `vault_read_note`), and enforces a stat-before-read size cap (`MAX_FILE_BYTES`, default 50 MiB). The read buffer is one byte longer than the statted size, so a file that grows during the read (an Obsidian Sync download can do this) fills that byte, and the read fails with "file changed while reading".
+
+`vault_write_file` creates a non-markdown text file, or with `overwrite` replaces one, through `assetOperations.writeAssetContent` in the same use-case, so the read and write type rules sit in one module:
+
+1. **Refused by path:** `.md` (notes belong to `vault_write_note`), and the image and PDF kinds, which text input cannot produce. Every other path is writable, as on the read side.
+2. **Refused by content, before any file access:** control characters other than tab, LF and CR (the guard `vault_write_note` applies), and syntax that would break the format: `.canvas` must be JSON Canvas 1.0's top level (an object whose `nodes` and `edges` are arrays), `.json` valid JSON, `.base` YAML with a mapping or nothing at the top (`obsidian-markdown/text-file-syntax.ts`). A leading byte-order mark is skipped for parsing only. The Base check parses with the library's duplicate-key detection off and finds the first duplicate in one pass, as properties blocks do, so a 5 MB Base takes about a second rather than minutes.
+3. **Inside the write lock:** an existing file without `overwrite` is refused; a folder at the path is refused. With `overwrite`, the existing file's first 8,000 bytes are read, and a NUL byte refuses the write for HTML pages, scripts and unlisted types, the files the read list's item 5 refuses as binary, so text never replaces a file the read side treats as binary. Text and canvas kinds skip that check, as they do on read.
+4. **The save** is atomic. A create links the staged content onto the path, so a file Obsidian Sync delivers between the existence check and the save is never replaced; an overwrite renames over the path, last writer wins against writers outside the server, as for notes. No copy of a replaced file is kept.
+
+The tool's content reaches the server inside one MCP request, which the router caps at 5 MB. On an Obsidian Sync vault, written canvases and Bases always sync, while other text files reach other devices only when `SYNC_FILE_TYPES` includes `unsupported`.
 
 `vault_list_files` is the discovery surface (also `vault-operations/asset-operations.ts`): a filesystem walk (`vaultFs.listAssets` — filesystem truth, deliberately not the index), folder and case-insensitive extension filters, per-extension counts computed over the full filtered set, and byte sizes statted only for the returned slice.
 
@@ -428,7 +438,12 @@ Search indexes file content in the `file_content` + `file_content_fts` tables, c
 
 How extracted text reaches the index, and when, is under [Indexing](#indexing).
 
-**Opt-out:** File tools are opt-out: set `FILE_TOOLS_ENABLED=false` to hide `vault_read_file` and `vault_list_files`, and strip file tool references from server metadata and other tool descriptions. The `vault_get_outgoing_links` tool continues to report file links (it indexes from the links table, not the file tools). File config vars (`MAX_FILE_BYTES`, `MAX_IMAGE_OUTPUT_BYTES`, `MAX_PDF_RENDER_PAGES`) are still parsed when disabled.
+**Opt-out:** file tools are on by default.
+
+- `FILE_TOOLS_ENABLED=false` hides `vault_read_file`, `vault_write_file` and `vault_list_files`, and strips file tool references from server metadata and other tool descriptions.
+- `READONLY_MODE=true` hides `vault_write_file` with every other write tool; `DISABLED_TOOLS=vault_write_file` hides it alone.
+- `vault_get_outgoing_links` continues to report file links, because it reads the links table, not the file tools.
+- File config vars (`MAX_FILE_BYTES`, `MAX_IMAGE_OUTPUT_BYTES`, `MAX_PDF_RENDER_PAGES`) are still parsed when file tools are disabled.
 
 ### Tasks
 

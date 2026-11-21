@@ -104,6 +104,14 @@ mechanism-level detail.
   folder (a `deploy.env` or `secrets.txt`) is readable by any signed-in client.
   A file named as an image or a PDF goes to the image or PDF reader instead.
   Hidden files such as `.env` stay refused by the hidden-path check above.
+- `vault_write_file` lets any signed-in client create or replace a visible
+  non-markdown text file, whatever its extension — the same reach
+  `vault_write_note` has over notes. It refuses hidden paths (so nothing under
+  `.obsidian/`: no plugin, snippet or setting), notes, images and PDFs, and an
+  existing file holding binary data. A community plugin that runs scripts from
+  a visible folder (Templater's user scripts, Dataview's `dv.view()`) will run
+  one this tool writes, as it already runs a `dataviewjs` block in a note.
+  `DISABLED_TOOLS=vault_write_file` removes the tool and keeps file reads.
 - The hidden-path check is lexical: a visible symlink whose target is a
   hidden path is followed. Creating such a symlink requires direct
   filesystem access — no tool can create one, and anyone with that

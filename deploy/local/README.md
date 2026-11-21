@@ -364,9 +364,13 @@ and [templates/memory](../../templates/memory/README.md) for the file format.
 
 ## File Tools
 
-File tools (`vault_read_file`, `vault_list_files`) are enabled by default. Set
-`FILE_TOOLS_ENABLED=false` in your `.env` to hide them — useful when Obsidian
-Sync has attachment syncing disabled and no files exist on disk.
+File tools (`vault_read_file`, `vault_write_file`, `vault_list_files`) are
+enabled by default. Set `FILE_TOOLS_ENABLED=false` in your `.env` to hide them —
+useful when Obsidian Sync has attachment syncing disabled and no files exist on
+disk.
+
+To keep reading files but turn off writing them, set
+`DISABLED_TOOLS=vault_write_file` instead.
 
 ## Read-only mode
 

@@ -84,7 +84,7 @@ export type VaultConfig = Readonly<{
   /** When false, the memory layer is fully disabled — bootstrap is skipped,
    *  memory tools are hidden, and server metadata omits memory references. */
   memoryEnabled: boolean
-  /** When false, file tools (vault_read_file, vault_list_files) are hidden —
+  /** When false, file tools (vault_read_file, vault_write_file, vault_list_files) are hidden —
    *  tool registration is skipped and server metadata omits file tool
    *  references. File config vars are still parsed when disabled. */
   fileToolsEnabled: boolean

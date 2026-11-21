@@ -665,12 +665,18 @@ and [templates/memory](../../templates/memory/README.md) for the file format.
 
 ## File Tools
 
-File tools (`vault_read_file`, `vault_list_files`) are enabled by default. Set
-`FILE_TOOLS_ENABLED=false` in your `.env` to hide them — useful when Obsidian
-Sync has attachment syncing disabled and no files exist on disk. The server
-holds only the attachment types Obsidian Sync delivers, so if a CSV or other
-text file you expect is missing, check `SYNC_FILE_TYPES` under
-[Configuration](#configuration).
+File tools (`vault_read_file`, `vault_write_file`, `vault_list_files`) are
+enabled by default. Set `FILE_TOOLS_ENABLED=false` in your `.env` to hide them —
+useful when Obsidian Sync has attachment syncing disabled and no files exist on
+disk.
+
+To keep reading files but turn off writing them, set
+`DISABLED_TOOLS=vault_write_file` instead.
+
+The server holds only the attachment types Obsidian Sync delivers, and a CSV,
+JSON or other text file an agent writes reaches your devices only when those
+types sync; canvases and Bases always sync. If a file you expect is missing on
+either side, check `SYNC_FILE_TYPES` under [Configuration](#configuration).
 
 ## Read-only mode
 
