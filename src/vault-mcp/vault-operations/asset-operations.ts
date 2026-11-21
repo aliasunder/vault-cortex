@@ -470,9 +470,9 @@ const writeAssetContent = async (
     await mkdir(dirname(fullPath), { recursive: true })
 
     const existingStats = await statOrNull(fullPath)
-    // stat follows a symlink, so a link whose target is missing reads as no
-    // file, while the exclusive save below would refuse it as an existing one:
-    // a refusal that overwrite cannot clear.
+
+    // stat follows a symlink, so a broken symlink reads as no file, but the exclusive
+    // save below refuses the link as an existing file, which overwrite cannot clear.
     const isDanglingLink =
       !existingStats && Boolean((await lstatOrNull(fullPath))?.isSymbolicLink())
 
