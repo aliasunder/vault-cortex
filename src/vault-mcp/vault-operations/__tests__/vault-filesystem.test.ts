@@ -209,6 +209,20 @@ describe("atomicWriteFile", () => {
     expect((await stat(target)).mode & 0o777).toBe(mode)
   })
 
+  it("never copies the setuid, setgid or sticky bit of the file it replaces", async () => {
+    // Writing content clears setuid and setgid for a process without
+    // CAP_FSETID, but the sticky bit stays, so only the save's own mask drops it
+    const target = join(vault, "privileged.sh")
+    await writeFile(target, "before\n", "utf8")
+    await chmod(target, 0o7755)
+    expect((await stat(target)).mode & 0o7777).toBe(0o7755)
+
+    await atomicWriteFile({ filePath: target, content: "after\n" }, logger)
+
+    expect(await readFile(target, "utf8")).toBe("after\n")
+    expect((await stat(target)).mode & 0o7777).toBe(0o755)
+  })
+
   it("saves a note whose name is one byte under the filesystem's name limit", async () => {
     const target = join(vault, NAME_ONE_BYTE_UNDER_LIMIT)
 
@@ -3815,6 +3829,15 @@ describe("readAsset", () => {
     await expect(
       readAsset({ vaultPath: vault, path: "note.md", maxBytes: 1024 }, logger),
     ).rejects.toThrow('not a file: "note.md" is a markdown note')
+  })
+
+  it("reads a file whose extension is .md in another letter case", async () => {
+    const bytes = Buffer.from("# Readme\n", "utf8")
+    await writeFile(join(vault, "README.MD"), bytes)
+
+    await expect(
+      readAsset({ vaultPath: vault, path: "README.MD", maxBytes: 1024 }, logger),
+    ).resolves.toEqual({ buffer: bytes, bytes: 9, extension: ".md" })
   })
 
   it.each([

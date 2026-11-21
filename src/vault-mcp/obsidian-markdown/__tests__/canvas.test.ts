@@ -222,6 +222,24 @@ describe("linearizeCanvas", () => {
     )
   })
 
+  it("cuts an endpoint name before a flag whose second half falls past the limit", () => {
+    // The flag's second regional indicator is a surrogate pair right after the cut
+    const flag = String.fromCodePoint(0x1f1fa, 0x1f1f8)
+    const flaggedName = `${"a".repeat(99)}${flag}${"b".repeat(10)}`
+    const json = canvasJson(
+      [textNode({ id: "a", text: flaggedName }), textNode({ id: "b", text: "Short", x: 300 })],
+      [{ id: "e1", fromNode: "a", toNode: "b" }],
+    )
+    expect(linearizeCanvas(json)).toBe(
+      [
+        "# Canvas: 2 nodes, 1 edge",
+        `[text]\n${flaggedName}`,
+        "[text]\nShort",
+        `## Connections\n\n${"a".repeat(99)}… → Short`,
+      ].join("\n\n"),
+    )
+  })
+
   it("appends a file node's subpath to its path", () => {
     const json = canvasJson([
       {
