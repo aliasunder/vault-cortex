@@ -1087,6 +1087,24 @@ describe("writeAssetContent — refusals before any file is written", () => {
       message: 'not a file: "Projects/plan.md" is a markdown note',
     },
     {
+      label: "a markdown note named with a trailing slash",
+      path: "Projects/plan.md/",
+      content: "# Plan",
+      message: 'not a file: "Projects/plan.md/" is a markdown note',
+    },
+    {
+      label: 'an image named with a trailing "/."',
+      path: "attachments/diagram.png/.",
+      content: "<svg/>",
+      message: 'cannot write "attachments/diagram.png/." as text: images and PDFs are binary files',
+    },
+    {
+      label: 'a canvas named with a trailing "/." that is not an object',
+      path: "Boards/plan.canvas/.",
+      content: "[]",
+      message: "invalid .canvas JSON: the top level must be an object",
+    },
+    {
       label: "an image",
       path: "attachments/diagram.png",
       content: "<svg/>",

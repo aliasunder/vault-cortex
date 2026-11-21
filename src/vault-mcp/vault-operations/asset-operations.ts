@@ -373,7 +373,7 @@ const NUL_REFUSING_KINDS: ReadonlySet<FileKind> = new Set(["html", "script", "ot
  *  binary, so text never replaces it. Reads only the leading window, whatever
  *  the file's size. */
 const assertOccupantIsText = async (params: { fullPath: string; path: string }): Promise<void> => {
-  if (!NUL_REFUSING_KINDS.has(getFileKind(params.path))) return
+  if (!NUL_REFUSING_KINDS.has(getFileKind(params.fullPath))) return
 
   const leadingBytes = await readFileBytePrefixOrNull({
     path: params.fullPath,
@@ -389,9 +389,9 @@ const assertOccupantIsText = async (params: { fullPath: string; path: string }):
   )
 }
 
-/** Saves a file that must be new. The save links the staged content onto the
- *  path, so a file that appeared since the existence check (Obsidian Sync
- *  delivering the same path) is never replaced. */
+/** Saves a file that must be new. The save is exclusive, so a file that
+ *  appeared since the existence check (Obsidian Sync delivering the same path)
+ *  is never replaced. */
 const saveNewFile = async (
   params: { fullPath: string; path: string; content: string; windowsBindMount: boolean },
   logger: Logger,
@@ -433,19 +433,21 @@ const writeAssetContent = async (
   logger: Logger,
 ): Promise<void> => {
   const { path, content, overwrite } = params
+  const fullPath = resolveSafePath(params.vaultPath, path)
 
-  if (path.endsWith(".md")) {
+  // The type checks read the resolved path, the file the save writes, so a
+  // trailing "/" or "/." on the path cannot hide a note, an image or a canvas.
+  if (fullPath.endsWith(".md")) {
     throw new Error(`not a file: "${path}" is a markdown note`)
   }
 
-  const fullPath = resolveSafePath(params.vaultPath, path)
-  const fileKind = getFileKind(path)
+  const fileKind = getFileKind(fullPath)
 
   if (fileKind === "image" || fileKind === "pdf") {
     throw new Error(`cannot write "${path}" as text: images and PDFs are binary files`)
   }
   assertNoControlCharacters(content, "content")
-  assertTextFileSyntax({ path, content })
+  assertTextFileSyntax({ path: fullPath, content })
 
   await withExclusiveFileLock(fullPath, async () => {
     await mkdir(dirname(fullPath), { recursive: true })
