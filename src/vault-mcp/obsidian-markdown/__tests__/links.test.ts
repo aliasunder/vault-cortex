@@ -4,6 +4,10 @@ import { posix } from "node:path"
 import { links } from "../links.js"
 import { classifyLines } from "../lines.js"
 import {
+  assertPathWithinMaxLength,
+  PathTooLongError,
+} from "../../../utils/assert-path-within-max-length.js"
+import {
   CHILD_DEADLINE_MS,
   CHILD_TEST_TIMEOUT_MS,
   LINEAR_GROWTH_ALLOWANCE,
@@ -1216,6 +1220,22 @@ describe("link-target limits", () => {
       allAssetPaths[0],
     )
     expect(links.resolveAsset({ target: interleavedTarget(4096), allAssetPaths })).toBeNull()
+  })
+
+  it("draws the any-shape limit where the tool path guard does, so the two path limits stay equal", () => {
+    const fitsPathGuard = (path: string): boolean => {
+      try {
+        assertPathWithinMaxLength(path)
+        return true
+      } catch (error) {
+        if (error instanceof PathTooLongError) return false
+        throw error
+      }
+    }
+    const boundaryTargets = [interleavedTarget(4095), interleavedTarget(4096)]
+
+    expect(boundaryTargets.map(fitsPathGuard)).toEqual([true, false])
+    expect(boundaryTargets.map(links.isWithinLinkTargetLimit)).toEqual([true, false])
   })
 
   it("joinToSourceFolder returns null for a leading '..' run that climbs above the vault root", () => {
