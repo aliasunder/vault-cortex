@@ -259,7 +259,7 @@ Behavior: content is saved byte for byte. An overwrite keeps no copy of the repl
 Errors:
 - "file already exists" — set overwrite: true to replace it
 - "not a file: … is a markdown note" — the path ends in .md${whenToolEnabledText("vault_write_note", "; write notes with vault_write_note")}
-- "cannot write … as text" — the path names an image or a PDF, which this tool cannot write; save it outside the server
+- "cannot write … as text" — the path names an image or a PDF; save it outside the server
 - "cannot write file …: that path is not a file" — a folder already has this name; choose another path
 ${PATH_SAFETY_ERROR_ENTRY}
 ${CONTENT_CONTROL_CHARACTER_ERROR_ENTRY}
