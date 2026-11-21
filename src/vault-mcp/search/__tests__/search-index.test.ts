@@ -2,7 +2,8 @@ import { describe, it, expect, vi, beforeEach, afterEach, onTestFinished } from 
 import type { Mock } from "vitest"
 import { createHash } from "node:crypto"
 import { mkdtemp, rm, writeFile, mkdir, symlink, readFile } from "node:fs/promises"
-import { dirname, join } from "node:path"
+import { execFileSync } from "node:child_process"
+import { dirname, join, posix } from "node:path"
 import { tmpdir } from "node:os"
 import { setImmediate as setImmediateAsync } from "node:timers/promises"
 import Database from "better-sqlite3"
@@ -29,6 +30,15 @@ import {
   createInProcessPdfExtractor,
 } from "../../../__tests__/helpers/pdf-extractor.js"
 import { inProcessBodyTagParser, withBodyTags } from "./body-tag-test-helpers.js"
+import {
+  CHILD_DEADLINE_MS,
+  runScriptInChild,
+} from "../../../__tests__/helpers/run-script-in-child.js"
+import {
+  CHILD_DEADLINE_MS as LINEAR_TIMING_CHILD_DEADLINE_MS,
+  CHILD_TEST_TIMEOUT_MS,
+  LINEAR_GROWTH_ALLOWANCE,
+} from "../../obsidian-markdown/__tests__/helpers/linear-timing.js"
 
 vi.mock("node:fs/promises", { spy: true })
 vi.mock("../../../utils/fs.js", { spy: true })
@@ -7336,6 +7346,109 @@ describe("relative links (path from current file)", () => {
       },
     ])
   })
+})
+
+describe("link-target limits", () => {
+  /** Below this many milliseconds a timing is mostly scheduling noise, so it
+   *  sets no tighter growth bound. */
+  const TIMING_FLOOR_MS = 10
+
+  it("indexes a link that climbs above the vault root without joining it to the note's folder", () => {
+    const joinSpy = vi.spyOn(posix, "join")
+    onTestFinished(() => joinSpy.mockRestore())
+
+    index.upsertNote(
+      withBodyTags({
+        filePath: "a/note.md",
+        rawContent: "[[.././/../x]]",
+        fileStat: testStat(1000),
+      }),
+      logger,
+    )
+
+    expect(joinSpy).not.toHaveBeenCalled()
+    expect(
+      index
+        .getOutgoingLinks(
+          { path: "a/note.md", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
+          logger,
+        )
+        .map((outgoingLink) => outgoingLink.path),
+    ).toEqual([".././/../x"])
+  })
+
+  it("joins a link that climbs exactly to the vault root and resolves it", () => {
+    index.upsertNote(
+      withBodyTags({ filePath: "x.md", rawContent: "# X", fileStat: testStat(1000) }),
+      logger,
+    )
+    const joinSpy = vi.spyOn(posix, "join")
+    onTestFinished(() => joinSpy.mockRestore())
+
+    index.upsertNote(
+      withBodyTags({ filePath: "a/note.md", rawContent: "[[../x]]", fileStat: testStat(2000) }),
+      logger,
+    )
+
+    expect(joinSpy).toHaveBeenCalledWith("a", "../x.md")
+    expect(
+      index
+        .getOutgoingLinks(
+          { path: "a/note.md", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
+          logger,
+        )
+        .map((outgoingLink) => outgoingLink.path),
+    ).toEqual(["x.md"])
+  })
+
+  it(
+    "indexes a note holding a 1 MB link target of a long segment and '/b/..' pairs within a child deadline, keeping only its real link",
+    () => {
+      const searchIndexUrl = new URL("../search-index.ts", import.meta.url).href
+      const loggerUrl = new URL("../../../logger.ts", import.meta.url).href
+      const output = runScriptInChild(`
+        import { createSearchIndex } from ${JSON.stringify(searchIndexUrl)};
+        import { logger } from ${JSON.stringify(loggerUrl)};
+        const index = createSearchIndex(":memory:");
+        const indexNote = (filePath, rawContent) => index.upsertNote(
+          { filePath, rawContent, fileStat: { mtimeMs: 1, size: rawContent.length }, bodyTags: [] },
+          logger,
+        );
+        const paddedTarget = "A".repeat(500000) + "/b/..".repeat(100000) + "/x";
+        indexNote("real.md", "# Real");
+        indexNote("source.md", "[[real]] [[" + paddedTarget + "]]");
+        const outgoing = index.getOutgoingLinks(
+          { path: "source.md", dailyNotesFormat: "YYYY-MM-DD" },
+          logger,
+        );
+        process.stdout.write(JSON.stringify(outgoing.map((outgoingLink) => outgoingLink.path)));
+      `)
+
+      expect(output).toBe('["real.md"]')
+    },
+    CHILD_DEADLINE_MS + 5_000,
+  )
+
+  it(
+    "re-resolves 2,000 stored links whose texts hold control characters in time linear in their count",
+    () => {
+      const helperPath = new URL("./helpers/link-memo-growth.ts", import.meta.url)
+      const output = execFileSync(process.execPath, ["--import", "tsx", helperPath.pathname], {
+        encoding: "utf8",
+        timeout: LINEAR_TIMING_CHILD_DEADLINE_MS,
+        killSignal: "SIGKILL",
+        env: { ...process.env, LOG_LEVEL: "error" },
+      })
+      const { measurements } = JSON.parse(output)
+      const [small, large] = measurements
+
+      expect(measurements.map(({ count }: { count: number }) => count)).toEqual([250, 2_000])
+      expect(large.leastMs).toBeLessThanOrEqual(
+        Math.max(TIMING_FLOOR_MS, small.leastMs) * 8 * LINEAR_GROWTH_ALLOWANCE,
+      )
+    },
+    CHILD_TEST_TIMEOUT_MS,
+  )
 })
 
 // ── Link rows ───────────────────────────────────────────────────

@@ -133,6 +133,14 @@ The `obsidian-markdown/` parsers read text straight from vault files, so one cra
 - **Large canvases:** groups nest only while `content nodes × groups + groups²` stays at most 16,000,000 (2,800 groups with 2,800 nodes fit). A larger canvas renders flat, still listing every node, group label and connection.
 - **Body tags:** the tag parser can still slow quadratically, so it runs in a worker with a time limit (see **Body tags column** → Worker under [Property discovery + daily notes](#property-discovery--daily-notes)).
 
+Link targets have a length limit, because normalizing and deduplicating a longer target costs more than linear time on crafted input (`isWithinLinkTargetLimit` in `links.ts`):
+
+- **Up to 4,095 bytes** (Linux's longest path): any target.
+- **Up to 10,236 bytes:** a target whose `..` segments all come first, which covers the longest link Obsidian writes from the current file.
+- **Longer:** skipped at extraction, never resolved, and left out of backlinks and broken-link lists. A Canvas file card follows the same rule.
+
+The "path from current file" tier also skips a target whose leading `..` segments climb above the vault root, since no vault file lies there.
+
 ## MCP Tools
 
 Common metadata on all discovery tools (`vault_search`, `vault_search_by_tag`, `vault_search_by_folder`, `vault_recent_notes`, `vault_search_by_property`, `vault_find_orphans` — introduced in the subsections below):

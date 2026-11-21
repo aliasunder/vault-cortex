@@ -325,10 +325,70 @@ const splitMarkdownLink = (linkText: string): MarkdownLinkParts | null => {
   }
 }
 
+// ── Link-target limits ──────────────────────────────────────────
+
+/** Linux's PATH_MAX is 4,096 bytes and counts the terminating NUL, so no file
+ *  path is longer than this. It must match MAX_PATH_BYTES in
+ *  utils/assert-path-within-max-length.ts, which this leaf layer cannot import. */
+const MAX_PATH_BYTES = 4095
+
+/** The longest link Obsidian writes from the current file. Such a link climbs
+ *  at most one "../" per folder of the linking note, and a note sits at most
+ *  2,047 folders deep (a folder takes at least 2 bytes with its slash, the file
+ *  name at least 1). It then names a path of at most MAX_PATH_BYTES. */
+const MAX_RELATIVE_LINK_BYTES = 3 * 2047 + MAX_PATH_BYTES
+
+/** A link target's path segments without the "." and empty ones, which path
+ *  normalization skips. */
+const meaningfulSegments = (target: string): string[] => {
+  return target.split("/").filter((segment) => segment !== "" && segment !== ".")
+}
+
+const countLeadingParentSegments = (segments: readonly string[]): number => {
+  const firstNameIndex = segments.findIndex((segment) => segment !== "..")
+  return firstNameIndex === -1 ? segments.length : firstNameIndex
+}
+
+/** Whether a link target is short enough to name a vault file in a form
+ *  Obsidian writes. Normalizing and deduplicating a longer target costs more
+ *  than linear time on crafted input, so extraction skips it and resolution
+ *  finds no match for it. A target fits when it is:
+ *  - at most MAX_PATH_BYTES of UTF-8, in any shape;
+ *  - at most MAX_RELATIVE_LINK_BYTES, with every ".." segment before every
+ *    other segment, as in a link from the current file. */
+const isWithinLinkTargetLimit = (target: string): boolean => {
+  const targetBytes = Buffer.byteLength(target, "utf8")
+
+  if (targetBytes <= MAX_PATH_BYTES) return true
+  if (targetBytes > MAX_RELATIVE_LINK_BYTES) return false
+
+  const segments = meaningfulSegments(target)
+  const leadingParentCount = countLeadingParentSegments(segments)
+  return !segments.slice(leadingParentCount).includes("..")
+}
+
+const isExtractableTarget = (target: string): boolean => {
+  return target.length > 0 && isWithinLinkTargetLimit(target)
+}
+
+/** Joins a link target to the linking note's folder ("path from current
+ *  file"), or returns null when the target's leading ".." run climbs above the
+ *  vault root, where no vault file is. Skipping that join keeps a long run of
+ *  "../" from costing more than linear time. */
+const joinToSourceFolder = (sourcePath: string, target: string): string | null => {
+  const sourceFolder = posix.dirname(sourcePath)
+  const climbsAboveVaultRoot =
+    countLeadingParentSegments(meaningfulSegments(target)) > meaningfulSegments(sourceFolder).length
+
+  if (climbsAboveVaultRoot) return null
+  return posix.join(sourceFolder, target)
+}
+
 // ── Extraction ──────────────────────────────────────────────────
 
 /** Extracts link targets from a note body, skipping fenced code blocks and inline
- *  code spans. Returns deduplicated raw targets (pre-resolution). */
+ *  code spans. Returns deduplicated raw targets (pre-resolution) within the
+ *  link-target limit. */
 const extractFromBody = (content: string): string[] => {
   const targets = new Set<string>()
 
@@ -343,13 +403,13 @@ const extractFromBody = (content: string): string[] => {
       const rawTarget = linkExtractableLine.slice(targetStart, targetEnd)
       const target = stripEscapedPipe(rawTarget.trim())
 
-      if (target.length > 0) targets.add(target)
+      if (isExtractableTarget(target)) targets.add(target)
     })
     scanMarkdownLinks(linkExtractableLine, ({ targetStart, targetEnd }) => {
       const rawTarget = linkExtractableLine.slice(targetStart, targetEnd)
       const target = safeDecodeURIComponent(rawTarget.trim())
 
-      if (target.length > 0) targets.add(target)
+      if (isExtractableTarget(target)) targets.add(target)
     })
   }
   return [...targets]
@@ -362,7 +422,8 @@ const extractFromBody = (content: string): string[] => {
  *  string. Frontmatter is YAML (no code fences or inline-code spans), so the body
  *  extractor's fence handling doesn't apply. Markdown [text](path.md) links are a
  *  body convention and are intentionally not scanned here. Returns deduplicated
- *  raw targets (pre-resolution), matching extractFromBody's contract. */
+ *  raw targets (pre-resolution) within the link-target limit, matching
+ *  extractFromBody's contract. */
 const extractFromFrontmatter = (data: Record<string, unknown>): string[] => {
   const targets = new Set<string>()
 
@@ -376,7 +437,7 @@ const extractFromFrontmatter = (data: Record<string, unknown>): string[] => {
         const rawTarget = frontmatterValue.slice(targetStart, targetEnd)
         const target = stripEscapedPipe(rawTarget.trim())
 
-        if (target.length > 0) targets.add(target)
+        if (isExtractableTarget(target)) targets.add(target)
       })
       return
     }
@@ -533,10 +594,14 @@ const resolveNoteInLetterCase = (params: {
 
   // Relative-to-source match ("path from current file"): resolve the target
   // against the linking note's directory so "../C/target" and "sub/target"
-  // land on the right note. posix.join collapses ".."/"."; a target that
-  // escapes the vault keeps a leading ".." and simply won't be in allPaths.
-  if (sourcePath) {
-    const targetRelativeToSource = posix.join(posix.dirname(sourcePath), targetWithExtension)
+  // land on the right note. The join collapses ".."/"."; a target that
+  // escapes the vault gets no join, or keeps a leading ".." and simply won't
+  // be in allPaths.
+  const targetRelativeToSource = sourcePath
+    ? joinToSourceFolder(sourcePath, targetWithExtension)
+    : null
+
+  if (targetRelativeToSource !== null) {
     const relativeMatch = shortestOf(
       findPathsEqualTo(notePathForComparison(targetRelativeToSource, letterCase)),
     )
@@ -576,6 +641,8 @@ const resolveInExactCase = (params: {
 }): string | null => {
   const { target, allPaths, sourcePath } = params
 
+  if (!isWithinLinkTargetLimit(target)) return null
+
   return resolveNoteInLetterCase({
     targetWithExtension: noteTargetWithExtension(target),
     allPaths,
@@ -590,15 +657,18 @@ const resolveInExactCase = (params: {
  *  is supplied — path from current file, including upward "../" segments.
  *  All three tiers run with exact letter case first, then again with letter
  *  case folded, so `[[real]]` reaches `Folder/Real.md` only when no note
- *  matches it exactly. Returns null if unresolvable. The folded forms of
- *  `allPaths` are cached by the array, so the caller must not change it
- *  after the call. */
+ *  matches it exactly. Returns null if unresolvable, including for a target
+ *  over the link-target limit. The folded forms of `allPaths` are cached by
+ *  the array, so the caller must not change it after the call. */
 const resolve = (params: {
   target: string
   allPaths: readonly string[]
   sourcePath?: string
 }): string | null => {
   const { target, allPaths, sourcePath } = params
+
+  if (!isWithinLinkTargetLimit(target)) return null
+
   const targetWithExtension = noteTargetWithExtension(target)
 
   return (
@@ -617,7 +687,7 @@ const resolveAssetInLetterCase = (params: {
   letterCase: LetterCase
 }): string | null => {
   const { target, allAssetPaths, sourcePath, letterCase } = params
-  const relativeTarget = sourcePath ? posix.join(posix.dirname(sourcePath), target) : null
+  const relativeTarget = sourcePath ? joinToSourceFolder(sourcePath, target) : null
   const comparableTarget = assetPathForComparison(target, letterCase)
   const comparableRelativeTarget =
     relativeTarget === null ? null : assetPathForComparison(relativeTarget, letterCase)
@@ -738,13 +808,15 @@ const resolveAssetInLetterCase = (params: {
  *  tiers fold ASCII case in the first pass too, so `![[photo.png]]` reaches
  *  the shorter of `A/Photo.PNG` and `B/sub/photo.png`. The folded forms of
  *  `allAssetPaths` are cached by the array, so the caller must not change it
- *  after the call. */
+ *  after the call. A target over the link-target limit resolves to null. */
 const resolveAsset = (params: {
   target: string
   allAssetPaths: readonly string[]
   sourcePath?: string
 }): string | null => {
   const { target, allAssetPaths, sourcePath } = params
+
+  if (!isWithinLinkTargetLimit(target)) return null
 
   return (
     resolveAssetInLetterCase({ target, allAssetPaths, sourcePath, letterCase: "exact" }) ??
@@ -769,6 +841,8 @@ export const links = {
   extractFromBody,
   extractFromFrontmatter,
   extractAll,
+  isWithinLinkTargetLimit,
+  joinToSourceFolder,
   resolve,
   resolveInExactCase,
   stripExtension,

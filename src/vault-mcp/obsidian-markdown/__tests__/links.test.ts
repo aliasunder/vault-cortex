@@ -1,7 +1,13 @@
-import { describe, it, expect } from "vitest"
+import { describe, it, expect, vi, onTestFinished } from "vitest"
 import { execFileSync } from "node:child_process"
+import { posix } from "node:path"
 import { links } from "../links.js"
 import { classifyLines } from "../lines.js"
+import {
+  CHILD_DEADLINE_MS,
+  CHILD_TEST_TIMEOUT_MS,
+  LINEAR_GROWTH_ALLOWANCE,
+} from "./helpers/linear-timing.js"
 import {
   createScannerDocuments,
   scannerCorpora,
@@ -1089,4 +1095,208 @@ describe("resolveAsset", () => {
   it("cannot resolve a relative target without a source path", () => {
     expect(links.resolveAsset({ target: "../assets/photo.png", allAssetPaths })).toBeNull()
   })
+})
+
+// ── Link-target limits ───────────────────────────────────────────
+
+/** A target of exactly `bytes` bytes with a ".." after a name. */
+const interleavedTarget = (bytes: number): string => {
+  const body = `x${"/b/..".repeat(800)}/`
+  return `${body}${"y".repeat(bytes - body.length)}`
+}
+
+/** A target of exactly `bytes` bytes whose ".." segments all lead. */
+const leadingParentTarget = (bytes: number): string => {
+  const parents = "../".repeat(2000)
+  return `${parents}${"y".repeat(bytes - parents.length)}`
+}
+
+/** Below this many milliseconds a timing is mostly scheduling noise, so it sets
+ *  no tighter growth bound. */
+const TIMING_FLOOR_MS = 10
+
+describe("link-target limits", () => {
+  // A note 700 folders deep linking 1,050 folders down: a link Obsidian writes
+  // from the current file, 4,204 bytes long.
+  const deepSource = `${"s/".repeat(700)}source.md`
+  const deepRelativeLink = `${"../".repeat(700)}${"a/".repeat(1050)}real`
+
+  it("extracts a 4,095-byte target of any shape and skips a 4,096-byte one with a '..' after a name", () => {
+    const kept = interleavedTarget(4095)
+
+    expect(links.extractFromBody(`[[${kept}]] [[${interleavedTarget(4096)}]]`)).toEqual([kept])
+  })
+
+  it("extracts a 10,236-byte target whose '..' segments all lead and skips a 10,237-byte one", () => {
+    const kept = leadingParentTarget(10_236)
+
+    expect(links.extractFromBody(`[[${kept}]]\n[[${leadingParentTarget(10_237)}]]`)).toEqual([kept])
+  })
+
+  it("measures a target in UTF-8 bytes, so 2,052 UTF-16 units of 4,096 bytes are skipped", () => {
+    const multiByteTarget = `xx/b/../${"é".repeat(2044)}`
+
+    expect(multiByteTarget.length).toBe(2052)
+    expect(Buffer.byteLength(multiByteTarget)).toBe(4096)
+    expect(links.extractFromBody(`[[${multiByteTarget}]] [[kept]]`)).toEqual(["kept"])
+  })
+
+  it("measures a markdown link target after percent-decoding it", () => {
+    const encodedTarget = `${"%41".repeat(1400)}/b/../x.md`
+
+    expect(
+      links.extractFromBody(`[a](${encodedTarget}) [b](${interleavedTarget(4096)}.md)`),
+    ).toEqual([`${"A".repeat(1400)}/b/../x.md`])
+  })
+
+  it("skips a frontmatter wikilink over the limit", () => {
+    const kept = interleavedTarget(4095)
+
+    expect(
+      links.extractFromFrontmatter({ related: [`[[${interleavedTarget(4096)}]]`, `[[${kept}]]`] }),
+    ).toEqual([kept])
+  })
+
+  it("resolve finds a 4,204-byte link from a note 700 folders deep", () => {
+    const deepNote = `${"a/".repeat(1050)}real.md`
+
+    expect(Buffer.byteLength(deepRelativeLink)).toBe(4204)
+    expect(
+      links.resolve({ target: deepRelativeLink, allPaths: [deepNote], sourcePath: deepSource }),
+    ).toBe(deepNote)
+  })
+
+  it("resolveInExactCase finds a 4,204-byte link from a note 700 folders deep", () => {
+    const deepNote = `${"a/".repeat(1050)}real.md`
+
+    expect(
+      links.resolveInExactCase({
+        target: deepRelativeLink,
+        allPaths: [deepNote],
+        sourcePath: deepSource,
+      }),
+    ).toBe(deepNote)
+  })
+
+  it("resolveAsset finds a 4,208-byte link to a file from a note 700 folders deep", () => {
+    const deepFile = `${"a/".repeat(1050)}real.png`
+
+    expect(
+      links.resolveAsset({
+        target: `${deepRelativeLink}.png`,
+        allAssetPaths: [deepFile],
+        sourcePath: deepSource,
+      }),
+    ).toBe(deepFile)
+  })
+
+  it("resolve finds no note for a 4,096-byte target with a '..' after a name, even at its exact path", () => {
+    const allPaths = [`${interleavedTarget(4095)}.md`, `${interleavedTarget(4096)}.md`]
+
+    expect(links.resolve({ target: interleavedTarget(4095), allPaths })).toBe(allPaths[0])
+    expect(links.resolve({ target: interleavedTarget(4096), allPaths })).toBeNull()
+  })
+
+  it("resolveInExactCase finds no note for a 4,096-byte target with a '..' after a name, even at its exact path", () => {
+    const allPaths = [`${interleavedTarget(4095)}.md`, `${interleavedTarget(4096)}.md`]
+
+    expect(links.resolveInExactCase({ target: interleavedTarget(4095), allPaths })).toBe(
+      allPaths[0],
+    )
+    expect(links.resolveInExactCase({ target: interleavedTarget(4096), allPaths })).toBeNull()
+  })
+
+  it("resolveAsset finds no file for a 4,096-byte target with a '..' after a name, even at its exact path", () => {
+    const allAssetPaths = [interleavedTarget(4095), interleavedTarget(4096)]
+
+    expect(links.resolveAsset({ target: interleavedTarget(4095), allAssetPaths })).toBe(
+      allAssetPaths[0],
+    )
+    expect(links.resolveAsset({ target: interleavedTarget(4096), allAssetPaths })).toBeNull()
+  })
+
+  it("joinToSourceFolder returns null for a leading '..' run that climbs above the vault root", () => {
+    expect(links.joinToSourceFolder("a/note.md", ".././/../x")).toBeNull()
+    expect(links.joinToSourceFolder("note.md", "../x")).toBeNull()
+  })
+
+  it("joinToSourceFolder joins a leading '..' run that climbs at most to the vault root", () => {
+    expect(links.joinToSourceFolder("a/note.md", "./../x")).toBe("x")
+    expect(links.joinToSourceFolder("note.md", "x/../y")).toBe("y")
+  })
+
+  it("resolve skips the join for a target that climbs above the vault root", () => {
+    const joinSpy = vi.spyOn(posix, "join")
+    onTestFinished(() => joinSpy.mockRestore())
+
+    expect(
+      links.resolve({ target: ".././/../x", allPaths: ["x.md"], sourcePath: "a/note.md" }),
+    ).toBeNull()
+    expect(joinSpy).not.toHaveBeenCalled()
+  })
+
+  it("resolve joins a target that climbs exactly to the vault root", () => {
+    const joinSpy = vi.spyOn(posix, "join")
+    onTestFinished(() => joinSpy.mockRestore())
+
+    expect(links.resolve({ target: "./../x", allPaths: ["x.md"], sourcePath: "a/note.md" })).toBe(
+      "x.md",
+    )
+    expect(joinSpy).toHaveBeenCalledTimes(1)
+    expect(joinSpy).toHaveBeenCalledWith("a", "./../x.md")
+  })
+
+  it("resolveAsset skips the join for a target that climbs above the vault root", () => {
+    const joinSpy = vi.spyOn(posix, "join")
+    onTestFinished(() => joinSpy.mockRestore())
+
+    expect(
+      links.resolveAsset({
+        target: ".././/../x.png",
+        allAssetPaths: ["x.png"],
+        sourcePath: "a/note.md",
+      }),
+    ).toBeNull()
+    expect(joinSpy).not.toHaveBeenCalled()
+  })
+
+  it("resolveAsset joins a target that climbs exactly to the vault root", () => {
+    const joinSpy = vi.spyOn(posix, "join")
+    onTestFinished(() => joinSpy.mockRestore())
+
+    expect(
+      links.resolveAsset({
+        target: ".././/../x.png",
+        allAssetPaths: ["x.png"],
+        sourcePath: "a/b/note.md",
+      }),
+    ).toBe("x.png")
+    expect(joinSpy).toHaveBeenCalledTimes(1)
+    expect(joinSpy).toHaveBeenCalledWith("a/b", ".././/../x.png")
+  })
+
+  it(
+    "deduplicates 2,000 suffix-distinct 16,384-character targets in time linear in their count",
+    () => {
+      const helperPath = new URL("./helpers/link-target-growth.ts", import.meta.url)
+      const output = execFileSync(
+        process.execPath,
+        ["--import", "tsx", helperPath.pathname, "extract"],
+        { encoding: "utf8", timeout: CHILD_DEADLINE_MS, killSignal: "SIGKILL" },
+      )
+      const { measurements } = JSON.parse(output)
+      const [small, large] = measurements
+
+      expect(
+        measurements.map(({ count, kept }: { count: number; kept: number }) => ({ count, kept })),
+      ).toEqual([
+        { count: 250, kept: 0 },
+        { count: 2_000, kept: 0 },
+      ])
+      expect(large.leastMs).toBeLessThanOrEqual(
+        Math.max(TIMING_FLOOR_MS, small.leastMs) * 8 * LINEAR_GROWTH_ALLOWANCE,
+      )
+    },
+    CHILD_TEST_TIMEOUT_MS,
+  )
 })

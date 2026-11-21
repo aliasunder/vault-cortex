@@ -1559,8 +1559,7 @@ export const createSearchIndex = (
     sourcePath?: string
   }): string | null => {
     const { target, sourcePath } = params
-    const relativeTarget =
-      sourcePath === undefined ? null : posix.join(posix.dirname(sourcePath), target)
+    const relativeTarget = sourcePath ? links.joinToSourceFolder(sourcePath, target) : null
 
     return (
       resolveNonMarkdownFileInExactCase({ target, relativeTarget }) ??
@@ -1626,7 +1625,12 @@ export const createSearchIndex = (
     // answer serves every link with the same text from the same folder.
     const resolvedTargets = new Map<string, string>()
     for (const { source, target, linkText } of storedLinks) {
-      const memoKey = JSON.stringify([posix.dirname(source), linkText])
+      // A vault path holds no NUL, so the first NUL ends the folder and two
+      // pairs never share a key. With the folder and the link text within
+      // their limits, the key stays under the 16,383 characters past which V8
+      // hashes a string by its length alone. JSON quoting would grow control
+      // characters six-fold and break that bound.
+      const memoKey = `${posix.dirname(source)}\u0000${linkText}`
       const resolvedTarget =
         resolvedTargets.get(memoKey) ??
         resolveLinkTarget({ linkText, notePaths, sourcePath: source })

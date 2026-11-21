@@ -341,8 +341,12 @@ export const extractCanvasLinks = (canvasJson: string): CanvasLinks => {
 
   const rawNodes = isRecord(parsed) && Array.isArray(parsed.nodes) ? parsed.nodes : []
   const nodes = rawNodes.map(parseNode).filter((node) => node !== null)
+  // A file card names a vault path, so one over the link-target limit names
+  // no file, and deduplicating it would cost what a long link target does.
   const fileCardPaths = nodes.flatMap((node) => {
-    return node.type === "file" && node.file ? [node.file] : []
+    const namesLinkablePath =
+      node.type === "file" && node.file && links.isWithinLinkTargetLimit(node.file)
+    return namesLinkablePath ? [node.file] : []
   })
   const cardTexts = nodes.flatMap((node) => (node.type === "text" && node.text ? [node.text] : []))
   // A text card is plain Markdown with no properties block.
