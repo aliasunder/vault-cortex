@@ -10,3 +10,6 @@ export const CHILD_DEADLINE_MS = 60_000
 
 /** Sits above the child deadline, so vitest never reports a child that finished within it as a test timeout. */
 export const CHILD_TEST_TIMEOUT_MS = CHILD_DEADLINE_MS + 10_000
+
+/** Below this many milliseconds a timing is mostly scheduling noise, so it sets no tighter growth bound. */
+export const TIMING_FLOOR_MS = 10

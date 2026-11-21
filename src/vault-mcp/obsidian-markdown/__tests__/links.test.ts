@@ -7,6 +7,7 @@ import {
   CHILD_DEADLINE_MS,
   CHILD_TEST_TIMEOUT_MS,
   LINEAR_GROWTH_ALLOWANCE,
+  TIMING_FLOOR_MS,
 } from "./helpers/linear-timing.js"
 import {
   createScannerDocuments,
@@ -1110,10 +1111,6 @@ const leadingParentTarget = (bytes: number): string => {
   const parents = "../".repeat(2000)
   return `${parents}${"y".repeat(bytes - parents.length)}`
 }
-
-/** Below this many milliseconds a timing is mostly scheduling noise, so it sets
- *  no tighter growth bound. */
-const TIMING_FLOOR_MS = 10
 
 describe("link-target limits", () => {
   // A note 700 folders deep linking 1,050 folders down: a link Obsidian writes

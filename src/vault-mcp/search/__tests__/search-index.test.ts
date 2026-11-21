@@ -38,6 +38,7 @@ import {
   CHILD_DEADLINE_MS as LINEAR_TIMING_CHILD_DEADLINE_MS,
   CHILD_TEST_TIMEOUT_MS,
   LINEAR_GROWTH_ALLOWANCE,
+  TIMING_FLOOR_MS,
 } from "../../obsidian-markdown/__tests__/helpers/linear-timing.js"
 
 vi.mock("node:fs/promises", { spy: true })
@@ -7349,10 +7350,6 @@ describe("relative links (path from current file)", () => {
 })
 
 describe("link-target limits", () => {
-  /** Below this many milliseconds a timing is mostly scheduling noise, so it
-   *  sets no tighter growth bound. */
-  const TIMING_FLOOR_MS = 10
-
   it("indexes a link that climbs above the vault root without joining it to the note's folder", () => {
     const joinSpy = vi.spyOn(posix, "join")
     onTestFinished(() => joinSpy.mockRestore())

@@ -5,6 +5,7 @@ import {
   CHILD_DEADLINE_MS,
   CHILD_TEST_TIMEOUT_MS,
   LINEAR_GROWTH_ALLOWANCE,
+  TIMING_FLOOR_MS,
 } from "./helpers/linear-timing.js"
 import {
   linearizeCanvas,
@@ -42,10 +43,6 @@ const canvasJson = (
 
 /** U+FEFF, which a Windows editor can write at the start of a UTF-8 file. */
 const BYTE_ORDER_MARK = "\uFEFF"
-
-/** Below this many milliseconds a timing is mostly scheduling noise, so it sets
- *  no tighter growth bound. */
-const TIMING_FLOOR_MS = 10
 
 describe("linearizeCanvas", () => {
   it("renders ungrouped text, file, and link nodes with their content", () => {
