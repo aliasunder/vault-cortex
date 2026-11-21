@@ -16,7 +16,9 @@ const assertJsonSyntax = (jsonText: string): void => {
 
 /** A Bases file is YAML whose top level is a mapping, or an empty document. */
 const assertBaseSyntax = (baseText: string): void => {
-  const { document, firstError } = parseYamlWithFirstError(baseText)
+  // The YAML parser skips a leading byte-order mark but counts it as a column,
+  // so an error on the first line would be reported one column late.
+  const { document, firstError } = parseYamlWithFirstError(stripLeadingBom(baseText))
 
   if (firstError) {
     throw new Error(
@@ -34,8 +36,9 @@ const assertBaseSyntax = (baseText: string): void => {
 
 /**
  * Throws when a file's text would break the format its extension names:
- * `.canvas` and `.json` must parse as JSON (a canvas as an object with array
- * `nodes` and `edges`), and `.base` as YAML with a mapping at the top level.
+ * `.canvas` and `.json` must parse as JSON (a canvas as an object whose
+ * `nodes` and `edges`, when present, are arrays), and `.base` as YAML with a
+ * mapping or nothing at the top level.
  * Any other extension passes. A leading byte-order mark is accepted.
  */
 export const assertTextFileSyntax = (params: { path: string; content: string }): void => {

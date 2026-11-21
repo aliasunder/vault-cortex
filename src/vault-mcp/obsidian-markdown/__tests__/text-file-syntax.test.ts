@@ -140,6 +140,16 @@ describe("assertTextFileSyntax — .base", () => {
     )
   })
 
+  it("names a first-line error's column without counting a leading byte-order mark", () => {
+    const content = `${BYTE_ORDER_MARK}views: a: b\n`
+
+    expect(() => assertTextFileSyntax({ path: "Bases/books.base", content })).toThrow(
+      new Error(
+        "invalid .base YAML at line 1, column 8: Nested mappings are not allowed in compact mappings",
+      ),
+    )
+  })
+
   it("refuses a Base with a duplicate key, naming its line", () => {
     const content = "filters: a\nviews: []\nfilters: b\n"
 
