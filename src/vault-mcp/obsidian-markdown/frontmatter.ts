@@ -272,7 +272,7 @@ const duplicateKeyOffset = (pair: Pair): number => {
  *  library's own duplicate check reports for it (same message, same
  *  position), or undefined. Keys are checked in the order the library
  *  composes them, so the first duplicate found is the library's first. */
-const findFirstDuplicateKey = (document: Document): YAMLParseError | undefined => {
+export const findFirstDuplicateKey = (document: Document): YAMLParseError | undefined => {
   // A stack of pending steps; the last one pushed runs next.
   const steps: DuplicateKeyStep[] = [{ kind: "node", node: document.contents }]
 

@@ -204,6 +204,12 @@ const groupHeading = (group: CanvasNode, depth: number): string => {
   return `${heading} Group: ${group.label ?? "(unlabeled)"}`
 }
 
+/** One node's section when groups are not nested: a group becomes a top-level heading. */
+const renderFlatNode = (node: CanvasNode): string => {
+  if (node.type === "group") return groupHeading(node, 0)
+  return renderNode(node)
+}
+
 /** Groups a list by a key function, preserving each bucket's insertion order. */
 const groupBy = <Key, Item>(
   items: readonly Item[],
@@ -272,6 +278,24 @@ const parseCanvasJson = (canvasJson: string): unknown => {
   }
 }
 
+/** Throws unless the text parses as JSON Canvas 1.0's top level
+ *  (https://jsoncanvas.org/spec/1.0/): one object whose `nodes` and `edges`,
+ *  when present, are arrays. Stricter than linearizeCanvas, which reads any
+ *  JSON, so a write cannot save a canvas Obsidian has no nodes to read from. */
+export const assertCanvasTopLevel = (canvasJson: string): void => {
+  const parsed = parseCanvasJson(canvasJson)
+
+  if (!isRecord(parsed)) {
+    throw new Error("invalid .canvas JSON: the top level must be an object")
+  }
+  for (const listKey of ["nodes", "edges"]) {
+    // null is refused too: it is no array, and a canvas omits a list it lacks
+    if (parsed[listKey] !== undefined && !Array.isArray(parsed[listKey])) {
+      throw new Error(`invalid .canvas JSON: "${listKey}" must be an array`)
+    }
+  }
+}
+
 /**
  * Linearizes .canvas JSON into readable markdown: an overview line, ungrouped
  * node content first, each group's content under a `Group:` heading (nested
@@ -301,7 +325,7 @@ export const linearizeCanvas = (canvasJson: string): string => {
   })
   const nodeSections = keepNesting
     ? renderNestedNodes({ contentNodes, groups })
-    : nodes.map((node) => (node.type === "group" ? groupHeading(node, 0) : renderNode(node)))
+    : nodes.map(renderFlatNode)
 
   const nodeById = new Map(nodes.map((node) => [node.id, node]))
   const edgeEndpointName = (id: string): string => {
