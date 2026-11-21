@@ -32,6 +32,15 @@ const assertBaseSyntax = (baseText: string): void => {
   if (!isEmptyDocument && !isMap(document.contents)) {
     throw new Error("invalid .base YAML: the top level must be a mapping")
   }
+
+  try {
+    // The parse accepts an alias whose anchor the file never sets; converting
+    // the document throws on it, as it does for a note's properties block.
+    document.toJS()
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    throw new Error(`invalid .base YAML: ${message}`, { cause: error })
+  }
 }
 
 /**

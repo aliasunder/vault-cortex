@@ -195,6 +195,20 @@ describe("atomicWriteFile", () => {
     })
   })
 
+  it.each([
+    { label: "a private file", mode: 0o600 },
+    { label: "an executable script", mode: 0o755 },
+  ])("keeps the permission bits of $label it replaces", async ({ mode }) => {
+    const target = join(vault, "kept-mode.sh")
+    await writeFile(target, "before\n", "utf8")
+    await chmod(target, mode)
+
+    await atomicWriteFile({ filePath: target, content: "after\n" }, logger)
+
+    expect(await readFile(target, "utf8")).toBe("after\n")
+    expect((await stat(target)).mode & 0o777).toBe(mode)
+  })
+
   it("saves a note whose name is one byte under the filesystem's name limit", async () => {
     const target = join(vault, NAME_ONE_BYTE_UNDER_LIMIT)
 

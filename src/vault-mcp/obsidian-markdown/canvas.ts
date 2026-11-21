@@ -1,4 +1,5 @@
 import { posix } from "node:path"
+import { stripLeadingBom } from "./frontmatter.js"
 import { links } from "./links.js"
 
 /**
@@ -299,13 +300,11 @@ const renderNestedNodes = ({
 
 /** Parses canvas JSON with a contextual error message on failure. */
 const parseCanvasJson = (canvasJson: string): unknown => {
-  // Callers pass a Canvas's text as saved, so a leading byte-order mark from a Windows editor
-  // reaches here. JSON.parse rejects the mark, and RFC 8259 §8.1 lets a JSON parser skip it:
-  // https://www.rfc-editor.org/rfc/rfc8259#section-8.1
-  const jsonText = canvasJson.startsWith("\uFEFF") ? canvasJson.slice(1) : canvasJson
-
   try {
-    return JSON.parse(jsonText)
+    // Callers pass a Canvas's text as saved, so a leading byte-order mark from a Windows editor
+    // reaches here. JSON.parse rejects the mark, and RFC 8259 §8.1 lets a JSON parser skip it:
+    // https://www.rfc-editor.org/rfc/rfc8259#section-8.1
+    return JSON.parse(stripLeadingBom(canvasJson))
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     throw new Error(`invalid .canvas JSON: ${message}`, { cause: error })

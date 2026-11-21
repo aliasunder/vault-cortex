@@ -449,7 +449,10 @@ const writeAssetContent = async (
 
   // The type checks read the resolved path, the file the save writes, so a
   // trailing "/" or "/." on the path cannot hide a note, an image or a canvas.
-  assertNotMarkdownNote({ fullPath, path })
+  // The note check also ignores letter case: on a macOS or Windows bind mount,
+  // "Plan.MD" opens the note "Plan.md". Reads keep the exact match, so a
+  // "README.MD" that is not a note stays readable.
+  assertNotMarkdownNote({ fullPath: fullPath.toLowerCase(), path })
 
   const fileKind = getFileKind(fullPath)
 
@@ -475,9 +478,10 @@ const writeAssetContent = async (
       await assertExistingFileIsText({ fullPath, path })
     }
 
-    // The save follows overwrite, not existingStats: a file can appear after
-    // the stat, and only a create must refuse to replace it.
-    if (overwrite) {
+    // The save follows existingStats, not overwrite: a file that appears after
+    // the stat was never checked, so a path that was missing is created
+    // exclusively even with overwrite.
+    if (existingStats) {
       await atomicWriteFile({ filePath: fullPath, content }, logger)
     } else {
       await saveNewFile(

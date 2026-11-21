@@ -168,6 +168,22 @@ describe("assertTextFileSyntax — .base", () => {
     )
   })
 
+  it("refuses a Base with an alias whose anchor the file never sets", () => {
+    const content = "filters: *shared\nviews: []\n"
+
+    expect(() => assertTextFileSyntax({ path: "Bases/books.base", content })).toThrow(
+      new Error(
+        "invalid .base YAML: Unresolved alias (the anchor must be set before the alias): shared",
+      ),
+    )
+  })
+
+  it("accepts a Base whose alias names an anchor set before it", () => {
+    const content = "filters: &shared\n  and: []\nviews:\n  - type: table\n    filters: *shared\n"
+
+    expect(() => assertTextFileSyntax({ path: "Bases/books.base", content })).not.toThrow()
+  })
+
   it("refuses a Base whose top level is a scalar", () => {
     expect(() => assertTextFileSyntax({ path: "Bases/books.base", content: "just text" })).toThrow(
       new Error("invalid .base YAML: the top level must be a mapping"),

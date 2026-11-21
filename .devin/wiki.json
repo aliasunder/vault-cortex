@@ -65,7 +65,7 @@
     },
     {
       "title": "Non-Markdown Files",
-      "purpose": "How non-markdown vault files are read, browsed, and searched. Modules: asset-operations.ts (file-tool use-case), asset-text.ts (text paging), pdf-extractor.ts and pdf-extraction-child.ts with pdf-extraction-protocol.ts (shared PDF text child and IPC); obsidian-markdown/file-kinds.ts (extension routing), html.ts, canvas.ts, pdf-engine.ts and pdf.ts (renditions); utils/decode-text-buffer.ts and fit-image-to-byte-budget.ts; search-index.ts and file-watcher.ts (file_content and file_content_fts publication and deferred PDF extraction). Derive formats, limits, lifecycle and rendering boundaries from ARCHITECTURE.md's Files and Indexing sections.",
+      "purpose": "How non-markdown vault files are read, written, browsed, and searched. Modules: asset-operations.ts (file-tool use-case), asset-text.ts (text paging), pdf-extractor.ts and pdf-extraction-child.ts with pdf-extraction-protocol.ts (shared PDF text child and IPC); obsidian-markdown/file-kinds.ts (extension routing), html.ts, canvas.ts, pdf-engine.ts and pdf.ts (renditions); utils/decode-text-buffer.ts and fit-image-to-byte-budget.ts; search-index.ts and file-watcher.ts (file_content and file_content_fts publication and deferred PDF extraction). Derive formats, limits, lifecycle and rendering boundaries from ARCHITECTURE.md's Files and Indexing sections.",
       "parent": "Architecture"
     },
     {

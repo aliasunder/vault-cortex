@@ -1057,11 +1057,27 @@ describe("writeAssetContent — creating", () => {
   })
 
   it.each([
-    { label: "with hard links", windowsBindMount: false, hardLinksSupported: true },
-    { label: "on a Windows bind mount", windowsBindMount: true, hardLinksSupported: false },
+    {
+      label: "a create with hard links",
+      overwrite: false,
+      windowsBindMount: false,
+      hardLinksSupported: true,
+    },
+    {
+      label: "a create on a Windows bind mount",
+      overwrite: false,
+      windowsBindMount: true,
+      hardLinksSupported: false,
+    },
+    {
+      label: "an overwrite of a path that was missing",
+      overwrite: true,
+      windowsBindMount: false,
+      hardLinksSupported: true,
+    },
   ])(
     "never replaces a file that appears after the existence check ($label)",
-    async ({ windowsBindMount, hardLinksSupported }) => {
+    async ({ overwrite, windowsBindMount, hardLinksSupported }) => {
       const vaultPath = await makeTempVault()
       const filePath = join(vaultPath, "plan.canvas")
       // Stands in for Obsidian Sync writing the same path between the check and the save
@@ -1072,7 +1088,7 @@ describe("writeAssetContent — creating", () => {
 
       await expect(
         assetOperations.writeAssetContent(
-          { vaultPath, path: "plan.canvas", content: "{}", overwrite: false, windowsBindMount },
+          { vaultPath, path: "plan.canvas", content: "{}", overwrite, windowsBindMount },
           logger,
         ),
       ).rejects.toThrow(new Error('file already exists: "plan.canvas"'))
@@ -1132,6 +1148,12 @@ describe("writeAssetContent — refusals before any file is written", () => {
       path: "Projects/plan.md",
       content: "# Plan",
       message: 'not a file: "Projects/plan.md" is a markdown note',
+    },
+    {
+      label: "a markdown note named in another letter case",
+      path: "Projects/Plan.MD",
+      content: "# Plan",
+      message: 'not a file: "Projects/Plan.MD" is a markdown note',
     },
     {
       label: "a markdown note named with a trailing slash",

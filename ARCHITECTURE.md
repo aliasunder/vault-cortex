@@ -402,10 +402,10 @@ The extension-to-representation routing above is implemented by the `vault-opera
 
 `vault_write_file` creates a non-markdown text file, or with `overwrite` replaces one, through `assetOperations.writeAssetContent` in the same use-case, so the read and write type rules sit in one module:
 
-1. **Refused by path:** `.md` (notes belong to `vault_write_note`), and the image and PDF kinds, which text input cannot produce. Every other path is writable, as on the read side.
-2. **Refused by content, before any file access:** control characters other than tab, LF and CR (the guard `vault_write_note` applies), and syntax that would break the format: `.canvas` must be JSON Canvas 1.0's top level (an object whose `nodes` and `edges`, when present, are arrays), `.json` valid JSON, `.base` YAML with a mapping or nothing at the top (`obsidian-markdown/text-file-syntax.ts`). A leading byte-order mark is skipped for parsing only. The Base check parses with the library's duplicate-key detection off and finds the first duplicate in one pass, as properties blocks do, so the check's time grows linearly with a Base's key count rather than quadratically.
+1. **Refused by path:** `.md` in any letter case (notes belong to `vault_write_note`, and on a macOS or Windows bind mount `Plan.MD` opens `Plan.md`), and the image and PDF kinds, which text input cannot produce. Every other path is writable, as on the read side.
+2. **Refused by content, before any file access:** control characters other than tab, LF and CR (the guard `vault_write_note` applies), and syntax that would break the format: `.canvas` must be JSON Canvas 1.0's top level (an object whose `nodes` and `edges`, when present, are arrays), `.json` valid JSON, `.base` YAML with a mapping or nothing at the top and every alias naming an anchor set before it (`obsidian-markdown/text-file-syntax.ts`). A leading byte-order mark is skipped for parsing only. The Base check parses with the library's duplicate-key detection off and finds the first duplicate in one pass, as properties blocks do, so the check's time grows linearly with a Base's key count rather than quadratically.
 3. **Inside the write lock,** after missing parent folders are created: an existing file without `overwrite` is refused; a folder at the path is refused. With `overwrite`, the existing file's first 8,000 bytes are read, and a NUL byte refuses the write for HTML pages, scripts and unlisted types, the files the read list's item 5 refuses as binary, so text never replaces a file the read side treats as binary. Text and canvas kinds skip that check, as they do on read.
-4. **The save** is atomic. A create is exclusive (`atomicWriteFileExclusive`), so a file Obsidian Sync delivers between the existence check and the save is never replaced; an overwrite renames over the path, last writer wins against writers outside the server, as for notes. No copy of a replaced file is kept.
+4. **The save** is atomic. A path that was missing at the existence check is created exclusively (`atomicWriteFileExclusive`), even with `overwrite`, so a file Obsidian Sync delivers between the check and the save is never replaced unchecked; an existing file is overwritten by a rename over the path, last writer wins against writers outside the server, as for notes. No copy of a replaced file is kept.
 
 The tool's content reaches the server inside one MCP request, which the router caps at 5 MB. On an Obsidian Sync vault, written canvases and Bases always sync and SVG files sync as images, while other text files reach other devices only when `SYNC_FILE_TYPES` includes `unsupported`.
 
@@ -1409,7 +1409,9 @@ Docker hardening, and durability seatbelts above.
   - 41 bytes whatever the note's name, so a note named near the
     filesystem's per-name limit still saves;
   - on the note's filesystem, so the rename (or the hard link of an
-    exclusive create, below) stays atomic.
+    exclusive create, below) stays atomic;
+  - created with the target's permission bits, so an edit keeps a private
+    file private and a script executable (the process umask still applies).
 
   A `catch` in `atomicWriteFile` removes the temp file after a failure. A
   `finally` in `atomicWriteFileExclusive` removes it after every call,
@@ -1418,8 +1420,9 @@ Docker hardening, and durability seatbelts above.
 - **Exclusive atomic creates** (`atomicWriteFileExclusive`): uses
   `link()` for POSIX no-clobber semantics — fails atomically with
   `EEXIST` if the target already exists, closing the TOCTOU race on
-  `vault_move_note`'s destination. Falls back to `writeFile` with `'wx'`
-  flag on Windows-drive bind mounts where hard links aren't supported.
+  `vault_move_note`'s destination. On Windows-drive bind mounts, where
+  hard links aren't supported, it reserves the target with a `'wx'` create,
+  then renames the staged temp file over that empty placeholder.
 - **Per-file mutex** (`file-write-lock.ts`): three modes sharing one
   lock map. `withFileLock` (serializing) queues writes behind the
   previous write on the same path — used by memory-store where
