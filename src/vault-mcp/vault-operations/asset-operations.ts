@@ -400,8 +400,9 @@ const assertExistingFileIsText = async (params: {
 
 const fileExistsMessage = (path: string): string => `file already exists: "${path}"`
 
-const notAFileMessage = (path: string): string =>
-  `cannot write file "${path}": that path is not a file`
+const notAFileMessage = (path: string): string => {
+  return `cannot write file "${path}": that path is not a file`
+}
 
 /** Saves a file that must be new. The save is exclusive, so a file that
  *  appeared since the existence check (Obsidian Sync delivering the same path)
