@@ -174,6 +174,54 @@ describe("linearizeCanvas", () => {
     )
   })
 
+  it("cuts an endpoint name past 100 code points in the edge list and keeps the card's full text", () => {
+    const longLine = "a".repeat(150)
+    const json = canvasJson(
+      [textNode({ id: "a", text: longLine }), textNode({ id: "b", text: "Short", x: 300 })],
+      [{ id: "e1", fromNode: "a", toNode: "b" }],
+    )
+    expect(linearizeCanvas(json)).toBe(
+      [
+        "# Canvas: 2 nodes, 1 edge",
+        `[text]\n${longLine}`,
+        "[text]\nShort",
+        `## Connections\n\n${"a".repeat(100)}… → Short`,
+      ].join("\n\n"),
+    )
+  })
+
+  it("keeps an endpoint name of exactly 100 code points whole when it spans more UTF-16 units", () => {
+    const emojiName = String.fromCodePoint(0x1f600).repeat(100)
+    const json = canvasJson(
+      [textNode({ id: "a", text: emojiName }), textNode({ id: "b", text: "Short", x: 300 })],
+      [{ id: "e1", fromNode: "a", toNode: "b" }],
+    )
+    expect(linearizeCanvas(json)).toBe(
+      [
+        "# Canvas: 2 nodes, 1 edge",
+        `[text]\n${emojiName}`,
+        "[text]\nShort",
+        `## Connections\n\n${emojiName} → Short`,
+      ].join("\n\n"),
+    )
+  })
+
+  it("cuts an endpoint name before a letter whose accent falls past the limit", () => {
+    const accentedName = `${"a".repeat(99)}e${String.fromCodePoint(0x301)}${"b".repeat(10)}`
+    const json = canvasJson(
+      [textNode({ id: "a", text: accentedName }), textNode({ id: "b", text: "Short", x: 300 })],
+      [{ id: "e1", fromNode: "a", toNode: "b" }],
+    )
+    expect(linearizeCanvas(json)).toBe(
+      [
+        "# Canvas: 2 nodes, 1 edge",
+        `[text]\n${accentedName}`,
+        "[text]\nShort",
+        `## Connections\n\n${"a".repeat(99)}… → Short`,
+      ].join("\n\n"),
+    )
+  })
+
   it("appends a file node's subpath to its path", () => {
     const json = canvasJson([
       {
@@ -785,6 +833,17 @@ describe("canvas ownership work and rendering depth", () => {
       inputBytes: 2590,
       nodeCount: 28,
       headingCount: 28,
+      medianMs: expect.any(Number),
+      semantics: "exact",
+    })
+  }, 35_000)
+
+  it("renders 13,000 edges between a long-URL card and a 100,000-line card within the ceiling", () => {
+    expect(readParserComplexityReport("canvas-edge-names")).toEqual({
+      fixture: "canvas-edge-names",
+      node: process.version,
+      inputBytes: 688_168,
+      outputChars: 1_563_071,
       medianMs: expect.any(Number),
       semantics: "exact",
     })

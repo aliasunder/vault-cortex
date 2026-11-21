@@ -173,6 +173,40 @@ const displayName = (node: CanvasNode): string => {
   return `(${node.type} node)`
 }
 
+// An edge line names both of its endpoints, and one node can sit on every
+// edge, so a long name would repeat into each line. 100 code points still
+// tells cards apart in the list, and each node's own section keeps its full
+// text.
+const EDGE_NAME_CODE_POINT_LIMIT = 100
+
+const graphemeSegmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" })
+
+/** The name an edge line shows for a node: its display name cut to whole
+ *  graphemes within EDGE_NAME_CODE_POINT_LIMIT code points, ending in an
+ *  ellipsis when anything was cut. */
+const edgeLineName = (node: CanvasNode): string => {
+  const name = displayName(node)
+
+  // A string never holds more code points than UTF-16 units.
+  if (name.length <= EDGE_NAME_CODE_POINT_LIMIT) return name
+
+  const codePointPrefix = name[Symbol.iterator]()
+    .take(EDGE_NAME_CODE_POINT_LIMIT)
+    .toArray()
+    .join("")
+  const cutIndex = codePointPrefix.length
+
+  if (cutIndex === name.length) return name
+
+  // Whether the cut splits a grapheme depends on the text before it and the
+  // one code point after it, at most two UTF-16 units.
+  const graphemeAtCut = graphemeSegmenter.segment(name.slice(0, cutIndex + 2)).containing(cutIndex)
+
+  // cutIndex is inside the segmented text, so a segment always contains it.
+  if (!graphemeAtCut) throw new Error(`no grapheme contains index ${cutIndex}`)
+  return `${name.slice(0, graphemeAtCut.index)}…`
+}
+
 /** One node's rendition: a `[type]` marker, then its content. */
 const renderNode = (node: CanvasNode): string => {
   if (node.type === "text") return `[text]\n${node.text ?? ""}`
@@ -304,7 +338,8 @@ export const assertCanvasTopLevel = (canvasJson: string): void => {
  * Linearizes .canvas JSON into readable markdown: an overview line, ungrouped
  * node content first, each group's content under a `Group:` heading (nested
  * groups one level deeper), then a `Connections` edge list in `A → B (label)`
- * form with ids resolved to display names. A canvas too large for nesting
+ * form with ids resolved to display names, each cut at
+ * EDGE_NAME_CODE_POINT_LIMIT code points. A canvas too large for nesting
  * (see canNestCanvasGroups) keeps node content and group headings flat, in
  * reading order. Throws on unparseable JSON. Every valid node is rendered
  * once, even when IDs repeat; an edge to a repeated ID names the last such
@@ -331,10 +366,12 @@ export const linearizeCanvas = (canvasJson: string): string => {
     ? renderNestedNodes({ contentNodes, groups })
     : nodes.map(renderFlatNode)
 
-  const nodeById = new Map(nodes.map((node) => [node.id, node]))
+  // Each node's name is worked out once, because an edge list can name the
+  // same node on every line and a text card's name scans its whole text.
+  // A later node with a repeated ID replaces the earlier one's entry.
+  const edgeNameById = new Map(nodes.map((node) => [node.id, edgeLineName(node)]))
   const edgeEndpointName = (id: string): string => {
-    const node = nodeById.get(id)
-    return node ? displayName(node) : `(missing node "${id}")`
+    return edgeNameById.get(id) ?? `(missing node "${id}")`
   }
 
   const edgeLines = edges.map((edge) => {

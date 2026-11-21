@@ -201,6 +201,39 @@ const runFixture = (fixture: string): unknown => {
       semantics: "exact",
     }
   }
+  if (fixture === "canvas-edge-names") {
+    // Every edge joins the same two cards: one whose name is a long URL, and one
+    // whose name comes from the first line of a long text
+    const url = "x".repeat(20_000)
+    const text = `Label${"\n".repeat(100_000)}`
+    const edgeCount = 13_000
+    const nodes = [
+      { id: "link", type: "link", url, x: 0, y: 0, width: 1, height: 1 },
+      { id: "text", type: "text", text, x: 0, y: 10, width: 1, height: 1 },
+    ]
+    const edges = Array.from({ length: edgeCount }, () => ({ fromNode: "link", toNode: "text" }))
+    const json = JSON.stringify({ nodes, edges })
+    const edgeLines = Array.from({ length: edgeCount }, () => `${"x".repeat(100)}… → Label`)
+    const expected = [
+      `# Canvas: 2 nodes, ${edgeCount} edges`,
+      `[link] → ${url}`,
+      `[text]\n${text}`,
+      ["## Connections", ...edgeLines].join("\n\n"),
+    ].join("\n\n")
+    const medianMs = measure(() => {
+      assert.equal(linearizeCanvas(json), expected)
+    })
+
+    assert.ok(medianMs < 1000, `canvas-edge-names exceeded ceiling ${medianMs}`)
+    return {
+      fixture,
+      node: process.version,
+      inputBytes: Buffer.byteLength(json),
+      outputChars: expected.length,
+      medianMs,
+      semantics: "exact",
+    }
+  }
   if (fixture === "yaml-unique" || fixture === "yaml-duplicate") {
     const duplicate = fixture === "yaml-duplicate"
     const smallerMs = measure(yamlCase(50_000, duplicate))
