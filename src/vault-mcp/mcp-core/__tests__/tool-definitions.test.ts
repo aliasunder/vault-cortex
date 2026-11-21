@@ -3235,6 +3235,46 @@ describe("file tool handlers", () => {
       truncated: true,
     })
   })
+
+  it.each([
+    { label: "on", env: { WINDOWS_MODE: "true" }, windowsBindMount: true },
+    { label: "off", env: {}, windowsBindMount: false },
+  ])(
+    "vault_write_file hands the write the WINDOWS_MODE setting when it is $label",
+    async ({ env, windowsBindMount }) => {
+      // A stand-in write, so the test sees the arguments the handler maps
+      const writeSpy = vi
+        .spyOn(assetOperations, "writeAssetContent")
+        .mockResolvedValueOnce(undefined)
+      onTestFinished(() => writeSpy.mockRestore())
+      const writeCall = registerWithConfig(env, { vaultPath: "/test-vault" }).find(
+        ([toolName]) => toolName === TOOL_NAMES.VAULT_WRITE_FILE,
+      )
+
+      if (!writeCall) throw new Error("vault_write_file was not registered")
+      const [, , writeHandler] = writeCall
+
+      const result = await writeHandler(
+        { path: "Boards/plan.canvas", content: "{}", overwrite: true },
+        mockExtra,
+      )
+
+      expect(result).toEqual({ content: [{ type: "text", text: "Wrote Boards/plan.canvas" }] })
+      expect(writeSpy).toHaveBeenCalledTimes(1)
+      expect(writeSpy).toHaveBeenCalledWith(
+        {
+          vaultPath: "/test-vault",
+          path: "Boards/plan.canvas",
+          content: "{}",
+          overwrite: true,
+          windowsBindMount,
+        },
+        // The handler builds its request logger inside the call, so the test
+        // cannot hold that object to compare
+        expect.anything(),
+      )
+    },
+  )
 })
 
 describe("DISABLED_TOOLS", () => {
