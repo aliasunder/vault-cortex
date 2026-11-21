@@ -255,6 +255,17 @@ The server, and the `:remote` image's setup mode, set these headers:
 - If the log file or folder cannot be written, read or pruned, file logging
   stops with one console warning and the server keeps running
 
+### Crafted note content
+
+- A link target longer than any link Obsidian writes is skipped before it is
+  indexed or resolved: over 4,095 bytes unless every `..` segment comes
+  first, and over 10,236 bytes in any shape. Canvas file cards follow the
+  same limit
+- Body tags are parsed in a worker thread; a note still parsing after
+  2 seconds is indexed without body tags while the server keeps answering
+- Canvas groups nest only while `content nodes × groups + groups²` stays at
+  most 16,000,000; a larger canvas renders flat
+
 ### Container hardening
 
 - PDF text extraction (reads and indexing) runs in one child process
