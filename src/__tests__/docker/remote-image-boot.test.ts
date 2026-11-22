@@ -53,6 +53,12 @@ import type { ContainerHandle } from "./docker-harness.js"
 // The global setup (helpers/remote-boot-global-setup.ts) builds this run's
 // image unless REMOTE_IMAGE names one, and gives every run an ID.
 const IMAGE = inject("remoteImage")
+
+// The run's part of each container name, which tells a reader of `docker ps`
+// or the CI dump which run left a container. Teardown matches the label, not
+// the name.
+// - The dashes are dropped so the run is one segment of the dash-separated name.
+// - Twelve hex characters keep names short and still tell runs apart.
 const RUN_NAME_PREFIX = inject("remoteBootRunId").replaceAll("-", "").slice(0, 12)
 
 /** Deliberately low-entropy fixtures so secret scanners never flag them. The
@@ -182,6 +188,9 @@ Delivered by the stubbed first sync. Links to [[Sync Log]].
 
 const OWNERSHIP_LINE = "Ownership IDs changed"
 
+/** The random suffix gives every boot its own name, even a second boot of one
+ *  scenario in the same run (`--retry`). Without it, the retry would collide
+ *  with a container the failed attempt left, or reuse that attempt's volumes. */
 const uniqueName = (scenario: string): string => {
   return `remote-boot-${RUN_NAME_PREFIX}-${scenario}-${randomBytes(4).toString("hex")}`
 }
