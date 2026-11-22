@@ -9,9 +9,9 @@ name: Test Deploy
 # tag (never `:remote`, `:latest`, or version tags), so OSS users pulling
 # the released image are unaffected. The instance is switched to the test
 # image via VAULT_CORTEX_TAG=test in its .env. To return to the released
-# image, run Force Deploy — it rewrites the .env from the repo Variables,
-# without VAULT_CORTEX_TAG (compose falls back to `:remote`), and re-ships
-# the latest release's docker-compose.yml.
+# image, run Force Deploy (force_deploy.yml) — it rewrites the .env from the
+# repo Variables, without VAULT_CORTEX_TAG (compose falls back to `:remote`),
+# and re-ships the latest release's docker-compose.yml.
 #
 # Dispatch from the Actions UI and select the branch to test — checkout
 # defaults to the dispatched ref. No branch guard: it skipped every run
@@ -290,7 +290,7 @@ jobs:
           EOF
           if [ -n "$LOG_MAX_DAILY_MB" ]; then echo "LOG_MAX_DAILY_MB=$LOG_MAX_DAILY_MB" >> "$RUNNER_TEMP/lightsail.env"; fi
           # Only write user-specific overrides when the repo Variable is set —
-          # the server falls back to sensible defaults when these are absent.
+          # the compose file or the server supplies the default when one is absent.
           if [ -n "$PROTECTED_PATHS" ]; then echo "PROTECTED_PATHS=$PROTECTED_PATHS" >> "$RUNNER_TEMP/lightsail.env"; fi
           if [ -n "$ORPHAN_EXCLUDE_FOLDERS" ]; then echo "ORPHAN_EXCLUDE_FOLDERS=$ORPHAN_EXCLUDE_FOLDERS" >> "$RUNNER_TEMP/lightsail.env"; fi
           if [ -n "$SERVICE_DOCUMENTATION_URL" ]; then echo "SERVICE_DOCUMENTATION_URL=$SERVICE_DOCUMENTATION_URL" >> "$RUNNER_TEMP/lightsail.env"; fi

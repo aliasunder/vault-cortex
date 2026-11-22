@@ -40,6 +40,8 @@ services:
       # --- MCP server (svc-vault-mcp) ---
       NODE_ENV: production
       PORT: "8000"
+      # Every address inside the container, so the published port reaches the
+      # server; BIND_ADDRESS under ports picks the host-side address.
       HOST: "0.0.0.0"
       VAULT_PATH: /vault
       INDEX_DB_PATH: /data/index.db
@@ -79,10 +81,11 @@ services:
       # which is why the "admits any client" row sets TRUST_FORWARDED_HOPS to
       # 0.
       #
-      # Port 8000 is open to the internet until MCP_PORT_CIDRS=none, and
-      # anyone reaching it directly can write either header, so the defaults
-      # trust neither: every visitor through the gateway then shares the
-      # gateway's bucket, but no visitor can pick one. Without ORIGIN_URL the
+      # Port 8000 is open to the internet until MCP_PORT_CIDRS=none or
+      # BIND_ADDRESS=127.0.0.1 closes it, and anyone reaching it directly can
+      # write either header, so the defaults trust neither: every visitor
+      # through the gateway then shares the gateway's bucket, but no visitor
+      # can pick one. Without ORIGIN_URL the
       # gateway reaches this port directly, so the port cannot close; once the
       # tunnel is locked to the gateway (DEPLOY.md "Port 8000 Hardening"), set
       # TRUST_PROXY_HOPS=2 and TRUST_FORWARDED_HOPS=1.
@@ -127,12 +130,13 @@ services:
       - mcp_index_data:/data
       - obsidian_config:/home/obsidian/.config
     ports:
-      # Every IPv4 address by default, because without ORIGIN_URL the gateway
-      # calls this port on the instance's public address. Set
-      # BIND_ADDRESS=127.0.0.1 once a tunnel or proxy on the instance fronts
-      # the server (ORIGIN_URL): the port then answers on the instance only,
-      # including on VPN interfaces such as Tailscale, which the Lightsail
-      # firewall does not filter.
+      # - Default: every IPv4 address. Without ORIGIN_URL, the SST setting that
+      #   routes the gateway through a tunnel, the gateway calls this port on
+      #   the instance's public address.
+      # - BIND_ADDRESS=127.0.0.1, once a tunnel or proxy on the instance fronts
+      #   the server: loopback only. The port then stops answering on the
+      #   public address and on VPN interfaces such as Tailscale, which the
+      #   Lightsail firewall does not filter.
       - "${BIND_ADDRESS:-0.0.0.0}:8000:8000"
     # start_period covers the s6 init chain (Obsidian login + sync-setup +
     # first vault sync, run to completion when it succeeds) that runs before

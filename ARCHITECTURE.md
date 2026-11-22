@@ -1071,12 +1071,13 @@ OAuth session:
 **Optional: close port 8000.** Set `ORIGIN_URL` to route API Gateway through
 a tunnel or reverse proxy that terminates on the instance and forwards to
 `localhost:8000` (e.g., Cloudflare Tunnel), then set `MCP_PORT_CIDRS=none` to
-block direct access. `BIND_ADDRESS=127.0.0.1` then publishes the container's
-port on the instance's loopback only, which also closes it to VPN interfaces
-such as Tailscale that the Lightsail firewall does not filter. With that topology, bearer tokens never travel in
+block direct access. With that topology, bearer tokens never travel in
 plaintext on any network segment — every network hop is HTTPS or
 tunnel-encrypted, and the final proxy-to-server hop stays on loopback. A proxy
-on a separate host forwarding plain HTTP would not qualify. See
+on a separate host forwarding plain HTTP would not qualify.
+`BIND_ADDRESS=127.0.0.1` also publishes the container's port on loopback only,
+which closes it on VPN interfaces such as Tailscale that the Lightsail
+firewall does not filter. See
 [`DEPLOY.md`](./DEPLOY.md#port-8000-hardening-optional).
 
 **Optional: restrict SSH.** Set `SSH_CIDRS=none` to block public SSH and
