@@ -69,6 +69,9 @@ describe("parseMemoryEntries", () => {
         date: "2026-05-14",
         text: "- **2026-05-14**: Thorough planning before implementation starts.",
         entryIndex: 0,
+        sectionStartLine: 0,
+        startLine: 1,
+        endLine: 2,
       },
     ])
   })
@@ -92,6 +95,9 @@ describe("parseMemoryEntries", () => {
           "  - sub-bullet two",
         ].join("\n"),
         entryIndex: 0,
+        sectionStartLine: 0,
+        startLine: 1,
+        endLine: 5,
       },
     ])
   })
@@ -108,12 +114,18 @@ describe("parseMemoryEntries", () => {
         date: "2026-07-02",
         text: "- **2026-07-02**: Newer entry.",
         entryIndex: 0,
+        sectionStartLine: 0,
+        startLine: 1,
+        endLine: 2,
       },
       {
         section: "Process (newest first)",
         date: "2026-06-15",
         text: "- **2026-06-15**: Older entry.",
         entryIndex: 1,
+        sectionStartLine: 0,
+        startLine: 2,
+        endLine: 3,
       },
     ])
   })
@@ -133,12 +145,18 @@ describe("parseMemoryEntries", () => {
         date: "2026-01-01",
         text: "- **2026-01-01**: Entry in first section.",
         entryIndex: 0,
+        sectionStartLine: 0,
+        startLine: 1,
+        endLine: 2,
       },
       {
         section: "Second section",
         date: "2026-02-02",
         text: "- **2026-02-02**: Entry in second section.",
         entryIndex: 1,
+        sectionStartLine: 4,
+        startLine: 5,
+        endLine: 6,
       },
     ])
   })
@@ -155,6 +173,9 @@ describe("parseMemoryEntries", () => {
         date: "2026-03-03",
         text: "- **2026-03-03**: Final entry,\n  with a continuation line at EOF.",
         entryIndex: 0,
+        sectionStartLine: 0,
+        startLine: 1,
+        endLine: 3,
       },
     ])
   })
@@ -173,6 +194,9 @@ describe("parseMemoryEntries", () => {
         date: "2026-04-04",
         text: "- **2026-04-04**: The actual entry.",
         entryIndex: 0,
+        sectionStartLine: 0,
+        startLine: 4,
+        endLine: 5,
       },
     ])
   })
@@ -199,6 +223,9 @@ describe("parseMemoryEntries", () => {
           "```",
         ].join("\n"),
         entryIndex: 0,
+        sectionStartLine: 0,
+        startLine: 1,
+        endLine: 5,
       },
     ])
   })
@@ -219,6 +246,9 @@ describe("parseMemoryEntries", () => {
         date: "2026-06-06",
         text: "- **2026-06-06**: Real entry after the fence.",
         entryIndex: 0,
+        sectionStartLine: 0,
+        startLine: 4,
+        endLine: 5,
       },
     ])
   })
@@ -237,6 +267,9 @@ describe("parseMemoryEntries", () => {
         date: "2026-07-07",
         text: "- **2026-07-07**: Real entry after the comment.",
         entryIndex: 0,
+        sectionStartLine: 0,
+        startLine: 4,
+        endLine: 5,
       },
     ])
   })
@@ -257,6 +290,9 @@ describe("parseMemoryEntries", () => {
         date: "2026-07-07",
         text: "- **2026-07-07**: Real entry after the comment.",
         entryIndex: 0,
+        sectionStartLine: 0,
+        startLine: 4,
+        endLine: 5,
       },
     ])
   })
@@ -277,12 +313,18 @@ describe("parseMemoryEntries", () => {
         date: "2026-05-05",
         text: ["- **2026-05-05**: First entry.", "```", "%%", "```"].join("\n"),
         entryIndex: 0,
+        sectionStartLine: 0,
+        startLine: 1,
+        endLine: 5,
       },
       {
         section: "Section",
         date: "2026-06-06",
         text: "- **2026-06-06**: Second entry.",
         entryIndex: 1,
+        sectionStartLine: 0,
+        startLine: 5,
+        endLine: 6,
       },
     ])
   })
@@ -295,6 +337,9 @@ describe("parseMemoryEntries", () => {
         date: "2026-13-45",
         text: "- **2026-13-45**: Impossible date, kept as-is.",
         entryIndex: 0,
+        sectionStartLine: 0,
+        startLine: 1,
+        endLine: 2,
       },
     ])
   })
@@ -312,12 +357,79 @@ describe("parseMemoryEntries", () => {
         date: "2026-01-10",
         text: "- **2026-01-10**: Directly under the H2.",
         entryIndex: 0,
+        sectionStartLine: 0,
+        startLine: 1,
+        endLine: 2,
       },
       {
         section: "Outer H2",
         date: "2026-01-20",
         text: "- **2026-01-20**: Under the H3, still attributed to the H2.",
         entryIndex: 1,
+        sectionStartLine: 0,
+        startLine: 3,
+        endLine: 4,
+      },
+    ])
+  })
+
+  it("gives entries under two H2s with the same text each its own heading line", () => {
+    const lines = [
+      "## S (newest first)",
+      "- **2026-01-02**: First section.",
+      "",
+      "## S (newest first)",
+      "- **2026-01-01**: Second section.",
+    ]
+    expect(parseMemoryEntries(lines)).toEqual([
+      {
+        section: "S (newest first)",
+        date: "2026-01-02",
+        text: "- **2026-01-02**: First section.",
+        entryIndex: 0,
+        sectionStartLine: 0,
+        startLine: 1,
+        endLine: 2,
+      },
+      {
+        section: "S (newest first)",
+        date: "2026-01-01",
+        text: "- **2026-01-01**: Second section.",
+        entryIndex: 1,
+        sectionStartLine: 3,
+        startLine: 4,
+        endLine: 5,
+      },
+    ])
+  })
+
+  it("ends an entry at a heading line that holds a carriage return", () => {
+    const lines = [
+      "## S",
+      "- **2026-01-01**: One.",
+      "",
+      "### Sub\rtext",
+      "keep",
+      "- **2026-01-02**: Two.",
+    ]
+    expect(parseMemoryEntries(lines)).toEqual([
+      {
+        section: "S",
+        date: "2026-01-01",
+        text: "- **2026-01-01**: One.",
+        entryIndex: 0,
+        sectionStartLine: 0,
+        startLine: 1,
+        endLine: 2,
+      },
+      {
+        section: "S",
+        date: "2026-01-02",
+        text: "- **2026-01-02**: Two.",
+        entryIndex: 1,
+        sectionStartLine: 0,
+        startLine: 5,
+        endLine: 6,
       },
     ])
   })
@@ -360,12 +472,18 @@ describe("parseMemoryEntries", () => {
         date: "2026-01-10",
         text: "- **2026-01-10**: Entry before the sub-heading.",
         entryIndex: 0,
+        sectionStartLine: 0,
+        startLine: 1,
+        endLine: 2,
       },
       {
         section: "Section",
         date: "2026-01-20",
         text: "- **2026-01-20**: Entry after the sub-heading.",
         entryIndex: 1,
+        sectionStartLine: 0,
+        startLine: 3,
+        endLine: 4,
       },
     ])
   })
@@ -383,12 +501,18 @@ describe("parseMemoryEntries", () => {
         date: "2026-01-10",
         text: "- **2026-01-10**: Entry before the sub-heading.",
         entryIndex: 0,
+        sectionStartLine: 0,
+        startLine: 1,
+        endLine: 2,
       },
       {
         section: "Section",
         date: "2026-01-20",
         text: "- **2026-01-20**: Entry after the sub-heading.",
         entryIndex: 1,
+        sectionStartLine: 0,
+        startLine: 3,
+        endLine: 4,
       },
     ])
   })
@@ -406,12 +530,18 @@ describe("parseMemoryEntries", () => {
         date: "2026-01-10",
         text: "- **2026-01-10**: Entry before the empty heading.",
         entryIndex: 0,
+        sectionStartLine: 0,
+        startLine: 1,
+        endLine: 2,
       },
       {
         section: "Section",
         date: "2026-01-20",
         text: "- **2026-01-20**: Entry after the empty heading.",
         entryIndex: 1,
+        sectionStartLine: 0,
+        startLine: 3,
+        endLine: 4,
       },
     ])
   })
@@ -434,6 +564,9 @@ describe("parseMemoryEntries", () => {
           "- **2026-9-9**: unpadded date is not the grammar",
         ].join("\n"),
         entryIndex: 0,
+        sectionStartLine: 0,
+        startLine: 1,
+        endLine: 4,
       },
     ])
   })

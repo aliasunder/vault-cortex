@@ -31,6 +31,14 @@ export type MemoryEntry = Readonly<{
   text: string
   /** 0-based document order across the whole file, spanning sections. */
   entryIndex: number
+  /** 0-based index of the entry's H2 heading line in the lines parsed. Two
+   *  H2s with the same text have different values, so a caller holding one
+   *  resolved heading picks out exactly that section's entries. */
+  sectionStartLine: number
+  /** 0-based index of the dated bullet line. */
+  startLine: number
+  /** Exclusive end index: `text` is `lines.slice(startLine, endLine)`. */
+  endLine: number
 }>
 
 // ── Entry grammar ───────────────────────────────────────────────
@@ -68,20 +76,31 @@ const HEADING_LINE_PATTERN = /^ {0,3}#{1,6}(?:[ \t]|$)/
 
 // ── Parser ──────────────────────────────────────────────────────
 
-/** One entry being accumulated while walking a section span. */
-type OpenEntry = { date: string; textLines: string[] }
+/** One entry being accumulated while walking a section span. Its lines are
+ *  contiguous from the bullet at `startLine`. */
+type OpenEntry = { date: string; startLine: number; textLines: string[] }
 
 /** Closes an accumulating entry into a MemoryEntry, trimming trailing blank
  *  lines (the gap before the next entry belongs to neither). findLastIndex
  *  returns -1 when every line is blank, so +1 slices to empty — though the
  *  first line is always the dated bullet, so that case cannot arise here. */
-const closeEntry = (openEntry: OpenEntry, section: string, entryIndex: number): MemoryEntry => {
+const closeEntry = (params: {
+  openEntry: OpenEntry
+  section: Readonly<{ text: string; startLine: number }>
+  entryIndex: number
+}): MemoryEntry => {
+  const { openEntry, section, entryIndex } = params
   const lastContentIndex = openEntry.textLines.findLastIndex((textLine) => textLine.trim() !== "")
+  const keptLineCount = lastContentIndex + 1
+
   return {
-    section,
+    section: section.text,
     date: openEntry.date,
-    text: openEntry.textLines.slice(0, lastContentIndex + 1).join("\n"),
+    text: openEntry.textLines.slice(0, keptLineCount).join("\n"),
     entryIndex,
+    sectionStartLine: section.startLine,
+    startLine: openEntry.startLine,
+    endLine: openEntry.startLine + keptLineCount,
   }
 }
 
@@ -148,9 +167,9 @@ export const parseMemoryEntries = (lines: readonly string[]): MemoryEntry[] => {
 
       if (entryDate) {
         if (openEntry !== null) {
-          entries.push(closeEntry(openEntry, span.text, entries.length))
+          entries.push(closeEntry({ openEntry, section: span, entryIndex: entries.length }))
         }
-        openEntry = { date: entryDate, textLines: [line] }
+        openEntry = { date: entryDate, startLine: lineIndex, textLines: [line] }
         continue
       }
 
@@ -158,7 +177,7 @@ export const parseMemoryEntries = (lines: readonly string[]): MemoryEntry[] => {
       // within the section, not continuation text — and belongs to no entry.
       if (HEADING_LINE_PATTERN.test(line)) {
         if (openEntry !== null) {
-          entries.push(closeEntry(openEntry, span.text, entries.length))
+          entries.push(closeEntry({ openEntry, section: span, entryIndex: entries.length }))
           openEntry = null
         }
         continue
@@ -169,7 +188,7 @@ export const parseMemoryEntries = (lines: readonly string[]): MemoryEntry[] => {
     }
 
     if (openEntry !== null) {
-      entries.push(closeEntry(openEntry, span.text, entries.length))
+      entries.push(closeEntry({ openEntry, section: span, entryIndex: entries.length }))
     }
   }
 

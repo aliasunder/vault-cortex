@@ -23,7 +23,6 @@ import { assertPathWithinMaxLength } from "../../utils/assert-path-within-max-le
 import { withFileLock } from "../../utils/file-write-lock.js"
 import {
   isDoubledMarkdownFileName,
-  isMemoryEntryLine,
   memoryEntryLineDate,
   parseMemoryEntries,
   type MemoryEntry,
@@ -31,13 +30,7 @@ import {
 import { parseLeadingCallout } from "../obsidian-markdown/callouts.js"
 import type { LeadingCallout } from "../obsidian-markdown/callouts.js"
 import { parseHeadings } from "../obsidian-markdown/headings.js"
-import {
-  splitIntoLines,
-  advanceFence,
-  advanceComment,
-  type OpenFence,
-  type CommentResult,
-} from "../obsidian-markdown/lines.js"
+import { splitIntoLines } from "../obsidian-markdown/lines.js"
 import { isWithinEditDistance } from "../../utils/levenshtein-distance.js"
 import { DateTime } from "luxon"
 import type { Logger } from "../../logger.js"
@@ -151,65 +144,27 @@ type ParsedSection = Readonly<{
   startLine: number
   bodyStartLine: number
   bodyEndLine: number
-  entryCount: number
+  /** The section's dated entries, from parseMemoryEntries. Every count,
+   *  duplicate check, insert point and delete span reads these, so the store
+   *  and the memory reads agree on where each entry starts and ends. Empty
+   *  for the H1, which holds no entries. */
+  entries: readonly MemoryEntry[]
 }>
 
 // ── Internal helpers ────────────────────────────────────────────
 
-/** Walks section body lines with fence/comment awareness and returns the
- *  0-based offsets of genuine entry bullets (lines isMemoryEntryLine accepts
- *  that are not inside a code fence or %% comment). Used by updateMemory's insertion
- *  scan, deleteMemory's bullet match, and parseSections' entry count — all three
- *  must agree on what counts as a real entry. */
-const scanGenuineEntryOffsets = (bodyLines: readonly string[]): number[] => {
-  const offsets: number[] = []
-  // Loop-carried parser state — each iteration reads the previous
-  // iteration's fence/comment position (same pattern as parseMemoryEntries).
-  let scanFence: OpenFence = null
-  let scanCommentOpen = false
-
-  // - Fence and comment detection are mutually exclusive: fence state is
-  //   skipped inside comments, and comment state is skipped inside fences.
-  // - Empty lines advance the state too, because an empty line ends a fence
-  //   opened inside a blockquote, and parseMemoryEntries reads them the same way.
-  for (const [offsetIndex, bodyLine] of bodyLines.entries()) {
-    const fenceResult: ReturnType<typeof advanceFence> | null = scanCommentOpen
-      ? null
-      : advanceFence(bodyLine, scanFence)
-
-    if (fenceResult) scanFence = fenceResult.openFence
-
-    const commentResult: CommentResult | null = fenceResult?.lineIsCode
-      ? null
-      : advanceComment(bodyLine, scanCommentOpen)
-
-    if (commentResult) scanCommentOpen = commentResult.commentOpen
-
-    const insideCodeOrComment =
-      (fenceResult?.lineIsCode ?? false) || (commentResult?.lineIsComment ?? false)
-
-    if (insideCodeOrComment) continue
-
-    if (isMemoryEntryLine(bodyLine)) {
-      offsets.push(offsetIndex)
-    }
-  }
-
-  return offsets
-}
-
 /**
- * Parses a memory file's H1/H2 sections, with a dated-bullet count per H2.
+ * Parses a memory file's H1/H2 sections, each with its dated entries.
  *
  * Section spans come from the shared heading parser (headings.ts), so memory
  * files resolve sections exactly the way vault_read_note and vault_patch_note do
  * — including its fence-awareness, so a "## ..."-looking line inside a code block
  * is not mistaken for a section. Memory headings are only ever H1 (title) or H2,
- * so deeper headings are filtered out. Only H2 sections expose an entry count (the
- * sole consumer, listMemoryFiles, discards the H1's), so the H1 — whose span runs
- * to EOF — is not scanned.
+ * so deeper headings are filtered out. Entries are matched to their H2 by its
+ * line, so two H2s with the same text keep their own entries.
  */
 const parseSections = (lines: readonly string[]): ParsedSection[] => {
+  const entries = parseMemoryEntries(lines)
   const sections: ParsedSection[] = []
   for (const heading of parseHeadings(lines)) {
     if (heading.level !== 1 && heading.level !== 2) continue
@@ -219,10 +174,7 @@ const parseSections = (lines: readonly string[]): ParsedSection[] => {
       startLine: heading.startLine,
       bodyStartLine: heading.bodyStartLine,
       bodyEndLine: heading.bodyEndLine,
-      entryCount:
-        heading.level === 2
-          ? scanGenuineEntryOffsets(lines.slice(heading.bodyStartLine, heading.bodyEndLine)).length
-          : 0,
+      entries: entries.filter((entry) => entry.sectionStartLine === heading.startLine),
     })
   }
   return sections
@@ -710,24 +662,6 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
     return match
   }
 
-  /** Selects the entries belonging to a named H2 section. Sections and entries
-   *  both read H2 heading text through parseHeadings, so an entry's section
-   *  text equals the resolved heading exactly. */
-  const entriesInSection = ({
-    lines,
-    entries,
-    section,
-    file,
-  }: {
-    lines: readonly string[]
-    entries: readonly MemoryEntry[]
-    section: string
-    file: string
-  }): MemoryEntry[] => {
-    const match = resolveSection({ lines, section, file })
-    return entries.filter((entry) => entry.section === match.heading)
-  }
-
   /** Builds a new memory file with frontmatter, H1 title, H2 section, and initial entry. */
   const buildNewMemoryFile = (params: {
     fileName: string
@@ -818,7 +752,7 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
       onOrAfter?: string | undefined
     },
     logger: Logger,
-  ): Promise<MemoryEntry[]> => {
+  ): Promise<readonly MemoryEntry[]> => {
     const { onOrAfter } = params
 
     if (onOrAfter && !isValidMemoryEntryDate(onOrAfter)) {
@@ -830,11 +764,13 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
 
     // parseMemoryEntries returns every H2 entry in document order, each
     // carrying its verbatim section heading — so an omitted section is every
-    // entry in the file, with no second heading scan needed.
+    // entry in the file.
     const allEntries = parseMemoryEntries(lines)
-
-    const scopedEntries = params.section
-      ? entriesInSection({ lines, entries: allEntries, section: params.section, file: params.file })
+    const sectionHeading = params.section
+      ? resolveSection({ lines, section: params.section, file: params.file }).heading
+      : undefined
+    const scopedEntries = sectionHeading
+      ? allEntries.filter((entry) => entry.section === sectionHeading)
       : allEntries
 
     // YYYY-MM-DD strings sort lexicographically in chronological order;
@@ -1009,15 +945,11 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
         return "created-section"
       }
 
-      const bodyLines = contentLines.slice(match.bodyStartLine, match.bodyEndLine)
-
-      const entryLineOffsets = scanGenuineEntryOffsets(bodyLines)
-
       // Duplicate check scoped to genuine entries (not fenced lines).
       // An exact duplicate means the entry already landed, typically from an
       // MCP client retrying after a gateway timeout. The same bullet under a
       // different heading is a distinct entry and does not suppress the append.
-      const isDuplicate = entryLineOffsets.some((offset) => bodyLines[offset] === bullet)
+      const isDuplicate = match.entries.some((entry) => contentLines[entry.startLine] === bullet)
 
       if (isDuplicate) {
         logger.info("memory entry unchanged", {
@@ -1029,18 +961,12 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
         return "unchanged"
       }
 
-      const firstBulletOffset = entryLineOffsets.at(0)
-
       // "top" inserts before the first existing bullet (newest-first ordering).
       // "bottom" inserts at the section end, below any ### subsection in it;
-      // lastBulletOffset + 1 can land inside the last entry's continuation lines.
+      // the last entry's endLine can sit before such a subsection.
       // Sections with no genuine entries fall back to bodyEndLine for both
-      // positions. Offset 0 is a bullet on the section's first line, so the
-      // check compares with undefined.
-      const topInsertIndex =
-        firstBulletOffset === undefined
-          ? match.bodyEndLine
-          : match.bodyStartLine + firstBulletOffset
+      // positions.
+      const topInsertIndex = match.entries.at(0)?.startLine ?? match.bodyEndLine
       const bottomInsertIndex = match.bodyEndLine
       const insertIndex = position === "top" ? topInsertIndex : bottomInsertIndex
 
@@ -1096,7 +1022,7 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
             : {
                 level: 2 as const,
                 text: section.heading,
-                entry_count: section.entryCount,
+                entry_count: section.entries.length,
               }
         })
 
@@ -1164,56 +1090,33 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
       const match = resolveSection({ lines, section: params.section, file: params.file })
 
       // Find the target bullet among genuine (non-fenced) entry lines.
-      const sectionBodyLines = lines.slice(match.bodyStartLine, match.bodyEndLine)
-      const genuineEntryOffsets = scanGenuineEntryOffsets(sectionBodyLines)
-      const matchingOffsets = genuineEntryOffsets.filter(
-        (offset) => sectionBodyLines[offset] === targetBullet,
+      const matchingEntries = match.entries.filter(
+        (entry) => lines[entry.startLine] === targetBullet,
       )
 
-      if (matchingOffsets.length === 0) {
+      if (matchingEntries.length > 1) {
         throw new Error(
-          `no entry matching (${params.date}, "${params.entry}") under ## ${match.heading} in ${memoryDir}/${params.file}.md`,
+          `ambiguous: ${matchingEntries.length} entries match (${params.date}, "${params.entry}") under ## ${match.heading} in ${memoryDir}/${params.file}.md`,
         )
       }
-      if (matchingOffsets.length > 1) {
+
+      const [matchedEntry] = matchingEntries
+
+      if (!matchedEntry) {
         throw new Error(
-          `ambiguous: ${matchingOffsets.length} entries match (${params.date}, "${params.entry}") under ## ${match.heading} in ${memoryDir}/${params.file}.md`,
+          `no entry matching (${params.date}, "${params.entry}") under ## ${match.heading} in ${memoryDir}/${params.file}.md`,
         )
       }
 
       // Remove the matched entry's full span (bullet + continuation lines),
       // not just the bullet — leaving continuations would fold them into the
-      // preceding entry's text.
-      const matchOffset = matchingOffsets[0]
-
-      // The length checks above guarantee exactly one element; TypeScript
-      // cannot narrow an indexed access after a length check.
-      if (matchOffset === undefined) {
-        throw new Error("expected at least one matching offset")
-      }
-
-      // Find the end of this entry's span: the next entry, or the section's
-      // end when this is the last entry. A deeper heading (### and below)
-      // before that ends it too, as parseMemoryEntries ends an entry there, so
-      // the subsection it opens is not deleted with the entry.
-      const matchIndex = match.bodyStartLine + matchOffset
-      const matchPosition = genuineEntryOffsets.indexOf(matchOffset)
-      const nextEntryOffset = genuineEntryOffsets[matchPosition + 1]
-      const nextEntryOrSectionEnd =
-        nextEntryOffset !== undefined ? match.bodyStartLine + nextEntryOffset : match.bodyEndLine
-      const nextSubheading = parseHeadings(lines).find(
-        (heading) => heading.startLine > matchIndex && heading.startLine < nextEntryOrSectionEnd,
-      )
-      const rawSpanEnd = nextSubheading?.startLine ?? nextEntryOrSectionEnd
-
-      // Trim trailing blank lines from the span — they separate sections
-      // or entries visually and don't belong to the deleted entry.
-      let trimmedSpanEnd = rawSpanEnd
-
-      while (trimmedSpanEnd > matchIndex + 1 && lines[trimmedSpanEnd - 1]?.trim() === "") {
-        trimmedSpanEnd--
-      }
-      const updatedLines = [...lines.slice(0, matchIndex), ...lines.slice(trimmedSpanEnd)]
+      // preceding entry's text. The span ends where the memory reads end the
+      // entry, so a following ### subsection and the blank lines before the
+      // next entry stay.
+      const updatedLines = [
+        ...lines.slice(0, matchedEntry.startLine),
+        ...lines.slice(matchedEntry.endLine),
+      ]
 
       const newContent = updatedLines.join("\n")
       const serialized = joinMemoryFile({

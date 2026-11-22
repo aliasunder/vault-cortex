@@ -1992,6 +1992,48 @@ describe("deleteMemory", () => {
     )
   })
 
+  it("deleting an entry keeps a ### subsection and the entry after it", async () => {
+    await writeFile(
+      join(vault, "About Me/Sectioned.md"),
+      "# T\n\n## S (newest first)\n- **2026-01-02**: two\n\n### Sub\nkeep\n- **2026-01-01**: one\n",
+      "utf8",
+    )
+
+    await deleteMemory(
+      { vaultPath: vault, file: "Sectioned", section: "S", date: "2026-01-02", entry: "two" },
+      logger,
+    )
+
+    expect(await readFile(join(vault, "About Me/Sectioned.md"), "utf8")).toBe(
+      "# T\n\n## S (newest first)\n\n### Sub\nkeep\n- **2026-01-01**: one\n",
+    )
+  })
+
+  // parseHeadings' ATX pattern stops at a carriage return, so it reads this
+  // line as text while the entry reads end the entry there; the delete
+  // follows the reads and keeps the lines that belong to no entry.
+  it("deleting an entry keeps a heading line that holds a carriage return and the lines after it", async () => {
+    await writeFile(
+      join(vault, "About Me/Sectioned.md"),
+      "# T\n\n## S (newest first)\n- **2026-01-02**: two\n\n### Sub\rtext\nkeep\n- **2026-01-01**: one\n",
+      "utf8",
+    )
+
+    const entriesBefore = await getMemoryEntries(
+      { vaultPath: vault, file: "Sectioned", section: "S", onOrAfter: "2026-01-02" },
+      logger,
+    )
+    await deleteMemory(
+      { vaultPath: vault, file: "Sectioned", section: "S", date: "2026-01-02", entry: "two" },
+      logger,
+    )
+
+    expect(entriesBefore.map((entry) => entry.text)).toEqual(["- **2026-01-02**: two"])
+    expect(await readFile(join(vault, "About Me/Sectioned.md"), "utf8")).toBe(
+      "# T\n\n## S (newest first)\n\n### Sub\rtext\nkeep\n- **2026-01-01**: one\n",
+    )
+  })
+
   it("deletes an exact matching entry and keeps the rest of the file, properties included, as written", async () => {
     await deleteMemory(
       {
@@ -3215,6 +3257,9 @@ describe("getMemoryEntries", () => {
         date: "2026-05-06",
         text: "- **2026-05-06**: Secrets invisible at every layer",
         entryIndex: 0,
+        sectionStartLine: 7,
+        startLine: 8,
+        endLine: 9,
       },
     ])
   })
@@ -3235,12 +3280,18 @@ describe("getMemoryEntries", () => {
         date: "2026-05-06",
         text: "- **2026-05-06**: Secrets invisible at every layer",
         entryIndex: 0,
+        sectionStartLine: 7,
+        startLine: 8,
+        endLine: 9,
       },
       {
         section: "Decision heuristics (newest first)",
         date: "2026-05-05",
         text: "- **2026-05-05**: Least-privilege for AI agents",
         entryIndex: 1,
+        sectionStartLine: 7,
+        startLine: 9,
+        endLine: 10,
       },
     ])
   })
@@ -3277,18 +3328,27 @@ created: 2026-01-01T00:00:00-05:00
         date: "2026-06-15",
         text: "- **2026-06-15**: Third entry on same day",
         entryIndex: 0,
+        sectionStartLine: 3,
+        startLine: 4,
+        endLine: 5,
       },
       {
         section: "Items (newest first)",
         date: "2026-06-15",
         text: "- **2026-06-15**: Second entry on same day",
         entryIndex: 1,
+        sectionStartLine: 3,
+        startLine: 5,
+        endLine: 6,
       },
       {
         section: "Items (newest first)",
         date: "2026-06-15",
         text: "- **2026-06-15**: First entry on same day",
         entryIndex: 2,
+        sectionStartLine: 3,
+        startLine: 6,
+        endLine: 7,
       },
     ])
   })
@@ -3309,12 +3369,18 @@ created: 2026-01-01T00:00:00-05:00
         date: "2026-05-06",
         text: "- **2026-05-06**: Secrets invisible at every layer",
         entryIndex: 0,
+        sectionStartLine: 7,
+        startLine: 8,
+        endLine: 9,
       },
       {
         section: "Decision heuristics (newest first)",
         date: "2026-05-05",
         text: "- **2026-05-05**: Least-privilege for AI agents",
         entryIndex: 1,
+        sectionStartLine: 7,
+        startLine: 9,
+        endLine: 10,
       },
     ])
   })
@@ -3389,12 +3455,18 @@ created: 2026-01-01T00:00:00-05:00
         date: "2026-05-06",
         text: "- **2026-05-06**: Secrets invisible at every layer",
         entryIndex: 0,
+        sectionStartLine: 7,
+        startLine: 8,
+        endLine: 9,
       },
       {
         section: "Decision heuristics (newest first)",
         date: "2026-05-05",
         text: "- **2026-05-05**: Least-privilege for AI agents",
         entryIndex: 1,
+        sectionStartLine: 7,
+        startLine: 9,
+        endLine: 10,
       },
     ])
   })
@@ -3431,6 +3503,9 @@ created: 2026-01-01T00:00:00-05:00
         date: "2026-06-15",
         text: "- **2026-06-15**: First line of the entry\n  Continuation line one\n  Continuation line two",
         entryIndex: 0,
+        sectionStartLine: 3,
+        startLine: 4,
+        endLine: 7,
       },
     ])
   })
@@ -3515,6 +3590,9 @@ created: 2026-01-01T00:00:00-05:00
         date: "2026-05-04",
         text: "- **2026-05-04**: Single-purpose files",
         entryIndex: 2,
+        sectionStartLine: 11,
+        startLine: 12,
+        endLine: 13,
       },
     ])
   })
@@ -3534,6 +3612,9 @@ created: 2026-01-01T00:00:00-05:00
         date: "2026-05-04",
         text: "- **2026-05-04**: Single-purpose files",
         entryIndex: 2,
+        sectionStartLine: 11,
+        startLine: 12,
+        endLine: 13,
       },
     ])
   })
@@ -3553,18 +3634,27 @@ created: 2026-01-01T00:00:00-05:00
         date: "2026-05-06",
         text: "- **2026-05-06**: Secrets invisible at every layer",
         entryIndex: 0,
+        sectionStartLine: 7,
+        startLine: 8,
+        endLine: 9,
       },
       {
         section: "Decision heuristics (newest first)",
         date: "2026-05-05",
         text: "- **2026-05-05**: Least-privilege for AI agents",
         entryIndex: 1,
+        sectionStartLine: 7,
+        startLine: 9,
+        endLine: 10,
       },
       {
         section: "Working style (newest first)",
         date: "2026-05-04",
         text: "- **2026-05-04**: Single-purpose files",
         entryIndex: 2,
+        sectionStartLine: 11,
+        startLine: 12,
+        endLine: 13,
       },
     ])
   })
@@ -3584,12 +3674,18 @@ created: 2026-01-01T00:00:00-05:00
         date: "2026-05-06",
         text: "- **2026-05-06**: Secrets invisible at every layer",
         entryIndex: 0,
+        sectionStartLine: 7,
+        startLine: 8,
+        endLine: 9,
       },
       {
         section: "Decision heuristics (newest first)",
         date: "2026-05-05",
         text: "- **2026-05-05**: Least-privilege for AI agents",
         entryIndex: 1,
+        sectionStartLine: 7,
+        startLine: 9,
+        endLine: 10,
       },
     ])
   })
@@ -3610,18 +3706,27 @@ created: 2026-01-01T00:00:00-05:00
         date: "2026-05-07",
         text: "- **2026-05-07**: **Research current docs before configuring.** AI agents should consult docs",
         entryIndex: 0,
+        sectionStartLine: 3,
+        startLine: 4,
+        endLine: 5,
       },
       {
         section: "AI tooling & memory (newest first)",
         date: "2026-05-04",
         text: "- **2026-05-04**: **Clean breaks over placeholders.** Remove all references",
         entryIndex: 1,
+        sectionStartLine: 3,
+        startLine: 5,
+        endLine: 6,
       },
       {
         section: "Code patterns (newest first)",
         date: "2026-05-07",
         text: "- **2026-05-07**: **.reduce() over filter/map chains.** Single reduce pass",
         entryIndex: 2,
+        sectionStartLine: 7,
+        startLine: 8,
+        endLine: 9,
       },
     ])
   })
@@ -3647,18 +3752,27 @@ created: 2026-01-01T00:00:00-05:00
         date: "2026-05-07",
         text: "- **2026-05-07**: **Research current docs before configuring.** AI agents should consult docs",
         entryIndex: 0,
+        sectionStartLine: 3,
+        startLine: 4,
+        endLine: 5,
       },
       {
         section: "AI tooling & memory (newest first)",
         date: "2026-05-04",
         text: "- **2026-05-04**: **Clean breaks over placeholders.** Remove all references",
         entryIndex: 1,
+        sectionStartLine: 3,
+        startLine: 5,
+        endLine: 6,
       },
       {
         section: "Code patterns (newest first)",
         date: "2026-05-07",
         text: "- **2026-05-07**: **.reduce() over filter/map chains.** Single reduce pass",
         entryIndex: 2,
+        sectionStartLine: 7,
+        startLine: 8,
+        endLine: 9,
       },
     ])
   })
@@ -3839,6 +3953,9 @@ describe("memory file with a properties block the server cannot read or keep", (
         date: "2026-05-05",
         text: "- **2026-05-05**: kept entry",
         entryIndex: 0,
+        sectionStartLine: 2,
+        startLine: 3,
+        endLine: 4,
       },
     ])
   })
