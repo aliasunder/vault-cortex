@@ -779,8 +779,9 @@ These optional settings are worth knowing about:
 | `LOG_MAX_DAILY_MB`      | `25`                          | Maximum MB per daily log file. At the cap, file logging pauses until midnight in `TZ` (UTC by default); the container log continues. Whole numbers of at least 1, or `none` to disable the cap. On small disks, lower this or `LOG_RETENTION_DAYS`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | `STORAGE_ROOT`          | —                             | One directory for everything that must persist, for hosting platforms that allow a single volume (see **Single persistent volume** under [Setup](#setup)). Must not contain `*`, `?`, or `[`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 
-All settings are documented in `.env.example` and in the
-[Configuration](../../README.md#configuration) section of the main README.
+All settings are documented in `.env.example`; the settings the server reads
+are also documented in the [Configuration](../../README.md#configuration)
+section of the main README.
 
 ## Hardening (recommended)
 
