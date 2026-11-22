@@ -12,6 +12,7 @@ import {
 import { tmpdir } from "node:os"
 import { delimiter, join, resolve } from "node:path"
 import { describe, expect, it, onTestFinished } from "vitest"
+import { parse as parseYaml } from "yaml"
 
 const createTempDirectory = (): string => {
   const directory = mkdtempSync(join(tmpdir(), "vault-cortex-dev-script-"))
@@ -161,6 +162,40 @@ describe("dev deployment helper", () => {
     expect(result.stderr).toBe(
       "✕  BIND_ADDRESS=127.0.0.1 takes port 8000 off the instance's public address, but ORIGIN_URL is empty, so API Gateway would call that address. Set ORIGIN_URL, or remove BIND_ADDRESS from ~/.config/vault-cortex/.env\n",
     )
+  })
+
+  it.each([
+    {
+      label: "a loopback BIND_ADDRESS when ORIGIN_URL is set",
+      bindLines: "BIND_ADDRESS=127.0.0.1\nORIGIN_URL=https://origin.example.com\n",
+    },
+    {
+      label: "BIND_ADDRESS=0.0.0.0 without ORIGIN_URL",
+      bindLines: "BIND_ADDRESS=0.0.0.0\n",
+    },
+  ])("lets lightsail deployment past the bind check with $label", ({ bindLines }) => {
+    const directory = createTempDirectory()
+    const deploymentEnvDirectory = join(directory, ".config", "vault-cortex")
+    mkdirSync(deploymentEnvDirectory, { recursive: true })
+    writeFileSync(
+      join(deploymentEnvDirectory, ".env"),
+      `GHCR_USER=file-user\nPUBLIC_URL=https://mcp.example.com\n${bindLines}`,
+    )
+    const workingDirectory = join(directory, "repo")
+    mkdirSync(join(workingDirectory, ".sst"), { recursive: true })
+    writeFileSync(join(workingDirectory, ".sst", "stage"), "teststage\n")
+    // The instance address lookup runs after the bind check, so its failure
+    // shows the check let the deployment through; "None" stops it before ssh.
+    writeCommandStub({ directory, name: "aws", script: "echo None\n" })
+
+    const result = runDev({
+      subcommand: "lightsail:up",
+      homeDirectory: directory,
+      workingDirectory,
+    })
+
+    expect(result.status).toBe(1)
+    expect(result.stderr).toBe("✕  Could not resolve vault-cortex-ip-teststage from AWS.\n")
   })
 
   it("rejects lightsail deployment when the external env file is unreadable", () => {
@@ -317,5 +352,91 @@ describe("dev deployment helper", () => {
     expect(result.stderr).toBe("✕ docker login ghcr.io failed on the instance\n")
     expect(readFileSync(loginInputPath, "utf8")).toBe("fake-ghcr-token")
     expect(existsSync(scpCallsPath)).toBe(false)
+  })
+})
+
+type WorkflowStep = { name?: string; env?: Record<string, string>; run?: string }
+
+const BIND_CHECK_STEP_NAME = "Check BIND_ADDRESS has a tunnel in front"
+
+const readDeploySteps = (workflowFile: string): ReadonlyArray<WorkflowStep> => {
+  const workflow: { jobs: { deploy: { steps: WorkflowStep[] } } } = parseYaml(
+    readFileSync(new URL(`../../.github/workflows/${workflowFile}`, import.meta.url), "utf8"),
+  )
+  return workflow.jobs.deploy.steps
+}
+
+const findBindCheckStep = (workflowFile: string): WorkflowStep => {
+  const bindCheckStep = readDeploySteps(workflowFile).find(
+    (step) => step.name === BIND_CHECK_STEP_NAME,
+  )
+
+  if (!bindCheckStep) {
+    throw new Error(`${workflowFile} has no "${BIND_CHECK_STEP_NAME}" step`)
+  }
+  return bindCheckStep
+}
+
+/** Runs the workflow's bind check under bash -e, as Actions runs a `run:` step. */
+const runBindCheck = ({
+  workflowFile,
+  bindAddress,
+  originUrl,
+}: {
+  workflowFile: string
+  bindAddress: string
+  originUrl: string
+}): { status: number | null; stdout: string } => {
+  const bindCheckScript = findBindCheckStep(workflowFile).run
+
+  if (!bindCheckScript) {
+    throw new Error(`${workflowFile}'s "${BIND_CHECK_STEP_NAME}" step has no run script`)
+  }
+
+  const { status, stdout } = spawnSync("bash", ["-e", "-c", bindCheckScript], {
+    encoding: "utf8",
+    env: { PATH: process.env.PATH, BIND_ADDRESS: bindAddress, ORIGIN_URL: originUrl },
+  })
+  return { status, stdout }
+}
+
+// The deploy workflows repeat lightsail:up's bind check in shell, so each
+// copy is run here against the same cases. An unset repo Variable or secret
+// reaches the step as an empty string.
+describe.each(["deploy.yml", "test_deploy.yml"])("%s bind check", (workflowFile) => {
+  it("reads the BIND_ADDRESS Variable and the ORIGIN_URL secret", () => {
+    expect(findBindCheckStep(workflowFile).env).toEqual({
+      BIND_ADDRESS: "${{ vars.BIND_ADDRESS }}",
+      ORIGIN_URL: "${{ secrets.ORIGIN_URL }}",
+    })
+  })
+
+  it("runs immediately before SST deploy", () => {
+    const stepNames = readDeploySteps(workflowFile).map((step) => step.name)
+
+    expect(stepNames.indexOf(BIND_CHECK_STEP_NAME)).toBe(stepNames.indexOf("SST deploy") - 1)
+  })
+
+  it.each([
+    { label: "BIND_ADDRESS unset", bindAddress: "", originUrl: "" },
+    { label: "BIND_ADDRESS=0.0.0.0 without ORIGIN_URL", bindAddress: "0.0.0.0", originUrl: "" },
+    {
+      label: "a loopback BIND_ADDRESS when ORIGIN_URL is set",
+      bindAddress: "127.0.0.1",
+      originUrl: "https://origin.example.com",
+    },
+  ])("passes with $label", ({ bindAddress, originUrl }) => {
+    expect(runBindCheck({ workflowFile, bindAddress, originUrl })).toEqual({
+      status: 0,
+      stdout: "",
+    })
+  })
+
+  it("fails with a loopback BIND_ADDRESS without ORIGIN_URL", () => {
+    expect(runBindCheck({ workflowFile, bindAddress: "127.0.0.1", originUrl: "" })).toEqual({
+      status: 1,
+      stdout:
+        "::error title=BIND_ADDRESS without ORIGIN_URL::BIND_ADDRESS=127.0.0.1 takes port 8000 off the instance's public address, but ORIGIN_URL is empty, so API Gateway would call that address. Set the ORIGIN_URL secret, or delete the BIND_ADDRESS Variable.\n",
+    })
   })
 })
