@@ -1,7 +1,6 @@
 import { describe, it, expect } from "vitest"
 import {
   isDoubledMarkdownFileName,
-  isMemoryEntryLine,
   memoryEntryLineDate,
   parseMemoryEntries,
 } from "../memory-entries.js"
@@ -18,31 +17,6 @@ describe("isDoubledMarkdownFileName", () => {
   })
 })
 
-describe("isMemoryEntryLine", () => {
-  it.each([
-    { label: "a dated bullet", line: "- **2026-07-02**: an entry", opensEntry: true },
-    {
-      label: "an impossible date of the right shape",
-      line: "- **2026-02-30**: typed by hand",
-      opensEntry: true,
-    },
-    {
-      label: "a date that is not zero-padded",
-      line: "- **2026-7-2**: an entry",
-      opensEntry: false,
-    },
-    { label: "a bullet with no bold date", line: "- 2026-07-02: an entry", opensEntry: false },
-    {
-      label: "a bold date with no colon after it",
-      line: "- **2026-07-02** an entry",
-      opensEntry: false,
-    },
-    { label: "an indented bullet", line: "  - **2026-07-02**: an entry", opensEntry: false },
-  ])("returns $opensEntry for $label", ({ line, opensEntry }) => {
-    expect(isMemoryEntryLine(line)).toBe(opensEntry)
-  })
-})
-
 describe("memoryEntryLineDate", () => {
   it.each([
     { label: "a dated bullet", line: "- **2026-07-02**: an entry", date: "2026-07-02" },
@@ -51,7 +25,19 @@ describe("memoryEntryLineDate", () => {
       line: "- **2026-07-02**: **Tip**: rest",
       date: "2026-07-02",
     },
-    { label: "a line that opens no entry", line: "- 2026-07-02: an entry", date: undefined },
+    {
+      label: "an impossible date of the right shape",
+      line: "- **2026-02-30**: typed by hand",
+      date: "2026-02-30",
+    },
+    { label: "a date that is not zero-padded", line: "- **2026-7-2**: an entry", date: undefined },
+    { label: "a bullet with no bold date", line: "- 2026-07-02: an entry", date: undefined },
+    {
+      label: "a bold date with no colon after it",
+      line: "- **2026-07-02** an entry",
+      date: undefined,
+    },
+    { label: "an indented bullet", line: "  - **2026-07-02**: an entry", date: undefined },
   ])("returns $date for $label", ({ line, date }) => {
     expect(memoryEntryLineDate(line)).toBe(date)
   })

@@ -60,9 +60,6 @@ export const memoryEntryLineDate = (line: string): string | undefined => {
   return ENTRY_START_PATTERN.exec(line)?.[1]
 }
 
-/** True when the line opens a dated memory entry, by the test the parser uses. */
-export const isMemoryEntryLine = (line: string): boolean => Boolean(memoryEntryLineDate(line))
-
 /** True for a file name that ends in .md twice, in any letter case, such as
  *  "Opinions.md.md".
  *  - The memory tools add .md to a bare name and refuse a name that already
