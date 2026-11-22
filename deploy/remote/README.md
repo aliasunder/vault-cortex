@@ -772,6 +772,7 @@ These optional settings are worth knowing about:
 | `SYNC_FILE_TYPES`       | _(empty)_                     | Attachment types to sync, comma-separated — the same toggles as Obsidian's Sync → Selective sync. **Valid values:** `image`, `audio`, `video`, `pdf`, `unsupported`. **Empty (default):** `image,audio,video,pdf`. The text files Vault Cortex reads (CSV, JSON, TXT, HTML, scripts and other UTF-8 files) fall under `unsupported`, Obsidian Sync's name for its **Sync all other types** category; SVG syncs as `image`, and notes, canvases, and bases always sync. To read those text files, set it to `image,audio,video,pdf,unsupported` (the value replaces the default list, so keep the four defaults) and turn on **Sync all other types** in Obsidian's Sync settings on the device that has them. An invalid value is skipped with a warning in the logs, and the default types sync instead. |
 | `DAILY_NOTES_FOLDER`    | from vault config             | Sets the daily notes folder (see [Daily notes](#daily-notes))                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | `DAILY_NOTES_FORMAT`    | from vault config             | Sets the daily note filename format (see [Daily notes](#daily-notes))                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `BIND_ADDRESS`          | every address                 | The address on this server that port 8000 is published on. Set `127.0.0.1` once a tunnel or reverse proxy on this server fronts it (see **Close port 8000** under [Hardening](#hardening-recommended)). The CLI and Compose read it; the `docker run` commands ignore it |
 | `TRUST_PROXY_HOPS`      | `0`                           | Set `1` when a tunnel or reverse proxy fronts the server — OAuth rate limiting then buckets by the real client IP, not the proxy's                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | `TRUST_FORWARDED_HOPS`  | `0`                           | How many trailing `for=` entries in the [RFC 7239](https://www.rfc-editor.org/rfc/rfc7239) `Forwarded` header belong to proxies you control. `0` ignores the header; `1` when the proxy in front writes it (e.g. AWS API Gateway) and is the only way to reach the server; `2` when a CDN fronts that proxy and is the only way to reach it                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | `LOG_RETENTION_DAYS`    | `90`                          | Days to keep log files; cleanup runs at startup and each day. The current day is also kept.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
@@ -787,20 +788,19 @@ MCP requests require your token or an OAuth session; health checks and the
 sign-in pages are public. These optional measures add defense-in-depth:
 
 - **Close port 8000** — once a tunnel or reverse proxy on the same machine
-  handles HTTPS, publish the port on that machine only. With Compose, change
-  the `ports` line in `docker-compose.yml` to
-  `"127.0.0.1:${PORT:-8000}:8000"`, for each install's `PORT`, and run
-  `docker compose up -d`; a restart keeps the old mapping. With `docker run`,
-  re-create the container with `-p 127.0.0.1:8000:8000` in place of
-  `-p 8000:8000` (keep your own host port if you changed the first `8000`).
-  The CLI publishes the port on every interface and has no loopback option,
-  so move a CLI install to one of those two commands for this step. A
-  firewall on the machine itself (ufw, firewalld) does not close a published
-  port, because Docker publishes ports past it; a rule in your provider's
-  firewall (provider panel, AWS security groups, infrastructure-as-code) is
-  applied before traffic reaches the machine and does close it. All traffic
-  then flows through the encrypted path, and only the proxy you chose can
-  set the client IP that `TRUST_PROXY_HOPS` and `TRUST_FORWARDED_HOPS` read.
+  handles HTTPS, publish the port on that machine only. With the CLI or
+  Compose, set `BIND_ADDRESS=127.0.0.1` in the install's `.env`, then
+  re-create the container with `npx vault-cortex@latest restart` or
+  `docker compose up -d`; `docker restart` keeps the old mapping. With
+  `docker run`, which ignores `BIND_ADDRESS`, re-create the container with
+  `-p 127.0.0.1:8000:8000` in place of `-p 8000:8000` (keep your own host
+  port if you changed the first `8000`). A firewall on the machine itself
+  (ufw, firewalld) does not close a published port, because Docker publishes
+  ports past it; a rule in your provider's firewall (provider panel, AWS
+  security groups, infrastructure-as-code) is applied before traffic reaches
+  the machine and does close it. All traffic then flows through the
+  encrypted path, and only the proxy you chose can set the client IP that
+  `TRUST_PROXY_HOPS` and `TRUST_FORWARDED_HOPS` read.
 
 - **Restrict SSH access** — limit SSH to a VPN or trusted IPs instead of the
   open internet. [Tailscale](https://tailscale.com/) (free for personal use)
