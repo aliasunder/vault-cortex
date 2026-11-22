@@ -738,7 +738,7 @@ curl https://<api-gateway-url>/healthz
 
 If the VM is replaced (key rotation, bundle upgrade) and `MCP_PORT_CIDRS=none`, port 8000 is blocked — but `cloudflared` isn't running on the new VM yet. Recovery:
 
-1. Temporarily open both ports and disable tunnel routing. If `~/.config/vault-cortex/.env` or the repo Variables set `BIND_ADDRESS=127.0.0.1`, remove it before the new instance's first deploy, or the gateway's direct path reaches nothing:
+1. Before the new instance's first deploy, put its settings back as **Rollback** below does: remove `BIND_ADDRESS` and set `TRUST_FORWARDED_HOPS` and `TRUST_PROXY_HOPS` to `0` in `~/.config/vault-cortex/.env` (or the repo Variables). Then temporarily open both ports and disable tunnel routing:
 
    ```bash
    SSH_CIDRS=0.0.0.0/0 ORIGIN_URL= MCP_PORT_CIDRS=0.0.0.0/0 npm run deploy
@@ -747,11 +747,13 @@ If the VM is replaced (key rotation, bundle upgrade) and `MCP_PORT_CIDRS=none`, 
 2. SSH in via public IP, install Tailscale (see [SSH Hardening](#ssh-hardening-with-tailscale-optional))
 3. Install `cloudflared` using step 2 of [Port 8000 Hardening](#port-8000-hardening-optional), including its apt repository and key, and register with the existing tunnel token.
 4. Verify the locked tunnel using the service-token request in step 7 of [Port 8000 Hardening](#port-8000-hardening-optional).
-5. Re-harden (drop `ORIGIN_ACCESS_SERVICE_TOKEN_ENABLED=true` if the tunnel hostname is not locked with a service token), then set `BIND_ADDRESS=127.0.0.1` again and redeploy the instance:
+5. Re-harden (drop `ORIGIN_ACCESS_SERVICE_TOKEN_ENABLED=true` if the tunnel hostname is not locked with a service token):
 
    ```bash
    SSH_CIDRS=none ORIGIN_URL=https://<subdomain>.<yourdomain> MCP_PORT_CIDRS=none ORIGIN_ACCESS_SERVICE_TOKEN_ENABLED=true npm run deploy
    ```
+
+6. Set the trust values and `BIND_ADDRESS=127.0.0.1` again and redeploy the instance (step 10 of [Port 8000 Hardening](#port-8000-hardening-optional)).
 
 The tunnel token doesn't change when the VM is replaced — it's tied to the Cloudflare tunnel resource, not the host.
 
