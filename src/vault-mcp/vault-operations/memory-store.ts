@@ -39,9 +39,9 @@ import type { Logger } from "../../logger.js"
 // bytes — a catastrophic shrink almost always means the on-disk copy diverged
 // (e.g. a skeleton template clobbering real content) rather than a legitimate
 // single-entry edit. The 1250-byte floor sits just above the largest empty
-// memory template once rendered (Routines: frontmatter, scope callout and
-// headings, no entries), so a file with no real content is never guarded,
-// while a file with even one dated entry is.
+// memory template once rendered (Routines in MEMORY_TEMPLATE_SPECS:
+// frontmatter, scope callout and headings, no entries), so a file with no
+// real content is never guarded, while a file with even one dated entry is.
 const SHRINK_FLOOR_BYTES = 1250
 const SHRINK_RATIO = 0.5
 const guardAgainstShrink = (beforeBytes: number, afterBytes: number, context: string): void => {
@@ -53,23 +53,21 @@ const guardAgainstShrink = (beforeBytes: number, afterBytes: number, context: st
   }
 }
 
-/** Matches CR/LF anywhere in a string — memory entries are single-line dated
- *  bullets, so any line break in an input would corrupt the format. */
+/** Matches CR/LF anywhere in a string. updateMemory writes an entry and a
+ *  section name onto one line each, so it refuses either when this matches. */
 const MEMORY_ENTRY_LINE_BREAK_PATTERN = /[\r\n]/
 
-/** True when the text is a real ISO calendar date in bare YYYY-MM-DD form —
- *  or undefined, which callers treat as "not supplied" (updateMemory defaults
- *  it to today). fromFormat enforces both the exact shape (zero-padded,
- *  rejects timestamps and week/ordinal forms that the permissive fromISO
- *  would accept) and calendar validity ("2026-02-30" parses as out of range). */
-const isValidMemoryEntryDate = (dateText: string | undefined): boolean => {
-  if (dateText === undefined) return true
-
+/** True when the text is a real ISO calendar date in bare YYYY-MM-DD form.
+ *  fromFormat enforces both the exact shape (zero-padded, rejects timestamps
+ *  and week/ordinal forms that the permissive fromISO would accept) and
+ *  calendar validity ("2026-02-30" parses as out of range). */
+const isValidMemoryEntryDate = (dateText: string): boolean => {
   return DateTime.fromFormat(dateText, "yyyy-MM-dd").isValid
 }
 
 /** Thrown by updateMemory and getMemoryEntries when a supplied date fails
- *  isValidMemoryEntryDate — one string so the two sites can't drift. */
+ *  isValidMemoryEntryDate — one string so the two sites can't drift.
+ *  deleteMemory checks the date's shape only, so it has its own message. */
 const INVALID_MEMORY_ENTRY_DATE_MESSAGE =
   "date must be a real ISO calendar date (YYYY-MM-DD, e.g. 2026-07-02)"
 
@@ -145,7 +143,7 @@ type ParsedSection = Readonly<{
   bodyStartLine: number
   bodyEndLine: number
   /** The section's dated entries, from parseMemoryEntries. Every count,
-   *  duplicate check, insert point and delete span reads these, so the store
+   *  duplicate check, top insert point and delete span reads these, so the store
    *  and the memory reads agree on where each entry starts and ends. Empty
    *  for the H1, which holds no entries. */
   entries: readonly MemoryEntry[]
@@ -164,7 +162,8 @@ type ParsedSection = Readonly<{
  * line, so two H2s with the same text keep their own entries.
  */
 const parseSections = (lines: readonly string[]): ParsedSection[] => {
-  // Grouped once, so a file with many headings and entries stays linear.
+  // One lookup per heading; filtering every entry for each heading would
+  // take time proportional to headings times entries.
   const entriesBySectionLine = Map.groupBy(parseMemoryEntries(lines), (entry) => {
     return entry.sectionStartLine
   })
@@ -313,8 +312,9 @@ const findNearMissSection = (
 }
 
 /** Comma-joined H2 headings for error messages, so a caller can self-correct
- *  without a second lookup call. Unlike `formatHeadingList`, it lists every
- *  section, since a memory file typically holds only a few H2 sections. */
+ *  without a second lookup call. Unlike `formatHeadingList` in headings.ts,
+ *  it lists every section, since a memory file typically holds only a few H2
+ *  sections. */
 const listSectionHeadings = (sections: readonly ParsedSection[]): string => {
   const sectionHeadings = sections
     .filter((section) => section.level === 2)
@@ -359,24 +359,26 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
   }
 
   /** The memory folder's visible .md files as sorted filenames ("Opinions.md").
-   *  Reads each entry's type, because a folder named "Archive.md" passes the
-   *  name test and would fail every read; a symlink is kept only when it
-   *  points at a file, as the vault listings do. Returns [] when the memory
-   *  folder does not exist. */
+   *  Reads each folder entry's type, because a folder named "Archive.md"
+   *  passes the name test and would fail every read; a symlink is kept only
+   *  when it points at a file, as the vault listings do. Returns [] when the
+   *  memory folder does not exist. */
   const listVisibleMemoryFilenames = async (
     vaultPath: string,
     logger: Logger,
   ): Promise<string[]> => {
-    const entries = await readMemoryFolderEntries(vaultPath, logger)
-    const namedEntries = entries.filter(
-      (entry) => (entry.isFile() || entry.isSymbolicLink()) && isVisibleMemoryFile(entry.name),
-    )
-    const readableEntries = await filterValidSymlinks({
-      entries: namedEntries,
+    const folderEntries = await readMemoryFolderEntries(vaultPath, logger)
+    const namedFolderEntries = folderEntries.filter((folderEntry) => {
+      const isFileOrLink = folderEntry.isFile() || folderEntry.isSymbolicLink()
+
+      return isFileOrLink && isVisibleMemoryFile(folderEntry.name)
+    })
+    const readableFolderEntries = await filterValidSymlinks({
+      entries: namedFolderEntries,
       normalizedRoot: resolve(vaultPath),
       logger,
     })
-    return readableEntries.map((entry) => entry.name).toSorted()
+    return readableFolderEntries.map((folderEntry) => folderEntry.name).toSorted()
   }
 
   /** Reads a file the listing returned. A failure throws with the file's
@@ -482,6 +484,8 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
     sections: string[]
   }
 
+  // SHRINK_FLOOR_BYTES must stay above the largest of these templates once
+  // rendered, so a template that grows past it needs the floor raised.
   const MEMORY_TEMPLATE_SPECS: readonly MemoryTemplateSpec[] = [
     {
       fileName: "Me",
@@ -612,8 +616,8 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
    *    memory folder that is itself a file, and a folder named like the file.
    *  - Any other failure throws with the file's vault-relative path. The raw
    *    error names the server's absolute path, so it goes to the log instead.
-   *    The thrown error carries no Node code, so the tool boundary adds no
-   *    remedy to it. */
+   *    The thrown error carries no Node error code, so the tool layer's
+   *    remedy hints for coded errors (coded-error-remedy.ts) leave it alone. */
   const readMemoryFileOrNull = async (
     params: { vaultPath: string; file: string },
     logger: Logger,
@@ -765,9 +769,10 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
     const raw = await readMemoryFile({ vaultPath: params.vaultPath, file: params.file }, logger)
     const lines = splitIntoLines(splitPropertiesBlock(raw).body)
 
-    // A named section reads the first H2 that resolves, the one the section
-    // read, the write and the delete use, so a second H2 with the same text
-    // adds nothing; an omitted section is every entry in the file.
+    // A named section reads the entries of the first H2 whose text matches,
+    // the same section the section read, update and delete resolve; a later
+    // H2 with the same text is skipped. An omitted section reads every entry
+    // in the file.
     const scopedEntries = params.section
       ? resolveSection({ lines, section: params.section, file: params.file }).entries
       : parseMemoryEntries(lines)
@@ -800,8 +805,8 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
     },
     logger: Logger,
   ): Promise<UpdateMemoryOutcome> => {
-    // Memory entries are single dated bullets. A multiline entry would write
-    // a block that neither the duplicate guard below nor deleteMemory's
+    // updateMemory writes an entry as one dated bullet line. A multiline entry
+    // would write a block that neither the duplicate guard below nor deleteMemory's
     // exact line match can ever see — reject loudly at the boundary instead
     // of writing an entry the memory tools can't detect or delete.
     if (MEMORY_ENTRY_LINE_BREAK_PATTERN.test(params.entry)) {
@@ -812,8 +817,9 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
     // An omitted date is fine (it defaults to today below); anything supplied
     // that isn't a real bare YYYY-MM-DD date (a line break, a timestamp, free
     // text, an impossible calendar value) would corrupt the bullet the same
-    // way a multiline entry does.
-    if (!isValidMemoryEntryDate(params.date)) {
+    // way a multiline entry does. The check compares with undefined because an
+    // empty string is a supplied date, and an invalid one.
+    if (params.date !== undefined && !isValidMemoryEntryDate(params.date)) {
       throw new Error(INVALID_MEMORY_ENTRY_DATE_MESSAGE)
     }
     // A section name with a line break would write a corrupted multi-line
@@ -865,11 +871,11 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
           // folder above it as ENOTDIR, and a broken symlink at its path as
           // ENOENT:
           // - those failures are wrapped without their code, because the tool
-          //   boundary's remedies for them tell the caller to choose another
-          //   path or to retry; the memory tools' Errors entry names the
-          //   owner's fix instead;
-          // - other failures keep their code, so the tool boundary appends
-          //   its remedy.
+          //   layer's remedy hints for those codes (coded-error-remedy.ts)
+          //   tell the caller to choose another path or to retry; the memory
+          //   tools' Errors entry names the owner's fix instead;
+          // - other failures keep their code, so the tool layer appends its
+          //   remedy hint.
           const folderPathBlocked =
             isErrnoException(error, "EEXIST") ||
             isErrnoException(error, "ENOTDIR") ||
@@ -922,6 +928,9 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
           )
         }
         const newSection = headingWithNewestFirstSuffix(params.section)
+
+        // splitIntoLines leaves an empty last line when the body ends with a
+        // line break, so the new heading then follows a blank line.
         const appendedLines = [...contentLines, `## ${newSection}`, bullet]
         const newContent = appendedLines.join("\n")
         const serialized = joinMemoryFile({
@@ -960,11 +969,13 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
         return "unchanged"
       }
 
-      // "top" inserts before the first existing bullet (newest-first ordering).
-      // "bottom" inserts at the section end, below any ### subsection in it;
-      // the last entry's endLine can sit before such a subsection.
-      // Sections with no genuine entries fall back to bodyEndLine for both
-      // positions.
+      // Where the new bullet goes:
+      // - "top": before the first existing entry (newest-first ordering).
+      // - "bottom": at bodyEndLine, which parseHeadings puts at the next H1 or
+      //   H2 heading, or for the file's last section at its end or before a
+      //   trailing %% comment block. That lands below any ### subsection in
+      //   the section, which the last entry's endLine can sit above.
+      // - A section with no entries takes bodyEndLine for both positions.
       const topInsertIndex = match.entries.at(0)?.startLine ?? match.bodyEndLine
       const bottomInsertIndex = match.bodyEndLine
       const insertIndex = position === "top" ? topInsertIndex : bottomInsertIndex
@@ -1067,11 +1078,12 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
   ): Promise<void> => {
     const targetBullet = `- **${params.date}**: ${params.entry}`
 
-    // Refused up front unless the entry parser, which decides which lines a
-    // delete can match, reads the bullet as an entry dated exactly
-    // params.date. That test refuses:
+    // The entry parser decides which lines a delete can match, so the bullet
+    // built from params.date must parse back to exactly params.date. That
+    // test refuses:
     // - a date of another shape, which can never match an entry;
-    // - text after the date ("2026-07-02**: x"), which would carry part of the entry.
+    // - a date followed by entry text, such as "2026-07-02**: x", which builds
+    //   "- **2026-07-02**: x**: …" and parses back as 2026-07-02.
     // It passes an impossible date that a hand edit can leave in a file, such
     // as 2026-02-30, because the parser checks the date's shape only.
     if (memoryEntryLineDate(targetBullet) !== params.date) {
@@ -1110,8 +1122,8 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
       // Remove the matched entry's full span (bullet + continuation lines),
       // not just the bullet — leaving continuations would fold them into the
       // preceding entry's text. The span ends where the memory reads end the
-      // entry, so a following ### subsection and the blank lines before the
-      // next entry stay.
+      // entry, so a following ### subsection stays, and so do the blank lines
+      // on both sides of the entry.
       const updatedLines = [
         ...lines.slice(0, matchedEntry.startLine),
         ...lines.slice(matchedEntry.endLine),

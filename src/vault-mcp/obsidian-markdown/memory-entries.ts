@@ -12,7 +12,13 @@
  */
 
 import { parseHeadings } from "./headings.js"
-import { advanceComment, advanceFence, type CommentResult, type OpenFence } from "./lines.js"
+import {
+  advanceComment,
+  advanceFence,
+  type CommentResult,
+  type FenceResult,
+  type OpenFence,
+} from "./lines.js"
 
 // ── Types ───────────────────────────────────────────────────────
 
@@ -37,7 +43,7 @@ export type MemoryEntry = Readonly<{
   sectionStartLine: number
   /** 0-based index of the dated bullet line. */
   startLine: number
-  /** Exclusive end index: `text` is `lines.slice(startLine, endLine)`. */
+  /** Exclusive end index: `text` is `lines.slice(startLine, endLine).join("\n")`. */
   endLine: number
 }>
 
@@ -54,36 +60,37 @@ export const memoryEntryLineDate = (line: string): string | undefined => {
   return ENTRY_START_PATTERN.exec(line)?.[1]
 }
 
-/** True when the line opens a dated memory entry, the same test the parser
- *  uses, so the memory store's writes agree with it on what an entry is. */
+/** True when the line opens a dated memory entry, by the test the parser uses. */
 export const isMemoryEntryLine = (line: string): boolean => Boolean(memoryEntryLineDate(line))
 
 /** True for a file name that ends in .md twice, in any letter case, such as
- *  "Opinions.md.md". The memory tools add .md to a bare name and refuse a name
- *  that already ends in .md, so no memory tool can reach such a file, and the
- *  memory listings and recall leave it out instead of offering its name. */
+ *  "Opinions.md.md".
+ *  - The memory tools add .md to a bare name and refuse a name that already
+ *    ends in .md, so no memory tool can reach such a file, and the memory
+ *    listings and recall leave it out instead of offering its name.
+ *  - The memory store and the search index both apply this rule, so it lives
+ *    here with the rest of the memory-file convention. */
 export const isDoubledMarkdownFileName = (fileName: string): boolean => {
   return fileName.toLowerCase().endsWith(".md.md")
 }
 
 /** Matches any ATX heading line (H1–H6) per CommonMark §4.2: 0-3 leading
  *  spaces, hashes, then a space/tab separator or end of line (empty headings
- *  are valid). Inside an H2 span this can only be a deeper heading (H3+) —
- *  parseHeadings ends the span at the next H1/H2 — and a sub-heading starts
- *  new content, so it closes the open entry rather than being absorbed as
- *  continuation text. */
+ *  are valid). Inside an H2 section's body this can only be a deeper heading
+ *  (H3+) — parseHeadings ends the body at the next H1/H2 — and a sub-heading
+ *  starts new content, so it closes the open entry rather than being absorbed
+ *  as continuation text. */
 const HEADING_LINE_PATTERN = /^ {0,3}#{1,6}(?:[ \t]|$)/
 
 // ── Parser ──────────────────────────────────────────────────────
 
-/** One entry being accumulated while walking a section span. Its lines are
+/** One entry being accumulated while walking a section's body. Its lines are
  *  contiguous from the bullet at `startLine`. */
 type OpenEntry = { date: string; startLine: number; textLines: string[] }
 
 /** Closes an accumulating entry into a MemoryEntry, trimming trailing blank
- *  lines (the gap before the next entry belongs to neither). findLastIndex
- *  returns -1 when every line is blank, so +1 slices to empty — though the
- *  first line is always the dated bullet, so that case cannot arise here. */
+ *  lines (the gap before the next entry belongs to neither). The first line
+ *  is the dated bullet, so at least that line is kept. */
 const closeEntry = (params: {
   openEntry: OpenEntry
   section: Readonly<{ text: string; startLine: number }>
@@ -110,7 +117,7 @@ const closeEntry = (params: {
  * Takes body lines (frontmatter already stripped — same contract as
  * parseHeadings; use splitIntoLines on parsed note content). Only H2 sections
  * hold entries, per the memory-file grammar; an H3 nested inside an H2 stays
- * within the H2's span, so its entries are still captured and attributed to
+ * within the H2's body, so its entries are still captured and attributed to
  * the H2. Prose before a section's first entry (intro text, scope callouts)
  * belongs to no entry and is ignored; every line after an entry's bullet —
  * wrapped prose, sub-bullets, fenced code — is that entry's continuation
@@ -122,28 +129,27 @@ const closeEntry = (params: {
  * entries legitimately contain code examples, and text is raw markdown.
  */
 export const parseMemoryEntries = (lines: readonly string[]): MemoryEntry[] => {
-  const sectionSpans = parseHeadings(lines).filter((heading) => heading.level === 2)
+  const h2Sections = parseHeadings(lines).filter((heading) => heading.level === 2)
 
   const entries: MemoryEntry[] = []
-  for (const span of sectionSpans) {
-    // Fence and comment state start closed at each span: parseHeadings only
-    // recognizes headings outside fences/comments, so a span can never begin
-    // mid-fence. The walk is inherently sequential parser state.
+  for (const section of h2Sections) {
+    // Fence and comment state start closed at each section: parseHeadings
+    // only recognizes headings outside fences/comments, so a section body can
+    // never begin mid-fence. The walk is inherently sequential parser state.
     let openFence: OpenFence = null
     let commentOpen = false
     let openEntry: OpenEntry | null = null
 
-    for (let lineIndex = span.bodyStartLine; lineIndex < span.bodyEndLine; lineIndex++) {
-      const line = lines[lineIndex]
+    const bodyLines = lines.slice(section.bodyStartLine, section.bodyEndLine)
 
-      if (line === undefined) continue
+    for (const [bodyOffset, line] of bodyLines.entries()) {
+      const lineIndex = section.bodyStartLine + bodyOffset
 
-      // Fence/comment precedence, as in parseHeadings: fences advance only
-      // outside comments, comment toggles run only outside fences. Explicit
-      // annotations break the inference cycle through the loop-carried state.
-      const fenceResult: ReturnType<typeof advanceFence> | null = commentOpen
-        ? null
-        : advanceFence(line, openFence)
+      // Fence/comment precedence follows advanceComment's contract: fences
+      // advance only outside comments, comment toggles run only outside
+      // fences. TypeScript cannot infer these two results' types, because
+      // each depends on state the loop assigns from the other.
+      const fenceResult: FenceResult | null = commentOpen ? null : advanceFence(line, openFence)
 
       if (fenceResult) openFence = fenceResult.openFence
 
@@ -167,7 +173,7 @@ export const parseMemoryEntries = (lines: readonly string[]): MemoryEntry[] => {
 
       if (entryDate) {
         if (openEntry !== null) {
-          entries.push(closeEntry({ openEntry, section: span, entryIndex: entries.length }))
+          entries.push(closeEntry({ openEntry, section, entryIndex: entries.length }))
         }
         openEntry = { date: entryDate, startLine: lineIndex, textLines: [line] }
         continue
@@ -177,7 +183,7 @@ export const parseMemoryEntries = (lines: readonly string[]): MemoryEntry[] => {
       // within the section, not continuation text — and belongs to no entry.
       if (HEADING_LINE_PATTERN.test(line)) {
         if (openEntry !== null) {
-          entries.push(closeEntry({ openEntry, section: span, entryIndex: entries.length }))
+          entries.push(closeEntry({ openEntry, section, entryIndex: entries.length }))
           openEntry = null
         }
         continue
@@ -188,7 +194,7 @@ export const parseMemoryEntries = (lines: readonly string[]): MemoryEntry[] => {
     }
 
     if (openEntry !== null) {
-      entries.push(closeEntry({ openEntry, section: span, entryIndex: entries.length }))
+      entries.push(closeEntry({ openEntry, section, entryIndex: entries.length }))
     }
   }
 

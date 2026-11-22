@@ -1621,9 +1621,9 @@ Docker hardening, and durability seatbelts above.
   than silently deleting the wrong entry.
 - **One entry parser** (`parseMemoryEntries` in `memory-entries.ts`): the
   entry counts, the idempotency guard, the top insert point and the delete
-  span all read the entries and line spans it returns, the same ones the
-  `on_or_after` reads and recall use, so a write never treats as an entry,
-  or deletes, text that a read attributes to no entry.
+  span all read the entries it returns, the same entries the `on_or_after`
+  reads and recall return, so writes and reads agree on which lines make up
+  each entry.
 
 ## Cost
 
