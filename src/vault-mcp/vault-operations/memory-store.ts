@@ -164,7 +164,10 @@ type ParsedSection = Readonly<{
  * line, so two H2s with the same text keep their own entries.
  */
 const parseSections = (lines: readonly string[]): ParsedSection[] => {
-  const entries = parseMemoryEntries(lines)
+  // Grouped once, so a file with many headings and entries stays linear.
+  const entriesBySectionLine = Map.groupBy(parseMemoryEntries(lines), (entry) => {
+    return entry.sectionStartLine
+  })
   const sections: ParsedSection[] = []
   for (const heading of parseHeadings(lines)) {
     if (heading.level !== 1 && heading.level !== 2) continue
@@ -174,7 +177,7 @@ const parseSections = (lines: readonly string[]): ParsedSection[] => {
       startLine: heading.startLine,
       bodyStartLine: heading.bodyStartLine,
       bodyEndLine: heading.bodyEndLine,
-      entries: entries.filter((entry) => entry.sectionStartLine === heading.startLine),
+      entries: entriesBySectionLine.get(heading.startLine) ?? [],
     })
   }
   return sections
