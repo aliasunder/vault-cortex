@@ -389,8 +389,7 @@ describe("updateMemory", () => {
     ).rejects.toThrow(
       new Error('memory file must not start with a dot: ".secret" would be a hidden file'),
     )
-    const memoryDirEntries = await readdir(join(vault, "About Me"))
-    expect(memoryDirEntries).not.toContain(".secret.md")
+    expect(await readdir(join(vault, "About Me"))).toEqual(["Opinions.md", "Principles.md"])
   })
 
   it.each([
@@ -2357,9 +2356,7 @@ describe("listMemoryFiles", () => {
 
   it("returns outlines sorted by filename", async () => {
     const outlines = await listMemoryFiles({ vaultPath: vault }, logger)
-    expect(outlines).toHaveLength(2)
-    expect(outlines[0]?.file).toBe("Opinions")
-    expect(outlines[1]?.file).toBe("Principles")
+    expect(outlines.map((outline) => outline.file)).toEqual(["Opinions", "Principles"])
   })
 
   it("includes byte size per file", async () => {
@@ -2636,9 +2633,12 @@ describe("listMemoryFiles", () => {
     const principles = outlines.find((outline) => outline.file === "Principles")
     const h1s = principles?.headings.filter((heading) => heading.level === 1)
     const h2s = principles?.headings.filter((heading) => heading.level === 2)
-    expect(h1s).toHaveLength(1)
-    expect(h1s?.[0]?.text).toBe("Principles")
-    expect(h2s).toHaveLength(3)
+    expect(h1s?.map((heading) => heading.text)).toEqual(["Principles"])
+    expect(h2s?.map((heading) => heading.text)).toEqual([
+      "Decision heuristics (newest first)",
+      "Working style (newest first)",
+      "Empty section (newest first)",
+    ])
   })
 
   it("gives the H1 heading no entry count", async () => {
@@ -2783,7 +2783,6 @@ describe("bootstrapMemoryDir", () => {
     onTestFinished(() => rm(emptyVault, { recursive: true }))
     await bootstrapMemoryDir({ vaultPath: emptyVault }, logger)
     const outlines = await listMemoryFiles({ vaultPath: emptyVault }, logger)
-    expect(outlines).toHaveLength(5)
     expect(outlines.map((outline) => outline.file).toSorted()).toEqual([
       "Agents",
       "Me",
