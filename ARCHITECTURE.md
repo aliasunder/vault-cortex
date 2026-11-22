@@ -636,7 +636,7 @@ Vector tables persist across restarts and rebuilds (only FTS, notes, links, task
 
 Content-hash gating (SHA-256 per chunk) skips re-embedding unchanged content on both incremental file-watcher updates and full rebuilds. A chunk whose text already has a stored vector elsewhere in the same note or file gets that vector copied, so an edit near the top of a long note re-embeds only the chunks whose text changed.
 
-**Vector schema:** Four tables in the same SQLite database as FTS5 (which also holds the `tasks` table — see [Tasks](#tasks)):
+**Vector schema:** Four tables for notes and files in the same SQLite database as FTS5 (which also holds the `tasks` table — see [Tasks](#tasks)); the memory layer adds `memory_entry_vectors`, described under [Memory](#memory):
 
 - `note_chunks`: stores chunk text, position index, and content hash per note
 - `note_vectors` (vec0): stores 384-dim Float32 embeddings keyed by chunk ID
