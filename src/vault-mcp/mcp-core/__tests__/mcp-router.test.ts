@@ -1307,7 +1307,7 @@ describe("createMcpRouter — transport.onclose", () => {
     }
     closeSession()
 
-    expect(mockedLogger.info).not.toHaveBeenCalledWith("session_closed", expect.anything())
+    expect(mockedLogger.info).not.toHaveBeenCalled()
     // The session should be gone — confirm with a POST to the closed
     // session that should 404.
     const followUp = await fetch(harness.url(), {
@@ -1472,6 +1472,47 @@ describe("createMcpRouter — session expiry and limit", { timeout: 20_000 }, ()
     })
     expect(await postToSession(harness, recentSession.sessionId)).toEqual(ROUTED)
     expect(await postToSession(harness, idleSession.sessionId)).toEqual(NOT_FOUND)
+  })
+
+  // A wall clock set backwards stamps a later-created session with an earlier
+  // time, so an idle session can sit after an active one in the map.
+  it("closes an idle session that sits after an active one, as after the clock is set back", async () => {
+    startFakeClock()
+    const harness = await setupHarness()
+    const activeSession = await createSession(harness)
+    setClock({ hours: -25 })
+    const idleSession = await createSession(harness)
+    setClock({ hours: 1 })
+    mockedLogger.info.mockClear()
+
+    await createSession(harness)
+
+    expect(closedSessionIds([activeSession, idleSession])).toEqual([idleSession.sessionId])
+    expect(mockedLogger.info).toHaveBeenCalledWith("mcp_sessions_removed", {
+      idleCount: 1,
+      capacityCount: 0,
+      sessionIds: [idleSession.sessionId],
+    })
+    expect(await postToSession(harness, activeSession.sessionId)).toEqual(ROUTED)
+  })
+
+  it("at the limit, closes only the idle session when closing it makes room", async () => {
+    startFakeClock()
+    const harness = await setupHarness()
+    const idleSession = await createSession(harness)
+    setClock({ hours: 23 })
+    const activeSessions = await createSessions(harness, SESSION_LIMIT - 1)
+    setClock({ hours: 24, milliseconds: 1 })
+    mockedLogger.info.mockClear()
+
+    await createSession(harness)
+
+    expect(closedSessionIds([idleSession, ...activeSessions])).toEqual([idleSession.sessionId])
+    expect(mockedLogger.info).toHaveBeenCalledWith("mcp_sessions_removed", {
+      idleCount: 1,
+      capacityCount: 0,
+      sessionIds: [idleSession.sessionId],
+    })
   })
 
   it("at the limit, closes the session whose last request started earliest", async () => {
