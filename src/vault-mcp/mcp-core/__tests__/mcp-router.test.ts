@@ -1295,7 +1295,7 @@ describe("createMcpRouter — DELETE /mcp", () => {
 })
 
 describe("createMcpRouter — transport.onclose", () => {
-  it("removes the session from the map and logs 'session_closed'", async () => {
+  it("removes the session from the map and leaves logging to the DELETE handler", async () => {
     const harness = await setupHarness()
     const { sessionId, transport } = await createSession(harness)
     mockedLogger.info.mockClear()
@@ -1307,9 +1307,7 @@ describe("createMcpRouter — transport.onclose", () => {
     }
     closeSession()
 
-    expect(mockedLogger.info).toHaveBeenCalledWith("session_closed", {
-      sessionId,
-    })
+    expect(mockedLogger.info).not.toHaveBeenCalledWith("session_closed", expect.anything())
     // The session should be gone — confirm with a POST to the closed
     // session that should 404.
     const followUp = await fetch(harness.url(), {

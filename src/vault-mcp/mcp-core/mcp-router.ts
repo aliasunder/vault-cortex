@@ -77,13 +77,11 @@ const MAX_LOGGED_REMOVED_SESSION_IDS = 20
 
 type SessionRemovalReason = "idle" | "capacity"
 
-/** One live MCP session. The record is mutated in place, because onclose
- *  reads the removal reason set just before close() and each request updates
- *  its start time. */
+/** One live MCP session. The record is mutated in place, because each
+ *  request updates its start time. */
 type McpSession = {
   transport: StreamableHTTPServerTransport
   lastRequestStartedAt: DateTime
-  removalReason: SessionRemovalReason | undefined
 }
 
 type SessionRemoval = { sessionId: string; session: McpSession; reason: SessionRemovalReason }
@@ -173,9 +171,8 @@ export const createMcpRouter = ({
   const sessions = new Map<string, McpSession>()
 
   /** Takes the session out of the map, then closes it. */
-  const removeSession = ({ sessionId, session, reason }: SessionRemoval): void => {
+  const removeSession = ({ sessionId, session }: SessionRemoval): void => {
     sessions.delete(sessionId)
-    session.removalReason = reason
     // Not awaited, so admitSession stays synchronous: an await here would let
     // another initialize admit its session before admitSession's own insert,
     // and the map could pass MAX_MCP_SESSIONS. close() ends the session's open
@@ -362,21 +359,15 @@ export const createMcpRouter = ({
     const session: McpSession = {
       transport,
       lastRequestStartedAt: DateTime.now(),
-      removalReason: undefined,
     }
     transport.onclose = () => {
       // Only an admitted session, which has its ID, is ever closed; the check
       // narrows the type.
       if (!transport.sessionId) return
 
+      // Removals and a client DELETE take the session out of the map before
+      // closing it; this keeps any other close from leaving it routable.
       sessions.delete(transport.sessionId)
-      // A session the server removed is logged by mcp_sessions_removed, so
-      // session_closed counts only a client DELETE.
-      if (session.removalReason) return
-
-      logger.info("session_closed", {
-        sessionId: transport.sessionId,
-      })
     }
     const { instructions, description } = buildServerMetadata(
       config,
@@ -490,6 +481,9 @@ export const createMcpRouter = ({
     // client's clean shutdown after a long idle succeeds.
     sessions.delete(sessionId)
     await session.transport.close()
+    // Logged only here: a session the server removes is logged by
+    // mcp_sessions_removed instead.
+    logger.info("session_closed", { sessionId })
     logger.info("mcp_response", {
       sessionId,
       clientIp,
