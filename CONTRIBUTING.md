@@ -67,7 +67,7 @@ report (V8 provider); the `coverage/` output directory is gitignored.
 
 `npm run test:remote-boot` boots the `:remote` image with a stubbed Sync
 client and needs Docker. Each run builds its own image unless
-`REMOTE_IMAGE` names an image you built. It labels every container and
+`REMOTE_IMAGE` names an image you built. The run labels every container and
 named volume it creates with `vault-cortex.test-run=<run ID>` (the ID is
 printed when the run starts), and removes them and any image it built
 when it ends. If a run is killed before it ends, remove what it left with
