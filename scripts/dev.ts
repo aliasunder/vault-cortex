@@ -23,6 +23,7 @@ import { execSync } from "node:child_process"
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { homedir, tmpdir } from "node:os"
 import { join } from "node:path"
+import { parseEnv } from "node:util"
 
 import { DEPLOYMENT_ENV_PATH, loadDeploymentEnv } from "./deployment-env.js"
 import {
@@ -240,8 +241,11 @@ switch (subcommand) {
   case "lightsail:up": {
     // A bind on anything but every address leaves nothing answering on the
     // instance's public port 8000, which the gateway calls while ORIGIN_URL is
-    // empty, so refuse before anything reaches the instance.
-    const bindAddress = env.BIND_ADDRESS
+    // empty, so refuse before anything reaches the instance. BIND_ADDRESS
+    // comes from the env file, not the shell, because the instance's compose
+    // file reads only the copy of the env file shipped below.
+    const envFileContent = readFileSync(DEPLOYMENT_ENV_PATH, "utf8")
+    const bindAddress = parseEnv(envFileContent).BIND_ADDRESS
     const publishesOnEveryAddress = !bindAddress || bindAddress === "0.0.0.0"
 
     if (!publishesOnEveryAddress && !env.ORIGIN_URL) {
@@ -261,7 +265,7 @@ switch (subcommand) {
       console.log(`> PUBLIC_URL derived from ${publicUrlSource}`)
     }
     const shippedEnvContent = envContentWithPublicUrl({
-      envFileContent: readFileSync(DEPLOYMENT_ENV_PATH, "utf8"),
+      envFileContent,
       publicUrl: resolvedPublicUrl,
     })
     const targetHost = resolveSshHost()
