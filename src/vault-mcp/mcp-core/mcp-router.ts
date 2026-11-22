@@ -63,7 +63,8 @@ const MCP_JSON_BODY_LIMIT = "5mb"
 
 const SERVER_WEBSITE_URL = "https://github.com/aliasunder/vault-cortex"
 
-// A conversation left open overnight keeps its session while traffic is light.
+// A conversation left open overnight keeps its session, unless the session
+// limit below closes it first.
 const MCP_SESSION_IDLE_TIMEOUT = Duration.fromObject({ hours: 24 })
 
 // Each session holds its own server instance, about 0.9 MB, so 300 sessions
@@ -71,20 +72,21 @@ const MCP_SESSION_IDLE_TIMEOUT = Duration.fromObject({ hours: 24 })
 const MAX_MCP_SESSIONS = 300
 
 // One admission can close many sessions; the log line lists the first IDs
-// only, because the logger never shortens an array.
+// only, because logger.ts caps each string but keeps every array element.
 const MAX_LOGGED_REMOVED_SESSION_IDS = 20
 
 type SessionRemovalReason = "idle" | "capacity"
 
-/** One live MCP session. Mutated in place: onclose reads the removal reason
- *  set just before close(), and a request updates its start time. */
+/** One live MCP session. The record is mutated in place, because onclose
+ *  reads the removal reason set just before close() and each request updates
+ *  its start time. */
 type McpSession = {
   transport: StreamableHTTPServerTransport
   lastRequestStartedAt: DateTime
   removalReason: SessionRemovalReason | undefined
 }
 
-type RemovedSession = { sessionId: string; reason: SessionRemovalReason }
+type SessionRemoval = { sessionId: string; session: McpSession; reason: SessionRemovalReason }
 
 const hasIdledOut = (session: Readonly<McpSession>, now: DateTime): boolean => {
   return session.lastRequestStartedAt.plus(MCP_SESSION_IDLE_TIMEOUT) < now
@@ -165,32 +167,25 @@ export const createMcpRouter = ({
     verifier: provider,
     resourceMetadataUrl: getOAuthProtectedResourceMetadataUrl(mcpResourceUrl(serverUrl)),
   })
-  // Insertion order is recency order: admission and every routed request
-  // re-insert their session, so the first entry is the session whose last
-  // request started earliest.
+  // Insertion order is recency order: admitSession inserts a new session last
+  // and touchSession moves a routed one to the end, so the first entry is the
+  // session whose last request started earliest.
   const sessions = new Map<string, McpSession>()
 
   /** Takes the session out of the map, then closes it. */
-  const removeSession = ({
-    sessionId,
-    session,
-    reason,
-  }: {
-    sessionId: string
-    session: McpSession
-    reason: SessionRemovalReason
-  }): void => {
+  const removeSession = ({ sessionId, session, reason }: SessionRemoval): void => {
     sessions.delete(sessionId)
     session.removalReason = reason
-    // Not awaited: close() ends the session's open streams and runs onclose
-    // before its first await, and awaiting here would let a second admission
-    // run between this removal and the insert that follows it.
+    // Not awaited, so admitSession stays synchronous: an await here would let
+    // another initialize admit its session before admitSession's own insert,
+    // and the map could pass MAX_MCP_SESSIONS. close() ends the session's open
+    // streams and runs onclose before it returns.
     session.transport.close().catch((closeError: unknown) => {
       logger.warn("mcp_session_close_failed", { sessionId, ...describeErrorForLog(closeError) })
     })
   }
 
-  const logRemovedSessions = (removedSessions: ReadonlyArray<RemovedSession>): void => {
+  const logRemovedSessions = (removedSessions: ReadonlyArray<SessionRemoval>): void => {
     if (removedSessions.length === 0) return
 
     const countRemovedFor = (reason: SessionRemovalReason): number => {
@@ -205,40 +200,34 @@ export const createMcpRouter = ({
     })
   }
 
-  /** Synchronous, so each admission runs to completion before another can
-   *  start, and the map never holds more than MAX_MCP_SESSIONS. */
+  /** The only place a new session enters the map. Synchronous, so each
+   *  admission runs to completion before another can start, and the map
+   *  never holds more than MAX_MCP_SESSIONS. */
   const admitSession = (sessionId: string, session: McpSession): void => {
     const now = DateTime.now()
 
-    // The whole map is scanned, so expiry relies on neither the map's order
-    // nor a clock that only moves forward.
-    const idleEntries = [...sessions].filter(([, candidate]) => hasIdledOut(candidate, now))
-    for (const [idleSessionId, idleSession] of idleEntries) {
-      removeSession({ sessionId: idleSessionId, session: idleSession, reason: "idle" })
-    }
-
-    // Room for the new session: the first entries are the least recently used.
-    const overCapacityCount = Math.max(sessions.size - MAX_MCP_SESSIONS + 1, 0)
-    const capacityEntries = [...sessions].slice(0, overCapacityCount)
-    for (const [leastRecentSessionId, leastRecentSession] of capacityEntries) {
-      removeSession({
-        sessionId: leastRecentSessionId,
-        session: leastRecentSession,
-        reason: "capacity",
+    // Every entry is checked, never stopping at the first active one: a wall
+    // clock set backwards can leave an idle session behind an active one in
+    // the map's order.
+    const idleRemovals = [...sessions]
+      .filter(([, candidate]) => hasIdledOut(candidate, now))
+      .map(([idleSessionId, idleSession]): SessionRemoval => {
+        return { sessionId: idleSessionId, session: idleSession, reason: "idle" }
       })
-    }
+    for (const removal of idleRemovals) removeSession(removal)
+
+    // The first entries are the least recently used, so they make room for
+    // the new session.
+    const overCapacityCount = Math.max(sessions.size - MAX_MCP_SESSIONS + 1, 0)
+    const capacityRemovals = [...sessions]
+      .slice(0, overCapacityCount)
+      .map(([leastRecentSessionId, leastRecentSession]): SessionRemoval => {
+        return { sessionId: leastRecentSessionId, session: leastRecentSession, reason: "capacity" }
+      })
+    for (const removal of capacityRemovals) removeSession(removal)
 
     sessions.set(sessionId, session)
-    logRemovedSessions([
-      ...idleEntries.map(([idleSessionId]): RemovedSession => ({
-        sessionId: idleSessionId,
-        reason: "idle",
-      })),
-      ...capacityEntries.map(([leastRecentSessionId]): RemovedSession => ({
-        sessionId: leastRecentSessionId,
-        reason: "capacity",
-      })),
-    ])
+    logRemovedSessions([...idleRemovals, ...capacityRemovals])
   }
 
   /** Marks a request's start: the session becomes the most recently used. */
@@ -309,22 +298,23 @@ export const createMcpRouter = ({
 
     const existingSession = sessionId ? sessions.get(sessionId) : undefined
 
-    // Expiry on lookup: the client gets the same 404 an unknown session gets,
-    // and starts a new session.
-    if (sessionId && existingSession && hasIdledOut(existingSession, DateTime.now())) {
-      removeSession({ sessionId, session: existingSession, reason: "idle" })
-      logRemovedSessions([{ sessionId, reason: "idle" }])
-      logger.warn("mcp_response", {
-        sessionId,
-        clientIp,
-        status: 404,
-        outcome: "session expired",
-      })
-      res.status(404).json({ error: "session not found" })
-      return
-    }
-
     if (sessionId && existingSession) {
+      // An expired session gets the same 404 an unknown session gets, so its
+      // client starts a new session.
+      if (hasIdledOut(existingSession, DateTime.now())) {
+        const removal: SessionRemoval = { sessionId, session: existingSession, reason: "idle" }
+        removeSession(removal)
+        logRemovedSessions([removal])
+        logger.warn("mcp_response", {
+          sessionId,
+          clientIp,
+          status: 404,
+          outcome: "session expired",
+        })
+        res.status(404).json({ error: "session not found" })
+        return
+      }
+
       touchSession(sessionId, existingSession)
       logger.info("mcp_response", {
         sessionId,
@@ -361,26 +351,27 @@ export const createMcpRouter = ({
       res.status(400).json({ error: "no session" })
       return
     }
+    // onsessioninitialized reads `session`, declared below because it holds
+    // this transport. The SDK calls the callback only inside handleRequest,
+    // once it has assigned the session ID and before it dispatches the
+    // initialize, and never for a rejected initialize.
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: () => randomUUID(),
-      // The SDK calls this once it has assigned the session ID, before it
-      // dispatches the initialize, and never for a rejected initialize.
       onsessioninitialized: (newSessionId) => admitSession(newSessionId, session),
     })
-    // Created before connect, so the onclose closure below and admission share
-    // this one record.
     const session: McpSession = {
       transport,
       lastRequestStartedAt: DateTime.now(),
       removalReason: undefined,
     }
     transport.onclose = () => {
+      // Only an admitted session, which has its ID, is ever closed; the check
+      // narrows the type.
       if (!transport.sessionId) return
 
       sessions.delete(transport.sessionId)
       // A session the server removed is logged by mcp_sessions_removed, so
-      // session_closed counts only a client DELETE or a transport closing by
-      // itself.
+      // session_closed counts only a client DELETE.
       if (session.removalReason) return
 
       logger.info("session_closed", {
@@ -438,8 +429,9 @@ export const createMcpRouter = ({
       })
       return
     }
-    // Another admission can remove this session while the SDK awaits the
-    // initialize; its client then gets 404 on its next request.
+    // Another initialize's admission can close this session for capacity
+    // while the SDK awaits this one's initialize; its client then gets 404 on
+    // its next request.
     if (sessions.get(transport.sessionId) !== session) {
       logger.warn("mcp_response", {
         sessionId: transport.sessionId,
