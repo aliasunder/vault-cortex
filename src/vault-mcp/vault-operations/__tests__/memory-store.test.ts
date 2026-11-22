@@ -1326,6 +1326,26 @@ created: 2026-01-01T00:00:00-05:00
       "- **2026-07-02**: cross-section entry\n- **2026-05-04**: Single-purpose files",
     )
   })
+
+  // A named section resolves to the first H2 with that text, so the same
+  // bullet under a later H2 with the same text is a different entry
+  it("an identical bullet under a later H2 with the same text does not suppress the append", async () => {
+    await writeFile(
+      join(vault, "About Me/Twice.md"),
+      "# T\n\n## S (newest first)\n- **2026-01-01**: first section\n\n## S (newest first)\n- **2026-01-02**: repeated\n",
+      "utf8",
+    )
+
+    const outcome = await updateMemory(
+      { vaultPath: vault, file: "Twice", section: "S", entry: "repeated", date: "2026-01-02" },
+      logger,
+    )
+
+    expect(outcome).toBe("appended")
+    expect(await readFile(join(vault, "About Me/Twice.md"), "utf8")).toBe(
+      "# T\n\n## S (newest first)\n- **2026-01-02**: repeated\n- **2026-01-01**: first section\n\n## S (newest first)\n- **2026-01-02**: repeated\n",
+    )
+  })
 })
 
 describe("updateMemory auto-creation", () => {
@@ -2341,6 +2361,32 @@ created: 2026-01-01T00:00:00-05:00
       ].join("\n"),
     )
   })
+
+  // A named section resolves to the first H2 with that text, so a delete
+  // never reaches an entry under a later H2 with the same text
+  it("does not delete a matching entry under a later H2 with the same text", async () => {
+    const twiceContent =
+      "# T\n\n## S (newest first)\n- **2026-01-01**: first section\n\n## S (newest first)\n- **2026-01-02**: only in the second\n"
+    await writeFile(join(vault, "About Me/Twice.md"), twiceContent, "utf8")
+
+    await expect(
+      deleteMemory(
+        {
+          vaultPath: vault,
+          file: "Twice",
+          section: "S",
+          date: "2026-01-02",
+          entry: "only in the second",
+        },
+        logger,
+      ),
+    ).rejects.toThrow(
+      new Error(
+        'no entry matching (2026-01-02, "only in the second") under ## S (newest first) in About Me/Twice.md',
+      ),
+    )
+    expect(await readFile(join(vault, "About Me/Twice.md"), "utf8")).toBe(twiceContent)
+  })
 })
 
 describe("listMemoryFiles", () => {
@@ -2586,6 +2632,22 @@ describe("listMemoryFiles", () => {
       (heading) => heading.text === "Empty section (newest first)",
     )
     expect(emptySection?.entry_count).toBe(0)
+  })
+
+  it("counts the entries of two H2s with the same text separately", async () => {
+    await writeFile(
+      join(vault, "About Me/Twice.md"),
+      "# Twice\n\n## S (newest first)\n- **2026-01-02**: first section\n\n## S (newest first)\n- **2026-01-03**: second section\n- **2026-01-01**: second section, older\n",
+      "utf8",
+    )
+
+    const outlines = await listMemoryFiles({ vaultPath: vault }, logger)
+
+    expect(outlines.find((outline) => outline.file === "Twice")?.headings).toEqual([
+      { level: 1, text: "Twice" },
+      { level: 2, text: "S (newest first)", entry_count: 1 },
+      { level: 2, text: "S (newest first)", entry_count: 2 },
+    ])
   })
 
   it("counts the entries getMemoryEntries reads when an empty line ends a fence inside a blockquote", async () => {
