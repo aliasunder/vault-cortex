@@ -12,8 +12,9 @@ export default defineConfig({
     testTimeout: 30_000,
     // Container boots (and the restart) live in beforeAll hooks.
     hookTimeout: 180_000,
-    // Vitest exits the process once closing, which runs the global teardown,
-    // passes this limit (10 seconds by default), cutting its removals short.
+    // Vitest runs the global teardown while it closes, and ends the process
+    // when closing takes longer than this limit (10 seconds by default). The
+    // default would cut the teardown's Docker removals short.
     teardownTimeout: 120_000,
     fileParallelism: false,
     include: ["src/__tests__/docker/**/*.test.ts"],
