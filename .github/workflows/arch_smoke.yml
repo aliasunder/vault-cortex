@@ -196,7 +196,7 @@ jobs:
       # REMOTE_IMAGE names the image the buildx step above built, so the
       # suite's global setup builds no image of its own and leaves this one.
       - name: Remote image boot tests (stubbed Sync client)
-        run: npx vitest run --config vitest.remote-boot.config.ts
+        run: npm run test:remote-boot
         env:
           REMOTE_IMAGE: vault-cortex:remote-ci
 
