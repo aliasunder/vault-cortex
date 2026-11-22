@@ -77,8 +77,8 @@ const MAX_LOGGED_REMOVED_SESSION_IDS = 20
 
 type SessionRemovalReason = "idle" | "capacity"
 
-/** One live MCP session. The record is mutated in place, because each
- *  request updates its start time. */
+/** One live MCP session. The record is mutated in place, because its
+ *  admission and each routed request update its start time. */
 type McpSession = {
   transport: StreamableHTTPServerTransport
   lastRequestStartedAt: DateTime
@@ -165,9 +165,10 @@ export const createMcpRouter = ({
     verifier: provider,
     resourceMetadataUrl: getOAuthProtectedResourceMetadataUrl(mcpResourceUrl(serverUrl)),
   })
-  // Insertion order is recency order: admitSession inserts a new session last
-  // and touchSession moves a routed one to the end, so the first entry is the
-  // session whose last request started earliest.
+  // Insertion order is recency order: admitSession stamps a new session and
+  // inserts it last, and touchSession stamps a routed one and moves it to the
+  // end, so each entry's position matches its start time and the first entry
+  // is the session whose last request started earliest.
   const sessions = new Map<string, McpSession>()
 
   /** Takes the session out of the map, then closes it. */
@@ -223,6 +224,10 @@ export const createMcpRouter = ({
       })
     for (const removal of capacityRemovals) removeSession(removal)
 
+    // Stamped here rather than when its initialize started: initializes can
+    // overlap, so an earlier time could be older than an entry already in the
+    // map, and the map's order would no longer match the start times.
+    session.lastRequestStartedAt = now
     sessions.set(sessionId, session)
     logRemovedSessions([...idleRemovals, ...capacityRemovals])
   }
@@ -313,13 +318,15 @@ export const createMcpRouter = ({
       }
 
       touchSession(sessionId, existingSession)
+      await existingSession.transport.handleRequest(req, res, req.body)
+      // Logged after the transport answers, so a follow-up it rejects (406,
+      // 400) is logged with that status.
       logger.info("mcp_response", {
         sessionId,
         clientIp,
-        status: 200,
+        status: res.statusCode,
         outcome: "routed to existing session",
       })
-      await existingSession.transport.handleRequest(req, res, req.body)
       return
     }
 
@@ -356,6 +363,7 @@ export const createMcpRouter = ({
       sessionIdGenerator: () => randomUUID(),
       onsessioninitialized: (newSessionId) => admitSession(newSessionId, session),
     })
+    // admitSession replaces this start time when the session enters the map.
     const session: McpSession = {
       transport,
       lastRequestStartedAt: DateTime.now(),
@@ -471,7 +479,13 @@ export const createMcpRouter = ({
     // transport. A DELETE answers 200 whatever the session's idle time, so a
     // client's clean shutdown after a long idle succeeds.
     sessions.delete(sessionId)
-    await session.transport.close()
+    // A failed close still answers 200: the session is already out of the
+    // map, so no request can reach it.
+    try {
+      await session.transport.close()
+    } catch (closeError: unknown) {
+      logger.warn("mcp_session_close_failed", { sessionId, ...describeErrorForLog(closeError) })
+    }
     // Logged only here: a session the server removes is logged by
     // mcp_sessions_removed instead.
     logger.info("session_closed", { sessionId })

@@ -883,7 +883,36 @@ Vault content is Obsidian Flavored Markdown. Write tools pass content through wi
     expect(mockedLogger.info).toHaveBeenCalledWith("mcp_response", {
       sessionId,
       clientIp: FORWARDED_IP,
-      status: 200,
+      status: 202,
+      outcome: "routed to existing session",
+    })
+  })
+
+  it("logs a routed request with the status its transport answered, not 200", async () => {
+    const harness = await setupHarness({ config: TRUSTED_PROXY_CONFIG })
+    const { sessionId, transport } = await createSession(harness)
+    transport.handleRequest.mockImplementationOnce(
+      async (_req: express.Request, res: express.Response) => {
+        res.status(406).json({ error: "not acceptable" })
+      },
+    )
+    mockedLogger.info.mockClear()
+    vi.mocked(isInitializeRequest).mockReturnValue(false)
+
+    const response = await fetch(harness.url(), {
+      method: "POST",
+      headers: { ...baseHeaders, "mcp-session-id": sessionId },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/list" }),
+    })
+
+    expect({ status: response.status, body: await response.json() }).toEqual({
+      status: 406,
+      body: { error: "not acceptable" },
+    })
+    expect(mockedLogger.info).toHaveBeenCalledWith("mcp_response", {
+      sessionId,
+      clientIp: FORWARDED_IP,
+      status: 406,
       outcome: "routed to existing session",
     })
   })
@@ -1256,6 +1285,47 @@ describe("createMcpRouter — DELETE /mcp", () => {
     expect(followUp.status).toBe(404)
   })
 
+  it("answers 200 and logs a warn when the transport's close rejects", async () => {
+    const harness = await setupHarness({ config: TRUSTED_PROXY_CONFIG })
+    const { sessionId, transport } = await createSession(harness)
+    transport.close.mockImplementation(async () => {
+      closeLikeSdk(transport)
+      throw new Error("stream already ended")
+    })
+
+    const response = await fetch(harness.url(), {
+      method: "DELETE",
+      headers: { ...baseHeaders, "mcp-session-id": sessionId },
+    })
+
+    // Read as text: Express's 500 answer is an HTML page, which a JSON parse
+    // would reject before the status is compared.
+    expect({ status: response.status, body: await response.text() }).toEqual({
+      status: 200,
+      body: JSON.stringify({ ok: true }),
+    })
+    expect(transport.close).toHaveBeenCalledTimes(1)
+    expect(mockedLogger.warn).toHaveBeenCalledWith("mcp_session_close_failed", {
+      sessionId,
+      error: "[Error]: stream already ended",
+    })
+    expect(mockedLogger.info).toHaveBeenCalledWith("session_closed", { sessionId })
+    expect(mockedLogger.info).toHaveBeenCalledWith("mcp_response", {
+      sessionId,
+      clientIp: FORWARDED_IP,
+      status: 200,
+      outcome: "session deleted",
+    })
+
+    const followUp = await fetch(harness.url(), {
+      method: "POST",
+      headers: { ...baseHeaders, "mcp-session-id": sessionId },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/list" }),
+    })
+    await followUp.arrayBuffer()
+    expect(followUp.status).toBe(404)
+  })
+
   it("returns 404 when the mcp-session-id header is missing", async () => {
     const harness = await setupHarness()
 
@@ -1392,6 +1462,28 @@ describe("createMcpRouter — session expiry and limit", { timeout: 20_000 }, ()
 
     expect(await postToSession(harness, sessionId)).toEqual(ROUTED)
     expect(transport.handleRequest).toHaveBeenCalledTimes(2)
+    expect(transport.close).not.toHaveBeenCalled()
+  })
+
+  it("counts a new session's idle time from its admission, not from when its initialize started", async () => {
+    startFakeClock()
+    const harness = await setupHarness()
+    // The initialize starts at SESSION_START, and the transport admits the
+    // session an hour later, as a slow initialize would. Later requests get
+    // the default handler.
+    useCustomTransportOnce(harness, (transport) => {
+      transport.handleRequest.mockImplementationOnce(
+        async (_req: express.Request, res: express.Response) => {
+          setClock({ hours: 1 })
+          await initializeLikeSdk(transport)
+          res.status(202).json({ ok: true, handled: "transport-mock" })
+        },
+      )
+    })
+    const { sessionId, transport } = await createSession(harness)
+    setClock({ hours: 24, milliseconds: 1 })
+
+    expect(await postToSession(harness, sessionId)).toEqual(ROUTED)
     expect(transport.close).not.toHaveBeenCalled()
   })
 
