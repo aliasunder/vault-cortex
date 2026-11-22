@@ -2,6 +2,7 @@ import { unusedPdfExtractor } from "../../../__tests__/helpers/pdf-extractor.js"
 import { describe, it, expect, beforeEach, afterEach, onTestFinished, vi } from "vitest"
 import express from "express"
 import { randomUUID } from "node:crypto"
+import { DateTime } from "luxon"
 import type { Server } from "node:http"
 import type { AddressInfo } from "node:net"
 import { createMcpRouter } from "../mcp-router.js"
@@ -98,8 +99,16 @@ const baseHeaders = {
   "x-forwarded-for": FORWARDED_IP,
 }
 
+/** The constructor options the router passes the SDK transport. */
+type TransportOptions = {
+  sessionIdGenerator?: () => string
+  onsessioninitialized?: (sessionId: string) => void | Promise<void>
+}
+
 type TransportMock = {
   sessionId: string | undefined
+  options: TransportOptions
+  closed: boolean
   handleRequest: ReturnType<typeof vi.fn>
   close: ReturnType<typeof vi.fn>
   onclose: (() => void) | undefined
@@ -113,6 +122,43 @@ type Harness = {
   serverInstances: ServerMock[]
   search: SearchIndex
   provider: OAuthServerProvider
+}
+
+/** Mimics the SDK's initialize: the session id doesn't exist at construction;
+ *  the transport generates it while handling the initialize request, then
+ *  awaits onsessioninitialized before it dispatches the request. */
+const initializeLikeSdk = async (transport: TransportMock): Promise<void> => {
+  if (transport.sessionId) return
+
+  transport.sessionId = transport.options.sessionIdGenerator?.()
+
+  if (transport.sessionId && transport.options.onsessioninitialized) {
+    await transport.options.onsessioninitialized(transport.sessionId)
+  }
+}
+
+/** Mimics the SDK's close(): async and idempotent, with onclose called once
+ *  before the first await. */
+const closeLikeSdk = (transport: TransportMock): void => {
+  if (transport.closed) return
+
+  transport.closed = true
+  transport.onclose?.()
+}
+
+const createTransportMock = (options: TransportOptions): TransportMock => {
+  const transport: TransportMock = {
+    sessionId: undefined,
+    options,
+    closed: false,
+    handleRequest: vi.fn(async (_req: express.Request, res: express.Response) => {
+      await initializeLikeSdk(transport)
+      res.status(202).json({ ok: true, handled: "transport-mock" })
+    }),
+    close: vi.fn(async () => closeLikeSdk(transport)),
+    onclose: undefined,
+  }
+  return transport
 }
 
 const allowAuth: express.RequestHandler = (_req, _res, next) => next()
@@ -131,18 +177,8 @@ const setupHarness = async (
   const serverInstances: ServerMock[] = []
 
   vi.mocked(StreamableHTTPServerTransport).mockImplementation(
-    function MockStreamableHTTPServerTransport() {
-      const transport: TransportMock = {
-        // Mimics the real SDK: the session id doesn't exist at construction —
-        // the transport generates it while handling the initialize request.
-        sessionId: undefined,
-        handleRequest: vi.fn(async (_req: express.Request, res: express.Response) => {
-          transport.sessionId ??= randomUUID()
-          res.status(202).json({ ok: true, handled: "transport-mock" })
-        }),
-        close: vi.fn(async () => {}),
-        onclose: undefined,
-      }
+    function MockStreamableHTTPServerTransport(options: TransportOptions) {
+      const transport = createTransportMock(options)
       transportInstances.push(transport)
       return transport
     } as unknown as typeof StreamableHTTPServerTransport,
@@ -204,6 +240,35 @@ const setupHarness = async (
     search,
     provider,
   }
+}
+
+/** Applies `configure` to the next transport the router constructs, so a
+ *  test can change how that one transport handles its request. */
+const useCustomTransportOnce = (
+  harness: Harness,
+  configure: (transport: TransportMock) => void,
+): void => {
+  vi.mocked(StreamableHTTPServerTransport).mockImplementationOnce(function MockCustomTransport(
+    options: TransportOptions,
+  ) {
+    const transport = createTransportMock(options)
+    configure(transport)
+    harness.transportInstances.push(transport)
+    return transport
+  } as unknown as typeof StreamableHTTPServerTransport)
+}
+
+/** The next transport mimics the SDK rejecting the initialize request (e.g.
+ *  missing Accept header → 406) before it generates a session id, so it never
+ *  calls onsessioninitialized. */
+const useRejectingTransportOnce = (harness: Harness): void => {
+  useCustomTransportOnce(harness, (transport) => {
+    transport.handleRequest.mockImplementation(
+      async (_req: express.Request, res: express.Response) => {
+        res.status(406).json({ error: "not acceptable" })
+      },
+    )
+  })
 }
 
 const createSession = async (
@@ -320,6 +385,7 @@ it.each([
 // touch those). Together they leave every mock fresh for the next test;
 // the next beforeEach + setupHarness reinstall implementations.
 afterEach(() => {
+  vi.useRealTimers()
   vi.restoreAllMocks()
   vi.clearAllMocks()
 })
@@ -768,20 +834,7 @@ Vault content is Obsidian Flavored Markdown. Write tools pass content through wi
     // Shadows the harness transport for the next construction only: mimics the
     // SDK rejecting the initialize request (e.g. missing Accept header → 406)
     // before it generates a session id.
-    vi.mocked(StreamableHTTPServerTransport).mockImplementationOnce(
-      function MockRejectingTransport() {
-        const transport: TransportMock = {
-          sessionId: undefined,
-          handleRequest: vi.fn(async (_req: express.Request, res: express.Response) => {
-            res.status(406).json({ error: "not acceptable" })
-          }),
-          close: vi.fn(async () => {}),
-          onclose: undefined,
-        }
-        harness.transportInstances.push(transport)
-        return transport
-      } as unknown as typeof StreamableHTTPServerTransport,
-    )
+    useRejectingTransportOnce(harness)
 
     const response = await fetch(harness.url(), {
       method: "POST",
@@ -1281,5 +1334,349 @@ describe("createMcpRouter — transport.onclose", () => {
     }
     expect(closeSession).not.toThrow()
     expect(mockedLogger.info).not.toHaveBeenCalled()
+  })
+})
+
+// Filling the session limit takes 300 sequential HTTP initializes, about 2
+// seconds locally, so a loaded runner gets more than the 5-second default.
+describe("createMcpRouter — session expiry and limit", { timeout: 20_000 }, () => {
+  const SESSION_START = DateTime.fromISO("2026-03-01T12:00:00.000Z")
+  const SESSION_LIMIT = 300
+
+  /** Fakes Date only, so luxon reads the test's clock while HTTP keeps
+   *  running on real timers. afterEach restores the real clock. */
+  const startFakeClock = (): void => {
+    vi.useFakeTimers({ toFake: ["Date"] })
+    vi.setSystemTime(SESSION_START.toJSDate())
+  }
+
+  const setClock = (duration: { hours: number; milliseconds?: number }): void => {
+    vi.setSystemTime(SESSION_START.plus(duration).toJSDate())
+  }
+
+  type CreatedSession = Awaited<ReturnType<typeof createSession>>
+
+  const createSessions = async (harness: Harness, count: number): Promise<CreatedSession[]> => {
+    const createdSessions: CreatedSession[] = []
+
+    // Sequential, so the sessions join the map in creation order.
+    for (let created = 0; created < count; created++) {
+      createdSessions.push(await createSession(harness))
+    }
+    return createdSessions
+  }
+
+  const requireSession = (
+    createdSessions: ReadonlyArray<CreatedSession>,
+    index: number,
+  ): CreatedSession => {
+    const createdSession = createdSessions[index]
+
+    if (!createdSession) {
+      throw new Error(`no session at index ${index}`)
+    }
+    return createdSession
+  }
+
+  const postToSession = async (
+    harness: Harness,
+    sessionId: string,
+  ): Promise<{ status: number; body: unknown }> => {
+    const response = await fetch(harness.url(), {
+      method: "POST",
+      headers: { ...baseHeaders, "mcp-session-id": sessionId },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/list" }),
+    })
+    return { status: response.status, body: await response.json() }
+  }
+
+  const sendInitialize = (harness: Harness): Promise<Response> => {
+    return fetch(harness.url(), {
+      method: "POST",
+      headers: baseHeaders,
+      body: JSON.stringify(initializeBody),
+    })
+  }
+
+  const closedSessionIds = (createdSessions: ReadonlyArray<CreatedSession>): string[] => {
+    return createdSessions
+      .filter((createdSession) => createdSession.transport.closed)
+      .map((createdSession) => createdSession.sessionId)
+  }
+
+  const ROUTED = { status: 202, body: { ok: true, handled: "transport-mock" } }
+  const NOT_FOUND = { status: 404, body: { error: "session not found" } }
+
+  it("answers 404 to a session idle for 24 hours plus 1 ms and closes it", async () => {
+    startFakeClock()
+    const harness = await setupHarness({ config: TRUSTED_PROXY_CONFIG })
+    const { sessionId, transport } = await createSession(harness)
+    setClock({ hours: 24, milliseconds: 1 })
+
+    expect(await postToSession(harness, sessionId)).toEqual(NOT_FOUND)
+    expect(transport.close).toHaveBeenCalledTimes(1)
+    expect(transport.handleRequest).toHaveBeenCalledTimes(1)
+    expect(mockedLogger.warn).toHaveBeenCalledWith("mcp_response", {
+      sessionId,
+      clientIp: FORWARDED_IP,
+      status: 404,
+      outcome: "session expired",
+    })
+    expect(mockedLogger.info).toHaveBeenCalledWith("mcp_sessions_removed", {
+      idleCount: 1,
+      capacityCount: 0,
+      sessionIds: [sessionId],
+    })
+  })
+
+  it("still routes a session idle for 24 hours minus 1 ms", async () => {
+    startFakeClock()
+    const harness = await setupHarness()
+    const { sessionId, transport } = await createSession(harness)
+    setClock({ hours: 23, milliseconds: 3_599_999 })
+
+    expect(await postToSession(harness, sessionId)).toEqual(ROUTED)
+    expect(transport.handleRequest).toHaveBeenCalledTimes(2)
+    expect(transport.close).not.toHaveBeenCalled()
+  })
+
+  it("keeps a session that made a request at 23 hours past 24 hours from its creation", async () => {
+    startFakeClock()
+    const harness = await setupHarness()
+    const { sessionId, transport } = await createSession(harness)
+    setClock({ hours: 23 })
+    expect(await postToSession(harness, sessionId)).toEqual(ROUTED)
+    setClock({ hours: 24, milliseconds: 1 })
+
+    expect(await postToSession(harness, sessionId)).toEqual(ROUTED)
+    expect(transport.close).not.toHaveBeenCalled()
+  })
+
+  it("closes an idle session when a new session is admitted, and keeps a recently used one", async () => {
+    startFakeClock()
+    const harness = await setupHarness()
+    const createdSessions = await createSessions(harness, 2)
+    const idleSession = requireSession(createdSessions, 0)
+    const recentSession = requireSession(createdSessions, 1)
+    setClock({ hours: 23 })
+    expect(await postToSession(harness, recentSession.sessionId)).toEqual(ROUTED)
+    setClock({ hours: 24, milliseconds: 1 })
+    mockedLogger.info.mockClear()
+
+    await createSession(harness)
+
+    expect(closedSessionIds(createdSessions)).toEqual([idleSession.sessionId])
+    expect(idleSession.transport.close).toHaveBeenCalledTimes(1)
+    expect(mockedLogger.info).toHaveBeenCalledWith("mcp_sessions_removed", {
+      idleCount: 1,
+      capacityCount: 0,
+      sessionIds: [idleSession.sessionId],
+    })
+    expect(await postToSession(harness, recentSession.sessionId)).toEqual(ROUTED)
+    expect(await postToSession(harness, idleSession.sessionId)).toEqual(NOT_FOUND)
+  })
+
+  it("at the limit, closes the session whose last request started earliest", async () => {
+    const harness = await setupHarness()
+    const createdSessions = await createSessions(harness, SESSION_LIMIT)
+    const firstSession = requireSession(createdSessions, 0)
+    const secondSession = requireSession(createdSessions, 1)
+    expect(await postToSession(harness, firstSession.sessionId)).toEqual(ROUTED)
+    mockedLogger.info.mockClear()
+
+    await createSession(harness)
+
+    expect(closedSessionIds(createdSessions)).toEqual([secondSession.sessionId])
+    expect(secondSession.transport.close).toHaveBeenCalledTimes(1)
+    expect(mockedLogger.info).toHaveBeenCalledWith("mcp_sessions_removed", {
+      idleCount: 0,
+      capacityCount: 1,
+      sessionIds: [secondSession.sessionId],
+    })
+    expect(await postToSession(harness, firstSession.sessionId)).toEqual(ROUTED)
+    expect(await postToSession(harness, secondSession.sessionId)).toEqual(NOT_FOUND)
+  })
+
+  // A close that has not settled must not stop the next admission from
+  // removing a session of its own: each admission inserts only after its
+  // removals, without waiting on close().
+  it("removes one session per admission while an earlier removal's close is still pending", async () => {
+    const harness = await setupHarness()
+    const createdSessions = await createSessions(harness, SESSION_LIMIT)
+    const firstSession = requireSession(createdSessions, 0)
+    const secondSession = requireSession(createdSessions, 1)
+    const heldClose = Promise.withResolvers<undefined>()
+    onTestFinished(() => heldClose.resolve(undefined))
+    firstSession.transport.close.mockImplementation(() => {
+      closeLikeSdk(firstSession.transport)
+      return heldClose.promise
+    })
+    mockedLogger.info.mockClear()
+
+    const firstInitialize = sendInitialize(harness)
+    await vi.waitFor(() => expect(firstSession.transport.close).toHaveBeenCalledTimes(1))
+    const secondInitialize = await sendInitialize(harness)
+    await secondInitialize.arrayBuffer()
+
+    expect(secondInitialize.status).toBe(202)
+    expect(closedSessionIds(createdSessions)).toEqual([
+      firstSession.sessionId,
+      secondSession.sessionId,
+    ])
+    expect(mockedLogger.info).toHaveBeenCalledWith("mcp_sessions_removed", {
+      idleCount: 0,
+      capacityCount: 1,
+      sessionIds: [firstSession.sessionId],
+    })
+    expect(mockedLogger.info).toHaveBeenCalledWith("mcp_sessions_removed", {
+      idleCount: 0,
+      capacityCount: 1,
+      sessionIds: [secondSession.sessionId],
+    })
+
+    heldClose.resolve(undefined)
+    const firstResponse = await firstInitialize
+    await firstResponse.arrayBuffer()
+    expect(firstResponse.status).toBe(202)
+  })
+
+  it("removes nothing when an initialize at the limit is rejected", async () => {
+    const harness = await setupHarness()
+    const createdSessions = await createSessions(harness, SESSION_LIMIT)
+    const firstSession = requireSession(createdSessions, 0)
+    useRejectingTransportOnce(harness)
+
+    const response = await sendInitialize(harness)
+    await response.arrayBuffer()
+
+    expect(response.status).toBe(406)
+    expect(harness.transportInstances).toHaveLength(SESSION_LIMIT + 1)
+    expect(closedSessionIds(createdSessions)).toEqual([])
+    expect(mockedLogger.info).not.toHaveBeenCalledWith("mcp_sessions_removed", expect.anything())
+    expect(await postToSession(harness, firstSession.sessionId)).toEqual(ROUTED)
+  })
+
+  it("logs a warn instead of 'session created' when a session is removed before its initialize finished", async () => {
+    const harness = await setupHarness({ config: TRUSTED_PROXY_CONFIG })
+    const createdSessions = await createSessions(harness, SESSION_LIMIT - 1)
+    const releaseInitialize = Promise.withResolvers<undefined>()
+    onTestFinished(() => releaseInitialize.resolve(undefined))
+    const admittedTransport = Promise.withResolvers<TransportMock>()
+    // The next transport is admitted, then pauses before it answers the
+    // initialize, as the SDK's handleRequest does while it dispatches it.
+    useCustomTransportOnce(harness, (transport) => {
+      transport.handleRequest.mockImplementation(
+        async (_req: express.Request, res: express.Response) => {
+          await initializeLikeSdk(transport)
+          admittedTransport.resolve(transport)
+          await releaseInitialize.promise
+          res.status(202).json({ ok: true, handled: "transport-mock" })
+        },
+      )
+    })
+
+    const pausedInitialize = sendInitialize(harness)
+    const pausedTransport = await admittedTransport.promise
+    const pausedSessionId = pausedTransport.sessionId
+
+    if (!pausedSessionId) {
+      throw new Error("the paused transport has no session id")
+    }
+    // Every other session makes a request, so the paused one becomes the
+    // least recently used, and the next admission removes it.
+    for (const createdSession of createdSessions) {
+      await postToSession(harness, createdSession.sessionId)
+    }
+    await createSession(harness)
+    releaseInitialize.resolve(undefined)
+    const pausedResponse = await pausedInitialize
+    await pausedResponse.arrayBuffer()
+
+    expect(pausedTransport.closed).toBe(true)
+    expect(closedSessionIds(createdSessions)).toEqual([])
+    expect(mockedLogger.warn).toHaveBeenCalledWith("mcp_response", {
+      sessionId: pausedSessionId,
+      clientIp: FORWARDED_IP,
+      status: 202,
+      outcome: "session removed before its initialize finished",
+    })
+    expect(mockedLogger.info).not.toHaveBeenCalledWith(
+      "mcp_response",
+      expect.objectContaining({ sessionId: pausedSessionId, outcome: "session created" }),
+    )
+    expect(await postToSession(harness, pausedSessionId)).toEqual(NOT_FOUND)
+  })
+
+  it("logs a warn when a removed session's close rejects, and still admits the new session", async () => {
+    const harness = await setupHarness()
+    const createdSessions = await createSessions(harness, SESSION_LIMIT)
+    const firstSession = requireSession(createdSessions, 0)
+    firstSession.transport.close.mockImplementation(async () => {
+      closeLikeSdk(firstSession.transport)
+      throw new Error("stream already ended")
+    })
+
+    const { sessionId: admittedSessionId } = await createSession(harness)
+
+    expect(mockedLogger.warn).toHaveBeenCalledWith("mcp_session_close_failed", {
+      sessionId: firstSession.sessionId,
+      error: "[Error]: stream already ended",
+    })
+    expect(await postToSession(harness, admittedSessionId)).toEqual(ROUTED)
+  })
+
+  it("answers 200 to a DELETE on a session idle past 24 hours and logs 'session_closed'", async () => {
+    startFakeClock()
+    const harness = await setupHarness({ config: TRUSTED_PROXY_CONFIG })
+    const { sessionId, transport } = await createSession(harness)
+    setClock({ hours: 24, milliseconds: 1 })
+
+    const response = await fetch(harness.url(), {
+      method: "DELETE",
+      headers: { ...baseHeaders, "mcp-session-id": sessionId },
+    })
+
+    expect({ status: response.status, body: await response.json() }).toEqual({
+      status: 200,
+      body: { ok: true },
+    })
+    expect(transport.close).toHaveBeenCalledTimes(1)
+    expect(mockedLogger.info).toHaveBeenCalledWith("session_closed", { sessionId })
+    expect(mockedLogger.info).toHaveBeenCalledWith("mcp_response", {
+      sessionId,
+      clientIp: FORWARDED_IP,
+      status: 200,
+      outcome: "session deleted",
+    })
+    expect(await postToSession(harness, sessionId)).toEqual(NOT_FOUND)
+  })
+
+  it("logs no 'session_closed' for a session the server removed", async () => {
+    startFakeClock()
+    const harness = await setupHarness()
+    const { sessionId, transport } = await createSession(harness)
+    setClock({ hours: 24, milliseconds: 1 })
+
+    expect(await postToSession(harness, sessionId)).toEqual(NOT_FOUND)
+    expect(transport.closed).toBe(true)
+    expect(mockedLogger.info).not.toHaveBeenCalledWith("session_closed", expect.anything())
+  })
+
+  it("lists the first 20 removed session IDs with the full counts", async () => {
+    startFakeClock()
+    const harness = await setupHarness()
+    const createdSessions = await createSessions(harness, 25)
+    setClock({ hours: 24, milliseconds: 1 })
+    mockedLogger.info.mockClear()
+
+    await createSession(harness)
+
+    const createdSessionIds = createdSessions.map((createdSession) => createdSession.sessionId)
+    expect(closedSessionIds(createdSessions)).toEqual(createdSessionIds)
+    expect(mockedLogger.info).toHaveBeenCalledWith("mcp_sessions_removed", {
+      idleCount: 25,
+      capacityCount: 0,
+      sessionIds: createdSessionIds.slice(0, 20),
+    })
   })
 })

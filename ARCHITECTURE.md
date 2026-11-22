@@ -126,6 +126,21 @@ graph TB
 
 Embeddings persist across rebuilds to reuse unchanged content and can be regenerated from the vault.
 
+### MCP sessions
+
+Each MCP `initialize` gets its own server instance and session in `mcp-core/mcp-router.ts`. A session ends when:
+
+- **its client sends DELETE:** the server closes it and answers 200, however long it sat idle.
+- **it sits idle for 24 hours:** no request has started in that time. The next request to it, or the next new session, closes it.
+- **the server holds 300 sessions and admits another:** the session whose last request started earliest closes. A request in progress on it gets no response, though a write it started still completes.
+
+A closed session's client gets `404 {"error":"session not found"}`, the same answer a restart gives, and starts a new session. No timer sweeps idle sessions, because sessions accumulate only when new ones start, and each start runs the closing pass.
+
+Two log lines tell the cases apart:
+
+- **`mcp_sessions_removed`:** one line per closing pass, with its idle and capacity counts and up to 20 session IDs.
+- **`session_closed`:** a client's DELETE, or a transport closing by itself.
+
 ### Note-content parsers
 
 The `obsidian-markdown/` parsers read text straight from vault files, so one crafted note must not be able to stall the server. Their work grows linearly with input size (sorting canvas nodes adds a log factor), and adversarial tests check that bound at doubling input sizes. Two exceptions remain:
