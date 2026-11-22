@@ -127,7 +127,7 @@ const removeRunObjects = async ({
 const setup = async (project: TestProject): Promise<() => Promise<void>> => {
   const runId = randomUUID()
   const suppliedImage = process.env.REMOTE_IMAGE
-  const image = suppliedImage ?? `vault-cortex:remote-boot-${runId}`
+  const image = suppliedImage || `vault-cortex:remote-boot-${runId}`
 
   printLine(
     `remote-boot run ${runId}: Docker objects carry the label ${RUN_LABEL_KEY}=${runId} (see CONTRIBUTING.md to remove them after a killed run)`,
