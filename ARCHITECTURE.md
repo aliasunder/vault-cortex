@@ -1619,6 +1619,11 @@ Docker hardening, and durability seatbelts above.
 - **Ambiguity guard on delete**: `deleteMemory` refuses to delete when
   more than one line matches — forces the caller to disambiguate rather
   than silently deleting the wrong entry.
+- **One entry parser** (`parseMemoryEntries` in `memory-entries.ts`): the
+  entry counts, the idempotency guard, the top insert point and the delete
+  span all read the entries and line spans it returns, the same ones the
+  `on_or_after` reads and recall use, so a write never treats as an entry,
+  or deletes, text that a read attributes to no entry.
 
 ## Cost
 
