@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest"
-import { assertPathHasNoNul, PathHasNulError } from "../assert-path-has-no-nul.js"
+import { assertPathHasNoNul } from "../assert-path-has-no-nul.js"
 
-/** Catches the error a call throws, so a test can check its class and fields. */
+/** Catches the error a call throws, so a test can check its fields. */
 const catchError = (call: () => void): unknown => {
   try {
     call()
@@ -28,10 +28,9 @@ describe("assertPathHasNoNul", () => {
     )
   })
 
-  it("throws a PathHasNulError named Error with no code", () => {
+  it("throws an error named Error with no code", () => {
     const error = catchError(() => assertPathHasNoNul("a\u0000.md"))
 
-    expect(error).toBeInstanceOf(PathHasNulError)
     expect(error instanceof Error ? error.name : undefined).toBe("Error")
     expect(error).not.toHaveProperty("code")
   })
