@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url"
 import { promisify } from "node:util"
 import type { Logger } from "../../logger.js"
 import { assertPathWithinMaxLength } from "../../utils/assert-path-within-max-length.js"
+import { assertPathHasNoNul } from "../../utils/assert-path-has-no-nul.js"
 import { assertRelativePath } from "./vault-filesystem.js"
 import { describeErrorForLog } from "../../utils/describe-error.js"
 import { siblingModuleUrl } from "../../utils/sibling-module-url.js"
@@ -618,8 +619,10 @@ export const createPdfExtractor = (params: {
       assertRelativePath(path)
 
       // The child's refusal of an over-long path comes back as a plain Error, which gets no remedy
-      // at the tool boundary, so this process refuses the path before the request is sent.
+      // at the tool boundary, so this process refuses the path before the request is sent. A path
+      // holding a NUL is refused here too, so no request is sent for a path no file can have.
       assertPathWithinMaxLength(path)
+      assertPathHasNoNul(path)
 
       const request: PdfRequest = {
         kind: "read",

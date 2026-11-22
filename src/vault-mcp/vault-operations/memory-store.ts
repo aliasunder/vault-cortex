@@ -20,6 +20,7 @@ import { isErrnoException } from "../../utils/is-errno-exception.js"
 import { describeError } from "../../utils/describe-error.js"
 import { assertNoControlCharacters } from "../../utils/assert-no-control-characters.js"
 import { assertPathWithinMaxLength } from "../../utils/assert-path-within-max-length.js"
+import { assertPathHasNoNul } from "../../utils/assert-path-has-no-nul.js"
 import { withFileLock } from "../../utils/file-write-lock.js"
 import {
   isDoubledMarkdownFileName,
@@ -502,18 +503,22 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
   }
 
   // Builds the path an update or delete locks and writes, and refuses a
-  // memory path longer than any filesystem accepts:
+  // memory path longer than any filesystem accepts or holding a NUL
+  // character:
   // - withFileLock (utils/file-write-lock.ts) case-folds its key, which takes
-  //   more than linear time on some crafted names, so the check runs before
-  //   the lock sees the path;
+  //   more than linear time on some crafted names, so the length check runs
+  //   before the lock sees the path;
   // - memoryFilePath's refusals and join run first, in linear time, so a
   //   name with a separator keeps its own message;
-  // - the check measures and quotes the vault-relative path, as the other
-  //   memory errors do, so the refusal never shows the vault's location.
-  // Reads take no lock and fold nothing, so they skip the check.
+  // - both checks quote the vault-relative path, as the other memory errors
+  //   do, so a refusal never shows the vault's location.
+  // Reads take no lock and fold nothing, so they skip both checks; their
+  // read wrapper's own message stands for any path the filesystem refuses.
   const memoryWritePath = (vaultPath: string, file: string): string => {
     const filePath = memoryFilePath(vaultPath, file)
-    assertPathWithinMaxLength(`${memoryDir}/${file}.md`)
+    const memoryRelativePath = `${memoryDir}/${file}.md`
+    assertPathWithinMaxLength(memoryRelativePath)
+    assertPathHasNoNul(memoryRelativePath)
     return filePath
   }
 

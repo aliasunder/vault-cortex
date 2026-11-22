@@ -4097,6 +4097,24 @@ describe("over-long memory file names", () => {
     )
   })
 
+  it("updateMemory gives an over-long name holding a NUL the length refusal", async () => {
+    // "About Me/" (9 bytes) + NUL + name + ".md" (3 bytes) makes 4,096 bytes
+    const tooLongNulName = `\u0000${"a".repeat(4096 - 13)}`
+
+    await expect(
+      updateMemory(
+        {
+          vaultPath: vault,
+          file: tooLongNulName,
+          section: "Decision heuristics (newest first)",
+          entry: "valid entry",
+          date: "2026-07-02",
+        },
+        logger,
+      ),
+    ).rejects.toThrow(new Error(`ENAMETOOLONG: name too long, 'About Me/${tooLongNulName}.md'`))
+  })
+
   it("keeps the separator refusal for an over-long name holding a separator", async () => {
     const file = `../${tooLongName}`
 
@@ -4114,6 +4132,43 @@ describe("over-long memory file names", () => {
     ).rejects.toThrow(
       new Error(`memory file must be a bare name without path separators: "${file}"`),
     )
+  })
+})
+
+describe("memory file names holding a NUL character", () => {
+  const nulRefusal = new Error(
+    "EINVAL: a path cannot contain a NUL character, 'About Me/Bad\u0000Name.md'",
+  )
+
+  it("updateMemory refuses a name holding a NUL and writes nothing", async () => {
+    await expect(
+      updateMemory(
+        {
+          vaultPath: vault,
+          file: "Bad\u0000Name",
+          section: "Decision heuristics (newest first)",
+          entry: "valid entry",
+          date: "2026-07-02",
+        },
+        logger,
+      ),
+    ).rejects.toThrow(nulRefusal)
+    expect(await readdir(join(vault, "About Me"))).toEqual(["Opinions.md", "Principles.md"])
+  })
+
+  it("deleteMemory refuses a name holding a NUL", async () => {
+    await expect(
+      deleteMemory(
+        {
+          vaultPath: vault,
+          file: "Bad\u0000Name",
+          section: "Decision heuristics (newest first)",
+          date: "2026-05-06",
+          entry: "Secrets invisible at every layer",
+        },
+        logger,
+      ),
+    ).rejects.toThrow(nulRefusal)
   })
 })
 

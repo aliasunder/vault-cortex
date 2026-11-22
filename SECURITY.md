@@ -63,6 +63,9 @@ mechanism-level detail.
 - A path longer than any Linux filesystem accepts (more than 4,095 bytes)
   is refused before path resolution or a write lock sees it — a note, file
   or folder path, and the memory file name of a memory write
+- A path holding a NUL character, which no file name can hold, is refused
+  right after the length check and before any filesystem call uses it — the
+  same note, file and folder paths, and memory file names of memory writes
 - Protected-path checks run on the canonical vault-relative form of the
   resolved path (`resolveVaultRelativePath()`), with a case-folded
   comparison — an aliased spelling (`\` separators,

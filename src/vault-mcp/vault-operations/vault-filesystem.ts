@@ -44,6 +44,7 @@ import { splitIntoLines, trimBlankEdgeLines } from "../obsidian-markdown/lines.j
 import { assertNoControlCharacters } from "../../utils/assert-no-control-characters.js"
 import { assertPathHasExtension } from "../../utils/assert-path-has-extension.js"
 import { assertPathWithinMaxLength } from "../../utils/assert-path-within-max-length.js"
+import { assertPathHasNoNul } from "../../utils/assert-path-has-no-nul.js"
 import { caseFoldPath } from "../../utils/case-fold-path.js"
 import type { TrashOption } from "./trash-config.js"
 import { hasHiddenPathSegment } from "../../utils/has-hidden-path-segment.js"
@@ -70,6 +71,7 @@ export const assertRelativePath = (notePath: string): void => {
 /** Resolves a note path within the vault. It throws on:
  *  - absolute paths;
  *  - paths longer than any filesystem accepts;
+ *  - paths holding a NUL character, which no file name can hold;
  *  - traversal, and the vault root itself, which names no entry;
  *  - hidden paths (dot-prefixed segments, which Obsidian ignores), checked on
  *    the resolved relative path so "./" and "../" normalize first, and before
@@ -84,6 +86,7 @@ export const resolveSafePath = (vaultPath: string, notePath: string): string => 
   // key, isProtectedPath). A path the filesystem would refuse anyway is
   // therefore refused before either runs.
   assertPathWithinMaxLength(notePath)
+  assertPathHasNoNul(notePath)
 
   const vaultRoot = resolve(vaultPath)
   const resolvedPath = resolve(vaultRoot, notePath)
@@ -112,7 +115,7 @@ export const resolveSafePath = (vaultPath: string, notePath: string): string => 
 
 /** Canonical vault-relative form of a note path — prefix guards must run on
  *  this form so path aliases (separator variants, traversal segments) can't
- *  evade them. Throws resolveSafePath's absolute/length/traversal/hidden
+ *  evade them. Throws resolveSafePath's absolute/length/NUL/traversal/hidden
  *  errors for unsafe input. */
 export const resolveVaultRelativePath = (params: {
   vaultPath: string
@@ -123,9 +126,12 @@ export const resolveVaultRelativePath = (params: {
   assertRelativePath(params.notePath)
 
   // Normalizing costs more than linear time on some crafted inputs, so the
-  // length check runs on the input as sent, before toVaultRelativePath.
-  // resolveSafePath repeats both checks for its own direct callers.
+  // length check runs on the input as sent, before toVaultRelativePath. The
+  // NUL check also runs here, so its refusal quotes the path as sent rather
+  // than normalized. resolveSafePath repeats these checks for its own direct
+  // callers.
   assertPathWithinMaxLength(params.notePath)
+  assertPathHasNoNul(params.notePath)
 
   const normalizedInput = toVaultRelativePath(params.notePath)
   // resolveSafePath is called for its safety guards; its absolute result is
@@ -158,7 +164,7 @@ export const isProtectedPath = (params: {
  * The delete/move that triggered the prune has already succeeded, so a failure
  * to remove a folder (permissions, a race, a vanished dir) is logged and ends
  * the walk rather than thrown — it never fails the tool call. An unsafe `path`
- * throws resolveSafePath's absolute/length/traversal/hidden error before any folder
+ * throws resolveSafePath's absolute/length/NUL/traversal/hidden error before any folder
  * is touched.
  * Returns the number of folders removed.
  */

@@ -557,6 +557,47 @@ describe("over-long paths", () => {
   })
 })
 
+/** The refusal a path holding a NUL character gets, quoting it as sent. */
+const pathHasNulError = (path: string): Error => {
+  return new Error(`EINVAL: a path cannot contain a NUL character, '${path}'`)
+}
+
+describe("paths holding a NUL character", () => {
+  // 4,096 bytes holding a NUL, one more than the longest path Linux accepts
+  const overLongNulPath = `\u0000${"a".repeat(LONGEST_ACCEPTED_PATH_BYTES - 3)}.md`
+
+  it("resolveSafePath refuses a path holding a NUL, quoting it as given", () => {
+    expect(() => resolveSafePath(vault, "Notes/Bad\u0000Name.md")).toThrow(
+      pathHasNulError("Notes/Bad\u0000Name.md"),
+    )
+  })
+
+  it("resolveSafePath gives an over-long path holding a NUL the length refusal", () => {
+    expect(() => resolveSafePath(vault, overLongNulPath)).toThrow(pathTooLongError(overLongNulPath))
+  })
+
+  it("resolveVaultRelativePath refuses a path holding a NUL, quoting it as sent before normalizing", () => {
+    const notePath = "a/./b\u0000.md"
+
+    expect(() => resolveVaultRelativePath({ vaultPath: vault, notePath })).toThrow(
+      pathHasNulError(notePath),
+    )
+  })
+
+  it("resolveVaultRelativePath gives an over-long path holding a NUL the length refusal", () => {
+    expect(() => resolveVaultRelativePath({ vaultPath: vault, notePath: overLongNulPath })).toThrow(
+      pathTooLongError(overLongNulPath),
+    )
+  })
+
+  it("writeNote refuses a path holding a NUL and writes nothing", async () => {
+    await expect(
+      writeNote({ vaultPath: vault, path: "Bad\u0000Name.md", body: "body" }, logger),
+    ).rejects.toThrow(pathHasNulError("Bad\u0000Name.md"))
+    expect(await readdir(vault)).toEqual([])
+  })
+})
+
 /**
  * Runs one vault call on a million-character path in a child process and
  * prints "refused" when it throws the length refusal for that path. Without

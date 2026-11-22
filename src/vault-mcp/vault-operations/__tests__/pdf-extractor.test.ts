@@ -299,6 +299,36 @@ describe("PDF extraction child", () => {
     expect(spawn).not.toHaveBeenCalled()
   }, 15_000)
 
+  it("refuses a path holding a NUL before starting a child", async () => {
+    const vaultPath = await mkdtemp(join(tmpdir(), "probe-pdf-nul-path-"))
+    const extractor = createPdfExtractor({ vaultPath, maxFileBytes: 1_000_000 })
+    onTestFinished(async () => {
+      await extractor.close()
+      await rm(vaultPath, { recursive: true, force: true })
+    })
+
+    await expect(extractor.readText({ path: "Bad\u0000Name.pdf" }, logger)).rejects.toThrow(
+      new Error("EINVAL: a path cannot contain a NUL character, 'Bad\u0000Name.pdf'"),
+    )
+    expect(spawn).not.toHaveBeenCalled()
+  }, 15_000)
+
+  it("gives an over-long path holding a NUL the length refusal, before starting a child", async () => {
+    const vaultPath = await mkdtemp(join(tmpdir(), "probe-pdf-long-nul-path-"))
+    const extractor = createPdfExtractor({ vaultPath, maxFileBytes: 1_000_000 })
+    onTestFinished(async () => {
+      await extractor.close()
+      await rm(vaultPath, { recursive: true, force: true })
+    })
+    // 4,096 bytes holding a NUL, one more than any Linux filesystem accepts
+    const longNulPath = `\u0000${"a".repeat(4091)}.pdf`
+
+    await expect(extractor.readText({ path: longNulPath }, logger)).rejects.toThrow(
+      new Error(`ENAMETOOLONG: name too long, '${longNulPath}'`),
+    )
+    expect(spawn).not.toHaveBeenCalled()
+  }, 15_000)
+
   it("keeps the absolute-path refusal for an over-long absolute path, before starting a child", async () => {
     const vaultPath = await mkdtemp(join(tmpdir(), "probe-pdf-absolute-long-path-"))
     const extractor = createPdfExtractor({ vaultPath, maxFileBytes: 1_000_000 })
