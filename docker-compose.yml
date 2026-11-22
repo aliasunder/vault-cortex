@@ -63,6 +63,8 @@ services:
       #     admits any client
       #   Gateway → tunnel that admits only      2                 1                     the visitor
       #     the gateway
+      #   Gateway → a tunnel/proxy that cannot   2                 0                     the gateway's address
+      #     check headers
       #   CDN → gateway's custom domain, and     2                 2                     the visitor
       #     the CDN is the only way in
       #     (DISABLE_EXECUTE_API_ENDPOINT=true)

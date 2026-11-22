@@ -766,7 +766,8 @@ To revert to direct port 8000 access at any time, first reset the instance: remo
 ```bash
 # Remove ORIGIN_URL and re-open port 8000 (no SSH needed — runs from your laptop).
 # First delete ORIGIN_URL, MCP_PORT_CIDRS, and ORIGIN_ACCESS_SERVICE_TOKEN_ENABLED
-# from ~/.config/vault-cortex/.env, or the next deploy restores them.
+# from ~/.config/vault-cortex/.env (for CI deploys, the matching repo secrets
+# and Variables), or the next deploy restores them.
 npm run deploy
 ```
 

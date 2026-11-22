@@ -238,6 +238,19 @@ switch (subcommand) {
     break
 
   case "lightsail:up": {
+    // A bind on anything but every address leaves nothing answering on the
+    // instance's public port 8000, which the gateway calls while ORIGIN_URL is
+    // empty, so refuse before anything reaches the instance.
+    const bindAddress = env.BIND_ADDRESS
+    const publishesOnEveryAddress = !bindAddress || bindAddress === "0.0.0.0"
+
+    if (!publishesOnEveryAddress && !env.ORIGIN_URL) {
+      console.error(
+        `✕  BIND_ADDRESS=${bindAddress} takes port 8000 off the instance's public address, but ORIGIN_URL is empty, so API Gateway would call that address. Set ORIGIN_URL, or remove BIND_ADDRESS from ~/.config/vault-cortex/.env`,
+      )
+      process.exit(1)
+    }
+
     // The instance .env must carry the same PUBLIC_URL the Lambda authorizer
     // derived at `sst deploy` — a mismatch 403s every request at the gateway.
     // Resolved before anything touches the instance, so a failed resolution

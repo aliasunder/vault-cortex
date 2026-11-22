@@ -14,8 +14,8 @@ name: Test Deploy
 # and re-ships the latest release's docker-compose.yml.
 #
 # Dispatch from the Actions UI and select the branch to test — checkout
-# defaults to the dispatched ref. No branch guard: it skipped every run
-# when tried on the old Phase 2 workflow (see PR #216).
+# defaults to the dispatched ref. No branch guard: a guard on this
+# workflow skipped every run.
 on:
   workflow_dispatch:
     inputs:
@@ -67,6 +67,24 @@ jobs:
         with:
           role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
+
+      # A bind on anything but every address leaves nothing answering on the
+      # instance's public port 8000, which the gateway calls while ORIGIN_URL
+      # is empty, so stop before SST or the instance changes.
+      - name: Check BIND_ADDRESS has a tunnel in front
+        env:
+          BIND_ADDRESS: ${{ vars.BIND_ADDRESS }}
+          ORIGIN_URL: ${{ secrets.ORIGIN_URL }}
+        run: |
+          case "$BIND_ADDRESS" in
+            "" | 0.0.0.0) ;;
+            *)
+              if [ -z "$ORIGIN_URL" ]; then
+                echo "::error title=BIND_ADDRESS without ORIGIN_URL::BIND_ADDRESS=$BIND_ADDRESS takes port 8000 off the instance's public address, but ORIGIN_URL is empty, so API Gateway would call that address. Set the ORIGIN_URL secret, or delete the BIND_ADDRESS Variable."
+                exit 1
+              fi
+              ;;
+          esac
 
       - name: SST deploy
         env:
