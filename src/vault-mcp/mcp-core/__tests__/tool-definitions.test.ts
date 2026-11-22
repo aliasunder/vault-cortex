@@ -497,21 +497,6 @@ describe("registerTools", () => {
     expect(config.description).toContain("vault_read_file")
   })
 
-  it("vault_search, vault_read_file and vault_list_files name the same searched file kinds", () => {
-    const searchedFileKinds =
-      "canvases, PDFs, HTML pages (.html/.htm, visible text only), scripts (.py/.sh/.ps1), and .txt/.csv/.json/.xml/.svg/.log/.yaml/.yml/.base files"
-    const toolsNamingSearchedKinds = [
-      TOOL_NAMES.VAULT_SEARCH,
-      TOOL_NAMES.VAULT_READ_FILE,
-      TOOL_NAMES.VAULT_LIST_FILES,
-    ]
-
-    for (const toolName of toolsNamingSearchedKinds) {
-      const [, config] = requireCall(toolName)
-      expect(requireDescription(config, toolName)).toContain(searchedFileKinds)
-    }
-  })
-
   it("vault_read_note description routes non-md paths to vault_read_file", () => {
     const [, config] = requireCall(TOOL_NAMES.VAULT_READ_NOTE)
     expect(config.description).toContain("vault_read_file")
@@ -683,6 +668,12 @@ describe("sentences shared across sibling tools", () => {
       sentence:
         "- \"cannot read daily notes config from .obsidian/daily-notes.json\" — the file that names the protected daily notes folder can't be parsed; ask the vault's owner to repair it, or the server's operator to set DAILY_NOTES_FOLDER or PROTECTED_PATHS, then retry",
       tools: [TOOL_NAMES.VAULT_DELETE_NOTE, TOOL_NAMES.VAULT_MOVE_NOTE],
+    },
+    {
+      label: "the file kinds search indexes by content",
+      sentence:
+        "canvases, PDFs, HTML pages (.html/.htm, visible text only), scripts (.py/.sh/.ps1), and .txt/.csv/.json/.xml/.svg/.log/.yaml/.yml/.base files",
+      tools: [TOOL_NAMES.VAULT_SEARCH, TOOL_NAMES.VAULT_READ_FILE, TOOL_NAMES.VAULT_LIST_FILES],
     },
   ] as const
 
