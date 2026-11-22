@@ -510,10 +510,14 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
   //   before the lock sees the path;
   // - memoryFilePath's refusals and join run first, in linear time, so a
   //   name with a separator keeps its own message;
+  // - the first filesystem call would refuse a NUL with a TypeError rather
+  //   than a filesystem error, so the NUL check runs before the lock or the
+  //   write uses the path;
   // - both checks quote the vault-relative path, as the other memory errors
   //   do, so a refusal never shows the vault's location.
-  // Reads take no lock and fold nothing, so they skip both checks; their
-  // read wrapper's own message stands for any path the filesystem refuses.
+  // Reads take no lock and fold nothing, so they skip the length check. They
+  // skip the NUL check too, because readMemoryFileOrNull refuses such a path
+  // with its own "cannot read memory file" error.
   const memoryWritePath = (vaultPath: string, file: string): string => {
     const filePath = memoryFilePath(vaultPath, file)
     const memoryRelativePath = `${memoryDir}/${file}.md`

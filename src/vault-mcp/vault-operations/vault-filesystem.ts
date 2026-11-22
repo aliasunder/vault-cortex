@@ -84,7 +84,9 @@ export const resolveSafePath = (vaultPath: string, notePath: string): string => 
   // resolve() below costs more than linear time on some crafted inputs, as
   // does the case-folding that callers apply to its result (the write-lock
   // key, isProtectedPath). A path the filesystem would refuse anyway is
-  // therefore refused before either runs.
+  // therefore refused before either runs. The NUL check only has to precede
+  // the first filesystem call, which would refuse the path with a TypeError
+  // rather than a filesystem error.
   assertPathWithinMaxLength(notePath)
   assertPathHasNoNul(notePath)
 
@@ -125,11 +127,12 @@ export const resolveVaultRelativePath = (params: {
   // absolute path gets that refusal whatever its length.
   assertRelativePath(params.notePath)
 
-  // Normalizing costs more than linear time on some crafted inputs, so the
-  // length check runs on the input as sent, before toVaultRelativePath. The
-  // NUL check also runs here, so its refusal quotes the path as sent rather
-  // than normalized. resolveSafePath repeats these checks for its own direct
-  // callers.
+  // The length and NUL checks run on the input as sent, before
+  // toVaultRelativePath:
+  // - normalizing costs more than linear time on some crafted inputs, so an
+  //   over-long path must be refused before it;
+  // - each refusal then quotes the path as sent rather than normalized.
+  // resolveSafePath repeats both checks for its own direct callers.
   assertPathWithinMaxLength(params.notePath)
   assertPathHasNoNul(params.notePath)
 

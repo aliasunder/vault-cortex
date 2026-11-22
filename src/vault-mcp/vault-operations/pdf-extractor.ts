@@ -619,8 +619,10 @@ export const createPdfExtractor = (params: {
       assertRelativePath(path)
 
       // The child's refusal of an over-long path comes back as a plain Error, which gets no remedy
-      // at the tool boundary, so this process refuses the path before the request is sent. A path
-      // holding a NUL is refused here too, so no request is sent for a path no file can have.
+      // at the tool boundary, so this process refuses the path before the request is sent. The
+      // child would refuse a path holding a NUL with the same message assertPathHasNoNul gives, so
+      // refusing it here only saves the wait in the queue. extractForIndex skips both checks: its
+      // paths name files already in the vault, and its failures go to the log, not to a client.
       assertPathWithinMaxLength(path)
       assertPathHasNoNul(path)
 

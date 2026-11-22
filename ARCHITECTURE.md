@@ -1501,14 +1501,16 @@ Docker hardening, and durability seatbelts above.
   `ENAMETOOLONG` and its remedy. It runs in `resolveVaultRelativePath()`,
   `resolveSafePath()`, PDF text reads, and memory updates and deletes;
   memory reads take no lock and skip it.
-- **NUL character** (`utils/assert-path-has-no-nul.ts`): a path holding a
-  NUL is refused right after the length check, before any filesystem call
-  uses it, with `EINVAL: a path cannot contain a NUL character` and the path
-  quoted as sent. No file name can hold a NUL, so the check never refuses a
-  file already in the vault. It runs at the same four sites as the length
-  check: `resolveVaultRelativePath()`, `resolveSafePath()`, PDF text reads
-  (before the request reaches the PDF child), and memory updates and
-  deletes, whose refusal quotes the memory file's vault-relative path.
+- **NUL character in a path** (`utils/assert-path-has-no-nul.ts`): a path
+  holding a NUL is refused right after the length check, before any
+  filesystem call uses it, with
+  `EINVAL: a path cannot contain a NUL character` and the path quoted as
+  sent. Unchecked, the path would reach Node's file calls, which refuse it
+  with a `TypeError` about their arguments that no tool's errors list
+  names. No file name can hold a NUL, so the check never refuses a file
+  already in the vault. It runs at the same four sites as the length
+  check; at memory updates and deletes, the refusal quotes the memory
+  file's vault-relative path.
 - **`vaultFolderName`** (Zod schema in `config.ts`): config-time
   validation rejects absolute paths, traversal (`..`), and blank names
   before they reach any file operation.
