@@ -463,7 +463,7 @@ export const seedSyncSetup = async ({
 /** Raw bytes of a file on a named volume, read by a throwaway container from
  *  the image under test — how a scenario reads what a boot that stopped
  *  itself left on its volume. */
-export const readVolumeFile = ({
+export const readVolumeFile = async ({
   image,
   volume,
   mountPath,
@@ -474,6 +474,9 @@ export const readVolumeFile = ({
   mountPath: string
   path: string
 }): Promise<string> => {
+  // `docker run -v` would create a missing volume without the run's label,
+  // and `--rm` leaves named volumes behind, so the teardown would never find it.
+  await ensureRunVolume(volume)
   return dockerOrThrow([
     "run",
     "--rm",

@@ -205,7 +205,7 @@ jobs:
       # Two name filters OR together: the boot smoke's fixed `smoke` name
       # and the remote-boot-* containers the test suite creates. The suite's
       # teardown prints and removes its own containers, so one still present
-      # here means the teardown never ran.
+      # here means the teardown did not run or could not remove it.
       - name: Dump container diagnostics
         if: failure()
         run: |
