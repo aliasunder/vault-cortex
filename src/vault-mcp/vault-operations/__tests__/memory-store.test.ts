@@ -927,10 +927,13 @@ created: 2026-01-01T00:00:00-05:00
 
     const outlines = await listMemoryFiles({ vaultPath: vault }, logger)
     const principles = outlines.find((outline) => outline.file === "Principles")
-    const workingStyle = principles?.headings.find(
-      (heading) => heading.text === "Working style (newest first)",
-    )
-    expect(workingStyle?.entry_count).toBe(2)
+
+    expect(principles?.headings).toEqual([
+      { level: 1, text: "Principles" },
+      { level: 2, text: "Decision heuristics (newest first)", entry_count: 2 },
+      { level: 2, text: "Working style (newest first)", entry_count: 2 },
+      { level: 2, text: "Empty section (newest first)", entry_count: 0 },
+    ])
   })
 })
 
@@ -2618,20 +2621,13 @@ describe("listMemoryFiles", () => {
   it("includes correct entry counts per section", async () => {
     const outlines = await listMemoryFiles({ vaultPath: vault }, logger)
     const principles = outlines.find((outline) => outline.file === "Principles")
-    const heuristics = principles?.headings.find(
-      (heading) => heading.text === "Decision heuristics (newest first)",
-    )
-    expect(heuristics?.entry_count).toBe(2)
 
-    const workingStyle = principles?.headings.find(
-      (heading) => heading.text === "Working style (newest first)",
-    )
-    expect(workingStyle?.entry_count).toBe(1)
-
-    const emptySection = principles?.headings.find(
-      (heading) => heading.text === "Empty section (newest first)",
-    )
-    expect(emptySection?.entry_count).toBe(0)
+    expect(principles?.headings).toEqual([
+      { level: 1, text: "Principles" },
+      { level: 2, text: "Decision heuristics (newest first)", entry_count: 2 },
+      { level: 2, text: "Working style (newest first)", entry_count: 1 },
+      { level: 2, text: "Empty section (newest first)", entry_count: 0 },
+    ])
   })
 
   it("counts the entries of two H2s with the same text separately", async () => {
