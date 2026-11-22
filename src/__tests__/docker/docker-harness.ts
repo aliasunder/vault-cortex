@@ -81,7 +81,8 @@ type CommandResult = {
 
 /** Run `docker <argv>` and capture the outcome without throwing on a non-zero
  *  exit — callers decide whether a failure is an error or the expected
- *  result (e.g. `test -e` returning 1). */
+ *  result (e.g. `test -e` returning 1). It still throws when Docker cannot
+ *  start, is killed by a signal, or prints more than DOCKER_OUTPUT_LIMIT_BYTES. */
 export const docker = async (argv: string[]): Promise<CommandResult> => {
   try {
     const { stdout, stderr } = await execFileAsync("docker", argv, {
