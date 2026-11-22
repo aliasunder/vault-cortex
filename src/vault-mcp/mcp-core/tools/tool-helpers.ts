@@ -76,8 +76,10 @@ export const formatExtensionsOfKind = (kind: FileKind): string =>
 
 /** The file kinds vault_search indexes by content. vault_search,
  *  vault_read_file and vault_list_files all name them through this one phrase,
- *  so their descriptions cannot list different kinds. */
-export const SEARCHED_FILE_KINDS_TEXT = `canvases, PDFs, HTML pages (${formatExtensionsOfKind("html")}, visible text only), scripts (${formatExtensionsOfKind("script")}), and text files (${formatExtensionsOfKind("text")})`
+ *  so their descriptions cannot list different kinds. The text kind is named
+ *  by its extensions alone, because the file tools call any UTF-8 file a text
+ *  file, and search finds the others by name only. */
+export const SEARCHED_FILE_KINDS_TEXT = `canvases, PDFs, HTML pages (${formatExtensionsOfKind("html")}, visible text only), scripts (${formatExtensionsOfKind("script")}), and ${formatExtensionsOfKind("text")} files`
 
 export type ToolRegistrationContext = ToolAvailability &
   SafeHandlers & {

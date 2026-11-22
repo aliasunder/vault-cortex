@@ -499,7 +499,7 @@ describe("registerTools", () => {
 
   it("vault_search, vault_read_file and vault_list_files name the same searched file kinds", () => {
     const searchedFileKinds =
-      "canvases, PDFs, HTML pages (.html/.htm, visible text only), scripts (.py/.sh/.ps1), and text files (.txt/.csv/.json/.xml/.svg/.log/.yaml/.yml/.base)"
+      "canvases, PDFs, HTML pages (.html/.htm, visible text only), scripts (.py/.sh/.ps1), and .txt/.csv/.json/.xml/.svg/.log/.yaml/.yml/.base files"
     const toolsNamingSearchedKinds = [
       TOOL_NAMES.VAULT_SEARCH,
       TOOL_NAMES.VAULT_READ_FILE,
@@ -1491,7 +1491,7 @@ describe("vault_search description reflects EMBEDDING_ENABLED", () => {
     const description = findSearchDescription(registerWithConfig({}))
     const openingSentence = description.slice(0, description.indexOf(". ") + 1)
     expect(openingSentence).toBe(
-      "Hybrid search across vault notes and the content of canvases, PDFs, HTML pages (.html/.htm, visible text only), scripts (.py/.sh/.ps1), and text files (.txt/.csv/.json/.xml/.svg/.log/.yaml/.yml/.base), ranked by combined keyword and semantic relevance.",
+      "Hybrid search across vault notes and the content of canvases, PDFs, HTML pages (.html/.htm, visible text only), scripts (.py/.sh/.ps1), and .txt/.csv/.json/.xml/.svg/.log/.yaml/.yml/.base files, ranked by combined keyword and semantic relevance.",
     )
     expect(description).toContain("career aspirations")
     expect(description).toContain("search_mode")
@@ -1519,7 +1519,7 @@ describe("vault_search description reflects FILE_TOOLS_ENABLED", () => {
   // line tests below pin where they differ.
   const FILE_RESULT_WORDING = {
     searchedScope:
-      "search across vault notes and the content of canvases, PDFs, HTML pages (.html/.htm, visible text only), scripts (.py/.sh/.ps1), and text files (.txt/.csv/.json/.xml/.svg/.log/.yaml/.yml/.base)",
+      "search across vault notes and the content of canvases, PDFs, HTML pages (.html/.htm, visible text only), scripts (.py/.sh/.ps1), and .txt/.csv/.json/.xml/.svg/.log/.yaml/.yml/.base files",
     filtersLeadIn:
       "Filters — all conditions AND-combine with each other and the text query; any filter but folder returns notes only:",
     resultFields: `results array (path, title, snippet, score, ${TAG_FIELDS_WORDING}, folder (a note's top-level folder; a file's full parent folder), type, kind, extension, created, modified, bytes`,
@@ -1581,7 +1581,7 @@ describe("vault_search Behavior line: result cap and file content limits", () =>
     "Behavior: Results can lag a file change by a few seconds. No matches returns an empty results array with total 0, not an error."
   // Stated only while file content is searched (FILE_TOOLS_ENABLED on)
   const FILE_CONTENT_LIMITS =
-    "Files contribute their first 100 KiB of text; PDFs also stop after 500 pages. PDFs over 52428800 bytes or whose text extraction fails are found by name only; PDF content becomes searchable after startup. A page or script over 16 MiB is found by its name only"
+    "Files contribute their first 100 KiB of text; PDFs also stop after 500 pages. PDFs over 52428800 bytes or whose text extraction fails are found by name only; PDF content becomes searchable after startup. An HTML page or script over 16 MiB is found by its name only"
 
   it.each([
     {
@@ -3550,7 +3550,7 @@ describe("DISABLED_TOOLS", () => {
 
   it("vault_list_files contrasts itself with the note discovery tools while all three are served", () => {
     expect(listFilesWhenToUse("")).toBe(
-      "When to use: discovering what files exist before reading them with vault_read_file. vault_list_notes and vault_search_by_folder cover only markdown notes, and beyond notes vault_search indexes only canvases, PDFs, HTML pages (.html/.htm, visible text only), scripts (.py/.sh/.ps1), and text files (.txt/.csv/.json/.xml/.svg/.log/.yaml/.yml/.base), so this is the discovery surface for everything else. For the files one specific note links to, prefer vault_get_outgoing_links.",
+      "When to use: discovering what files exist before reading them with vault_read_file. vault_list_notes and vault_search_by_folder cover only markdown notes, and beyond notes vault_search indexes only canvases, PDFs, HTML pages (.html/.htm, visible text only), scripts (.py/.sh/.ps1), and .txt/.csv/.json/.xml/.svg/.log/.yaml/.yml/.base files, so this is the discovery surface for everything else. For the files one specific note links to, prefer vault_get_outgoing_links.",
     )
   })
 

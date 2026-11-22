@@ -98,7 +98,7 @@ Example: vault_search({ query: "decision", filters: { modified: { after: "2026-0
     ? `vault notes and the content of ${SEARCHED_FILE_KINDS_TEXT}`
     : "vault notes"
   const fileContentLimitsSentence = config.fileToolsEnabled
-    ? ` Files contribute their first ${indexedPrefixKiB} KiB of text; PDFs also stop after ${MAX_INDEXED_PDF_PAGES} pages. PDFs over ${config.maxFileBytes} bytes or whose text extraction fails are found by name only; PDF content becomes searchable after startup. A page or script over ${nameOnlyLimitMiB} MiB is found by its name only${scriptMatchClause}.`
+    ? ` Files contribute their first ${indexedPrefixKiB} KiB of text; PDFs also stop after ${MAX_INDEXED_PDF_PAGES} pages. PDFs over ${config.maxFileBytes} bytes or whose text extraction fails are found by name only; PDF content becomes searchable after startup. An HTML page or script over ${nameOnlyLimitMiB} MiB is found by its name only${scriptMatchClause}.`
     : ""
   const searchResultFieldsText = config.fileToolsEnabled
     ? `path, title, snippet, score, ${tagsFieldsText}, folder (a note's top-level folder; a file's full parent folder), type, kind, extension, created, modified, bytes`
