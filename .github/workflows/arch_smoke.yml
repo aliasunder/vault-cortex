@@ -203,9 +203,9 @@ jobs:
       # Fires on any prior step's failure (build included, so the list may
       # be empty) so a red run is diagnosable from the Actions log alone.
       # Two name filters OR together: the boot smoke's fixed `smoke` name
-      # and the remote-boot-* containers the test suite creates. The suite
-      # removes its own containers on success; anything still present is a
-      # failure artifact.
+      # and the remote-boot-* containers the test suite creates. The suite's
+      # teardown prints and removes its own containers, so one still present
+      # here means the teardown never ran.
       - name: Dump container diagnostics
         if: failure()
         run: |

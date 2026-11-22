@@ -20,13 +20,25 @@ const execFileAsync = promisify(execFile)
 /** The label every container and named volume of one test run carries. The
  *  global teardown (helpers/remote-boot-global-setup.ts) removes exactly the
  *  objects whose label holds its run's ID. */
-export const RUN_LABEL_KEY = "vault-cortex.test-run"
+const RUN_LABEL_KEY = "vault-cortex.test-run"
+
+/** The `key=value` label of the run with this ID. */
+export const runLabel = (runId: string): string => `${RUN_LABEL_KEY}=${runId}`
 
 /** This run's ID, read when called because `inject` works only inside a test
  *  worker, and the global setup imports this module too. */
 const currentRunId = (): string => inject("remoteBootRunId")
 
-const runLabelArgs = (): string[] => ["--label", `${RUN_LABEL_KEY}=${currentRunId()}`]
+const runLabelArgs = (): string[] => ["--label", runLabel(currentRunId())]
+
+const runLabelFilterArgs = (): string[] => ["--filter", `label=${runLabel(currentRunId())}`]
+
+/** Lines of `docker` output, with blank lines dropped. */
+export const outputLines = (output: string): string[] => output.split("\n").filter(Boolean)
+
+/** Raised from execFile's 1 MB default so a long boot's logs are read whole.
+ *  Output past this limit makes the call throw instead of returning. */
+const DOCKER_OUTPUT_LIMIT_BYTES = 64 * 1024 * 1024
 
 /** Path of the real obsidian-headless CLI inside the image — the target of
  *  the `.bin/ob` symlink on PATH. Mounting the stub here (not over the
@@ -73,7 +85,7 @@ type CommandResult = {
 export const docker = async (argv: string[]): Promise<CommandResult> => {
   try {
     const { stdout, stderr } = await execFileAsync("docker", argv, {
-      maxBuffer: 64 * 1024 * 1024,
+      maxBuffer: DOCKER_OUTPUT_LIMIT_BYTES,
     })
     return { code: 0, stdout, stderr }
   } catch (error) {
@@ -156,7 +168,7 @@ export const runContainer = async ({
   // it back, so parallel runs never collide on a fixed port.
   const publishArgs = publishPort ? ["-p", `127.0.0.1::${CONTAINER_PORT}`] : []
 
-  const namedVolumes = volumes.map(namedVolumeOf).filter((volume) => volume)
+  const namedVolumes = volumes.map(namedVolumeOf).filter((volume) => volume !== undefined)
 
   // Created here, before `docker run` would create them unlabelled, so the
   // run teardown finds them even when this boot fails.
@@ -184,7 +196,7 @@ export const runContainer = async ({
       image,
     ])
   } catch (startError) {
-    await removeFailedStart({ name, startError })
+    await removeFailedStartThenThrow({ name, startError })
   }
 
   const cleanup = async (): Promise<void> => {
@@ -205,18 +217,14 @@ export const runContainer = async ({
 
 /** Names of the volumes that carry this run's label. */
 const listRunVolumes = async (): Promise<ReadonlySet<string>> => {
-  const listing = await dockerOrThrow([
-    "volume",
-    "ls",
-    "-q",
-    "--filter",
-    `label=${RUN_LABEL_KEY}=${currentRunId()}`,
-  ])
-  return new Set(listing.split("\n").filter(Boolean))
+  const listing = await dockerOrThrow(["volume", "ls", "-q", ...runLabelFilterArgs()])
+  return new Set(outputLines(listing))
 }
 
-/** Docker returns an existing volume unchanged, so a volume another run made
- *  is refused here, before this run seeds it or its cleanup deletes it. */
+/** Creates the named volume with this run's label, and throws when a volume of
+ *  that name exists without it. `docker volume create` returns an existing
+ *  volume unchanged, so without the check this run would seed, and its cleanup
+ *  delete, a volume another run made. */
 const ensureRunVolume = async (name: string): Promise<void> => {
   await dockerOrThrow(["volume", "create", ...runLabelArgs(), name])
 
@@ -236,43 +244,38 @@ const ensureRunVolume = async (name: string): Promise<void> => {
  *    name, is left alone.
  *  - A failed removal is appended to the start error's message, and the start
  *    error stays the `cause`. */
-const removeFailedStart = async ({
+const removeFailedStartThenThrow = async ({
   name,
   startError,
 }: {
   name: string
   startError: unknown
 }): Promise<never> => {
-  const cleanupFailure = await removeRunContainerNamed(name)
+  const removalError = await removeRunContainerNamed(name)
 
-  if (!cleanupFailure) throw startError
+  if (!removalError) throw startError
 
   const startMessage = startError instanceof Error ? startError.message : String(startError)
-  throw new Error(`${startMessage}; removing the failed container also failed: ${cleanupFailure}`, {
+  throw new Error(`${startMessage}; removing the failed container also failed: ${removalError}`, {
     cause: startError,
   })
 }
 
 /** Removes this run's container with exactly this name, if there is one, and
- *  returns Docker's error text when listing or removal fails ("" otherwise). */
-const removeRunContainerNamed = async (name: string): Promise<string> => {
-  const listing = await docker([
-    "ps",
-    "-aq",
-    "--filter",
-    `name=^${name}$`,
-    "--filter",
-    `label=${RUN_LABEL_KEY}=${currentRunId()}`,
-  ])
+ *  returns Docker's error text when listing or removal fails. */
+const removeRunContainerNamed = async (name: string): Promise<string | undefined> => {
+  // Docker matches the name filter as a regular expression against the name
+  // without its stored leading slash, so `^name$` matches this name only.
+  const listing = await docker(["ps", "-aq", "--filter", `name=^${name}$`, ...runLabelFilterArgs()])
 
   if (listing.code !== 0) return listing.stderr.trim()
 
-  const containerIds = listing.stdout.split("\n").filter(Boolean)
+  const containerIds = outputLines(listing.stdout)
 
-  if (containerIds.length === 0) return ""
+  if (containerIds.length === 0) return undefined
 
   const removal = await docker(["rm", "-f", "-v", ...containerIds])
-  return removal.code === 0 ? "" : removal.stderr.trim()
+  return removal.code === 0 ? undefined : removal.stderr.trim()
 }
 
 /** Node one-liner that prints how many files the sync state under a config
@@ -572,12 +575,12 @@ export const startContainer = async (name: string): Promise<void> => {
   await dockerOrThrow(["start", name])
 }
 
-/** The named-volume half of a `name:/path` mount spec, or "" for a bind
+/** The named-volume half of a `name:/path` mount spec, or undefined for a bind
  *  mount (absolute host path) — Docker treats a source without a leading
  *  slash as a volume name. */
-const namedVolumeOf = (spec: string): string => {
+const namedVolumeOf = (spec: string): string | undefined => {
   const source = spec.split(":")[0] ?? ""
-  return source.startsWith("/") ? "" : source
+  return source.startsWith("/") ? undefined : source
 }
 
 /** The loopback port Docker assigned to the container's MCP port. */
@@ -614,7 +617,7 @@ export const containerLogs = async (name: string, since?: string): Promise<strin
     "sh",
     ["-c", 'docker logs "$@" 2>&1', "sh", ...sinceArgs, name],
     {
-      maxBuffer: 64 * 1024 * 1024,
+      maxBuffer: DOCKER_OUTPUT_LIMIT_BYTES,
     },
   )
   return stdout
@@ -740,7 +743,7 @@ export const listFilesInContainer = async ({
   directory: string
 }): Promise<string[]> => {
   const listing = await dockerOrThrow(["exec", name, "find", directory, "-type", "f"])
-  return listing.split("\n").filter(Boolean).toSorted()
+  return outputLines(listing).toSorted()
 }
 
 /** Connect an MCP SDK Client to the container's published port. */
