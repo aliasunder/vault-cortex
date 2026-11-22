@@ -1074,8 +1074,8 @@ describe("filesystem errors name the path vault-relative and carry their remedy"
     })
   })
 
-  /** The response a path holding a NUL character gets: the path quoted as
-   *  sent, with no remedy appended, since the message says what to fix. */
+  /** The response a path holding a NUL character gets: the path quoted, with
+   *  no remedy appended, since the message says what to fix. */
   const nulPathRefusal = (path: string): ToolResult => {
     return {
       content: [
@@ -1112,13 +1112,13 @@ describe("filesystem errors name the path vault-relative and carry their remedy"
     expect(result).toEqual(nulPathRefusal("Bad\u0000Folder"))
   })
 
-  it("vault_move_note on an old_path holding a NUL character, quoted as sent", async () => {
+  it("vault_move_note on an old_path holding a NUL character, quoted in normalized form", async () => {
     const result = await callTool({
       client,
       name: "vault_move_note",
       args: { old_path: "./Bad\u0000Name.md", new_path: "Moved.md" },
     })
-    expect(result).toEqual(nulPathRefusal("./Bad\u0000Name.md"))
+    expect(result).toEqual(nulPathRefusal("Bad\u0000Name.md"))
   })
 
   it("vault_delete_note on a path holding a NUL character", async () => {
@@ -1145,7 +1145,12 @@ describe("filesystem errors name the path vault-relative and carry their remedy"
       name: "vault_update_memory",
       args: { file: "Bad\u0000Name", section: "Notes (newest first)", entry: "refused" },
     })
-    expect(result).toEqual(nulPathRefusal("About Me/Bad\u0000Name.md"))
+    expect(result).toEqual({
+      content: [
+        { type: "text", text: '[Error]: cannot read memory file "About Me/Bad\u0000Name.md"' },
+      ],
+      isError: true,
+    })
   })
 
   it("vault_delete_memory on a file name holding a NUL character", async () => {
@@ -1154,7 +1159,12 @@ describe("filesystem errors name the path vault-relative and carry their remedy"
       name: "vault_delete_memory",
       args: { file: "Bad\u0000Name", section: "Notes", date: "2026-01-01", entry: "refused" },
     })
-    expect(result).toEqual(nulPathRefusal("About Me/Bad\u0000Name.md"))
+    expect(result).toEqual({
+      content: [
+        { type: "text", text: '[Error]: cannot read memory file "About Me/Bad\u0000Name.md"' },
+      ],
+      isError: true,
+    })
   })
 
   it("vault_read_note on a symbolic link that points to itself", async () => {

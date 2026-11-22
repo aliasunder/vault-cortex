@@ -44,7 +44,6 @@ import { splitIntoLines, trimBlankEdgeLines } from "../obsidian-markdown/lines.j
 import { assertNoControlCharacters } from "../../utils/assert-no-control-characters.js"
 import { assertPathHasExtension } from "../../utils/assert-path-has-extension.js"
 import { assertPathWithinMaxLength } from "../../utils/assert-path-within-max-length.js"
-import { assertPathHasNoNul } from "../../utils/assert-path-has-no-nul.js"
 import { caseFoldPath } from "../../utils/case-fold-path.js"
 import type { TrashOption } from "./trash-config.js"
 import { hasHiddenPathSegment } from "../../utils/has-hidden-path-segment.js"
@@ -84,11 +83,13 @@ export const resolveSafePath = (vaultPath: string, notePath: string): string => 
   // resolve() below costs more than linear time on some crafted inputs, as
   // does the case-folding that callers apply to its result (the write-lock
   // key, isProtectedPath). A path the filesystem would refuse anyway is
-  // therefore refused before either runs. The NUL check only has to precede
-  // the first filesystem call, which would refuse the path with a TypeError
-  // rather than a filesystem error.
+  // therefore refused before either runs.
   assertPathWithinMaxLength(notePath)
-  assertPathHasNoNul(notePath)
+
+  // Node's file calls would refuse a NUL with a bare TypeError, not a filesystem error.
+  if (notePath.includes("\u0000")) {
+    throw new Error(`EINVAL: a path cannot contain a NUL character, '${notePath}'`)
+  }
 
   const vaultRoot = resolve(vaultPath)
   const resolvedPath = resolve(vaultRoot, notePath)
@@ -127,14 +128,10 @@ export const resolveVaultRelativePath = (params: {
   // absolute path gets that refusal whatever its length.
   assertRelativePath(params.notePath)
 
-  // The length and NUL checks run on the input as sent, before
-  // toVaultRelativePath:
-  // - normalizing costs more than linear time on some crafted inputs, so an
-  //   over-long path must be refused before it;
-  // - each refusal then quotes the path as sent rather than normalized.
+  // Normalizing costs more than linear time on some crafted inputs, so the
+  // length check runs on the input as sent, before toVaultRelativePath.
   // resolveSafePath repeats both checks for its own direct callers.
   assertPathWithinMaxLength(params.notePath)
-  assertPathHasNoNul(params.notePath)
 
   const normalizedInput = toVaultRelativePath(params.notePath)
   // resolveSafePath is called for its safety guards; its absolute result is

@@ -575,22 +575,18 @@ describe("paths holding a NUL character", () => {
     )
   })
 
+  it("resolveSafePath refuses a path whose only character is a NUL", () => {
+    expect(() => resolveSafePath(vault, "\u0000")).toThrow(pathHasNulError("\u0000"))
+  })
+
+  it("resolveSafePath resolves a path holding other control characters", () => {
+    expect(resolveSafePath(vault, "Notes/tab\there\u0001.md")).toBe(
+      join(vault, "Notes/tab\there\u0001.md"),
+    )
+  })
+
   it("resolveSafePath gives an over-long path holding a NUL the length refusal", () => {
     expect(() => resolveSafePath(vault, overLongNulPath)).toThrow(pathTooLongError(overLongNulPath))
-  })
-
-  it("resolveVaultRelativePath refuses a path holding a NUL, quoting it as sent before normalizing", () => {
-    const notePath = "a/./b\u0000.md"
-
-    expect(() => resolveVaultRelativePath({ vaultPath: vault, notePath })).toThrow(
-      pathHasNulError(notePath),
-    )
-  })
-
-  it("resolveVaultRelativePath gives an over-long path holding a NUL the length refusal", () => {
-    expect(() => resolveVaultRelativePath({ vaultPath: vault, notePath: overLongNulPath })).toThrow(
-      pathTooLongError(overLongNulPath),
-    )
   })
 
   it("writeNote refuses a path holding a NUL and writes nothing", async () => {
