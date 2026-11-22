@@ -108,7 +108,8 @@ The repo-root `docker-compose.yml` names its volumes explicitly (`vault-cortex_v
 curl <apiUrl>/healthz
 
 # Direct hit on the Lightsail VM (skips API Gateway).
-# Skip if you've set MCP_PORT_CIDRS=none (port 8000 blocked).
+# Skip if you've set MCP_PORT_CIDRS=none (port 8000 blocked on the firewall)
+# or BIND_ADDRESS=127.0.0.1 (port 8000 published on the instance only).
 curl http://<lightsailIp>:8000/healthz
 
 # If using ORIGIN_URL (tunnel/proxy), verify it reaches the MCP server.
@@ -386,6 +387,7 @@ To find your stage: `cat .sst/stage` (after one-time setup).
 | `WINDOWS_MODE`                        | Optional. Set `true` when the vault is on a Windows drive (Docker Desktop). Default: `false`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | `TRUST_PROXY_HOPS`                    | Optional. Trusted reverse-proxy hops for deriving `req.ip` from `X-Forwarded-For` (the fallback client IP). The compose file defaults the instance to `0`, because without `ORIGIN_URL` the gateway reaches the instance through its public port, which stays open to everyone; set `2` for `ORIGIN_URL` deployments (a tunnel between the gateway and the instance).                                                                                                                                                                                                                                                                                                                                                                                                       |
 | `TRUST_FORWARDED_HOPS`                | Optional. How many entries from the end of the [RFC 7239](https://www.rfc-editor.org/rfc/rfc7239) `Forwarded` header's `for=` list to count to reach the client IP (OAuth rate limiting, request logs); `0` ignores the header. The compose file defaults the instance to `0`, because the open port lets anyone write the header; set `1` once the tunnel admits only the gateway (API Gateway reports visitors there and sends no `X-Forwarded-For`). For `ORIGIN_URL` and CDN setups, see the **Client-IP trust with ORIGIN_URL** callout under [Port 8000 Hardening](#port-8000-hardening-optional).                                                                                                                                                                    |
+| `BIND_ADDRESS`                        | Optional. The instance address the container publishes port 8000 on; unset publishes on every IPv4 address. Set `127.0.0.1` once `ORIGIN_URL` routes through a tunnel or proxy on the instance (step 10 under [Port 8000 Hardening](#port-8000-hardening-optional)): the port then answers on the instance only, Tailscale included. Clear it before routing the gateway back to port 8000 (Rollback there).                                                                                                                                                                                                                                                                                                                                                                |
 | `ORIGIN_ACCESS_SERVICE_TOKEN_ENABLED` | Optional, SST deploys only. Set `true` once the tunnel hostname behind `ORIGIN_URL` is locked with a Cloudflare Access service token — API Gateway then presents the `OriginAccessClientId` / `OriginAccessClientSecret` SST secrets on every request (see [Port 8000 Hardening](#port-8000-hardening-optional), steps 5–8). It has no effect unless `ORIGIN_URL` is set.                                                                                                                                                                                                                                                                                                                                                                                                   |
 | `DISABLE_EXECUTE_API_ENDPOINT`        | Optional. Requires the `CUSTOM_DOMAIN` secret. Set `true` once every client uses the custom domain: the gateway stops answering on its default `execute-api` hostname at the next deploy. If a CDN sits in front of the custom domain, set this to `true` before setting `TRUST_FORWARDED_HOPS=2`; the **Client-IP trust with ORIGIN_URL** callout under [Port 8000 Hardening](#port-8000-hardening-optional) explains why.                                                                                                                                                                                                                                                                                                                                                 |
 
@@ -600,10 +602,13 @@ With `ORIGIN_URL` and `MCP_PORT_CIDRS`, you can route API Gateway through a tunn
 
 `MCP_PORT_CIDRS` controls port 8000 on the Lightsail firewall — same format as `SSH_CIDRS`. Set to `none` to block all direct access (traffic flows through the tunnel/proxy instead). Lightsail requires the port entry to exist — removing it would trigger an `InstancePublicPorts` replacement — so `none` sets it to a non-routable CIDR (`192.0.2.1/32`, RFC 5737 TEST-NET) that no real source IP matches. The port still appears in `get-instance-port-states` but is effectively unreachable.
 
+`BIND_ADDRESS=127.0.0.1` publishes the container's port on the instance's loopback only. The firewall filters only the public address, so without it the port still answers on any other interface the instance has, such as a Tailscale address. The tunnel or proxy on the instance reaches `localhost:8000` either way.
+
 Together:
 
 - `ORIGIN_URL` provides the alternative path
 - `MCP_PORT_CIDRS=none` blocks the direct path
+- `BIND_ADDRESS=127.0.0.1` keeps the port off every interface but the instance's own
 - `ORIGIN_ACCESS_SERVICE_TOKEN_ENABLED=true` lets the alternative path admit the gateway alone
 
 > **Client-IP trust with ORIGIN_URL:** API Gateway reports the visitor only in the [RFC 7239](https://www.rfc-editor.org/rfc/rfc7239) `Forwarded` header and sends no `X-Forwarded-For`, so `TRUST_FORWARDED_HOPS` is what finds the visitor; `TRUST_PROXY_HOPS` only sets how many `X-Forwarded-For` hops feed the fallback client IP, used when `Forwarded` is ignored or absent. Pick the row that matches the instance:
@@ -695,7 +700,7 @@ curl -H "CF-Access-Client-Id: <client-id>" -H "CF-Access-Client-Secret: <client-
 npm run deploy
 ```
 
-Keep them in the file: a deploy without them routes the gateway back to port 8000 and reopens it.
+Keep them in the file: a deploy without them routes the gateway back to port 8000 and reopens it, and once step 10 sets `BIND_ADDRESS=127.0.0.1` that port answers on the instance only, so every request fails until they are back.
 
 **9. Verify the new path:**
 
@@ -707,7 +712,7 @@ curl --connect-timeout 5 http://<lightsailIp>:8000/healthz
 curl https://<api-gateway-url>/healthz
 ```
 
-**10. Set the instance's client-IP trust** — `TRUST_FORWARDED_HOPS=1` and `TRUST_PROXY_HOPS=2` in `~/.config/vault-cortex/.env`, which `npm run lightsail:up` copies to the instance (repo Variables for CI deploys), then redeploy the instance. If you set `TRUST_FORWARDED_HOPS` to another value earlier, such as `0` while the tunnel was open, change it to `1` (deleting the line falls back to the compose default of `0`) and don't add a second line. Use `TRUST_FORWARDED_HOPS=2` instead only if the gateway's custom domain is a proxied Cloudflare record **and** the CDN is the only way into the gateway — see the **Client-IP trust with ORIGIN_URL** callout under [How it works](#port-8000-hardening-optional).
+**10. Set the instance's client-IP trust and loopback bind** — `TRUST_FORWARDED_HOPS=1`, `TRUST_PROXY_HOPS=2` and `BIND_ADDRESS=127.0.0.1` in `~/.config/vault-cortex/.env`, which `npm run lightsail:up` copies to the instance (repo Variables for CI deploys), then redeploy the instance. If you set `TRUST_FORWARDED_HOPS` to another value earlier, such as `0` while the tunnel was open, change it to `1` (deleting the line falls back to the compose default of `0`) and don't add a second line. Use `TRUST_FORWARDED_HOPS=2` instead only if the gateway's custom domain is a proxied Cloudflare record **and** the CDN is the only way into the gateway — see the **Client-IP trust with ORIGIN_URL** callout under [How it works](#port-8000-hardening-optional).
 
 **Already running `ORIGIN_URL` with an open tunnel?** Until the lock exists, keep `TRUST_FORWARDED_HOPS=0` — the open tunnel hostname passes any client-written `Forwarded` header through unverified. To lock it:
 
@@ -715,6 +720,8 @@ curl https://<api-gateway-url>/healthz
 2. Redeploy with `ORIGIN_ACCESS_SERVICE_TOKEN_ENABLED=true` (step 8)
 3. Verify the new path (step 9)
 4. Set the trust values (step 10)
+
+**Hardened before `BIND_ADDRESS` existed?** Add `BIND_ADDRESS=127.0.0.1` to `~/.config/vault-cortex/.env` (a repo Variable for CI deploys) and redeploy the instance. Check it over SSH: `docker port vault-cortex` prints `8000/tcp -> 127.0.0.1:8000`.
 
 #### MCP_PORT_CIDRS reference
 
@@ -731,7 +738,7 @@ curl https://<api-gateway-url>/healthz
 
 If the VM is replaced (key rotation, bundle upgrade) and `MCP_PORT_CIDRS=none`, port 8000 is blocked — but `cloudflared` isn't running on the new VM yet. Recovery:
 
-1. Temporarily open both ports and disable tunnel routing:
+1. Temporarily open both ports and disable tunnel routing. If `~/.config/vault-cortex/.env` or the repo Variables set `BIND_ADDRESS=127.0.0.1`, remove it before the new instance's first deploy, or the gateway's direct path reaches nothing:
 
    ```bash
    SSH_CIDRS=0.0.0.0/0 ORIGIN_URL= MCP_PORT_CIDRS=0.0.0.0/0 npm run deploy
@@ -740,7 +747,7 @@ If the VM is replaced (key rotation, bundle upgrade) and `MCP_PORT_CIDRS=none`, 
 2. SSH in via public IP, install Tailscale (see [SSH Hardening](#ssh-hardening-with-tailscale-optional))
 3. Install `cloudflared` using step 2 of [Port 8000 Hardening](#port-8000-hardening-optional), including its apt repository and key, and register with the existing tunnel token.
 4. Verify the locked tunnel using the service-token request in step 7 of [Port 8000 Hardening](#port-8000-hardening-optional).
-5. Re-harden (drop `ORIGIN_ACCESS_SERVICE_TOKEN_ENABLED=true` if the tunnel hostname is not locked with a service token):
+5. Re-harden (drop `ORIGIN_ACCESS_SERVICE_TOKEN_ENABLED=true` if the tunnel hostname is not locked with a service token), then set `BIND_ADDRESS=127.0.0.1` again and redeploy the instance:
 
    ```bash
    SSH_CIDRS=none ORIGIN_URL=https://<subdomain>.<yourdomain> MCP_PORT_CIDRS=none ORIGIN_ACCESS_SERVICE_TOKEN_ENABLED=true npm run deploy
@@ -750,7 +757,7 @@ The tunnel token doesn't change when the VM is replaced — it's tied to the Clo
 
 #### Rollback
 
-To revert to direct port 8000 access at any time:
+To revert to direct port 8000 access at any time, first put the instance back on every address: remove `BIND_ADDRESS` and set `TRUST_FORWARDED_HOPS` and `TRUST_PROXY_HOPS` to `0` in `~/.config/vault-cortex/.env` (or the repo Variables), then redeploy the instance (`npm run lightsail:up` or a CI deploy). The trust values assume the gateway is the only way in, which stops being true once the port reopens. Then route the gateway back:
 
 ```bash
 # Remove ORIGIN_URL and re-open port 8000 (no SSH needed — runs from your laptop).
@@ -759,7 +766,7 @@ To revert to direct port 8000 access at any time:
 npm run deploy
 ```
 
-Or via AWS CLI for immediate firewall change (overwritten on next SST deploy). This command replaces every firewall rule, so it sets both ports. If you restrict SSH with `SSH_CIDRS`, replace port 22's `0.0.0.0/0` with your configured CIDRs (`192.0.2.1/32` for `none`), or the command reopens SSH to the internet:
+Or via AWS CLI for immediate firewall change (overwritten on next SST deploy; it does not change `BIND_ADDRESS`, so redeploy the instance first as above). This command replaces every firewall rule, so it sets both ports. If you restrict SSH with `SSH_CIDRS`, replace port 22's `0.0.0.0/0` with your configured CIDRs (`192.0.2.1/32` for `none`), or the command reopens SSH to the internet:
 
 ```bash
 aws lightsail put-instance-public-ports \
@@ -816,7 +823,7 @@ curl https://mcp.example.com/healthz
   - **`405` — the token works:** the Lambda and Express disagree on `PUBLIC_URL`. The Lambda derives its value at `sst deploy` (the `PUBLIC_URL` env var, else `CUSTOM_DOMAIN`, else the gateway URL). Express reads the instance `.env`, which CI and `npm run lightsail:up` write by the same rule, so a mismatch means that file was edited by hand or written by an older deploy. Re-run the deploy, or `npm run lightsail:up`, so both derive the same value, then reconnect each client that still gets `403`: its token was issued for the other URL.
   - **`401` or `403` — the token is rejected too:** the `McpAuthToken` secret and the instance `.env` hold different tokens. Give all four copies listed under [Rotating `MCP_AUTH_TOKEN`](#rotating-mcp_auth_token) the same value.
 - **`npm run deploy` errors with `SecretMissingError`** — set the secret first (one-time setup step 3).
-- **`curl <lightsailIp>` hangs** — use `:8000`. The firewall only allows ports 22 and 8000 by default (port 22 may be blocked if `SSH_CIDRS=none`, port 8000 may be blocked if `MCP_PORT_CIDRS=none`).
+- **`curl <lightsailIp>` hangs** — use `:8000`. The firewall only allows ports 22 and 8000 by default (port 22 may be blocked if `SSH_CIDRS=none`, port 8000 may be blocked if `MCP_PORT_CIDRS=none`). With `BIND_ADDRESS=127.0.0.1`, port 8000 answers only on the instance itself: check it over SSH with `curl http://localhost:8000/healthz`.
 - **`scp` / `ssh` fails with `Permission denied (publickey)`** — your local SSH key doesn't match what SST deployed to the Lightsail KeyPair. Restore the matching `~/.ssh/vault-cortex` private key from your secure copy. Replacing the deployed key can replace the VM; follow [Rotating SSH keys](#rotating-ssh-keys) for a planned rotation. To also use your personal key, add it post-provision: `ssh -i ~/.ssh/vault-cortex ubuntu@<IP> "cat >> ~/.ssh/authorized_keys" < ~/.ssh/id_ed25519.pub`.
 - **`docker: command not found` on `lightsail:up`** — cloud-init hasn't finished installing Docker. The script waits up to 120s automatically; if it still times out, SSH in and check `tail /var/log/cloud-init-output.log`.
 - **Host key changed warning** — the Lightsail instance was replaced (e.g. `bundleId` changed in `sst.config.ts`). The deploy key convention prevents key-change replacements, but other properties can still trigger it. Run `ssh-keygen -R <lightsailIp>` and retry.

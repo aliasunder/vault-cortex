@@ -8,8 +8,9 @@
 #
 # API Gateway handles TLS + auth upstream. vault-cortex ALSO validates
 # the bearer token in-process (Express middleware) as defense in
-# depth — see src/vault-mcp/server.ts. Port 8000 is publicly bound
-# but unauthenticated requests are rejected at the application layer.
+# depth — see src/vault-mcp/server.ts. Port 8000 is published on every
+# IPv4 address unless BIND_ADDRESS says otherwise (see the ports line), and
+# unauthenticated requests are rejected at the application layer.
 
 name: vault-cortex
 
@@ -126,7 +127,13 @@ services:
       - mcp_index_data:/data
       - obsidian_config:/home/obsidian/.config
     ports:
-      - "0.0.0.0:8000:8000"
+      # Every IPv4 address by default, because without ORIGIN_URL the gateway
+      # calls this port on the instance's public address. Set
+      # BIND_ADDRESS=127.0.0.1 once a tunnel or proxy on the instance fronts
+      # the server (ORIGIN_URL): the port then answers on the instance only,
+      # including on VPN interfaces such as Tailscale, which the Lightsail
+      # firewall does not filter.
+      - "${BIND_ADDRESS:-0.0.0.0}:8000:8000"
     # start_period covers the s6 init chain (Obsidian login + sync-setup +
     # first vault sync, run to completion when it succeeds) that runs before
     # the MCP server boots.
