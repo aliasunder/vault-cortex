@@ -3690,6 +3690,33 @@ created: 2026-01-01T00:00:00-05:00
     ])
   })
 
+  // The section read, the write and the delete all use the first H2 a name
+  // resolves to; the entries read must not add a second H2 with the same text.
+  it("reads only the first of two H2s with the same text for a named section", async () => {
+    await writeFile(
+      join(vault, "About Me/Twice.md"),
+      "# T\n\n## S (newest first)\n- **2026-01-02**: first section\n\n## S (newest first)\n- **2026-01-03**: second section\n",
+      "utf8",
+    )
+
+    const entries = await getMemoryEntries(
+      { vaultPath: vault, file: "Twice", section: "S", onOrAfter: "2026-01-01" },
+      logger,
+    )
+
+    expect(entries).toEqual([
+      {
+        section: "S (newest first)",
+        date: "2026-01-02",
+        text: "- **2026-01-02**: first section",
+        entryIndex: 0,
+        sectionStartLine: 2,
+        startLine: 3,
+        endLine: 4,
+      },
+    ])
+  })
+
   it("keeps document order rather than a global date sort across sections", async () => {
     const entries = await getMemoryEntries(
       {

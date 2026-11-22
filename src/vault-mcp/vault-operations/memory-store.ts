@@ -762,16 +762,12 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
     const raw = await readMemoryFile({ vaultPath: params.vaultPath, file: params.file }, logger)
     const lines = splitIntoLines(splitPropertiesBlock(raw).body)
 
-    // parseMemoryEntries returns every H2 entry in document order, each
-    // carrying its verbatim section heading — so an omitted section is every
-    // entry in the file.
-    const allEntries = parseMemoryEntries(lines)
-    const sectionHeading = params.section
-      ? resolveSection({ lines, section: params.section, file: params.file }).heading
-      : undefined
-    const scopedEntries = sectionHeading
-      ? allEntries.filter((entry) => entry.section === sectionHeading)
-      : allEntries
+    // A named section reads the first H2 that resolves, the one the section
+    // read, the write and the delete use, so a second H2 with the same text
+    // adds nothing; an omitted section is every entry in the file.
+    const scopedEntries = params.section
+      ? resolveSection({ lines, section: params.section, file: params.file }).entries
+      : parseMemoryEntries(lines)
 
     // YYYY-MM-DD strings sort lexicographically in chronological order;
     // onOrAfter is validated above, and entry dates are YYYY-MM-DD by construction.
