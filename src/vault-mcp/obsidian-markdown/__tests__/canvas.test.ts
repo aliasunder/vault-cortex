@@ -1,5 +1,12 @@
 import { describe, it, expect, vi } from "vitest"
+import { execFileSync } from "node:child_process"
 import { readParserComplexityReport } from "./helpers/frontmatter-canvas-adversary.js"
+import {
+  CHILD_DEADLINE_MS,
+  CHILD_TEST_TIMEOUT_MS,
+  LINEAR_GROWTH_ALLOWANCE,
+  TIMING_FLOOR_MS,
+} from "./helpers/linear-timing.js"
 import {
   linearizeCanvas,
   extractCanvasLinks,
@@ -344,6 +351,39 @@ describe("extractCanvasLinks", () => {
       textCardLinks: [],
     })
   })
+
+  it("skips a file card path over the link-target limit", () => {
+    const keptPath = `${"a/".repeat(2000)}${"y".repeat(95)}`
+    const json = canvasJson([fileNode("f1", keptPath), fileNode("f2", "y".repeat(10_237))])
+
+    expect(Buffer.byteLength(keptPath)).toBe(4095)
+    expect(extractCanvasLinks(json)).toEqual({ fileCardPaths: [keptPath], textCardLinks: [] })
+  })
+
+  it(
+    "skips 2,000 file card paths over the link-target limit in time linear in their count, keeping a short one",
+    () => {
+      const helperPath = new URL("./helpers/link-target-growth.ts", import.meta.url)
+      const output = execFileSync(
+        process.execPath,
+        ["--import", "tsx", helperPath.pathname, "canvas-file-cards"],
+        { encoding: "utf8", timeout: CHILD_DEADLINE_MS, killSignal: "SIGKILL" },
+      )
+      const { measurements } = JSON.parse(output)
+      const [small, large] = measurements
+
+      expect(
+        measurements.map(({ count, kept }: { count: number; kept: string[] }) => ({ count, kept })),
+      ).toEqual([
+        { count: 250, kept: ["kept.md"] },
+        { count: 2_000, kept: ["kept.md"] },
+      ])
+      expect(large.leastMs).toBeLessThanOrEqual(
+        Math.max(TIMING_FLOOR_MS, small.leastMs) * 8 * LINEAR_GROWTH_ALLOWANCE,
+      )
+    },
+    CHILD_TEST_TIMEOUT_MS,
+  )
 
   it("lists the target of every link form typed in a text card", () => {
     const json = canvasJson([

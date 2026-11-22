@@ -326,7 +326,8 @@ export const linearizeCanvas = (canvasJson: string): string => {
 
 /** The two kinds of link a canvas holds, each deduplicated in JSON order. */
 type CanvasLinks = {
-  /** The `file` path of every file card, an exact vault path. */
+  /** The `file` path of every file card within the link-target limit, an
+   *  exact vault path. */
   fileCardPaths: string[]
   /** The targets of the links typed in text cards, without any heading or
    *  alias, before resolution. */
@@ -341,9 +342,12 @@ export const extractCanvasLinks = (canvasJson: string): CanvasLinks => {
 
   const rawNodes = isRecord(parsed) && Array.isArray(parsed.nodes) ? parsed.nodes : []
   const nodes = rawNodes.map(parseNode).filter((node) => node !== null)
-  const fileCardPaths = nodes.flatMap((node) => {
-    return node.type === "file" && node.file ? [node.file] : []
-  })
+  // A file card holds an exact vault path, which always fits the link-target
+  // limit, so a card over it names no file. Skipping such cards keeps the Set
+  // below from slowing as links.isWithinLinkTargetLimit describes.
+  const fileCardPaths = nodes
+    .flatMap((node) => (node.type === "file" && node.file ? [node.file] : []))
+    .filter(links.isWithinLinkTargetLimit)
   const cardTexts = nodes.flatMap((node) => (node.type === "text" && node.text ? [node.text] : []))
   // A text card is plain Markdown with no properties block.
   const noFrontmatter = {}
@@ -406,7 +410,9 @@ export const rewriteCanvasLinks = (params: {
   if (!isRecord(parsed) || !Array.isArray(parsed.nodes)) return null
 
   // Nodes pass through parseNode, the same check extractCanvasLinks applies,
-  // so the rewrite touches exactly the cards that function reads.
+  // so the rewrite reaches every card that function reads. It also reaches the
+  // file cards over the link-target limit that extraction skips, which name no
+  // file.
   const rewriteNode = (rawNode: unknown): NodeRewrite => {
     const node = parseNode(rawNode)
     const unchanged = { node: rawNode, linksRewritten: 0 }
