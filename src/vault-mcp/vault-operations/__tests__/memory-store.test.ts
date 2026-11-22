@@ -4170,6 +4170,14 @@ describe("memory file names holding a NUL character", () => {
       ),
     ).rejects.toThrow(nulRefusal)
   })
+
+  it("getMemory keeps its read-failure message for a name holding a NUL", async () => {
+    // Reads skip the NUL check, so the filesystem's refusal surfaces under the
+    // read wrapper's own message
+    await expect(getMemory({ vaultPath: vault, file: "Bad\u0000Name" }, logger)).rejects.toThrow(
+      new Error('cannot read memory file "About Me/Bad\u0000Name.md"'),
+    )
+  })
 })
 
 /**
