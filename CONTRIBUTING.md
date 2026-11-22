@@ -75,8 +75,8 @@ its ID (the last command applies only to a run that built its own image):
 
 ```bash
 RUN_ID=<run ID>
-docker ps -aq --filter "label=vault-cortex.test-run=$RUN_ID" | xargs -r docker rm -f -v
-docker volume ls -q --filter "label=vault-cortex.test-run=$RUN_ID" | xargs -r docker volume rm -f
+for container in $(docker ps -aq --filter "label=vault-cortex.test-run=$RUN_ID"); do docker rm -f -v "$container"; done
+for volume in $(docker volume ls -q --filter "label=vault-cortex.test-run=$RUN_ID"); do docker volume rm -f "$volume"; done
 docker image rm "vault-cortex:remote-boot-$RUN_ID"
 ```
 
