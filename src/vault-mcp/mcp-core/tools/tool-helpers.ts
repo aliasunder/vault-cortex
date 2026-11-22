@@ -14,6 +14,7 @@ import { describeErrorForLog, describeErrorRelativeTo } from "../../../utils/des
 import { appendRemedy, remedyForCodedError } from "../coded-error-remedy.js"
 import { isTagsKey } from "../../obsidian-markdown/tags.js"
 import { MAX_LISTED_HEADINGS } from "../../obsidian-markdown/headings.js"
+import { getExtensionsOfKind, type FileKind } from "../../obsidian-markdown/file-kinds.js"
 import {
   OverwriteBlockedError,
   UnkeepableOpeningBlockError,
@@ -67,6 +68,16 @@ export const formatServedSentencesLine = (gatedSentences: readonly string[]): st
 
   return servedSentences ? `\n${servedSentences}` : ""
 }
+
+/** A file kind's extensions as the tool text writes them (".html/.htm"), read
+ *  from the file-kind map so the text follows it when a type is added. */
+export const formatExtensionsOfKind = (kind: FileKind): string =>
+  getExtensionsOfKind(kind).join("/")
+
+/** The file kinds vault_search indexes by content. vault_search,
+ *  vault_read_file and vault_list_files all name them through this one phrase,
+ *  so their descriptions cannot list different kinds. */
+export const SEARCHED_FILE_KINDS_TEXT = `canvases, PDFs, HTML pages (${formatExtensionsOfKind("html")}, visible text only), scripts (${formatExtensionsOfKind("script")}), and text files (${formatExtensionsOfKind("text")})`
 
 export type ToolRegistrationContext = ToolAvailability &
   SafeHandlers & {

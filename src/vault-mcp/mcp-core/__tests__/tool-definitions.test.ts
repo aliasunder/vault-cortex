@@ -497,6 +497,21 @@ describe("registerTools", () => {
     expect(config.description).toContain("vault_read_file")
   })
 
+  it("vault_search, vault_read_file and vault_list_files name the same searched file kinds", () => {
+    const searchedFileKinds =
+      "canvases, PDFs, HTML pages (.html/.htm, visible text only), scripts (.py/.sh/.ps1), and text files (.txt/.csv/.json/.xml/.svg/.log/.yaml/.yml/.base)"
+    const toolsNamingSearchedKinds = [
+      TOOL_NAMES.VAULT_SEARCH,
+      TOOL_NAMES.VAULT_READ_FILE,
+      TOOL_NAMES.VAULT_LIST_FILES,
+    ]
+
+    for (const toolName of toolsNamingSearchedKinds) {
+      const [, config] = requireCall(toolName)
+      expect(requireDescription(config, toolName)).toContain(searchedFileKinds)
+    }
+  })
+
   it("vault_read_note description routes non-md paths to vault_read_file", () => {
     const [, config] = requireCall(TOOL_NAMES.VAULT_READ_NOTE)
     expect(config.description).toContain("vault_read_file")
@@ -1476,7 +1491,7 @@ describe("vault_search description reflects EMBEDDING_ENABLED", () => {
     const description = findSearchDescription(registerWithConfig({}))
     const openingSentence = description.slice(0, description.indexOf(". ") + 1)
     expect(openingSentence).toBe(
-      "Hybrid search across vault notes and file content (canvas, PDF, the text formats .txt/.csv/.json/.xml/.svg/.log/.yaml/.yml/.base, the visible text of HTML pages, and .py/.sh/.ps1 scripts), ranked by combined keyword and semantic relevance.",
+      "Hybrid search across vault notes and the content of canvases, PDFs, HTML pages (.html/.htm, visible text only), scripts (.py/.sh/.ps1), and text files (.txt/.csv/.json/.xml/.svg/.log/.yaml/.yml/.base), ranked by combined keyword and semantic relevance.",
     )
     expect(description).toContain("career aspirations")
     expect(description).toContain("search_mode")
@@ -1504,7 +1519,7 @@ describe("vault_search description reflects FILE_TOOLS_ENABLED", () => {
   // line tests below pin where they differ.
   const FILE_RESULT_WORDING = {
     searchedScope:
-      "search across vault notes and file content (canvas, PDF, the text formats .txt/.csv/.json/.xml/.svg/.log/.yaml/.yml/.base, the visible text of HTML pages, and .py/.sh/.ps1 scripts)",
+      "search across vault notes and the content of canvases, PDFs, HTML pages (.html/.htm, visible text only), scripts (.py/.sh/.ps1), and text files (.txt/.csv/.json/.xml/.svg/.log/.yaml/.yml/.base)",
     filtersLeadIn:
       "Filters — all conditions AND-combine with each other and the text query; any filter but folder returns notes only:",
     resultFields: `results array (path, title, snippet, score, ${TAG_FIELDS_WORDING}, folder (a note's top-level folder; a file's full parent folder), type, kind, extension, created, modified, bytes`,
@@ -3535,7 +3550,7 @@ describe("DISABLED_TOOLS", () => {
 
   it("vault_list_files contrasts itself with the note discovery tools while all three are served", () => {
     expect(listFilesWhenToUse("")).toBe(
-      "When to use: discovering what files exist before reading them with vault_read_file. vault_list_notes and vault_search_by_folder cover only markdown notes, and beyond notes vault_search indexes only canvas, PDF, HTML (.html/.htm), script (.py/.sh/.ps1), and .txt/.csv/.json/.xml/.svg/.log/.yaml/.yml/.base files, so this is the discovery surface for everything else. For the files one specific note links to, prefer vault_get_outgoing_links.",
+      "When to use: discovering what files exist before reading them with vault_read_file. vault_list_notes and vault_search_by_folder cover only markdown notes, and beyond notes vault_search indexes only canvases, PDFs, HTML pages (.html/.htm, visible text only), scripts (.py/.sh/.ps1), and text files (.txt/.csv/.json/.xml/.svg/.log/.yaml/.yml/.base), so this is the discovery surface for everything else. For the files one specific note links to, prefer vault_get_outgoing_links.",
     )
   })
 
