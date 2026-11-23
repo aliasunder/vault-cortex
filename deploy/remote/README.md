@@ -789,26 +789,24 @@ MCP requests require your token or an OAuth session; health checks and the
 sign-in pages are public. These optional measures add defense-in-depth:
 
 - **Close port 8000** — once a tunnel or reverse proxy on the same machine
-  handles HTTPS, publish the port on that machine only. A tunnel or proxy
-  running in its own container can't reach the machine's loopback address,
-  so point it at the server's container over a shared Docker network
-  instead of at the published port. With the CLI or
-  Compose, set `BIND_ADDRESS=127.0.0.1` in the install's `.env`, then
-  re-create the container with `npx vault-cortex@latest restart` or
-  `docker compose up -d`; `docker restart` keeps the old mapping. A
-  `docker-compose.yml` downloaded before the setting existed has no
-  `BIND_ADDRESS` in its `ports` line, so download the current file first
-  (step 2 of **Manual setup**) or change that line to
-  `"127.0.0.1:${PORT:-8000}:8000"`. With `docker run`, which ignores
-  `BIND_ADDRESS`, re-create the container with
-  `-p 127.0.0.1:8000:8000` in place of `-p 8000:8000` (keep your own host
-  port if you changed the first `8000`). A firewall on the machine itself
-  (ufw, firewalld) does not close a published port, because Docker publishes
-  ports past it; a rule in your provider's firewall (provider panel, AWS
-  security groups, infrastructure-as-code) is applied before traffic reaches
-  the machine and does close it. All traffic then flows through the
-  encrypted path, and only the proxy you chose can set the client IP that
-  `TRUST_PROXY_HOPS` and `TRUST_FORWARDED_HOPS` read.
+  handles HTTPS, publish the port on that machine only, so no one can skip
+  HTTPS or fake the client IP that `TRUST_PROXY_HOPS` and
+  `TRUST_FORWARDED_HOPS` read.
+  - With the CLI or Compose: set `BIND_ADDRESS=127.0.0.1` in the install's
+    `.env`, then re-create the container with
+    `npx vault-cortex@latest restart` or `docker compose up -d`.
+  - Older `docker-compose.yml`: if its `ports` line has no `BIND_ADDRESS`,
+    change that line to `"127.0.0.1:${PORT:-8000}:8000"` or download the
+    current file (step 2 of **Manual setup**).
+  - With `docker run`: re-create the container with
+    `-p 127.0.0.1:8000:8000` in place of `-p 8000:8000`, keeping your own
+    host port if you changed it.
+  - Proxy in its own container: inside a container, `127.0.0.1` is the
+    container itself, so connect the proxy to the server's container over a
+    shared Docker network.
+  - Firewalls: ufw and firewalld on the machine don't close a port Docker
+    publishes, because Docker routes around them. Your hosting provider's
+    firewall (such as AWS security groups) does close it.
 
 - **Restrict SSH access** — limit SSH to a VPN or trusted IPs instead of the
   open internet. [Tailscale](https://tailscale.com/) (free for personal use)
