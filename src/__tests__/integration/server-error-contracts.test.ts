@@ -853,32 +853,28 @@ describe("filesystem errors name the path vault-relative and carry their remedy"
     },
   )
 
-  it.skipIf(runsAsRoot)(
-    "vault_write_note into a read-only folder names the temp file vault-relative",
-    async () => {
-      await plantFolderWithMode({ folderPath: "Sealed", mode: 0o555 })
+  it.skipIf(runsAsRoot).each([
+    { name: "vault_write_note", args: { path: "Sealed/new.md", body: "refused" } },
+    { name: "vault_write_file", args: { path: "Sealed/new.canvas", content: "{}" } },
+  ])("$name into a read-only folder names the temp file vault-relative", async ({ name, args }) => {
+    await plantFolderWithMode({ folderPath: "Sealed", mode: 0o555 })
 
-      const result = await callTool({
-        client,
-        name: "vault_write_note",
-        args: { path: "Sealed/new.md", body: "refused" },
-      })
-      expect(result).toEqual({
-        content: [
-          {
-            type: "text",
-            // The temp file's hidden name is a random UUID
-            text: expect.stringMatching(
-              new RegExp(
-                `^\\[Error\\]: EACCES: permission denied, open 'Sealed/\\.[0-9a-f-]{36}\\.tmp'\\. ${RegExp.escape(PERMISSIONS_REMEDY)}$`,
-              ),
+    const result = await callTool({ client, name, args })
+    expect(result).toEqual({
+      content: [
+        {
+          type: "text",
+          // The temp file's hidden name is a random UUID
+          text: expect.stringMatching(
+            new RegExp(
+              `^\\[Error\\]: EACCES: permission denied, open 'Sealed/\\.[0-9a-f-]{36}\\.tmp'\\. ${RegExp.escape(PERMISSIONS_REMEDY)}$`,
             ),
-          },
-        ],
-        isError: true,
-      })
-    },
-  )
+          ),
+        },
+      ],
+      isError: true,
+    })
+  })
 
   it("vault_write_note through a note names the note vault-relative", async () => {
     const result = await callTool({

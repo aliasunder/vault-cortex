@@ -406,7 +406,7 @@ const notAFileMessage = (path: string): string => {
 
 /** Saves a file that must be new. The save is exclusive, so a file that
  *  appeared since the existence check (Obsidian Sync delivering the same path)
- *  is never replaced. */
+ *  is never replaced on a filesystem with hard links. */
 const saveNewFile = async (
   params: { fullPath: string; path: string; content: string; hardLinksSupported: boolean },
   logger: Logger,
