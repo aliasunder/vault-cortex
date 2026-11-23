@@ -76,8 +76,9 @@ const assertPathHasNoNul = (notePath: string): void => {
 }
 
 /** Checks a path as sent, before anything normalizes or resolves it:
- *  - normalizing, resolve() and the case-folding callers apply (the write-lock
- *    key, isProtectedPath) cost more than linear time on some crafted inputs;
+ *  - normalizing, resolve() and the case-folding applied to their result (the
+ *    write-lock key, isProtectedPath) cost more than linear time on some
+ *    crafted inputs;
  *  - the absolute-path check leads, so an absolute path gets that refusal
  *    whatever its length. */
 const assertPathCanBeResolved = (notePath: string): void => {
