@@ -27,6 +27,7 @@ export default $config({
     const { homedir } = await import("node:os")
     const env = (await import("env-var")).get
     const { urlHasCredentials } = await import("./src/utils/url-has-credentials.js")
+    const { closesPublicPortWithoutOrigin } = await import("./scripts/instance-env.js")
 
     // ── Environment ──────────────────────────────────────────────
     // process.env holds ~/.config/vault-cortex/.env only when SST runs through
@@ -51,6 +52,19 @@ export default $config({
     // the Lightsail IP on port 8000. Use with a Cloudflare Tunnel, Caddy
     // reverse proxy, or any HTTPS frontend that proxies to localhost:8000.
     const originUrl = env("ORIGIN_URL").asString()
+
+    // The instance's publish address (docker-compose.yml's ports line). This
+    // deploy is what routes the gateway, so it refuses a BIND_ADDRESS that
+    // would leave the gateway calling a closed public port. A rollback that
+    // clears ORIGIN_URL before the instance drops BIND_ADDRESS then stops
+    // here, before any resource changes. CI passes the repo Variable.
+    const bindAddress = env("BIND_ADDRESS").asString()
+
+    if (closesPublicPortWithoutOrigin({ bindAddress, originUrl })) {
+      throw new Error(
+        `BIND_ADDRESS=${bindAddress} takes port 8000 off the instance's public address, but ORIGIN_URL is empty, so API Gateway would call that address. Set ORIGIN_URL, or first remove BIND_ADDRESS and redeploy the instance (DEPLOY.md, Port 8000 Hardening, Rollback).`,
+      )
+    }
 
     // ORIGIN_ACCESS_SERVICE_TOKEN_ENABLED=true: API Gateway presents a Cloudflare
     // Access service token (the OriginAccessClientId / OriginAccessClientSecret
@@ -117,7 +131,7 @@ export default $config({
     }
 
     // DISABLE_EXECUTE_API_ENDPOINT=true: the gateway stops answering on its
-    // default execute-api hostname, so the custom domain is the only way in.
+    // default execute-api hostname, so clients must use the custom domain.
     const disableExecuteApiEndpoint =
       env("DISABLE_EXECUTE_API_ENDPOINT").asString()?.toLowerCase() === "true"
 

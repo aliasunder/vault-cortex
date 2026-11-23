@@ -205,6 +205,11 @@ describe("port publishing in the compose templates", () => {
       composePath: "deploy/remote/docker-compose.yml",
       published: "${BIND_ADDRESS:+${BIND_ADDRESS}:}${PORT:-8000}:8000",
     },
+    {
+      label: "reference deployment publishes on BIND_ADDRESS, every IPv4 address by default",
+      composePath: "docker-compose.yml",
+      published: "${BIND_ADDRESS:-0.0.0.0}:8000:8000",
+    },
   ])("$label", ({ composePath, published }) => {
     const composeFile: { services: { "vault-cortex": { ports: string[] } } } = parseYaml(
       readRepoFile(composePath),

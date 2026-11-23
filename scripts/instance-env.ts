@@ -1,4 +1,7 @@
 /**
+ * Rules that the instance .env and the API Gateway deploy must agree on,
+ * shared by sst.config.ts and laptop deploys (scripts/dev.ts lightsail:up).
+ *
  * Builds the PUBLIC_URL the instance .env ships with. The Lambda authorizer
  * derives its own copy at `sst deploy` (sst.config.ts resolvePublicUrl) and
  * rejects tokens minted for any other URL, so the two must resolve identically
@@ -52,6 +55,26 @@ export const resolvePublicUrl = ({
     )
   }
   return { url: gatewayUrl, source: "API Gateway" }
+}
+
+/**
+ * True when BIND_ADDRESS is a loopback address (127.0.0.0/8 or ::1) while
+ * ORIGIN_URL is empty. API Gateway then calls the instance's public address,
+ * where nothing answers, so every request would fail. Only loopback is
+ * refused because only loopback is certain to close that path: the deploy
+ * can't tell which interface the gateway's traffic arrives on, and a bind to
+ * the instance's private address still answers through the public IP.
+ */
+export const closesPublicPortWithoutOrigin = ({
+  bindAddress,
+  originUrl,
+}: {
+  bindAddress: string | undefined
+  originUrl: string | undefined
+}): boolean => {
+  if (!bindAddress || originUrl) return false
+
+  return bindAddress.startsWith("127.") || bindAddress === "::1"
 }
 
 /**
