@@ -134,12 +134,11 @@ apply_sync_config() {
   fi
 }
 
-# These settings are always applied, even when empty: an empty argument is
-# the Sync client's "clear" form (`ob sync-config --help`). `ob sync-setup`
-# above already drops them on every boot, so today an empty call changes
-# nothing. It stays so a Sync client version that keeps them across
-# `sync-setup` still can't hold on to a folder exclusion or attachment
-# filter the user has cleared.
+# The folder exclusion is always applied, even when empty: an empty argument
+# is the Sync client's "clear" form (`ob sync-config --help`). `ob sync-setup`
+# above already drops it on every boot, so today an empty call changes
+# nothing. It stays so a Sync client version that keeps it across
+# `sync-setup` still can't hold on to a folder exclusion the user has cleared.
 apply_sync_config_or_clear() {
   flag="$1"
   value="$2"
@@ -151,7 +150,16 @@ apply_sync_config_or_clear() {
 apply_sync_config --device-name "$DEVICE_NAME"
 apply_sync_config --conflict-strategy "$CONFLICT_STRATEGY"
 apply_sync_config_or_clear --excluded-folders "${SYNC_EXCLUDED_FOLDERS:-}"
-apply_sync_config_or_clear --file-types "${SYNC_FILE_TYPES:-}"
+
+# Attachment types to sync:
+# - Default: the Sync client's own image, audio, video and pdf, plus
+#   "unsupported" (Obsidian's "Sync all other types"), so the text files the
+#   file tools read and write move with the vault. The server downloads only
+#   what a device with that option on uploaded.
+# - Applied here, not in the compose files, because the hosted templates pass
+#   an empty value.
+# - A value the client refuses leaves the client's own default.
+apply_sync_config --file-types "${SYNC_FILE_TYPES:-image,audio,video,pdf,unsupported}"
 
 # A sync mode that fails to apply stops the container. `ob sync-setup` has
 # just reset the stored mode to two-way, so continuing would sync two-way

@@ -61,11 +61,11 @@ const VAULT_CHECK_CALL = "check-sync-vault"
 const PICKED_VAULT_CALL = "sync-config --json"
 const DEFAULT_SYNC_CONFIGS_CALL = "sync-config --configs core-plugin-data,community-plugin-data,app"
 
-/** The folder and attachment filters are applied on every boot, empty meaning
- *  "clear" — the stub logs `"$*"`, so an empty argument shows as a trailing
- *  space. */
+/** The folder filter is applied on every boot, empty meaning "clear" — the
+ *  stub logs `"$*"`, so an empty argument shows as a trailing space. */
 const CLEAR_EXCLUDED_FOLDERS_CALL = "sync-config --excluded-folders "
-const CLEAR_FILE_TYPES_CALL = "sync-config --file-types "
+/** The attachment filter the image applies when SYNC_FILE_TYPES is unset or empty. */
+const DEFAULT_FILE_TYPES_CALL = "sync-config --file-types image,audio,video,pdf,unsupported"
 
 const PICKED_VAULT_ERROR =
   "[obsidian-sync] ERROR: After ob sync-setup, the Sync client does not use the setup for 'MyVault' in this folder.\n" +
@@ -228,7 +228,7 @@ describe("init-setup-vault script", () => {
       "sync-setup --vault MyVault",
       PICKED_VAULT_CALL,
       CLEAR_EXCLUDED_FOLDERS_CALL,
-      CLEAR_FILE_TYPES_CALL,
+      DEFAULT_FILE_TYPES_CALL,
       DEFAULT_SYNC_CONFIGS_CALL,
     ])
   })
@@ -315,7 +315,7 @@ describe("init-setup-vault script", () => {
       PICKED_VAULT_CALL,
       "sync-config --device-name vault cortex box",
       CLEAR_EXCLUDED_FOLDERS_CALL,
-      CLEAR_FILE_TYPES_CALL,
+      DEFAULT_FILE_TYPES_CALL,
       DEFAULT_SYNC_CONFIGS_CALL,
     ])
   })
@@ -352,7 +352,7 @@ describe("init-setup-vault script", () => {
       "sync-setup --vault MyVault",
       PICKED_VAULT_CALL,
       CLEAR_EXCLUDED_FOLDERS_CALL,
-      CLEAR_FILE_TYPES_CALL,
+      DEFAULT_FILE_TYPES_CALL,
       "sync-config --mode pull-only",
       DEFAULT_SYNC_CONFIGS_CALL,
     ])
@@ -377,7 +377,7 @@ describe("init-setup-vault script", () => {
       "sync-setup --vault MyVault",
       PICKED_VAULT_CALL,
       CLEAR_EXCLUDED_FOLDERS_CALL,
-      CLEAR_FILE_TYPES_CALL,
+      DEFAULT_FILE_TYPES_CALL,
       "sync-config --mode pull-onyl",
     ])
   })
@@ -399,19 +399,46 @@ describe("init-setup-vault script", () => {
     ])
   })
 
-  it("clears a stored folder or file-type filter when its variable is empty", () => {
-    const run = runSetupScript({
-      vaultName: "MyVault",
-      syncExcludedFolders: "",
-      syncFileTypes: "",
-    })
+  it("clears a stored folder filter when SYNC_EXCLUDED_FOLDERS is empty", () => {
+    const run = runSetupScript({ vaultName: "MyVault", syncExcludedFolders: "" })
 
     expect(run.calls).toEqual([
       VAULT_CHECK_CALL,
       "sync-setup --vault MyVault",
       PICKED_VAULT_CALL,
       CLEAR_EXCLUDED_FOLDERS_CALL,
-      CLEAR_FILE_TYPES_CALL,
+      DEFAULT_FILE_TYPES_CALL,
+      DEFAULT_SYNC_CONFIGS_CALL,
+    ])
+  })
+
+  it.each<{ label: string; options: SetupRunOptions }>([
+    { label: "unset", options: { vaultName: "MyVault" } },
+    { label: "empty", options: { vaultName: "MyVault", syncFileTypes: "" } },
+  ])("syncs the default attachment types when SYNC_FILE_TYPES is $label", ({ options }) => {
+    const run = runSetupScript(options)
+
+    expect(run.status).toBe(0)
+    expect(run.stderr).toBe("")
+    expect(run.calls).toEqual([
+      VAULT_CHECK_CALL,
+      "sync-setup --vault MyVault",
+      PICKED_VAULT_CALL,
+      CLEAR_EXCLUDED_FOLDERS_CALL,
+      "sync-config --file-types image,audio,video,pdf,unsupported",
+      DEFAULT_SYNC_CONFIGS_CALL,
+    ])
+  })
+
+  it("passes the Sync client's own four attachment types through when SYNC_FILE_TYPES names them", () => {
+    const run = runSetupScript({ vaultName: "MyVault", syncFileTypes: "image,audio,video,pdf" })
+
+    expect(run.calls).toEqual([
+      VAULT_CHECK_CALL,
+      "sync-setup --vault MyVault",
+      PICKED_VAULT_CALL,
+      CLEAR_EXCLUDED_FOLDERS_CALL,
+      "sync-config --file-types image,audio,video,pdf",
       DEFAULT_SYNC_CONFIGS_CALL,
     ])
   })
@@ -429,7 +456,7 @@ describe("init-setup-vault script", () => {
       "sync-setup --vault MyVault",
       PICKED_VAULT_CALL,
       CLEAR_EXCLUDED_FOLDERS_CALL,
-      CLEAR_FILE_TYPES_CALL,
+      DEFAULT_FILE_TYPES_CALL,
       DEFAULT_SYNC_CONFIGS_CALL,
     ])
   })
@@ -443,7 +470,7 @@ describe("init-setup-vault script", () => {
       "sync-setup --vault MyVault",
       PICKED_VAULT_CALL,
       CLEAR_EXCLUDED_FOLDERS_CALL,
-      CLEAR_FILE_TYPES_CALL,
+      DEFAULT_FILE_TYPES_CALL,
       "sync-config --configs app,hotkey",
     ])
   })
@@ -456,7 +483,7 @@ describe("init-setup-vault script", () => {
       "sync-setup --vault MyVault",
       PICKED_VAULT_CALL,
       CLEAR_EXCLUDED_FOLDERS_CALL,
-      CLEAR_FILE_TYPES_CALL,
+      DEFAULT_FILE_TYPES_CALL,
       "sync-config --configs ",
     ])
   })
@@ -477,7 +504,7 @@ describe("init-setup-vault script", () => {
       "sync-setup --vault MyVault",
       PICKED_VAULT_CALL,
       CLEAR_EXCLUDED_FOLDERS_CALL,
-      CLEAR_FILE_TYPES_CALL,
+      DEFAULT_FILE_TYPES_CALL,
       "sync-config --configs ",
     ])
   })
@@ -494,7 +521,7 @@ describe("init-setup-vault script", () => {
       "sync-setup --vault MyVault --password s3cret",
       PICKED_VAULT_CALL,
       CLEAR_EXCLUDED_FOLDERS_CALL,
-      CLEAR_FILE_TYPES_CALL,
+      DEFAULT_FILE_TYPES_CALL,
       DEFAULT_SYNC_CONFIGS_CALL,
     ])
   })
@@ -511,7 +538,7 @@ describe("init-setup-vault script", () => {
       "sync-setup --vault MyVault --config-dir .obsidian-custom",
       PICKED_VAULT_CALL,
       CLEAR_EXCLUDED_FOLDERS_CALL,
-      CLEAR_FILE_TYPES_CALL,
+      DEFAULT_FILE_TYPES_CALL,
       DEFAULT_SYNC_CONFIGS_CALL,
     ])
   })

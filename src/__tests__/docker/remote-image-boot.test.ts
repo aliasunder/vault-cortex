@@ -133,16 +133,17 @@ const VAULT_CHECK_CALLS = ["sync-list-remote --json", "sync-config --json"]
  *  - The first `sync-config --json` is init-setup-vault confirming that the
  *    client uses the setup `sync-setup` just wrote.
  *  - A `sync-config` flag whose variable is unset is skipped.
- *  - The folder and file-type filters always run, so an emptied variable
- *    clears the setting. The empty argument shows as a trailing space.
- *  - `--configs` always runs, because SYNC_CONFIGS has a built-in default.
+ *  - The folder filter always runs, so an emptied variable clears the
+ *    setting. The empty argument shows as a trailing space.
+ *  - `--file-types` and `--configs` always run, because SYNC_FILE_TYPES and
+ *    SYNC_CONFIGS have built-in defaults.
  *  - The last `sync-config --json` is init-first-sync reading the settings back. */
 const SETUP_CALLS = [
   "sync-setup --vault ci-vault --device-name ci-device",
   "sync-config --json",
   "sync-config --device-name ci-device",
   "sync-config --excluded-folders ",
-  "sync-config --file-types ",
+  "sync-config --file-types image,audio,video,pdf,unsupported",
   "sync-config --configs core-plugin-data,community-plugin-data,app",
   "sync-config --json",
 ]
