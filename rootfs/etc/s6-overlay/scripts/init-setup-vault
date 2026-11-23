@@ -4,6 +4,8 @@
 # All ob commands run as the obsidian user via s6-setuidgid.
 set -e
 
+# init-check-auth or init-obsidian-login sets SETUP_MODE=1 when no Obsidian
+# Sync token works, and the boot serves the /setup sign-in page instead.
 if [ "${SETUP_MODE:-}" = 1 ]; then
   echo "[obsidian-sync] Setup mode — skipping vault setup."
   exit 0
@@ -24,9 +26,9 @@ fi
 # First-time vault setup
 # ---------------------------------------------------------------------------
 
-# Passes --device-name on the first registration, because without it the CLI
-# names the device after the container hostname and every re-created
-# container adds a new Obsidian Sync device. "$@" carries the caller's flags
+# Passes --device-name to ob sync-setup, which rewrites the device name on
+# every boot, because without it the CLI names the device after the container
+# hostname and every re-created container adds a new Obsidian Sync device. "$@" carries the caller's flags
 # and "$DEVICE_NAME" is quoted, so a vault or device name with spaces stays
 # one argument.
 run_sync_setup() {
@@ -57,11 +59,12 @@ if [ -n "$CONFIG_DIR_NAME" ]; then
   set -- "$@" --config-dir "$CONFIG_DIR_NAME"
 fi
 
-# check-sync-vault stops the boot before ob sync-setup writes anything when
-# the volume holds another vault's Sync setup. It prints the vault ID that
-# VAULT_NAME names, for the check after ob sync-setup. It runs under sh
-# because this script has already loaded the environment its with-contenv
-# line would load.
+# check-sync-vault exits 1 to stop the boot before ob sync-setup writes
+# anything when the volume holds another vault's Sync setup. Otherwise it
+# prints the vault ID that VAULT_NAME names, or nothing when VAULT_NAME names
+# no single vault, for the check after ob sync-setup. It runs under sh, not
+# its with-contenv shebang, because this script has already loaded the
+# container environment.
 if ! REQUESTED_VAULT_ID=$(sh "$SCRIPT_DIR/check-sync-vault"); then
   exit 1
 fi
@@ -75,20 +78,15 @@ if ! run_sync_setup "$@"; then
   exit 1
 fi
 
-SYNC_SETUP_GUIDE_URL="https://github.com/aliasunder/vault-cortex/blob/main/deploy/remote/README.md#another-vaults-sync-setup"
-
-# The check prints no vault ID when VAULT_NAME named no single vault. ob
-# sync-setup then fails, so getting here means the vault changed mid-boot.
+# ob sync-setup fails on a VAULT_NAME that names no vault or several, so an
+# empty ID here means a vault was created, renamed or deleted in Obsidian Sync
+# between the check and ob sync-setup.
 if [ -z "$REQUESTED_VAULT_ID" ]; then
   echo "[obsidian-sync] ERROR: VAULT_NAME '$VAULT_NAME' named no single vault when the vault check ran, so this boot can't confirm which setup ob sync-setup used." >&2
   echo "[obsidian-sync] Restart to run the check again." >&2
   exit 1
 fi
 
-# ob sync-setup has just written VAULT_NAME's setup, so the Sync client must
-# now use it for this folder. Every sync-config call below writes to the setup
-# the client uses, so any other answer stops the boot before those writes.
-#
 # Prints the vault ID the Sync client now uses for this folder, or nothing
 # when ob sync-config fails or prints no vault ID. It always returns 0,
 # because set -e would end the script silently on a failed assignment.
@@ -99,7 +97,12 @@ picked_vault_id() {
     if (typeof config.vaultId === "string") console.log(config.vaultId)
   ' 2>/dev/null || return 0
 }
+
+# ob sync-setup has just written VAULT_NAME's setup, so the Sync client must
+# now use it for this folder. Every sync-config call below writes to the setup
+# the client uses, so any other answer stops the boot before those writes.
 PICKED_VAULT_ID=$(picked_vault_id)
+SYNC_SETUP_GUIDE_URL="https://github.com/aliasunder/vault-cortex/blob/main/deploy/remote/README.md#another-vaults-sync-setup"
 
 if [ -z "$PICKED_VAULT_ID" ]; then
   echo "[obsidian-sync] ERROR: After ob sync-setup, the Sync client could not read its own setup." >&2
@@ -134,11 +137,8 @@ apply_sync_config() {
   fi
 }
 
-# The folder exclusion is always applied, even when empty: an empty argument
-# is the Sync client's "clear" form (`ob sync-config --help`). `ob sync-setup`
-# above already drops it on every boot, so today an empty call changes
-# nothing. It stays so a Sync client version that keeps it across
-# `sync-setup` still can't hold on to a folder exclusion the user has cleared.
+# Sends the value even when it is empty, because an empty argument is the Sync
+# client's "clear" form (`ob sync-config --help`).
 apply_sync_config_or_clear() {
   flag="$1"
   value="$2"
@@ -149,6 +149,11 @@ apply_sync_config_or_clear() {
 
 apply_sync_config --device-name "$DEVICE_NAME"
 apply_sync_config --conflict-strategy "$CONFLICT_STRATEGY"
+
+# `ob sync-setup` above already drops the folder exclusion on every boot, so
+# today an empty call changes nothing. It stays so a Sync client version that
+# keeps it across `sync-setup` still can't hold on to a folder exclusion the
+# user has cleared.
 apply_sync_config_or_clear --excluded-folders "${SYNC_EXCLUDED_FOLDERS:-}"
 
 # Attachment types to sync:
@@ -156,9 +161,11 @@ apply_sync_config_or_clear --excluded-folders "${SYNC_EXCLUDED_FOLDERS:-}"
 #   "unsupported" (Obsidian's "Sync all other types"), so the text files the
 #   file tools read and write move with the vault. The server downloads only
 #   what a device with that option on uploaded.
-# - Applied here, not in the compose files, because the hosted templates pass
-#   an empty value.
-# - A value the client refuses leaves the client's own default.
+# - Applied here because the compose files and the hosted templates pass an
+#   empty value through, and `:-` treats empty as unset.
+# - `ob sync-setup` above clears the filter on every boot, so a value the
+#   client refuses (one invalid entry rejects the whole list) leaves the
+#   client's own four types.
 apply_sync_config --file-types "${SYNC_FILE_TYPES:-image,audio,video,pdf,unsupported}"
 
 # A sync mode that fails to apply stops the container. `ob sync-setup` has
@@ -178,12 +185,9 @@ fi
 #   settings), community-plugin-data (community plugin settings, such as
 #   the Tasks plugin's format) and app (the new-note location). Applied here
 #   as well as in the compose files, so plain `docker run` matches.
-# - SYNC_CONFIGS=none: sends an empty value, the client's "clear" form
-#   (`ob sync-config --help`).
+# - SYNC_CONFIGS=none: sends an empty value, which clears the categories.
 if [ "$SYNC_CONFIGS" = "none" ]; then
-  if ! s6-setuidgid obsidian ob sync-config --configs ""; then
-    echo "[obsidian-sync] WARNING: ob sync-config --configs '' failed — continuing without it." >&2
-  fi
+  apply_sync_config_or_clear --configs ""
 else
   apply_sync_config --configs "${SYNC_CONFIGS:-core-plugin-data,community-plugin-data,app}"
 fi
