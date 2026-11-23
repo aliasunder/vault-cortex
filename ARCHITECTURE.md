@@ -1629,7 +1629,7 @@ Docker hardening, and durability seatbelts above.
 | Component          | Cost                                               |
 | ------------------ | -------------------------------------------------- |
 | Lightsail instance | $12/mo (1 vCPU / 2 GiB) or $24/mo (2 vCPU / 4 GiB) |
-| Auto-snapshots     | ~$0.50–1.50/mo (used disk × 7d × $0.05/GiB)        |
+| Auto-snapshots     | ~$0.50–1.50/mo (used disk × $0.05/GB-month)        |
 | API Gateway        | <$1/mo                                             |
 | Obsidian Sync      | $4 USD/mo                                          |
 | **Total**          | **~$17–29/mo**                                     |
