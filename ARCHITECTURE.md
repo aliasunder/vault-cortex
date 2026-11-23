@@ -1496,10 +1496,11 @@ Docker hardening, and durability seatbelts above.
   filesystem access. Throws on absolute paths (`/vault/Note.md` — vault
   paths are always vault-relative, and an absolute spelling would tie
   behavior to the deployment's mount point), on traversal
-  (`../../etc/passwd`), and on
-  hidden paths — any dot-prefixed segment (`.obsidian/x`, `.trash/y.md`),
-  checked on the resolved relative path so `a/../.obsidian/x` is caught
-  while `notes/./plan.md` passes. The predicate
+  (`../../etc/passwd`), on a NUL character (Node's file calls would reject
+  it with a bare `TypeError`), and on hidden paths — any dot-prefixed
+  segment (`.obsidian/x`, `.trash/y.md`), checked on the resolved
+  relative path so `a/../.obsidian/x` is caught while `notes/./plan.md`
+  passes. The predicate
   (`utils/has-hidden-path-segment.ts`) is shared with the listing
   filter, file watcher, and index rebuild — one definition of "hidden",
   every layer ("one rule, every layer", like `assertPathHasExtension`).

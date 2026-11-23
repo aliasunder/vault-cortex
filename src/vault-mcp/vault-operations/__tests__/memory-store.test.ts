@@ -389,8 +389,10 @@ describe("updateMemory", () => {
     ).rejects.toThrow(
       new Error('memory file must not start with a dot: ".secret" would be a hidden file'),
     )
-    const memoryDirEntries = await readdir(join(vault, "About Me"))
-    expect(memoryDirEntries).not.toContain(".secret.md")
+    expect((await readdir(join(vault, "About Me"))).toSorted()).toEqual([
+      "Opinions.md",
+      "Principles.md",
+    ])
   })
 
   it.each([
@@ -2467,9 +2469,7 @@ describe("listMemoryFiles", () => {
 
   it("returns outlines sorted by filename", async () => {
     const outlines = await listMemoryFiles({ vaultPath: vault }, logger)
-    expect(outlines).toHaveLength(2)
-    expect(outlines[0]?.file).toBe("Opinions")
-    expect(outlines[1]?.file).toBe("Principles")
+    expect(outlines.map((outline) => outline.file)).toEqual(["Opinions", "Principles"])
   })
 
   it("includes byte size per file", async () => {
@@ -2755,9 +2755,12 @@ describe("listMemoryFiles", () => {
     const principles = outlines.find((outline) => outline.file === "Principles")
     const h1s = principles?.headings.filter((heading) => heading.level === 1)
     const h2s = principles?.headings.filter((heading) => heading.level === 2)
-    expect(h1s).toHaveLength(1)
-    expect(h1s?.[0]?.text).toBe("Principles")
-    expect(h2s).toHaveLength(3)
+    expect(h1s?.map((heading) => heading.text)).toEqual(["Principles"])
+    expect(h2s?.map((heading) => heading.text)).toEqual([
+      "Decision heuristics (newest first)",
+      "Working style (newest first)",
+      "Empty section (newest first)",
+    ])
   })
 
   it("gives the H1 heading no entry count", async () => {
@@ -2902,7 +2905,6 @@ describe("bootstrapMemoryDir", () => {
     onTestFinished(() => rm(emptyVault, { recursive: true }))
     await bootstrapMemoryDir({ vaultPath: emptyVault }, logger)
     const outlines = await listMemoryFiles({ vaultPath: emptyVault }, logger)
-    expect(outlines).toHaveLength(5)
     expect(outlines.map((outline) => outline.file).toSorted()).toEqual([
       "Agents",
       "Me",
@@ -4282,7 +4284,10 @@ describe("over-long memory file names", () => {
         logger,
       ),
     ).rejects.toThrow(tooLongRefusal)
-    expect(await readdir(join(vault, "About Me"))).toEqual(["Opinions.md", "Principles.md"])
+    expect((await readdir(join(vault, "About Me"))).toSorted()).toEqual([
+      "Opinions.md",
+      "Principles.md",
+    ])
   })
 
   it("updateMemory passes a name whose memory path is exactly 4,095 bytes on to the filesystem", async () => {
@@ -4344,6 +4349,15 @@ describe("over-long memory file names", () => {
       ),
     ).rejects.toThrow(
       new Error(`memory file must be a bare name without path separators: "${file}"`),
+    )
+  })
+})
+
+describe("memory file names holding a NUL character", () => {
+  it("getMemory keeps its read-failure message for a name holding a NUL", async () => {
+    // The filesystem's refusal surfaces under the read wrapper's own message
+    await expect(getMemory({ vaultPath: vault, file: "Bad\u0000Name" }, logger)).rejects.toThrow(
+      new Error('cannot read memory file "About Me/Bad\u0000Name.md"'),
     )
   })
 })

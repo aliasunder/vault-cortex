@@ -389,7 +389,7 @@ describe("path traversal", () => {
 
   it("rejects the vault root because it does not name an entry", () => {
     expect(() => resolveSafePath(vault, ".")).toThrow(
-      'path traversal blocked: "." resolves to the vault root',
+      new Error('path traversal blocked: "." resolves to the vault root'),
     )
   })
 
@@ -399,50 +399,53 @@ describe("path traversal", () => {
     "readNote rejects %s",
     async (path) => {
       await expect(readNote({ vaultPath: vault, path }, logger)).rejects.toThrow(
-        "path traversal blocked",
+        new Error(`path traversal blocked: "${path}" escapes vault root`),
       )
     },
   )
 
-  it.each(["../escape.md", "../../etc/passwd.md", "foo/../../escape.md"])(
-    "deleteNote rejects %s",
-    async (path) => {
-      await expect(
-        deleteNote(
-          {
-            vaultPath: vault,
-            path,
-            protectedPaths: [],
-            pruneEmptyFolders: false,
-            trashOption: "system",
-          },
-          logger,
-        ),
-      ).rejects.toThrow("path traversal blocked")
-    },
-  )
+  // deleteNote normalizes the path before the traversal check, so the
+  // refusal quotes the normalized form
+  it.each([
+    { path: "../escape.md", quotedPath: "../escape.md" },
+    { path: "../../etc/passwd.md", quotedPath: "../../etc/passwd.md" },
+    { path: "foo/../../escape.md", quotedPath: "../escape.md" },
+  ])("deleteNote rejects $path", async ({ path, quotedPath }) => {
+    await expect(
+      deleteNote(
+        {
+          vaultPath: vault,
+          path,
+          protectedPaths: [],
+          pruneEmptyFolders: false,
+          trashOption: "system",
+        },
+        logger,
+      ),
+    ).rejects.toThrow(new Error(`path traversal blocked: "${quotedPath}" escapes vault root`))
+  })
 
   it.each(["../escape", "foo/../../escape"])("listNotes rejects folder %s", async (folder) => {
     await expect(listNotes({ vaultPath: vault, folder }, logger)).rejects.toThrow(
-      `path traversal blocked: "${folder}" escapes vault root`,
+      new Error(`path traversal blocked: "${folder}" escapes vault root`),
     )
   })
 
   it.each(["../escape", "foo/../../escape"])("listAssets rejects folder %s", async (folder) => {
     await expect(listAssets({ vaultPath: vault, folder }, logger)).rejects.toThrow(
-      `path traversal blocked: "${folder}" escapes vault root`,
+      new Error(`path traversal blocked: "${folder}" escapes vault root`),
     )
   })
 
   it("listNotes rejects a folder that names the vault root", async () => {
     await expect(listNotes({ vaultPath: vault, folder: "." }, logger)).rejects.toThrow(
-      'path traversal blocked: "." resolves to the vault root',
+      new Error('path traversal blocked: "." resolves to the vault root'),
     )
   })
 
   it("listAssets rejects a folder that names the vault root", async () => {
     await expect(listAssets({ vaultPath: vault, folder: "." }, logger)).rejects.toThrow(
-      'path traversal blocked: "." resolves to the vault root',
+      new Error('path traversal blocked: "." resolves to the vault root'),
     )
   })
 })
@@ -451,7 +454,7 @@ describe("absolute paths", () => {
   it("readNote rejects an absolute container path", async () => {
     await writeFile(join(vault, "note.md"), "content", "utf8")
     await expect(readNote({ vaultPath: vault, path: `${vault}/note.md` }, logger)).rejects.toThrow(
-      `absolute path blocked: "${vault}/note.md" must be vault-relative`,
+      new Error(`absolute path blocked: "${vault}/note.md" must be vault-relative`),
     )
   })
 
@@ -468,20 +471,20 @@ describe("absolute paths", () => {
         },
         logger,
       ),
-    ).rejects.toThrow(`absolute path blocked: "${vault}/note.md" must be vault-relative`)
+    ).rejects.toThrow(new Error(`absolute path blocked: "${vault}/note.md" must be vault-relative`))
     expect(await readFile(join(vault, "note.md"), "utf8")).toBe("content")
   })
 
   it("listNotes rejects an absolute container folder", async () => {
     await expect(listNotes({ vaultPath: vault, folder: `${vault}/notes` }, logger)).rejects.toThrow(
-      `absolute path blocked: "${vault}/notes" must be vault-relative`,
+      new Error(`absolute path blocked: "${vault}/notes" must be vault-relative`),
     )
   })
 
   it("listAssets rejects an absolute container folder", async () => {
     await expect(
       listAssets({ vaultPath: vault, folder: `${vault}/notes` }, logger),
-    ).rejects.toThrow(`absolute path blocked: "${vault}/notes" must be vault-relative`)
+    ).rejects.toThrow(new Error(`absolute path blocked: "${vault}/notes" must be vault-relative`))
   })
 })
 
@@ -553,6 +556,59 @@ describe("over-long paths", () => {
     await expect(
       writeNote({ vaultPath: vault, path: oneByteTooLongPath, body: "body" }, logger),
     ).rejects.toThrow(pathTooLongError(oneByteTooLongPath))
+    expect(await readdir(vault)).toEqual([])
+  })
+})
+
+/** The refusal a path holding a NUL character gets, quoting it as sent. */
+const pathHasNulError = (path: string): Error => {
+  return new Error(`EINVAL: a path cannot contain a NUL character, '${path}'`)
+}
+
+describe("paths holding a NUL character", () => {
+  // 4,096 bytes holding a NUL, one more than the longest path Linux accepts
+  const overLongNulPath = `\u0000${"a".repeat(LONGEST_ACCEPTED_PATH_BYTES - 3)}.md`
+
+  it("resolveSafePath refuses a path holding a NUL, quoting it as given", () => {
+    expect(() => resolveSafePath(vault, "Notes/Bad\u0000Name.md")).toThrow(
+      pathHasNulError("Notes/Bad\u0000Name.md"),
+    )
+  })
+
+  it("resolveSafePath refuses a path whose only character is a NUL", () => {
+    expect(() => resolveSafePath(vault, "\u0000")).toThrow(pathHasNulError("\u0000"))
+  })
+
+  it("resolveSafePath resolves a path holding other control characters", () => {
+    expect(resolveSafePath(vault, "Notes/tab\there\u0001.md")).toBe(
+      join(vault, "Notes/tab\there\u0001.md"),
+    )
+  })
+
+  it("resolveVaultRelativePath refuses a path holding a NUL, quoting it as sent", () => {
+    const notePath = "./Notes\\Bad\u0000Name.md"
+
+    expect(() => resolveVaultRelativePath({ vaultPath: vault, notePath })).toThrow(
+      pathHasNulError(notePath),
+    )
+  })
+
+  it("resolveVaultRelativePath refuses a NUL in a segment that '..' cancels", () => {
+    const notePath = "a\u0000/../b.md"
+
+    expect(() => resolveVaultRelativePath({ vaultPath: vault, notePath })).toThrow(
+      pathHasNulError(notePath),
+    )
+  })
+
+  it("resolveSafePath gives an over-long path holding a NUL the length refusal", () => {
+    expect(() => resolveSafePath(vault, overLongNulPath)).toThrow(pathTooLongError(overLongNulPath))
+  })
+
+  it("writeNote refuses a path holding a NUL and writes nothing", async () => {
+    await expect(
+      writeNote({ vaultPath: vault, path: "Bad\u0000Name.md", body: "body" }, logger),
+    ).rejects.toThrow(pathHasNulError("Bad\u0000Name.md"))
     expect(await readdir(vault)).toEqual([])
   })
 })
@@ -661,38 +717,38 @@ describe("over-long paths within a child deadline", () => {
 describe("markdown path requirement", () => {
   it("readNote rejects a path without the .md extension", async () => {
     await expect(readNote({ vaultPath: vault, path: "Projects/Plan" }, logger)).rejects.toThrow(
-      'path must end in ".md" (received "Projects/Plan")',
+      new Error('path must end in ".md" (received "Projects/Plan")'),
     )
   })
 
   it("readNoteOutline rejects a path without the .md extension", async () => {
     await expect(
       readNoteOutline({ vaultPath: vault, path: "Projects/Plan" }, logger),
-    ).rejects.toThrow('path must end in ".md" (received "Projects/Plan")')
+    ).rejects.toThrow(new Error('path must end in ".md" (received "Projects/Plan")'))
   })
 
   it("readNoteSection rejects a path without the .md extension", async () => {
     await expect(
       readNoteSection({ vaultPath: vault, path: "Projects/Plan", heading: "Any" }, logger),
-    ).rejects.toThrow('path must end in ".md" (received "Projects/Plan")')
+    ).rejects.toThrow(new Error('path must end in ".md" (received "Projects/Plan")'))
   })
 
   it("readNoteProperties rejects a path without the .md extension", async () => {
     await expect(
       readNoteProperties({ vaultPath: vault, path: "Projects/Plan" }, logger),
-    ).rejects.toThrow('path must end in ".md" (received "Projects/Plan")')
+    ).rejects.toThrow(new Error('path must end in ".md" (received "Projects/Plan")'))
   })
 
   it("writeNote rejects a path without the .md extension", async () => {
     await expect(
       writeNote({ vaultPath: vault, path: "Projects/Plan", body: "x" }, logger),
-    ).rejects.toThrow('path must end in ".md" (received "Projects/Plan")')
+    ).rejects.toThrow(new Error('path must end in ".md" (received "Projects/Plan")'))
   })
 
   it("updateProperties rejects a path without the .md extension", async () => {
     await expect(
       updateProperties({ vaultPath: vault, path: "Projects/Plan", properties: { a: 1 } }, logger),
-    ).rejects.toThrow('path must end in ".md" (received "Projects/Plan")')
+    ).rejects.toThrow(new Error('path must end in ".md" (received "Projects/Plan")'))
   })
 
   it("replaceProperties rejects a path without the .md extension", async () => {
@@ -713,7 +769,7 @@ describe("markdown path requirement", () => {
         },
         logger,
       ),
-    ).rejects.toThrow('path must end in ".md" (received "Projects/Plan")')
+    ).rejects.toThrow(new Error('path must end in ".md" (received "Projects/Plan")'))
   })
 })
 
@@ -733,21 +789,21 @@ describe("readNote", () => {
 
   it("throws on non-existent file", async () => {
     await expect(readNote({ vaultPath: vault, path: "missing.md" }, logger)).rejects.toThrow(
-      'note not found: "missing.md"',
+      new Error('note not found: "missing.md"'),
     )
   })
 
   it("reports a path through a file as not found, never the server's path", async () => {
     await writeFile(join(vault, "plan.md"), "# plan", "utf8")
     await expect(readNote({ vaultPath: vault, path: "plan.md/child.md" }, logger)).rejects.toThrow(
-      'note not found: "plan.md/child.md"',
+      new Error('note not found: "plan.md/child.md"'),
     )
   })
 
   it("reports a folder at the note path as not found", async () => {
     await mkdir(join(vault, "Archive.md"))
     await expect(readNote({ vaultPath: vault, path: "Archive.md" }, logger)).rejects.toThrow(
-      'note not found: "Archive.md"',
+      new Error('note not found: "Archive.md"'),
     )
   })
 })
@@ -771,20 +827,19 @@ describe("writeNote", () => {
       logger,
     )
     const content = await readFile(join(vault, "new.md"), "utf8")
-    expect(content).toContain("title: New")
-    expect(content).toContain("# New")
+    expect(content).toBe("---\ntitle: New\n---\n# New\n")
   })
 
   it("creates a new file without frontmatter", async () => {
     await writeNote({ vaultPath: vault, path: "bare.md", body: "Just body\n" }, logger)
     const content = await readFile(join(vault, "bare.md"), "utf8")
-    expect(content).toContain("Just body")
+    expect(content).toBe("Just body\n")
   })
 
   it("creates parent directories", async () => {
     await writeNote({ vaultPath: vault, path: "deep/nested/note.md", body: "body\n" }, logger)
     const content = await readFile(join(vault, "deep/nested/note.md"), "utf8")
-    expect(content).toContain("body")
+    expect(content).toBe("body\n")
   })
 
   it("preserves existing frontmatter when updating body only", async () => {
@@ -821,8 +876,7 @@ describe("writeNote", () => {
       logger,
     )
     const content = await readFile(join(vault, "merge.md"), "utf8")
-    expect(content).toContain("title: Keep")
-    expect(content).toContain("status: active")
+    expect(content).toBe("---\ntitle: Keep\ntags:\n  - a\nstatus: active\n---\nbody\n")
   })
 
   it("removes keys set to null when merging into an existing note", async () => {
@@ -863,7 +917,7 @@ describe("writeNote", () => {
     await writeFile(join(vault, "guarded.md"), "---\ntitle: Keep\n---\nold body\n", "utf8")
     await expect(
       writeNote({ vaultPath: vault, path: "guarded.md", body: "clobber attempt\n" }, logger),
-    ).rejects.toThrow('note already exists: "guarded.md"')
+    ).rejects.toThrow(new Error('note already exists: "guarded.md"'))
     const content = await readFile(join(vault, "guarded.md"), "utf8")
     expect(content).toBe("---\ntitle: Keep\n---\nold body\n")
   })
@@ -880,7 +934,7 @@ describe("writeNote", () => {
         },
         logger,
       ),
-    ).rejects.toThrow('note already exists: "explicit.md"')
+    ).rejects.toThrow(new Error('note already exists: "explicit.md"'))
   })
 
   it.each([
@@ -938,7 +992,9 @@ describe("writeNote", () => {
     await expect(
       writeNote({ vaultPath: vault, path: "bad.md", body: "hello\x00world" }, logger),
     ).rejects.toThrow(
-      "body contains a control character (U+0000 at position 5) — control characters other than tab, LF, and CR are not allowed",
+      new Error(
+        "body contains a control character (U+0000 at position 5) — control characters other than tab, LF, and CR are not allowed",
+      ),
     )
   })
 })
@@ -962,7 +1018,7 @@ describe("deleteNote", () => {
   })
 
   it.each(["About Me/Principles.md", "Daily Notes/2025-01-01.md"])(
-    "rejects protected path %s",
+    "rejects protected path %s with a message naming no MCP tool",
     async (path) => {
       await expect(
         deleteNote(
@@ -975,27 +1031,7 @@ describe("deleteNote", () => {
           },
           logger,
         ),
-      ).rejects.toThrow("cannot delete protected path")
-    },
-  )
-
-  it.each(["About Me/Principles.md", "Daily Notes/2025-01-01.md"])(
-    "protected-path rejection for %s is structural — no MCP tool name",
-    async (path) => {
-      await expect(
-        deleteNote(
-          {
-            vaultPath: vault,
-            path,
-            protectedPaths: DEFAULT_PROTECTED,
-            pruneEmptyFolders: false,
-            trashOption: "system",
-          },
-          logger,
-        ),
-      ).rejects.toMatchObject({
-        message: `cannot delete protected path "${path}"`,
-      })
+      ).rejects.toThrow(new Error(`cannot delete protected path "${path}"`))
     },
   )
 
@@ -1011,7 +1047,7 @@ describe("deleteNote", () => {
         },
         logger,
       ),
-    ).rejects.toThrow("cannot delete protected path")
+    ).rejects.toThrow(new Error('cannot delete protected path "Secrets/keys.md"'))
   })
 
   it("allows deletion when path is not in protected list", async () => {
@@ -1041,7 +1077,7 @@ describe("deleteNote", () => {
         },
         logger,
       ),
-    ).rejects.toThrow('note not found: "ghost.md"')
+    ).rejects.toThrow(new Error('note not found: "ghost.md"'))
   })
 
   it("rejects a traversal path that resolves into a protected folder", async () => {
@@ -1061,7 +1097,7 @@ describe("deleteNote", () => {
         },
         logger,
       ),
-    ).rejects.toThrow("cannot delete protected path")
+    ).rejects.toThrow(new Error('cannot delete protected path "About Me/Principles.md"'))
     // The protected file must survive — the guard prevented its deletion.
     expect(await readFile(join(vault, "About Me/Principles.md"), "utf8")).toBe("protected")
   })
@@ -1083,7 +1119,7 @@ describe("deleteNote", () => {
         },
         logger,
       ),
-    ).rejects.toThrow("cannot delete protected path")
+    ).rejects.toThrow(new Error('cannot delete protected path "About Me/Principles.md"'))
     expect(await readFile(join(vault, "About Me/Principles.md"), "utf8")).toBe("protected")
   })
 
@@ -1105,7 +1141,7 @@ describe("deleteNote", () => {
         logger,
       ),
     ).rejects.toThrow(
-      `absolute path blocked: "${vault}/About Me/Principles.md" must be vault-relative`,
+      new Error(`absolute path blocked: "${vault}/About Me/Principles.md" must be vault-relative`),
     )
     expect(await readFile(join(vault, "About Me/Principles.md"), "utf8")).toBe("protected")
   })
@@ -1128,7 +1164,7 @@ describe("deleteNote", () => {
         },
         logger,
       ),
-    ).rejects.toThrow('cannot delete protected path "About Me/Principles.md"')
+    ).rejects.toThrow(new Error('cannot delete protected path "About Me/Principles.md"'))
     expect(await readFile(join(vault, "About Me/Principles.md"), "utf8")).toBe("protected")
   })
 
@@ -1150,7 +1186,7 @@ describe("deleteNote", () => {
         },
         logger,
       ),
-    ).rejects.toThrow('cannot delete protected path "about me/Principles.md"')
+    ).rejects.toThrow(new Error('cannot delete protected path "about me/Principles.md"'))
     expect(await readFile(join(vault, "About Me/Principles.md"), "utf8")).toBe("protected")
   })
 
@@ -1267,10 +1303,11 @@ describe("deleteNote", () => {
       const pruned = await pruneEmptyParents({ vaultPath: vault, path: "NotADir/note.md" }, logger)
 
       expect(pruned).toBe(0)
-      expect(warnSpy).toHaveBeenCalledWith(
-        "could not remove empty folder",
-        expect.objectContaining({ folder: "NotADir" }),
-      )
+      expect(warnSpy).toHaveBeenCalledTimes(1)
+      expect(warnSpy).toHaveBeenCalledWith("could not remove empty folder", {
+        folder: "NotADir",
+        error: `[Error]: ENOTDIR: not a directory, scandir '${join(vault, "NotADir")}'`,
+      })
     })
   })
 })
@@ -1788,7 +1825,7 @@ describe("deleteNote — trash behavior", () => {
         },
         logger,
       ),
-    ).rejects.toThrow('cannot move to trash "crowded.md" — 100 collisions in .trash/')
+    ).rejects.toThrow(new Error('cannot move to trash "crowded.md" — 100 collisions in .trash/'))
 
     // Source file stays untouched — the move never happened
     const content = await readFile(join(vault, "crowded.md"), "utf8")
@@ -1810,7 +1847,7 @@ describe("deleteNote — trash behavior", () => {
         },
         logger,
       ),
-    ).rejects.toThrow("cannot delete protected path")
+    ).rejects.toThrow(new Error('cannot delete protected path "About Me/Principles.md"'))
 
     const content = await readFile(join(vault, "About Me", "Principles.md"), "utf8")
     expect(content).toBe("protected")
@@ -1833,7 +1870,7 @@ describe("deleteNote — trash behavior", () => {
         },
         logger,
       ),
-    ).rejects.toThrow('cannot move to trash "Projects/deep.md"')
+    ).rejects.toThrow(new Error('cannot move to trash "Projects/deep.md"'))
 
     const content = await readFile(join(vault, "Projects", "deep.md"), "utf8")
     expect(content).toBe("keep me")
@@ -2089,7 +2126,7 @@ describe("deleteNote — trash behavior", () => {
         },
         logger,
       ),
-    ).rejects.toThrow('cannot move to trash "renamefail.md"')
+    ).rejects.toThrow(new Error('cannot move to trash "renamefail.md"'))
 
     // The claim placeholder is gone — no 0-byte file occupies the name
     await expect(stat(join(vault, ".trash", "renamefail.md"))).rejects.toThrow(/ENOENT/)
@@ -2123,7 +2160,7 @@ describe("deleteNote — trash behavior", () => {
         },
         logger,
       ),
-    ).rejects.toThrow('cannot move to trash "cleanupfail.md"')
+    ).rejects.toThrow(new Error('cannot move to trash "cleanupfail.md"'))
 
     // The failed cleanup is visible in the logs, and the placeholder it could
     // not remove genuinely survives — proof the injected rm was the cleanup
@@ -2161,7 +2198,7 @@ describe("deleteNote — trash behavior", () => {
         },
         logger,
       ),
-    ).rejects.toThrow('cannot move to trash "claimfail.md"')
+    ).rejects.toThrow(new Error('cannot move to trash "claimfail.md"'))
 
     // The failed create left nothing behind, and no suffixed copy was made
     expect(await readdir(join(vault, ".trash"))).toEqual([])
@@ -2222,13 +2259,12 @@ describe("listNotes", () => {
 
   it("skips hidden directories", async () => {
     const files = await listNotes({ vaultPath: vault }, logger)
-    expect(files).not.toContain(".obsidian/config.md")
-    expect(files).not.toContain("notes/.hidden/secret.md")
+    expect(files).toEqual(["notes/a.md", "notes/b.md", "root.md"])
   })
 
   it("skips non-.md files", async () => {
     const files = await listNotes({ vaultPath: vault }, logger)
-    expect(files).not.toContain("notes/data.json")
+    expect(files).toEqual(["notes/a.md", "notes/b.md", "root.md"])
   })
 
   it("applies glob filter", async () => {
@@ -2437,7 +2473,7 @@ describe("readNoteProperties", () => {
   it("throws on non-existent file", async () => {
     await expect(
       readNoteProperties({ vaultPath: vault, path: "missing.md" }, logger),
-    ).rejects.toThrow("note not found")
+    ).rejects.toThrow(new Error('note not found: "missing.md"'))
   })
 
   it("returns empty object for file with no frontmatter", async () => {
@@ -2555,8 +2591,7 @@ describe("updateProperties", () => {
       logger,
     )
     const content = await readFile(join(vault, "test.md"), "utf8")
-    expect(content).toContain("status: published")
-    expect(content).not.toContain("status: draft")
+    expect(content).toBe("---\nstatus: published\n---\nbody\n")
   })
 
   it("preserves unmentioned keys", async () => {
@@ -2677,7 +2712,7 @@ describe("updateProperties", () => {
         },
         logger,
       ),
-    ).rejects.toThrow("note not found")
+    ).rejects.toThrow(new Error('note not found: "missing.md"'))
   })
 
   it("adds frontmatter block to file with no existing frontmatter", async () => {
@@ -2691,8 +2726,7 @@ describe("updateProperties", () => {
       logger,
     )
     const content = await readFile(join(vault, "plain.md"), "utf8")
-    expect(content).toContain("status: active")
-    expect(content).toContain("Just a body")
+    expect(content).toBe("---\nstatus: active\n---\n# Just a body\n")
   })
 
   it("blocks path traversal", async () => {
@@ -2705,7 +2739,7 @@ describe("updateProperties", () => {
         },
         logger,
       ),
-    ).rejects.toThrow("path traversal blocked")
+    ).rejects.toThrow(new Error('path traversal blocked: "../escape.md" escapes vault root'))
   })
 
   it("refuses a block that is not valid YAML and leaves the note unchanged", async () => {
@@ -2978,7 +3012,7 @@ describe("replaceProperties", () => {
         logger,
       ),
     ).rejects.toThrow(new Error('note not found: "missing.md"'))
-    await expect(readFile(join(vault, "missing.md"), "utf8")).rejects.toThrow("ENOENT")
+    expect(await readdir(vault)).toEqual([])
   })
 
   it("blocks path traversal", async () => {
@@ -3419,7 +3453,7 @@ describe("readNoteOutline", () => {
 
   it("throws note not found for a missing path", async () => {
     await expect(readNoteOutline({ vaultPath: vault, path: "missing.md" }, logger)).rejects.toThrow(
-      'note not found: "missing.md"',
+      new Error('note not found: "missing.md"'),
     )
   })
 })
@@ -3475,7 +3509,7 @@ describe("readNoteSection", () => {
     await expect(
       readNoteSection({ vaultPath: vault, path: "board.md", heading: "Missing" }, logger),
     ).rejects.toThrow(
-      'heading not found: "Missing". Available headings: # Board, ## Active, ## Done',
+      new Error('heading not found: "Missing". Available headings: # Board, ## Active, ## Done'),
     )
   })
 
@@ -3484,7 +3518,9 @@ describe("readNoteSection", () => {
     await writeFile(join(vault, "amb.md"), body, "utf8")
     await expect(
       readNoteSection({ vaultPath: vault, path: "amb.md", heading: "Dup" }, logger),
-    ).rejects.toThrow('ambiguous heading: "Dup"')
+    ).rejects.toThrow(
+      new Error('ambiguous heading: "Dup" matches 2 sections: ## Dup (line 1), ## Dup (line 5)'),
+    )
   })
 
   it("names file lines in the ambiguity error for a note with properties", async () => {
@@ -3505,7 +3541,7 @@ describe("readNoteSection", () => {
   it("throws note not found for a missing path", async () => {
     await expect(
       readNoteSection({ vaultPath: vault, path: "missing.md", heading: "Active" }, logger),
-    ).rejects.toThrow('note not found: "missing.md"')
+    ).rejects.toThrow(new Error('note not found: "missing.md"'))
   })
 
   it("throws heading cannot be empty for an empty heading", async () => {
@@ -3596,14 +3632,10 @@ describe("concurrent writes (exclusive lock)", () => {
     ])
 
     expect(first.status).toBe("fulfilled")
-    expect(second).toEqual(
-      expect.objectContaining({
-        status: "rejected",
-        reason: expect.objectContaining({
-          message: "concurrent write in progress",
-        }),
-      }),
-    )
+    expect(second).toEqual({
+      status: "rejected",
+      reason: new Error("concurrent write in progress"),
+    })
   })
 
   it("rejects the second write when two updateProperties calls target the same note", async () => {
@@ -3629,14 +3661,10 @@ describe("concurrent writes (exclusive lock)", () => {
     ])
 
     expect(first.status).toBe("fulfilled")
-    expect(second).toEqual(
-      expect.objectContaining({
-        status: "rejected",
-        reason: expect.objectContaining({
-          message: "concurrent write in progress",
-        }),
-      }),
-    )
+    expect(second).toEqual({
+      status: "rejected",
+      reason: new Error("concurrent write in progress"),
+    })
   })
 
   it("rejects the second delete when two deleteNote calls target the same note", async () => {
@@ -3669,14 +3697,10 @@ describe("concurrent writes (exclusive lock)", () => {
     ])
 
     expect(first.status).toBe("fulfilled")
-    expect(second).toEqual(
-      expect.objectContaining({
-        status: "rejected",
-        reason: expect.objectContaining({
-          message: "concurrent write in progress",
-        }),
-      }),
-    )
+    expect(second).toEqual({
+      status: "rejected",
+      reason: new Error("concurrent write in progress"),
+    })
     // Assert ENOENT specifically — it proves the first delete removed the
     // file, not that the read failed for some unrelated reason.
     await expect(readFile(join(vault, "doomed.md"), "utf8")).rejects.toThrow(/ENOENT/)
@@ -3711,14 +3735,7 @@ describe("concurrent writes (exclusive lock)", () => {
     ])
 
     expect(write.status).toBe("fulfilled")
-    expect(del).toEqual(
-      expect.objectContaining({
-        status: "rejected",
-        reason: expect.objectContaining({
-          message: "concurrent write in progress",
-        }),
-      }),
-    )
+    expect(del).toEqual({ status: "rejected", reason: new Error("concurrent write in progress") })
     // The write landed and the note survived.
     expect(parseNote(await readFile(join(vault, "contested.md"), "utf8")).content).toBe("updated\n")
   })
@@ -3749,14 +3766,7 @@ describe("concurrent writes (exclusive lock)", () => {
     ])
 
     expect(del.status).toBe("fulfilled")
-    expect(write).toEqual(
-      expect.objectContaining({
-        status: "rejected",
-        reason: expect.objectContaining({
-          message: "concurrent write in progress",
-        }),
-      }),
-    )
+    expect(write).toEqual({ status: "rejected", reason: new Error("concurrent write in progress") })
     // The delete won — the note stays deleted (ENOENT specifically, so an
     // unrelated read failure can't stand in for "the note is gone").
     await expect(readFile(join(vault, "vanishing.md"), "utf8")).rejects.toThrow(/ENOENT/)
@@ -3800,26 +3810,26 @@ describe("readAsset", () => {
     await writeFile(join(vault, "note.md"), "# note", "utf8")
     await expect(
       readAsset({ vaultPath: vault, path: "note.md", maxBytes: 1024 }, logger),
-    ).rejects.toThrow('not a file: "note.md" is a markdown note')
+    ).rejects.toThrow(new Error('not a file: "note.md" is a markdown note'))
   })
 
   it("blocks path traversal out of the vault", async () => {
     await expect(
       readAsset({ vaultPath: vault, path: "../outside.png", maxBytes: 1024 }, logger),
-    ).rejects.toThrow('path traversal blocked: "../outside.png" escapes vault root')
+    ).rejects.toThrow(new Error('path traversal blocked: "../outside.png" escapes vault root'))
   })
 
   it("rejects a missing file as file not found", async () => {
     await expect(
       readAsset({ vaultPath: vault, path: "ghost.png", maxBytes: 1024 }, logger),
-    ).rejects.toThrow('file not found: "ghost.png"')
+    ).rejects.toThrow(new Error('file not found: "ghost.png"'))
   })
 
   it("reports a path through a file as not found, never the server's path", async () => {
     await writeFile(join(vault, "photo.png"), Buffer.from([0x89]))
     await expect(
       readAsset({ vaultPath: vault, path: "photo.png/inner.png", maxBytes: 1024 }, logger),
-    ).rejects.toThrow('file not found: "photo.png/inner.png"')
+    ).rejects.toThrow(new Error('file not found: "photo.png/inner.png"'))
   })
 
   it("rejects a file that grew between its size check and the read", async () => {
@@ -3833,7 +3843,9 @@ describe("readAsset", () => {
     await expect(
       readAsset({ vaultPath: vault, path: "growing.bin", maxBytes: 1024 }, logger),
     ).rejects.toThrow(
-      'file changed while reading: "growing.bin" grew past its measured size — retry the read',
+      new Error(
+        'file changed while reading: "growing.bin" grew past its measured size — retry the read',
+      ),
     )
   })
 
@@ -3842,7 +3854,9 @@ describe("readAsset", () => {
     await expect(
       readAsset({ vaultPath: vault, path: "big.bin", maxBytes: 10 }, logger),
     ).rejects.toThrow(
-      'file too large: "big.bin" is 11 bytes (cap 10 bytes — raise MAX_FILE_BYTES to read larger files)',
+      new Error(
+        'file too large: "big.bin" is 11 bytes (cap 10 bytes — raise MAX_FILE_BYTES to read larger files)',
+      ),
     )
   })
 })
@@ -3888,7 +3902,7 @@ describe("hidden paths", () => {
   it("readNote rejects a note inside a hidden folder", async () => {
     await createHiddenFixtures()
     await expect(readNote({ vaultPath: vault, path: ".trash/secret.md" }, logger)).rejects.toThrow(
-      'hidden path blocked: ".trash/secret.md" targets a hidden file or folder',
+      new Error('hidden path blocked: ".trash/secret.md" targets a hidden file or folder'),
     )
   })
 
@@ -3896,21 +3910,27 @@ describe("hidden paths", () => {
     await createHiddenFixtures()
     await expect(
       readNoteOutline({ vaultPath: vault, path: ".trash/secret.md" }, logger),
-    ).rejects.toThrow('hidden path blocked: ".trash/secret.md" targets a hidden file or folder')
+    ).rejects.toThrow(
+      new Error('hidden path blocked: ".trash/secret.md" targets a hidden file or folder'),
+    )
   })
 
   it("readNoteSection rejects a note inside a hidden folder", async () => {
     await createHiddenFixtures()
     await expect(
       readNoteSection({ vaultPath: vault, path: ".trash/secret.md", heading: "Secret" }, logger),
-    ).rejects.toThrow('hidden path blocked: ".trash/secret.md" targets a hidden file or folder')
+    ).rejects.toThrow(
+      new Error('hidden path blocked: ".trash/secret.md" targets a hidden file or folder'),
+    )
   })
 
   it("readNoteProperties rejects a note inside a hidden folder", async () => {
     await createHiddenFixtures()
     await expect(
       readNoteProperties({ vaultPath: vault, path: ".trash/secret.md" }, logger),
-    ).rejects.toThrow('hidden path blocked: ".trash/secret.md" targets a hidden file or folder')
+    ).rejects.toThrow(
+      new Error('hidden path blocked: ".trash/secret.md" targets a hidden file or folder'),
+    )
   })
 
   it("readAsset rejects a plugin data file inside .obsidian", async () => {
@@ -3925,16 +3945,19 @@ describe("hidden paths", () => {
         logger,
       ),
     ).rejects.toThrow(
-      'hidden path blocked: ".obsidian/plugins/some-plugin/data.json" targets a hidden file or folder',
+      new Error(
+        'hidden path blocked: ".obsidian/plugins/some-plugin/data.json" targets a hidden file or folder',
+      ),
     )
   })
 
   it("writeNote rejects a hidden path and creates nothing on disk", async () => {
     await expect(
       writeNote({ vaultPath: vault, path: ".secret/new.md", body: "# New\n" }, logger),
-    ).rejects.toThrow('hidden path blocked: ".secret/new.md" targets a hidden file or folder')
-    const entries = await readdir(vault)
-    expect(entries).not.toContain(".secret")
+    ).rejects.toThrow(
+      new Error('hidden path blocked: ".secret/new.md" targets a hidden file or folder'),
+    )
+    expect(await readdir(vault)).toEqual([])
   })
 
   it("updateProperties rejects a note inside a hidden folder", async () => {
@@ -3944,7 +3967,9 @@ describe("hidden paths", () => {
         { vaultPath: vault, path: ".trash/secret.md", properties: { a: 1 } },
         logger,
       ),
-    ).rejects.toThrow('hidden path blocked: ".trash/secret.md" targets a hidden file or folder')
+    ).rejects.toThrow(
+      new Error('hidden path blocked: ".trash/secret.md" targets a hidden file or folder'),
+    )
   })
 
   it("deleteNote rejects a note inside a hidden folder and leaves it on disk", async () => {
@@ -3960,21 +3985,23 @@ describe("hidden paths", () => {
         },
         logger,
       ),
-    ).rejects.toThrow('hidden path blocked: ".trash/secret.md" targets a hidden file or folder')
+    ).rejects.toThrow(
+      new Error('hidden path blocked: ".trash/secret.md" targets a hidden file or folder'),
+    )
     expect(await readFile(join(vault, ".trash", "secret.md"), "utf8")).toBe("# Secret\n")
   })
 
   it("listNotes rejects an explicitly hidden folder", async () => {
     await createHiddenFixtures()
     await expect(listNotes({ vaultPath: vault, folder: ".obsidian" }, logger)).rejects.toThrow(
-      'hidden path blocked: ".obsidian" targets a hidden file or folder',
+      new Error('hidden path blocked: ".obsidian" targets a hidden file or folder'),
     )
   })
 
   it("listAssets rejects an explicitly hidden folder", async () => {
     await createHiddenFixtures()
     await expect(listAssets({ vaultPath: vault, folder: ".obsidian" }, logger)).rejects.toThrow(
-      'hidden path blocked: ".obsidian" targets a hidden file or folder',
+      new Error('hidden path blocked: ".obsidian" targets a hidden file or folder'),
     )
   })
 
@@ -3990,7 +4017,9 @@ describe("hidden paths", () => {
         logger,
       ),
     ).rejects.toThrow(
-      'hidden path blocked: "notes/../.obsidian/plugins/some-plugin/data.json" targets a hidden file or folder',
+      new Error(
+        'hidden path blocked: "notes/../.obsidian/plugins/some-plugin/data.json" targets a hidden file or folder',
+      ),
     )
   })
 
