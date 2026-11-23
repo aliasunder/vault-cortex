@@ -1,8 +1,9 @@
 /** Remote-boot global setup: one test run owns its image and every Docker
  *  object it labels.
  *  1. Picks a run ID.
- *  2. Builds the `:remote` image under a tag of its own, unless REMOTE_IMAGE
- *     names an image the caller built (CI, or a reused local build).
+ *  2. Builds the `:remote` image under a tag of its own. When REMOTE_IMAGE
+ *     names an image the caller built (CI, or a reused local build), it
+ *     checks that the image exists instead.
  *  3. Hands the image and run ID to the tests (`inject`).
  *  4. On teardown, prints then removes every container left with the run's
  *     label, removes the run's labelled volumes, then the image it built. */
@@ -50,6 +51,18 @@ const buildRunImage = async ({
 
   if (signal) throw new Error(`docker build of ${image} was killed by ${signal}`)
   if (exitCode !== 0) throw new Error(`docker build of ${image} exited ${exitCode}`)
+}
+
+/** Throws before any test file runs when the image REMOTE_IMAGE names is
+ *  missing. Without this check, every scenario fails at its own start. */
+const assertSuppliedImagePresent = async (image: string): Promise<void> => {
+  const inspection = await docker(["image", "inspect", image])
+
+  if (inspection.code !== 0) {
+    throw new Error(
+      `REMOTE_IMAGE names ${image}, which is missing. npm run build:remote-image builds vault-cortex:remote-ci.`,
+    )
+  }
 }
 
 /** Prints a leftover container's state and logs. A failed diagnostic is
@@ -148,6 +161,7 @@ const setup = async (project: TestProject): Promise<() => Promise<void>> => {
   )
 
   if (buildsOwnImage) await buildRunImage({ image, repositoryRoot: project.config.root })
+  else await assertSuppliedImagePresent(image)
 
   project.provide("remoteImage", image)
   project.provide("remoteBootRunId", runId)

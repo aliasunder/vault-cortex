@@ -116,19 +116,6 @@ export const dockerOrThrow = async (argv: string[]): Promise<string> => {
   return result.stdout
 }
 
-/** Fail fast with a build hint when the image under test is missing —
- *  without this, every container start would fail with Docker's own
- *  "No such image" message buried in a timeout. */
-export const assertImagePresent = async (image: string): Promise<void> => {
-  const result = await docker(["image", "inspect", image])
-
-  if (result.code !== 0) {
-    throw new Error(
-      `Remote image "${image}" not found — npm run test:remote-boot builds one for each run; REMOTE_IMAGE must name an image you built (npm run build:remote-image tags vault-cortex:remote-ci)`,
-    )
-  }
-}
-
 type RunContainerOptions = {
   name: string
   image: string

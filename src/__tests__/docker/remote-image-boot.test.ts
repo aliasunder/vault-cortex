@@ -24,7 +24,6 @@ import { callTool, textContent } from "../integration/test-harness.js"
 import {
   FAKE_OBSIDIAN_ACCOUNT,
   FAKE_OBSIDIAN_API_PORT,
-  assertImagePresent,
   containerExitCode,
   containerLogs,
   containerLogStreams,
@@ -213,10 +212,6 @@ const readSyncedNoteOverMcp = async (port: number): Promise<string> => {
     await client.close()
   }
 }
-
-beforeAll(async () => {
-  await assertImagePresent(IMAGE)
-})
 
 describe("remote image boot — three-volume layout (anonymous /vault, /data, /home/obsidian/.config)", () => {
   const name = uniqueName("three-volume")
