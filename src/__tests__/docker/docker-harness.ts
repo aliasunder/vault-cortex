@@ -164,11 +164,11 @@ export const runContainer = async ({
     await ensureRunVolume(volume)
   }
 
-  // `--pull=never`: only the image this run just built may boot. Without it,
-  // a missing local tag would pull the published `:remote` and the tests
-  // would silently run against the released image instead of the branch.
-  // A start that fails after Docker created the container leaves it behind
-  // with the run label, so the run teardown prints its state and removes it.
+  // - `--pull=never` keeps Docker off the registries. The image under test is
+  //   always local, and a pull for a missing tag could run a published image
+  //   instead of the branch's build.
+  // - A start that fails after Docker created the container leaves it behind
+  //   with the run label, so the run teardown prints its state and removes it.
   await dockerOrThrow([
     "run",
     "-d",
