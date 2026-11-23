@@ -108,7 +108,8 @@ mechanism-level detail.
   non-markdown text file, whatever its extension — the same reach
   `vault_write_note` has over notes. It refuses hidden paths (so no path under
   `.obsidian/`: no plugin, snippet or setting), notes, images and PDFs, and an
-  existing file `vault_read_file` refuses as binary. A community plugin that
+  existing HTML page, script or unlisted file with a NUL byte near its start. A
+  community plugin that
   runs scripts from a visible folder (Templater's user scripts, Dataview's
   `dv.view()`) will run one this tool writes, as Dataview already runs a
   `dataviewjs` block that `vault_write_note` writes into a note.

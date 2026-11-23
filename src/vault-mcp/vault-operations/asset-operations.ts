@@ -436,7 +436,8 @@ const saveNewFile = async (
  * - `.canvas`, `.json` or `.base` content that would break its format.
  * Inside the write lock it creates any missing parent folders, then refuses
  * an existing file without `overwrite`, a folder or a broken symlink at the
- * path, and an existing file readAssetContent reads as binary.
+ * path, and an existing html, script or other-kind file holding a NUL byte in
+ * its leading window.
  */
 const writeAssetContent = async (
   params: {
