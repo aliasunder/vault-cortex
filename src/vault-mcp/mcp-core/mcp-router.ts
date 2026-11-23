@@ -176,7 +176,7 @@ export const createMcpRouter = ({
     // Not awaited, so admitSession stays synchronous: an await here would let
     // another initialize admit its session before admitSession's own insert,
     // and the map could pass MAX_MCP_SESSIONS. close() ends the session's open
-    // streams and runs onclose before it returns.
+    // streams before it returns, so only a failure arrives later.
     session.transport.close().catch((closeError: unknown) => {
       logger.warn("mcp_session_close_failed", { sessionId, ...describeErrorForLog(closeError) })
     })
@@ -359,15 +359,6 @@ export const createMcpRouter = ({
     const session: McpSession = {
       transport,
       lastRequestStartedAt: DateTime.now(),
-    }
-    transport.onclose = () => {
-      // Only an admitted session, which has its ID, is ever closed; the check
-      // narrows the type.
-      if (!transport.sessionId) return
-
-      // Removals and a client DELETE take the session out of the map before
-      // closing it; this keeps any other close from leaving it routable.
-      sessions.delete(transport.sessionId)
     }
     const { instructions, description } = buildServerMetadata(
       config,

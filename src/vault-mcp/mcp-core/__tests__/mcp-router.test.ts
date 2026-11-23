@@ -24,8 +24,8 @@ import { logger } from "../../../logger.js"
 const mockedLogger = vi.mocked(logger)
 
 // We stub the MCP SDK so tests focus on the router's own logic — the
-// session map, the route dispatch, and the onclose cleanup — rather than
-// the SDK's transport state machine. Each mocked module captures real
+// session map and the route dispatch — rather than the SDK's transport
+// state machine. Each mocked module captures real
 // router-side calls; none short-circuits a code path the router would
 // otherwise execute, so a test cannot pass because of an impossible
 // mock condition.
@@ -110,7 +110,6 @@ type TransportMock = {
   closed: boolean
   handleRequest: ReturnType<typeof vi.fn>
   close: ReturnType<typeof vi.fn>
-  onclose: (() => void) | undefined
 }
 
 type ServerMock = { connect: ReturnType<typeof vi.fn> }
@@ -136,13 +135,9 @@ const initializeLikeSdk = async (transport: TransportMock): Promise<void> => {
   }
 }
 
-/** Mimics the SDK's close(): async and idempotent, with onclose called once
- *  before the first await. */
+/** Marks the transport closed, as the SDK's close() does. */
 const closeLikeSdk = (transport: TransportMock): void => {
-  if (transport.closed) return
-
   transport.closed = true
-  transport.onclose?.()
 }
 
 const createTransportMock = (options: TransportOptions): TransportMock => {
@@ -155,7 +150,6 @@ const createTransportMock = (options: TransportOptions): TransportMock => {
       res.status(202).json({ ok: true, handled: "transport-mock" })
     }),
     close: vi.fn(async () => closeLikeSdk(transport)),
-    onclose: undefined,
   }
   return transport
 }
@@ -1295,47 +1289,6 @@ describe("createMcpRouter — DELETE /mcp", () => {
     })
 
     expect(response.status).toBe(401)
-  })
-})
-
-describe("createMcpRouter — transport.onclose", () => {
-  it("removes the session from the map and leaves logging to the DELETE handler", async () => {
-    const harness = await setupHarness()
-    const { sessionId, transport } = await createSession(harness)
-    mockedLogger.info.mockClear()
-
-    const closeSession = transport.onclose
-
-    if (!closeSession) {
-      throw new Error("transport.onclose was not wired")
-    }
-    closeSession()
-
-    expect(mockedLogger.info).not.toHaveBeenCalled()
-    // The session should be gone — confirm with a POST to the closed
-    // session that should 404.
-    const followUp = await fetch(harness.url(), {
-      method: "POST",
-      headers: { ...baseHeaders, "mcp-session-id": sessionId },
-      body: JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/list" }),
-    })
-    await followUp.arrayBuffer()
-    expect(followUp.status).toBe(404)
-  })
-
-  it("is a no-op when the transport has no sessionId", async () => {
-    const harness = await setupHarness()
-    const { transport } = await createSession(harness)
-    transport.sessionId = undefined
-    mockedLogger.info.mockClear()
-
-    const closeSession = transport.onclose
-
-    if (!closeSession) {
-      throw new Error("transport.onclose was not wired")
-    }
-    expect(closeSession).not.toThrow()
-    expect(mockedLogger.info).not.toHaveBeenCalled()
   })
 })
 
