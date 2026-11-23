@@ -133,7 +133,7 @@ The `obsidian-markdown/` parsers read text straight from vault files, so one cra
 - **Large canvases:** groups nest only while `content nodes × groups + groups²` stays at most 16,000,000 (2,800 groups with 2,800 nodes fit). A larger canvas renders flat, still listing every node, group label and connection.
 - **Body tags:** the tag parser can still slow quadratically, so it runs in a worker with a time limit (see **Body tags column** → Worker under [Property discovery + daily notes](#property-discovery--daily-notes)).
 
-Link targets have a length limit, because normalizing and deduplicating a longer target costs more than linear time on crafted input (`isWithinLinkTargetLimit` in `links.ts`):
+Link targets have a length limit, because normalizing and deduplicating a longer target costs more than linear time on crafted input:
 
 - **Up to 4,095 bytes** (Linux's longest path): any target.
 - **Up to 10,236 bytes:** a target whose `..` segments all come first, which covers the longest link Obsidian writes from the current file.
@@ -154,8 +154,8 @@ Common metadata on all discovery tools (`vault_search`, `vault_search_by_tag`, `
 
 How the served set is built and kept consistent:
 
-- **Registration** — group modules register through a gated wrapper that skips disabled names and injects each tool's annotations from the registry, so annotations are declared once and a new gating axis is one new predicate. The wrapper also builds each tool's input with `createStrictInputObject`, so a parameter the tool doesn't declare is rejected with an error naming the accepted ones; tools with no parameters accept any key.
-- **Cross-references** — references to other tools in tool descriptions and prompts are availability-keyed, so each disappears whenever its target does. A test disables each tool in turn and checks that no served tool's description or input schema still names it.
+- **Registration** — group modules register through a gated wrapper that skips disabled names and injects each tool's annotations from the registry, so annotations are declared once and a new gating axis is one new predicate. A parameter the tool doesn't declare is rejected with an error naming the accepted ones; tools with no parameters accept any key.
+- **Cross-references** — references to other tools in tool descriptions and prompts are availability-keyed, so each disappears whenever its target does.
 - **What gating leaves alone** — search, indexing and the file watcher ignore `READONLY_MODE` and `DISABLED_TOOLS`, because they write to the index database outside the vault, not to the vault itself.
 
 ### Vault read/write
@@ -186,12 +186,16 @@ The edit tools differ in how they locate the lines they change — by heading, b
 - **`vault_patch_note`** — heading-targeted, with an optional file-level mode. Four operations: `append`, `prepend`, `replace`, `insert_before`. A no-heading `prepend` whose content starts with a heading reports back when it nested pre-existing leading content inside that heading.
 - **`vault_replace_in_note`** — exact-text find-and-replace in the note body.
 - **`vault_delete_span`** — anchor-targeted; removes the matched span of whole lines.
-- **`vault_replace_span`** — anchor-targeted; swaps the matched span for new content. Empty lines at the content's start or end join the note's empty lines on that side, and each joined run keeps the wider side's count (`collapseEmptyLineRunsAtEdits` in `lines.ts`). Content made only of line breaks touches both sides, so it joins them into one run of empty lines.
+- **`vault_replace_span`** — anchor-targeted; swaps the matched span for new content. Empty lines at the content's start or end join the note's empty lines on that side, and each joined run keeps the wider side's count.
 - **`vault_insert_at_anchor`** — anchor-targeted; inserts content before or after the anchor line without removing it.
 
 The three anchor tools share one resolution rule: a short, case-sensitive substring locates a full line, ambiguity is an error, and `first_match` takes the first match instead.
 
-`vault_list_notes` matches its glob in a worker thread with a time limit: `utils/glob-filter.ts` starts one worker per call, with at most one per CPU core (and never more than four) running at a time. A call still waiting or matching after `GLOB_MATCH_TIMEOUT_MS` (2 seconds, in `vault-operations/vault-filesystem.ts`) returns a timeout error, and a worker still matching is stopped. Up to four calls per worker wait for a running worker to finish, and a call beyond them returns a timeout error at once, saying too many glob calls are waiting.
+`vault_list_notes` matches its glob in a worker thread, one per call, with a 2-second limit:
+
+- At most one worker per CPU core, and never more than four, runs at a time.
+- A call still waiting or matching after 2 seconds returns a timeout error, and its worker is stopped.
+- Up to four calls per worker can wait; a call beyond them returns a timeout error at once, saying too many glob calls are waiting.
 
 `vault_update_properties` merges properties — sets new keys, overwrites matching keys, deletes keys set to `null` — and keeps the body, adding only a missing final newline. With `replace: true` it replaces the whole properties block instead, without parsing the old one, so it can repair any block a merge refuses.
 
@@ -200,7 +204,10 @@ Every tool handles a note's properties block by the same rules, so a write never
 - **Reads** accept any block the YAML parser can read. A list or single-value block reads as no properties. Reads that return no properties (`vault_read_note`'s `outline` and `heading` modes and `vault_get_memory`) split the block off without parsing it, and `vault_list_memory_files` lists a file whose block is not valid YAML under its file name, with a warning in the server log.
 - **Body edits** write the block back as written, with LF line breaks, so they accept any block: the five body-edit tools, both memory writes, and a move that changes links only in note bodies.
 - **Rewrites** of the properties refuse a block they would lose: invalid YAML, a list, a single value, or a value with an explicit YAML tag. They are `vault_update_properties` merges, `vault_write_note` overwrites, the task tools (which write the note back from its parsed properties), and a move that must change a link inside the block. A move reads a block that is not valid YAML as no properties, as Obsidian does, so it rewrites that note's body links and leaves the links inside the block as they were.
-- **Results** are checked unless the write keeps the block as written: a write is refused when the note would open with a block the server could not read or keep. With no properties to write, a body that starts with `---` lines becomes the properties block. This happens with a `vault_write_note` body that starts that way (when no properties are passed or kept from an overwritten note, or every key is set to `null`), an edit to a note without a properties block that removes the text above such lines (deleting a heading that sits above them), or a call that removes every property.
+- **Results** are checked unless the write keeps the block as written: a write is refused when the note would open with a block the server could not read or keep. With no properties to write, a body that starts with `---` lines becomes the properties block, which happens with:
+  - a `vault_write_note` body that starts that way, when no properties are passed or kept from an overwritten note, or every key is set to `null`
+  - an edit to a note without a properties block that removes the text above such lines (deleting a heading that sits above them)
+  - a call that removes every property
 - **Refusals** carry the server's own message, with the line and column when the parser reports a position. The tool then adds how to fix the note:
   - For a block already in the vault, repair steps when every tool they name is served: `vault_read_note` and `vault_update_properties` with `replace: true`, plus `vault_patch_note` for a block that may hold prose to put back. Otherwise it points at Obsidian.
   - For a `vault_write_note` overwrite of such a note, which replaces the body anyway, the steps skip the prose: replace the block, then run the overwrite again. These steps need only `vault_read_note` and `vault_update_properties`; if either is not served, it points at Obsidian.
@@ -247,7 +254,7 @@ Both `vault_delete_note` and `vault_move_note` support `prune_empty_folders` to 
 
 `vault_search_by_tag` matches a tag in the `tags` property or written as `#tag` in the body, and every tag nested under it (`project` matches `project/a/b` but not `projects`), or the tag alone with `exact: true`. It returns the most recently modified notes first, up to `limit` (default 20).
 
-Every tag query reads both tag columns (see **Body tags column** below): `vault_search_by_tag`, `vault_list_tags`, the shared SQL `tags` filter for keyword and vector note search in `vault_search`, and the untagged count in `vaultStats`. `vault_list_tasks`' `tag` filter keeps the Tasks plugin's own task-line grammar.
+Every tag query reads both tag columns (see **Body tags column** below): `vault_search_by_tag`, `vault_list_tags`, the shared SQL `tags` filter for keyword and vector note search in `vault_search`, and `vault-orientation`'s untagged count. `vault_list_tasks`' `tag` filter keeps the Tasks plugin's own task-line grammar.
 
 Every tag input (`tag` on `vault_search_by_tag` and `vault_list_tasks`, the `tags` filter on `vault_search`) ignores letter case and, unless `exact: true` is set on `vault_search_by_tag`, matches nested tags the same way. Both sides of a comparison are folded with `toLowerCase()`, the rule Obsidian's Tags view groups spellings by. A leading `#` on an input is dropped, and an input that is only `#` is rejected.
 
@@ -264,16 +271,16 @@ Every tag input (`tag` on `vault_search_by_tag` and `vault_list_tasks`, the `tag
 | `vault_list_property_values` | `key, folder?, limit?`        | readOnlyHint |
 | `vault_search_by_property`   | `key, value, folder?, limit?` | readOnlyHint |
 
-**Promoted properties:** Five frontmatter keys — `title`, `tags` (the first key so spelled in any letter case), `type`, `created`, `related` — get dedicated columns in the `notes` table for direct `WHERE`-clause filtering (no `json_extract` needed). In tool responses, these appear as top-level fields; remaining frontmatter keys are returned under `additional_properties` (via `formatNoteMetadata` in `tool-helpers.ts`).
+**Promoted properties:** Five frontmatter keys — `title`, `tags` (the first key so spelled in any letter case), `type`, `created`, `related` — get dedicated columns in the `notes` table for direct `WHERE`-clause filtering (no `json_extract` needed). In tool responses, these appear as top-level fields; remaining frontmatter keys are returned under `additional_properties`.
 
 - **Tags column:** holds the tags Obsidian's Tags view shows for the note, read by `obsidian-markdown/tags.ts` from the first key spelled `tags` in any letter case. A text value is one tag, so `tags: a, b` gives no tags, because a tag name cannot contain `,`. A list keeps its text entries. Each entry loses a leading `#` and a trailing `/`, and only names Obsidian accepts as tags are kept (no spaces, none of the punctuation Obsidian rejects such as `,`, `:` or `+`, and not digits only).
 - **Body tags column:** not a property, but stored beside them. `body_tags` holds every `#tag` written in the body, one entry per occurrence, as Obsidian's Tags view shows it (one trailing `/` removed, then the tags column's name test). Results return it as `body_tags` beside `tags`, each spelling once and absent when there are none, so a caller can tell the property, which `vault_update_properties` edits, from tags written in the text.
   - **Parser:** `obsidian-markdown/body-tags.ts` walks the tree that `obsidian-remark-parser.ts` builds: [remark-parse 8.0.3](https://github.com/remarkjs/remark/tree/remark-parse%408.0.3/packages/remark-parse), the parser Obsidian's metadata cache forked, with Obsidian's syntax (tags, wikilinks, highlights, `%%` comments, math, footnotes, callouts, block IDs) added as tokenizers. So a `#` inside code, a wikilink, a link destination, a URL or math is not a tag, while one in a Markdown link's text or right after another inline token is. remark-parse is pinned to that version; AGENTS.md → "Upgrading remark-parse" re-checks the parser against Obsidian's own.
-  - **Worker:** remark-parse 8, like Obsidian's parser, slows quadratically on long paragraphs full of `_`, `[` or `=`, so `search/body-tag-parser.ts` runs the parser in a worker thread, one note at a time. A note still parsing after `BODY_TAG_PARSE_TIMEOUT_MS` (2 seconds, in `search/body-tag-parser.ts`) is indexed without body tags and logged as an error; the main thread keeps answering requests while a note parses.
-  - **Startup:** the rebuild writes each note with the body tags stored before it ran, and the server starts answering without waiting for the parser. A background pass then parses every note again, one at a time, so a note the watcher parses waits behind at most one note of the pass; it writes only tags that changed, and its `body-tag pass complete` log line counts the outcomes. Until the pass reaches a note, a tag query sees the tags stored for its path before the restart; on a first index, it sees none.
-  - **When the parser stops:** the pass stops when the worker cannot start, and on SIGTERM, when the server closes the parser before draining requests. Every note then keeps its stored tags. A note the watcher re-indexes keeps its stored tags too, unless the parser is still open and a fresh worker starts for that note. While the parser is open, a re-indexed note whose body holds no `#` followed by a tag-name character gets no tags: every tag starts that way, and the check needs no worker.
-  - **Write order:** the background pass writes a note's tags only while the rebuild's version of that note is still current, so a watcher write or removal during its parse wins. The file watcher checks its event before and after the parse: a note read that a newer event replaced is never parsed, a delete or newer edit during a slow parse wins, and a newer event aborts a parse still waiting in the queue.
-- **Other properties:** every unpromoted key lives in a JSON `properties` column — functional for any schema, but without dedicated columns. The property queries match a key as data through `json_each` over that column, never as a JSON path, so a property named `a.b` or `k[0]` is matched like any other. Array values are unpacked via `json_each`, so scalar and list properties both match.
+  - **Worker:** remark-parse 8, like Obsidian's parser, slows quadratically on long paragraphs full of `_`, `[` or `=`, so `search/body-tag-parser.ts` runs the parser in a worker thread, one note at a time. A note still parsing after 2 seconds is indexed without body tags and logged as an error; the main thread keeps answering requests while a note parses.
+  - **Startup:** the rebuild writes each note with the body tags stored before it ran, and the server starts answering without waiting for the parser. A background pass then parses every note again, one at a time, so a note the watcher parses waits behind at most one note of the pass; it writes only tags that changed. Until the pass reaches a note, a tag query sees the tags stored for its path before the restart; on a first index, it sees none.
+  - **When the parser stops:** the pass stops when the worker cannot start, and at shutdown. Every note then keeps its stored tags, and so does a note the watcher re-indexes, unless a fresh worker starts for that note.
+  - **Write order:** a newer change wins. The background pass writes a note's tags only while the rebuild's version of that note is still current, and the file watcher drops a parse, queued or running, that a newer edit or delete of the note replaces.
+- **Other properties:** every unpromoted key lives in a JSON `properties` column — functional for any schema, but without dedicated columns. The property queries match a key as data, never as a JSON path, so a property named `a.b` or `k[0]` is matched like any other. Scalar and list properties both match.
 - **Listing values:** `vault_list_property_values`, and the `sample_values` in `vault_list_property_keys`, count each value by the text the tool returns. The number `1` and the text `"1"` both return `"1"`, so they share one count; the text `"1.0"` keeps its own. Counting happens before `limit` and sample selection apply, and each item of a list property counts on its own.
 - **Matching a value:** `vault_search_by_property` matches text exactly. A value written as a whole, finite number in [YAML 1.2 core schema](https://yaml.org/spec/1.2.2/#1032-tag-resolution) form (`4`, `-0.5`, `1e3`, `0x1F`, `0o17`) also matches stored numbers equal to it as [JavaScript numbers](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Number#number_encoding). So `"04"` matches the number `4` and the text `"04"`, but not the text `"4"`. Checkbox values match only `"1"` and `"0"`.
 
@@ -335,7 +342,7 @@ whole files/sections, or date-scoped entries across them with `on_or_after`;
 - **Startup:** if the memory folder (default: `About Me/`) doesn't exist, the server creates it with template files (Me.md, Opinions.md, Principles.md, Routines.md, Agents.md), each opening with a `> [!info] Scope of this file` callout so agents discover a ready, self-documenting structure.
 - **Write-time:** `vault_update_memory` auto-creates files and sections on write — agents can save preferences without manual setup; a newly-created file is seeded with a placeholder scope callout to fill in, and a newly-created section heading gets "(newest first)" appended.
 
-**Listing:** `listMemoryFiles` (behind `vault_list_memory_files`) lists the `.md` files directly inside the memory folder, whether or not each has frontmatter or a scope callout. It skips hidden names and names ending in `.md` twice in any letter case (`Opinions.md.md`): `memoryFilePath` refuses both kinds, so no memory tool could reach them by name.
+**Listing:** `vault_list_memory_files` lists the `.md` files directly inside the memory folder, whether or not each has frontmatter or a scope callout. It skips hidden names and names ending in `.md` twice in any letter case (`Opinions.md.md`), because no memory tool accepts either kind of name.
 
 **Opt-out:** The memory layer is opt-out: set `MEMORY_ENABLED=false` to hide all memory tools and prompts, skip auto-initialization, and strip memory references from server metadata. `READONLY_MODE=true` also skips auto-initialization (no vault writes at startup). The vault CRUD and search layers continue to work normally.
 
@@ -349,14 +356,15 @@ whole files/sections, or date-scoped entries across them with `on_or_after`;
 
 Link queries use a `links` table populated during indexing:
 
-- **Sources:** `[[wikilink]]` and `[text](target)` / `![alt](target)` markdown links in the note body (fence-aware parsing skips code blocks), plus `[[wikilink]]`s in frontmatter property values (e.g. `related:`). A Canvas contributes two kinds of link: each file card within the [link-target limit](#note-content-parsers), stored as the exact vault path it names, and the links typed in its text cards, read with the note-body grammar and resolved like a note's links. Markdown links to any vault target — notes (`.md`), images, PDFs, extensionless paths — are recognized; external URLs are excluded by URI-scheme detection.
+- **Sources:** `[[wikilink]]` and `[text](target)` / `![alt](target)` markdown links in the note body (fence-aware parsing skips code blocks), plus `[[wikilink]]`s in frontmatter property values (e.g. `related:`). Markdown links to any vault target — notes (`.md`), images, PDFs, extensionless paths — are recognized; external URLs are excluded by URI-scheme detection.
+- **Canvas sources:** a Canvas contributes two kinds of link: each file card within the [link-target limit](#note-content-parsers), stored as the exact vault path it names, and the links typed in its text cards, read with the note-body grammar and resolved like a note's links.
 - **Resolution:** Each target other than a Canvas file card is resolved against all known note paths covering Obsidian's three "New link format" modes:
   1. Exact vault-relative path (path from vault folder)
   2. Path relative to the linking note (path from current file, including upward `../`)
   3. Basename (shortest-path-first for ambiguous basenames)
 - **Letter case:** Obsidian resolves a link whatever its letter case, so `[[real]]` and `[[folder/real]]` reach `Folder/Real.md`. Resolution walks the three tiers in the link's own letter case first, and walks them again with letter case folded only when every tier misses. A folded match returns the stored path, and backlinks, orphans and `vault_move_note` all follow it.
   - Note links fold every letter (`toLowerCase`), so `[[éclair]]` reaches `Éclair.md`. Notes are tried before files, so `[[photo]]` reaches `Photo.md` rather than `photo.png`.
-  - File links fold ASCII letters only, because the index resolves them in SQL (`COLLATE NOCASE`) and the in-memory twin must pick the same file; `![[éclair.png]]` stays broken beside `Éclair.png`. Their path-suffix tiers query with `LIKE`, which ignores ASCII letter case, so those tiers fold in the first walk too: `![[photo.png]]` reaches the shorter `A/Photo.PNG` rather than `B/sub/photo.png`.
+  - File links fold ASCII letters only, so `![[éclair.png]]` stays broken beside `Éclair.png`. Their path-suffix tiers ignore ASCII letter case in the first walk too, so `![[photo.png]]` reaches the shorter `A/Photo.PNG` rather than `B/sub/photo.png`.
   - Two notes whose paths differ only in letter case, possible on a case-sensitive filesystem, each keep the links written in their own spelling; a third spelling goes to the shortest path, then byte order. This is the server's own rule, not a statement of Obsidian's behaviour.
 - **Non-markdown files:** Targets that don't resolve to a note are checked against a `non_md_files` table (populated during rebuild, maintained by the file watcher). Both wikilinks and markdown-style links to `.canvas`, `.base`, images, PDFs, and other non-markdown files resolve as `kind: "file"` instead of being counted as broken.
 - **Stored rows:** Each row keeps the link's text as written and its kind: a link typed in a note or a Canvas text card, or a Canvas file card. One note can hold two spellings that reach the same file (`[[../B]]` and `[[B]]`); each keeps its own row, and the link queries list the file once.
@@ -369,7 +377,7 @@ Link queries use a `links` table populated during indexing:
   - `ORPHAN_EXCLUDE_FOLDERS` replaces that list; a tool call's `exclude_folders` replaces it for that call.
   - An unreadable or malformed config logs a warning and uses `Daily Notes`; a missing file uses that fallback without a warning.
   - A vault-root, blank, or whitespace-only folder setting adds no daily-folder exclusion, so those daily notes remain eligible.
-  - Each excluded folder adds one `NOT LIKE` clause, and SQLite's expression-depth limit caps the list at 994 folders. `findOrphans` (`search-queries.ts`) translates SQLite's "Expression tree is too large" error to "too many excluded folders".
+  - SQLite's expression-depth limit caps the list at 994 folders; a longer list returns a "too many excluded folders" error.
 
 ### Files
 
@@ -395,9 +403,9 @@ Link queries use a `links` table populated during indexing:
 
    Extraction runs in the PDF child process (see **PDF extraction** below), and the text it returns is paged and capped like any other text read.
 
-   `raw: true` switches to page-image mode, which runs in the server process: each page is rendered at 2× scale via `unpdf`'s `renderPageAsImage` with `@napi-rs/canvas` (prebuilt Skia, no system deps), then fitted through the same byte-budget pipeline as regular images. The total image budget is divided evenly across rendered pages (capped at `MAX_PDF_RENDER_PAGES`, default 5). Scanned or image-only PDFs with no extractable text work in raw mode — the model's own vision handles recognition.
+   `raw: true` switches to page-image mode, which runs in the server process: each page is rendered at 2× scale with `@napi-rs/canvas` (prebuilt Skia, no system deps), then fitted through the same byte-budget pipeline as regular images. The total image budget is divided evenly across rendered pages (capped at `MAX_PDF_RENDER_PAGES`, default 5). Scanned or image-only PDFs with no extractable text work in raw mode — the model's own vision handles recognition.
 
-   **Why text works without system fonts:** every PDF read goes through `obsidian-markdown/pdf-engine.ts`, which swaps unpdf's bundled edge build for the `pdfjs-dist` legacy Node build and creates document proxies with `disableFontFace` + bundled standard fonts + cMaps. Glyphs render from font data (embedded or bundled), never from host system fonts, so text survives in the fontless container. unpdf's own defaults reach the bundled fonts only if a lookup of `pdfjs-dist` succeeds, and a failed lookup is silent: rendering falls back to system fonts, which drops all text glyphs where no fonts exist while vector graphics still draw.
+   **Why text works without system fonts:** every PDF read goes through `obsidian-markdown/pdf-engine.ts`, which configures pdfjs to draw glyphs from the PDF's embedded fonts or bundled standard fonts and cMaps, never from host system fonts, so text survives in the fontless container.
 
 5. **Every other file** — HTML pages, scripts, and files with an unlisted extension or none — returns its source as text, with the same cap and paging. `utils/decode-text-buffer.ts` refuses two cases:
    - a NUL byte in the first 8,000 bytes, git's test for binary data, which also catches UTF-16 text; the error names the readable types
@@ -418,10 +426,10 @@ Search indexes file content in the `file_content` + `file_content_fts` tables, c
 | Scripts (`.py`/`.sh`/`.ps1`) | The file's source; a script over 16 MiB is found by file name only                                                                                                                                                       | No       |
 
 - **HTML extraction** runs htmlparser2's tokenizer, which keeps no element stack, so unclosed tags cost no more than closed ones. Hidden elements (script, style, noscript, template, the fallback content of iframe, noembed and noframes, and an inline SVG's title and desc tooltips) end only at a closing tag with their own name, so a stray closing tag never shows hidden text. Block elements become line breaks, other whitespace collapses, and reading stops at the 100 KiB cap. Extraction stays on the main thread, and the 16 MiB page limit keeps its measured worst case under 2 seconds.
-- **HTML pages and scripts are read as bytes**, and their text is indexed only when `utils/decode-text-buffer.ts` accepts them, the test `vault_read_file` applies, so search never holds text from a page or script that a read refuses as binary or as not UTF-8. That test needs the whole file, so indexing reads a page or script whole and skips one whose size is over 16 MiB, which limits the memory one read takes. Search finds such a file by name, even when `vault_read_file` would refuse it. When a watched page or script stops passing that test, its stored content is removed and its file row stays.
+- **HTML pages and scripts are indexed only when they pass `vault_read_file`'s binary and UTF-8 test**, so search never holds text a read would refuse. That test needs the whole file, so indexing skips a page or script over 16 MiB, which limits the memory one read takes. Search still finds a refused or skipped file by name, and a watched file that stops passing the test loses its stored content but keeps its file row.
 - **Scripts are searched by keyword only.** The markdown chunker reads a script's `# comment` lines as headings and turns `snake_case` names into one word, so embedding skips scripts before their text loads.
 
-**PDF extraction:** pdfjs parses untrusted input, and one crafted PDF can exhaust a process's memory, so every PDF text extraction, for a tool read or for indexing, runs in one child process that the server can limit, replace and outlive. `server.ts` creates the `vault-operations/pdf-extractor.ts` instance at startup, and the instance starts its child on the first PDF request; `pdf-extraction-child.ts` is the child's entry point, and `pdf-extraction-protocol.ts` validates every message between them.
+**PDF extraction:** pdfjs parses untrusted input, and one crafted PDF can exhaust a process's memory, so every PDF text extraction, for a tool read or for indexing, runs in one child process that the server can limit, replace and outlive. `vault-operations/pdf-extractor.ts` starts the child on the first PDF request, and every message between the two is validated.
 
 | Concern              | How it is handled                                                                                                                                                                                                                                                                                                                                                                                            |
 | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -448,10 +456,10 @@ A `tasks` table in the same SQLite database stores checkbox task lines, parsed b
 
 - **Right-to-left signifier stripping** — status, all six dates, priority, recurrence, onCompletion, dependencies, inline tags, block IDs.
 - **Both formats in one pass** — emoji and [Dataview](https://blacksmithgu.github.io/obsidian-dataview/) inline fields are recognized together (the plugin reads one configured format per vault), so mixed-format vaults index uniformly.
-- **Fences, comments, and NON_TASK skipped** — task lines inside fenced code blocks and `%% %%` comments are ignored; the parser threads the same fence and comment state machines as heading and link extraction (`lines.ts`). Checkboxes the Tasks plugin's status registry classifies as NON_TASK are also excluded — they are not tasks in the plugin's model.
+- **Fences, comments, and NON_TASK skipped** — task lines inside fenced code blocks and `%% %%` comments are ignored, by the same rules heading and link extraction use. Checkboxes the Tasks plugin's status registry classifies as NON_TASK are also excluded — they are not tasks in the plugin's model.
 - **Sub-task depth** — an indent stack during extraction gives each task a `depth` (0 for top-level, 1+ for sub-tasks) and a `parent_block_id` (the parent's block_id, when it has one). Blockquote markers are stripped before measuring indent; a plain list item at a task's indent closes that task's sub-task scope (a task nested under a non-task bullet is top-level); depth resets at heading boundaries.
 
-Each row carries its attribution — note path, full parent folder, 1-based file line number, and the nearest heading when the task sits under one (the Kanban lane on a board) — so no follow-up reads are needed to locate a task. Rows are replaced per note inside `upsertNote`, deleted in `removeNote`, and wiped on rebuild — the same lifecycle as the FTS rows.
+Each row carries its attribution — note path, full parent folder, 1-based file line number, and the nearest heading when the task sits under one (the Kanban lane on a board) — so no follow-up reads are needed to locate a task. Rows share the FTS rows' lifecycle: replaced when their note is re-indexed, deleted with it, and wiped on rebuild.
 
 `vault_list_tasks` queries the table with structured filters and sort keys:
 
@@ -461,9 +469,9 @@ Each row carries its attribution — note path, full parent folder, 1-based file
 Four design choices shape the query surface:
 
 - **Array params for status and heading** — both accept `string | string[]`, OR-combined. This collapses multi-lane Kanban queries (e.g. Active + Up Next + Waiting On) into a single call instead of N sequential reads.
-- **Checklist progress on parent entries** — `subtask_progress: { done, total }` aggregates each task's direct children in the same query (a grouped self-join on the parent line), so filtered or `top_level_only` reads still show how far along a card's checklist is. The field appears only on tasks that have a checklist; `done` counts status done only, and the counts ignore the query's filters — progress belongs to the card, not the query.
+- **Checklist progress on parent entries** — `subtask_progress: { done, total }` aggregates each task's direct children in the same query, so filtered or `top_level_only` reads still show how far along a card's checklist is. The field appears only on tasks that have a checklist; `done` counts status done only, and the counts ignore the query's filters — progress belongs to the card, not the query.
 - **Date cascade sorting** — when the primary sort date is absent on a task, actionable date sorts fall back through the remaining fields in urgency order (due → scheduled → start → created), each using its own natural direction. (`done`, a terminal-state date, stands alone.) Tasks with sparse dates sort usably instead of clustering at the end.
-- **Kanban awareness** — each task carries an `is_kanban_task` flag, derived via `json_extract` on the parent note's `kanban-plugin` frontmatter (no schema changes). When true, `heading` carries the lane name, and `sort_by: "position"` (file path then line number) preserves the board's card arrangement as the sort order. A `done_lanes` field (populated at index time by scanning for the Kanban plugin's `**Complete**` marker between headings and list items) tells agents which lane(s) represent task completion.
+- **Kanban awareness** — each task carries an `is_kanban_task` flag, set when its note has `kanban-plugin` frontmatter. When true, `heading` carries the lane name, and `sort_by: "position"` (file path then line number) preserves the board's card arrangement as the sort order. A `done_lanes` field names the lanes the Kanban plugin marks `**Complete**`, so agents know which lanes represent task completion.
 
 `vault_create_task` builds a task line (description, priority, recurrence, `on_completion`, dates, `task_id`, `depends_on`, `block_id`) plus optional checklist sub-item lines. The line builder is a pure string transform in `obsidian-markdown/tasks.ts`; the I/O orchestration lives in `vault-operations/task-mutations.ts`:
 
@@ -476,9 +484,14 @@ Four design choices shape the query surface:
 
 - **Mutations compose** — every field passed is applied in the same write cycle; clearing a field is always an explicit `null`.
 - **Line splitting follows the parser** — the description is everything before the metadata tail, and a signifier only opens the tail when everything after it parses as fields (a priority emoji used as prose stays in the description). Description edits, priority changes, and the returned `description` all use that boundary.
-- **Status** — toggles the checkbox character and stamps or strips done/cancelled dates. `status: "done"` on a top-level Kanban task without an explicit `heading` auto-detects the done lane. Completing a recurring task (🔁) spawns the next occurrence — dates advanced per the rule, block link, 🆔 id and ⛔ dependencies cleared — adjacent to the completed line (above by default, below with the plugin's `recurrenceOnNextLine` setting); the spawn stays in the source lane. A task with `🏁 delete` / `[onCompletion:: delete]` is removed from the file on completion instead of moving to done; when combined with recurrence, the spawn is written first and the completed line is then deleted.
+- **Status** — toggles the checkbox character and stamps or strips done/cancelled dates.
+  - `status: "done"` on a top-level Kanban task without an explicit `heading` moves it to the auto-detected done lane.
+  - Completing a recurring task (🔁) spawns the next occurrence — dates advanced per the rule, block link, 🆔 id and ⛔ dependencies cleared — adjacent to the completed line (above by default, below with the plugin's `recurrenceOnNextLine` setting); the spawn stays in the source lane.
+  - A task with `🏁 delete` / `[onCompletion:: delete]` is removed from the file on completion instead of moving to done; with recurrence, the spawn is written first and the completed line then deleted.
 - **Dates** — set or clear due, scheduled, start, and created at their position in the field ordering.
-- **Heading moves and position** — `heading` moves the task and its indented sub-items to another section; on a Kanban board that is a lane move, but any note with headings works. `position` (`"top"`, `"bottom"`, or a 1-based integer) selects where within the target heading the card lands; without a `heading`, it triggers a same-lane reorder (rejected when the task sits above the first heading or the lane's heading name is duplicated). A sub-task (depth > 0) never moves or reorders: an explicit `heading` or `position` is rejected, and `status: "done"` changes its checkbox in place.
+- **Heading moves and position** — `heading` moves the task and its indented sub-items to another section (a lane move on a Kanban board, but any note with headings works). `position` (`"top"`, `"bottom"`, or a 1-based integer) selects where within the target heading the card lands.
+  - Without a `heading`, `position` reorders the task within its lane; it is rejected when the task sits above the first heading or the lane's heading name is duplicated.
+  - A sub-task (depth > 0) never moves or reorders: an explicit `heading` or `position` is rejected, and `status: "done"` changes its checkbox in place.
 - **`add_subtasks`** — appends checklist items under the task's existing ones.
 - **Block IDs** — `assign_block_id` adds or replaces the line's ID, and `null` removes it. `next_block_id` gives a completed recurring task's next occurrence an ID the note does not hold yet, and is refused when the update creates no next occurrence. On a Kanban board, no new ID goes on an indented line, for the reason given above: `assign_block_id` and `next_block_id` are refused there, as is any edit that would leave the line ending in a new `^id`, such as a description ending in one with no fields after it. A checklist item ending in a `^id` is refused under any card on a board.
 
@@ -486,7 +499,7 @@ Four design choices shape the query surface:
 
 Both tools refuse a `block_id` found at the end of more than one task line, as the task to update or as a new sub-task's parent, and list every matching line instead of acting on the first.
 
-Both tools parse the written line back (`diffTaskRoundTrip` in `tasks.ts`) and return an advisory, not an error, for each field that does not read back as the call intended. Description or checklist text that ends in a signifier is read back according to that field's value grammar: a trailing `🔁` reads any following words as its recurrence rule, while `📅` followed by words that are not a `YYYY-MM-DD` date stays description text.
+Both tools parse the written line back and return an advisory, not an error, for each field that does not read back as the call intended. Description or checklist text that ends in a signifier is read back according to that field's value grammar: a trailing `🔁` reads any following words as its recurrence rule, while `📅` followed by words that are not a `YYYY-MM-DD` date stays description text.
 
 `vault_create_task` and `vault_update_task` read the Tasks plugin's format and date toggles on every write, so a change in Obsidian applies to the next write. The plugin's status registry is read once at boot, so `vault_list_tasks` and the two write tools always agree on which checkboxes are tasks; a status-type change needs a restart.
 
@@ -498,15 +511,15 @@ Alongside tools, the server registers MCP **prompts** (`prompts/list` / `prompts
 - **Client surfacing:** varies by client — a **+** menu (Claude Desktop), slash commands (Claude Code), or similar (OpenCode, Zed); some clients (Cursor, Windsurf) currently expose tools only.
 - **No drift by construction:** handlers assemble live vault content at invocation time over the same data layer the tools use — live content plus thin, durable instruction, never an embedded procedure that can go stale.
 
-| Prompt              | Arguments             | Purpose                                                                                                                                                                                                                                                                                                                                       |
-| ------------------- | --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `vault-orientation` | —                     | Vault stats, folder note counts, property adoption rates, orphan detection, broken link count, tags, recent notes, memory outline, and contextual tool suggestions. Uses `findOrphans`, `brokenLinkCount`, `vaultStats` alongside the existing tag/property/recent queries.                                                                   |
-| `memory-review`     | `file?`, `max_chars?` | Structural overview (scope callouts from `listMemoryFiles`, section entry counts) + dated content as a timeline. Guided reflection: evolution narrative, scope-fit against declared scopes, backfill gaps, coverage analysis. Append-only by design.                                                                                          |
-| `daily-review`      | `date?`, `max_chars?` | Reconciles a day — daily note content + outgoing links (via `getOutgoingLinks`, with broken-link flags) + backlinks (via `getBacklinks`) + date-specific activity (via `modifiedOnDate`) + vault-wide task status (due/overdue, scheduled, daily-note-scoped via `listTasks`). Surfaces what happened, what's open, and what needs follow-up. |
+| Prompt              | Arguments             | Purpose                                                                                                                                                                                                                                                 |
+| ------------------- | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `vault-orientation` | —                     | Vault stats, folder note counts, property adoption rates, orphan detection, broken link count, tags, recent notes, memory outline, and contextual tool suggestions.                                                                                     |
+| `memory-review`     | `file?`, `max_chars?` | Structural overview (scope callouts, section entry counts) + dated content as a timeline. Guided reflection: evolution narrative, scope-fit against declared scopes, backfill gaps, coverage analysis. Append-only by design.                           |
+| `daily-review`      | `date?`, `max_chars?` | Reconciles a day — daily note content + outgoing links (with broken-link flags) + backlinks + that date's activity + vault-wide task status (due/overdue, scheduled, daily-note-scoped). Surfaces what happened, what's open, and what needs follow-up. |
 
 - **Handlers degrade, never throw** — a failure returns a valid fallback message; a prompt never hard-fails the client.
 - **`memory-review` reads the layer as a timeline** — each dated entry was true when written, never "newest supersedes older," and no pruning of "stale" entries. The one exception: a memory file declaring `entry-policy: living` (a current-state snapshot, e.g. the Routines template) may have expired entries proposed for pruning; `vault_list_memory_files` surfaces the policy as `entry_policy`.
-- **`daily-review` uses `modifiedOnDate`, not `recentNotes`** — past-date reviews show activity from _that_ date, not today's globally recent notes.
+- **`daily-review` reads the reviewed date's activity** — past-date reviews show notes modified on _that_ date, not today's globally recent notes.
 
 ## Hybrid Search
 
@@ -519,19 +532,22 @@ Alongside tools, the server registers MCP **prompts** (`prompts/list` / `prompts
 | **Vector KNN** | sqlite-vec (brute-force)                                                                 | in DB    | <1ms                   | negligible  |
 | **RRF fusion** | application-layer                                                                        | —        | <1ms                   | negligible  |
 
-Both models lazy-load on first use (~1–2s cold start each, kept in memory after). The first load downloads them into `models/` beside the search index, on the data volume, so a recreated container reuses them. Total disk: ~59MB. Total peak memory: ~300MB above baseline. Opt-out: `EMBEDDING_ENABLED=false` disables both models; `RERANK_MODE=none` keeps vectors but skips the cross-encoder.
+- **Loading:** both models lazy-load on first use (~1–2s cold start each) and stay in memory.
+- **Disk:** the first load downloads them (~59MB total) into `models/` beside the search index, on the data volume, so a recreated container reuses them.
+- **Memory:** ~300MB peak above baseline.
+- **Opt-out:** `EMBEDDING_ENABLED=false` disables both models; `RERANK_MODE=none` keeps vectors but skips the cross-encoder.
 
 ### Query fusion
 
 `vault_search` calls `hybridSearch`, which runs up to four ranked retrieval legs and merges results via RRF. The flow:
 
-1. **Note FTS5** keyword search (synchronous, `fullTextSearch`):
+1. **Note FTS5** keyword search:
    - The title column holds the note's title and each of its [aliases](https://obsidian.md/help/aliases), one per line, so an alias match ranks like a title match. The metadata column keeps only alias entries that are not text, such as numbers.
    - A note whose title or alias equals the whole query sorts first, ignoring letter case and one pair of surrounding double quotes.
 2. **File content FTS5** — linearized canvas, extracted PDF text, text files, HTML visible text, and scripts (skipped when note-specific filters are active)
 3. **Note vector search** — embed the query → sqlite-vec KNN over `note_vectors` → deduplicate to best chunk per note
 4. **File content vector search** — same query embedding → KNN over `file_content_vectors` → deduplicate to best chunk per file (same skip condition as step 2)
-5. **RRF fusion** (`computeRrfScores`) — score = Σ(1/(k+rank)) across all available lists, k=60, with top-rank bonuses (+0.05 rank 1, +0.02 ranks 2–3):
+5. **RRF fusion** — score = Σ(1/(k+rank)) across all available lists, k=60, with top-rank bonuses (+0.05 rank 1, +0.02 ranks 2–3):
    - The two file-content legs contribute at half weight (0.5, applied to base term + bonus together) — a large file matching scattered common words across its chunks earns leg rank too easily, so a file result needs a strong match or corroboration from another leg to reach the top ranks
    - Under a note-specific filter only the two note legs fuse — steps 2 and 4 skipped the file legs
    - Ties break by path so equal scores order deterministically
@@ -539,10 +555,7 @@ Both models lazy-load on first use (~1–2s cold start each, kept in memory afte
 
 A `folder` filter is applied inside SQL on all four legs — a `LIKE 'folder/%'` predicate on the FTS queries and a `chunk_id IN (…)` pre-filter on the KNN queries — so each leg picks its top candidates from inside the folder, and closer matches elsewhere in the vault cannot fill its result limit. Folder matching ignores ASCII letter case on every leg.
 
-Note FTS and note KNN build their filter clauses with one function, `buildNoteFilterSql`, covering folder, tags, type, related, properties, created and modified:
-
-- With any filter besides `folder`, the note KNN query keeps only chunks of notes that pass every filter (a `chunk_id IN (…)` subquery) before sqlite-vec picks the k nearest, so closer notes the filters exclude cannot fill the result.
-- The same function reports whether a filter besides `folder` is set, and `hybridSearch` then skips both file-content legs, which can filter only by folder.
+Note FTS and note KNN apply the same filters: folder, tags, type, related, properties, created and modified. With any filter besides `folder`, the note KNN query keeps only chunks of notes that pass every filter before sqlite-vec picks the k nearest, so closer notes the filters exclude cannot fill the result. The file-content legs can filter only by folder, so any other filter skips them.
 
 ### Cross-encoder reranking
 
@@ -597,8 +610,8 @@ When no embedder is configured (`EMBEDDING_ENABLED=false`), no vectors are index
 
 1. The watcher starts holding: from then on, it records each path chokidar reports as changed instead of indexing it. Startup waits for chokidar's initial scan to finish.
 2. `rebuildFromVault` runs. The watcher is the index's only other writer, because a tool's vault write reaches the index as a watcher event. The watcher is holding, so nothing else writes while the rebuild reads.
-3. The watcher goes live. In the same step, it removes each held path whose latest event was a deletion, and marks every held path so that the step 4 batch drops its own read of a path that a live change then indexes.
-4. One batch checks each held path against the disk, `INDEXING_FILE_READ_CONCURRENCY` (16) at a time. Paths gone from disk are removed first. Other files are read again within the rebuild's limits, 16 at a time; each PDF gets its file-name row in the background and joins the PDF pass's queue.
+3. The watcher goes live and removes each held path whose latest event was a deletion. From then on, a live change to a held path wins over the step 4 batch's read of it.
+4. One batch checks each held path against the disk: paths gone from disk are removed first, and other files are read again within the rebuild's limits, 16 at a time. Each PDF gets its file-name row in the background and joins the PDF pass's queue.
 
 The server starts accepting requests once the step 4 batch has finished writing its non-PDF files to the index, or after 10 s if a Sync backlog makes the batch longer; the batch then finishes in the background. A live change that indexes a held path can finish just after the server starts.
 
@@ -611,16 +624,14 @@ Vector tables persist across restarts and rebuilds (only FTS, notes, links, task
 - **PDFs:** a PDF within `MAX_FILE_BYTES` keeps its chunks and vectors when the rebuild writes its file-name row, so semantic search answers from them until the PDF pass re-embeds the chunks whose text changed. The file watcher sees only PDFs that changed, so it removes a PDF's chunks and vectors before it writes the file-name row.
 - **PDFs left with only their file-name row:** a PDF over `MAX_FILE_BYTES` loses its chunks and vectors when the rebuild writes its file-name row, and one whose extraction or publication fails loses them in the PDF pass.
 
-**Incremental updates:** the file watcher calls `embedNote` after `upsertNote` and `embedFileContent` after `upsertFileContent`; deletion cleans up both vectors and chunks.
+**Incremental updates:** the file watcher re-embeds a note or file after re-indexing it; a deletion removes both its vectors and its chunks.
 
 **Embedding freshness:**
 
-- Each successful source upsert returns a unique `sourceVersion`. Queued watcher jobs and background rebuild snapshots retain that version, so deletion or replacement invalidates earlier work even when content or modification time repeats.
-- Note, file-content and memory-entry writers check the captured version before model work and after each model await. Obsolete jobs skip derived writes, note/file tail pruning and later memory batches.
-- The watcher assigns an event token before reading each file and checks it before indexing. Unlink or a newer event invalidates earlier reads; embedding stays serialized per path to limit model concurrency.
-- Each note and file reaches the keyword index before its own embedding is queued.
+- A newer edit or a deletion makes earlier reads and embedding work for that note, file or memory entry obsolete, even when its content or modification time repeats. Obsolete work writes no vectors and prunes nothing.
+- Each note and file reaches the keyword index before its own embedding is queued, and embedding stays serialized per path to limit model concurrency.
 
-**Background embedding and tool calls:** model inference runs synchronously on the server's one JavaScript thread, so before each background model call (a chunk, or a 16-entry memory batch) the job waits until no tool call or prompt is running, for at most 5 seconds (`BACKGROUND_EMBED_MAX_WAIT_MS`). A tool call or prompt that arrives while a model call runs still waits for the model call to finish.
+**Background embedding and tool calls:** model inference runs synchronously on the server's one JavaScript thread, so before each background model call (a chunk, or a 16-entry memory batch) the job waits until no tool call or prompt is running, for at most 5 seconds. A tool call or prompt that arrives while a model call runs still waits for the model call to finish.
 
 **Embedding pipeline:** Controlled by `EMBEDDING_ENABLED` (default: `true`). Markdown syntax is stripped before embedding (`plaintext.ts`). Short notes (under 500 body tokens) stay a single title-prefixed chunk unless a metadata line pushes them past the chunk budget. Longer notes split into per-heading sections via `chunker.ts`:
 
@@ -631,7 +642,7 @@ Vector tables persist across restarts and rebuilds (only FTS, notes, links, task
 - **Prefix part length:** in chunk prefixes, the title, the metadata line and each heading name are cut to 2,000 characters, about 370 of the embedding model's 512 tokens in English; the TOC chunk keeps the full title and heading names
 - **Empty sections:** a heading whose slice is empty emits no section chunk. Its name still appears in the TOC and in descendant chunks' `Section:` lines. A top-level heading with children still emits its aggregate even without text of its own, because its slice spans the subtree.
 - **Table-of-contents chunk:** each split note with named headings emits one short chunk with its folder path and title on the first line, followed by heading names in document order within the chunk budget. This gives a broad query a compact view of the note's topics without requiring one section to represent the whole note
-- **Sub-splitting:** oversized sections split at paragraph boundaries (MAX_CHUNK_TOKENS = 450, minus each chunk's prefix cost), with a sub-minimum trailing fragment merged backward
+- **Sub-splitting:** oversized sections split at paragraph boundaries (450 tokens, minus each chunk's prefix cost), with a sub-minimum trailing fragment merged backward
 - **Per-note limit:** a note's chunk text stops at 50 times its stripped body or 50 million characters, whichever is smaller, and the first chunk and the TOC chunk always stay. The limit keeps embedding work proportional to note length, and ordinary notes stay under it; full-text search covers a note past the limit in full
 
 Content-hash gating (SHA-256 per chunk) skips re-embedding unchanged content on both incremental file-watcher updates and full rebuilds. A chunk whose text already has a stored vector elsewhere in the same note or file gets that vector copied, so an edit near the top of a long note re-embeds only the chunks whose text changed.
@@ -643,10 +654,10 @@ Content-hash gating (SHA-256 per chunk) skips re-embedding unchanged content on 
 - `file_content_chunks`: stores chunk text, position index, and content hash per non-markdown file (canvas, PDF, text, HTML; scripts are never embedded)
 - `file_content_vectors` (vec0): stores 384-dim Float32 embeddings keyed by chunk ID
 
-**New-directory rescan:** chokidar handles a newly-appeared directory in two steps: first it scans the directory's contents, then it registers the directory's `fs.watch`. A file created between the scan and the registration is silently lost ([chokidar#1471](https://github.com/paulmillr/chokidar/issues/1471)) — the scan didn't see it, and no watch existed to catch the event. The server's atomic write into a freshly created folder can hit exactly that window, leaving the note invisible to search. As a safety net, the watcher schedules a one-shot rescan of every new directory, delayed to twice chokidar's write-stability threshold (`awaitWriteFinish`, 2 s — a 4 s delay) so in-flight writes settle first. The rescan:
+**New-directory rescan:** chokidar misses a file created in a new directory between scanning the directory and starting to watch it ([chokidar#1471](https://github.com/paulmillr/chokidar/issues/1471)), and the server's own write into a freshly created folder can hit that window, leaving the note invisible to search. The watcher therefore rescans every new directory once, 4 s later (twice chokidar's 2 s write-stability threshold), so in-flight writes settle first. The rescan:
 
 - lists the directory recursively (symlinked directories included) and skips everything chokidar already tracks
-- indexes each settled file chokidar missed, and registers every missed entry with `watcher.add()` so future events fire for it
+- indexes each settled file chokidar missed, and watches every missed entry so future events fire for it
 - leaves any file still mid-write for the `awaitWriteFinish` gate to index once it settles, retrying itself only where no watch exists yet
 
 **Indexing pipeline (startup + incremental):**
@@ -886,8 +897,7 @@ cryptographic or binding checks. The binding claims
 
 `vault` is the only scope the server advertises. Every new sign-in is granted
 it at authorization time, whatever scope the client requests, so the access
-token and every refresh carry the same value as the static token. A refresh
-grant that an earlier version stored with another scope keeps that scope.
+token and every refresh carry the same value as the static token.
 
 The consent page shows where Approve sends access (the redirect address's
 scheme and host, or the whole address when it has no host) and a fixed
@@ -905,19 +915,17 @@ description of the grant.
 - **Refresh grants** — bound to the issuing client; may narrow scope but
   never widen it. Reuse detection: each rotation records the consumed token,
   and replaying one revokes the entire grant: every refresh token the client
-  holds and every access token issued strictly before the revocation. The
-  revocation is logged as `oauth_refresh_token_reuse`. Consumed records
-  expire with their parent token's window.
+  holds and every access token issued strictly before the revocation.
+  Consumed records expire with their parent token's window.
 - **Consent requests** — held in memory for 10 minutes while the consent page
   waits for the owner. `/authorize` needs no sign-in, so the server bounds
   what anyone can make it hold:
   - the per-client-IP rate limit bounds how many requests arrive in those
     10 minutes, so the bound is only as strong as the client IP (see Rate
     limiting below);
-  - each new request first removes the held requests that have expired,
-    logged as `oauth_pending_requests_purged`;
+  - each new request first removes the held requests that have expired;
   - a request whose parameters exceed 8 KB of JSON is refused with
-    `invalid_request`, logged as `oauth_authorize_rejected`;
+    `invalid_request`;
   - a held request keeps its client's ID rather than a copy of the
     registration, which can run to 9 KB, and lookups load the registration
     from the database.
@@ -937,8 +945,7 @@ description of the grant.
   detection) insert a per-client cutoff that rejects tokens minted strictly
   before the revocation time. A revoked JWT outlives its revocation by at
   most the access-token lifetime, so rows older than that are purged at boot
-  and before each new revocation, logged as `oauth_revoked_tokens_purged`
-  and `oauth_revoked_clients_purged`.
+  and before each new revocation.
 
 **Refresh token expiry:** 60-day sliding (inactivity) window. Each successful
 use rotates the token AND extends the window by another 60 days, so a daily
@@ -995,12 +1002,8 @@ proxy-trust config:
   Access policy on the tunnel host admits nothing else, so the only
   `Forwarded` header reaching the container is the gateway's.
 
-express-rate-limit's built-in validators still run. Its proxy-header checks
-live in the library's default key generator, and the custom
-`extractClientIp` key generator replaces that default, so those checks
-don't fire behind the reverse proxy. A tripped limiter
-emits an `oauth_rate_limited` warn log with the client IP and endpoint path
-before returning the 429.
+A tripped limiter logs a warning with the client IP and endpoint path, then
+answers 429.
 
 **Authorization errors:** the SDK's `/authorize` handler reports a malformed
 request by redirecting to the client's registered address, which anyone can
@@ -1011,47 +1014,31 @@ needs no token, so a page anyone serves could submit it.
 
 **Registrations that never signed in:** every MCP client registers itself
 through `/register` on first connect, and some register more than once per
-connect, so the `clients` table would grow with rows no client ever uses.
-A registration older than an hour that never signed in is deleted at boot
-and before each new registration is stored, logged as `oauth_clients_swept`:
+connect. A registration older than an hour that never signed in is deleted
+at boot and before each new registration is stored:
 
-- A registration has signed in once the server has saved a refresh token
-  for it, which sets its `signed_in_at` column
-- Consent follows registration within minutes, and a consent request and
-  an authorization code each live ten minutes, so a row not signed in after
-  an hour never finished consent, or started it unusually late; a late
-  sign-in the sweep cuts off reconnects through the `/authorize` page below
-- A client that has signed in is never swept, even after its grant is
-  revoked or its last refresh token expires
-- Such a client cannot recover from a sweep on its own: it keeps presenting
-  its `client_id`, and `/authorize` answers an unknown one in the browser,
+- **Signed in** means the server has saved a refresh token for the
+  registration. A client that has signed in is never swept, even after its
+  grant is revoked or its last refresh token expires.
+- **Why an hour:** consent follows registration within minutes, and a
+  consent request and an authorization code each live ten minutes, so a row
+  not signed in after an hour never finished consent, or started it
+  unusually late.
+- **A swept client** cannot recover on its own: it keeps presenting its
+  `client_id`, and `/authorize` answers an unknown one in the browser,
   where the client never sees the error, with a page that tells the user
-  how to clear the sign-in saved in the client app
-- Signing a client in requires entering `MCP_AUTH_TOKEN` on the consent
-  page, so only the owner adds rows that stay
-- The per-IP `/register` rate limit bounds how fast rows that never sign in
-  can appear, and the sweep bounds how long they stay
-- A registration's JSON body is capped at 8 KB, which bounds what
-  `/register` parses
-- A registration whose stored JSON would exceed 9 KB is refused with
-  `invalid_client_metadata`, which bounds how much disk each of those rows
-  takes; the 1 KB over the body cap covers the credentials the server adds
-- A partial index orders the registrations that never signed in by issue
-  time, so each sweep reads only the rows past their hour, which it deletes;
-  rows still inside their hour add nothing to the cost of a later
-  registration
-- The index cannot hold a registration whose JSON SQLite cannot read back
-  (nested past its 1,000-level limit), so `/register` refuses one with
-  `invalid_client_metadata`
-- Boot deletes every registration that never signed in and that SQLite
-  cannot read, logged as `oauth_unreadable_clients_deleted`, because one
-  would stop the index build; a signed-in one stays, outside the index
-- Adding `signed_in_at` to an existing `oauth.db` sets it on every row
-  already there, in the same transaction, and logs
-  `oauth_clients_marked_signed_in` with the count when there was at least
-  one row
-- The old schema cannot tell which rows signed in, so every registration
-  present at the upgrade is kept, including any that never signed in
+  how to clear the sign-in saved in the client app.
+- **Bounds:** only the owner adds rows that stay, because signing in
+  requires entering `MCP_AUTH_TOKEN` on the consent page. The per-IP
+  `/register` rate limit bounds how fast other rows appear, the sweep
+  bounds how long they stay, and each sweep reads only the rows past their
+  hour.
+- **Size limits:** a registration's JSON body is capped at 8 KB. One whose
+  stored JSON would exceed 9 KB (the body plus the credentials the server
+  adds) is refused with `invalid_client_metadata`, as is one nested past
+  SQLite's 1,000-level JSON limit.
+- **Unreadable rows:** boot deletes every registration that never signed in
+  and that SQLite cannot read; a signed-in one stays.
 
 **Rotating `MCP_AUTH_TOKEN`:** update the SST secret AND the Lightsail `.env`,
 then redeploy both
@@ -1110,31 +1097,30 @@ graph LR
     B -.->|sync state| F[("config volume<br/>/home/obsidian/.config")]
 ```
 
-1. **Init chain** — `init-derive-env` (publishes boot-time defaults to every
-   later stage via `/run/s6/container_environment/`: `VAULT_PATH` and
-   `INDEX_DB_PATH`, relocated under `STORAGE_ROOT` when set, and `PUBLIC_URL`
-   filled from the hosting platform's variable when unset — see "Single-volume
-   layout" below) → `init-setup-user` (adjusts the `obsidian` user to
-   PUID/PGID and fixes ownership of the vault and config directories, the
-   index directory with the search models in it, and `/home/obsidian`) →
-   `init-check-auth` (looks for the Sync token in the env var, then in the
-   Sync client's own credential file on the config volume; with neither,
-   the boot switches to [setup mode](#setup-mode) instead of stopping) →
-   `init-obsidian-login` (`ob login`) → `init-setup-vault` (sets up the
-   vault's Sync in the steps listed after this chain) → `init-first-sync`
-   (one-shot `ob sync` run to _completion_, with retries; its four steps,
-   failure branches included, are listed below). Any
-   fatal init failure stops the container
-   (`S6_BEHAVIOUR_IF_STAGE2_FAILS=2`) — the restart policy owns retry.
-
-   `init-setup-vault` fails fast when `VAULT_NAME` is missing or `SYNC_MODE`
-   fails to apply. Its steps, in order:
-
-   1. `check-sync-vault` stops the boot, before anything is written, when the
-      volume's Sync setup is for a different vault than `VAULT_NAME`.
-   2. `ob sync-setup` with `--device-name`, then a check that the Sync client
-      now uses `VAULT_NAME`'s vault.
-   3. Optional sync-config settings.
+1. **Init chain** — oneshots in this order. Any fatal init failure stops the
+   container (`S6_BEHAVIOUR_IF_STAGE2_FAILS=2`), and the restart policy owns
+   retry.
+   - `init-derive-env` publishes boot-time defaults to every later stage:
+     `VAULT_PATH` and `INDEX_DB_PATH`, relocated under `STORAGE_ROOT` when
+     set, and `PUBLIC_URL` filled from the hosting platform's variable when
+     unset (see [Single-volume layout](#single-volume-layout) and
+     [`PUBLIC_URL` derivation](#public_url-derivation)).
+   - `init-setup-user` adjusts the `obsidian` user to PUID/PGID and fixes
+     ownership of the vault and config directories, the index directory with
+     the search models in it, and `/home/obsidian`.
+   - `init-check-auth` looks for the Sync token in the env var, then in the
+     Sync client's own credential file on the config volume; with neither,
+     the boot switches to [setup mode](#setup-mode) instead of stopping.
+   - `init-obsidian-login` runs `ob login`.
+   - `init-setup-vault` sets up the vault's Sync, failing fast when
+     `VAULT_NAME` is missing or `SYNC_MODE` fails to apply:
+     1. `check-sync-vault` stops the boot, before anything is written, when
+        the volume's Sync setup is for a different vault than `VAULT_NAME`.
+     2. `ob sync-setup` with `--device-name`, then a check that the Sync
+        client now uses `VAULT_NAME`'s vault.
+     3. Optional sync-config settings.
+   - `init-first-sync` runs one-shot `ob sync` to _completion_, with retries;
+     its four steps, failure branches included, are listed below.
 
 2. **`svc-obsidian-sync`** — bidirectional Obsidian Sync
    (`ob sync --continuous`). Stores sync state in the config volume at
@@ -1159,10 +1145,8 @@ process has spawned. Two mechanisms with distinct jobs:
   files.** Four steps, in order:
   1. **Deletion-storm guard** (before sync runs): the container refuses to
      start when the Sync client's file record lists files but the vault has
-     no content.
-     - The record is `obsidian-headless/sync/<vaultId>/state.db` on the
-       config volume. At startup, the Sync client pushes every recorded file
-       that is missing from disk as a deletion.
+     no content, because at startup the Sync client pushes every recorded
+     file that is missing from disk as a deletion.
      - Content is a regular file: any file at any depth with no dot-named
        path component, or any file inside `.obsidian/` except under the
        Sync client's own `.sync.lock/`.
@@ -1228,9 +1212,8 @@ flowchart TD
     F -->|restart policy| A
 ```
 
-1. `init-check-auth` publishes `SETUP_MODE=1` to
-   `/run/s6/container_environment/`. The login, vault-setup, and first-sync
-   steps skip.
+1. `init-check-auth` publishes `SETUP_MODE=1` to every later stage. The
+   login, vault-setup, and first-sync steps skip.
 2. `svc-obsidian-sync` holds its slot with `sleep` so `svc-vault-mcp` can
    start.
 3. `svc-vault-mcp` runs `setup-server.ts` instead of `server.ts`.
@@ -1256,11 +1239,10 @@ flowchart TD
      proceeds and the boot chain reports any problem.
 6. The token is written where the Sync client reads it (directory 0700,
    file 0600).
-7. The setup server exits. `svc-vault-mcp/finish` finds the token, writes
-   exit code 1 to `/run/s6-linux-init-container-results/exitcode`, and
-   halts. The restart policy boots the container again — a normal boot,
-   with the token on the volume. The exit code is 1 rather than 0 because
-   Railway's default policy ("On Failure") treats 0 as finished.
+7. The setup server exits, and the container stops with exit code 1. The
+   restart policy boots it again — a normal boot, with the token on the
+   volume. The exit code is 1 rather than 0 because Railway's default policy
+   ("On Failure") treats 0 as finished.
 
 A file-sourced token that `ob login` later rejects is kept:
 `init-obsidian-login` publishes `SETUP_MODE=1` and
@@ -1288,14 +1270,10 @@ rejected at startup because `find -path` treats them as wildcards):
   [XDG Base Directory](https://specifications.freedesktop.org/basedir-spec/latest/)
   variable for per-user config, `~/.config` when unset; obsidian-headless
   keeps its Sync login and device registration under
-  `$XDG_CONFIG_HOME/obsidian-headless/`, and `init-setup-user` /
-  `init-first-sync` read the `.applied-ids` record and the Sync client's
-  own state there
+  `$XDG_CONFIG_HOME/obsidian-headless/`
 
 Derivation never overrides a variable that is already set to a non-empty
-value. `LOG_DIR=none` turns log files off; the sentinel exists because every
-deployment surface that defaults `LOG_DIR` on substitutes its default for an
-empty value, so "empty" cannot mean "off". Without `STORAGE_ROOT`, the layout
+value. `LOG_DIR=none` turns log files off. Without `STORAGE_ROOT`, the layout
 is the three-mount one, and Compose and plain `docker run` deployments are
 unaffected.
 
@@ -1311,9 +1289,7 @@ is set:
 - `RAILWAY_PUBLIC_DOMAIN` → `https://$RAILWAY_PUBLIC_DOMAIN`
 
 When none is present, `PUBLIC_URL` stays unset and the server's
-required-variable error fires as usual. The derivations live in one pure
-script, `print-derived-env`, which `init-derive-env` runs at boot and the unit
-tests run directly under `sh`.
+required-variable error fires as usual.
 
 #### Hosted platform templates
 
@@ -1335,13 +1311,6 @@ s6-overlay v3 refuses to run as a child of a platform-injected init
 do; the probe is a deploy with no variables set, which must reach the
 container's init scripts rather than fail in s6. With no Sync token,
 `init-check-auth` selects setup mode.
-
-`cli/src/rules/__tests__/templates.test.ts` pins `render.yaml` to the published
-image, to the fixed values above (`PORT`, `STORAGE_ROOT`, `DEVICE_NAME`), to
-the image's own defaults for the optional settings it pre-fills
-(`MEMORY_ENABLED`, `EMBEDDING_ENABLED`, `READONLY_MODE`, `FILE_TOOLS_ENABLED`,
-`SYNC_MODE`, `CONFLICT_STRATEGY`, `SYNC_EXCLUDED_FOLDERS`, `SYNC_FILE_TYPES`), and to
-leaving the boot-derived variables unset.
 
 The local target (`:latest`) skips all of this — no s6, no sync; tini runs
 the MCP server as PID 1's only child.
@@ -1432,12 +1401,13 @@ Docker hardening, and durability seatbelts above.
 - **Trash handling** (`moveNoteToTrash` in `vault-filesystem.ts`,
   `trash-sweeper.ts`): a delete under Obsidian's `system` (default) or
   `local` trash setting moves the note into `.trash/` and never overwrites
-  an existing trash copy. The server records `system` moves with the
-  trashed file's identity, and its daily retention sweep deletes only
-  those recorded files once they pass `TRASH_RETENTION_DAYS`. Before
-  deleting, it checks that the file still sits inside `.trash/` and is
-  still the unchanged file it trashed, so a corrupted record, a symlink,
-  or a note Obsidian later trashed under the same name is left alone.
+  an existing trash copy.
+  - The server records `system` moves with the trashed file's identity,
+    and its daily retention sweep deletes only those recorded files once
+    they pass `TRASH_RETENTION_DAYS`. Before deleting, it checks that the
+    file still sits inside `.trash/` and is still the unchanged file it
+    trashed, so a corrupted record, a symlink, or a note Obsidian later
+    trashed under the same name is left alone.
   - A name already taken in `.trash/` gets Obsidian's suffixes (`Plan 1.md`,
     `Plan 2.md`, …); after `TRASH_NAME_SUFFIX_LIMIT` (100) numbered names the
     delete fails.
@@ -1448,20 +1418,21 @@ Docker hardening, and durability seatbelts above.
     `system`; a file that exists but cannot be read or parsed refuses the
     delete, because a `system` fallback could let the sweep remove a note
     the user set to keep.
-- **Verify-then-preflight-then-commit move** (`note-mover.ts`): under the
-  lock, `moveNote` first scans notes and Canvas files for backlinks the
-  search index missed (closing a lag race). The scan skips a file it
-  cannot read, or a Canvas file whose JSON it cannot parse, with a
-  warning, so such a file aborts the move only when the index lists it as
-  a backlink. A note whose
-  properties block is not valid YAML is scanned for its body links. When
-  the scan finds new linking notes, the move releases the lock, adds them
-  to the lock set and scans again, up to `MAX_BACKLINK_VERIFY_RETRIES` (3)
-  retries; if new ones still appear, it aborts with nothing written. The
-  move then reads every affected file and computes every rewrite _before_
-  touching anything. If any read fails, no file is mutated. Destination is written first via exclusive create;
-  source is deleted last — a failure at any step leaves both copies rather
-  than losing content.
+- **Verify-then-preflight-then-commit move** (`note-mover.ts`): a failure
+  at any step leaves both copies rather than losing content.
+  1. **Verify:** under the lock, the move scans notes and Canvas files for
+     backlinks the search index missed. A file it cannot read, or a Canvas
+     file whose JSON it cannot parse, is skipped with a warning, so it
+     aborts the move only when the index lists it as a backlink; a note
+     whose properties block is not valid YAML is scanned for its body
+     links. New linking notes join the lock set and the scan repeats, up to
+     3 retries; if new ones still appear, the move aborts with nothing
+     written.
+  2. **Preflight:** the move reads every affected file and computes every
+     rewrite _before_ touching anything. If any read fails, no file is
+     mutated.
+  3. **Commit:** the destination is written first via exclusive create, and
+     the source is deleted last.
 - **Content-hash gating** (`search-index.ts`): SHA-256 per chunk. Only
   changed content re-embeds on both incremental updates and full rebuilds.
   Each chunk's hash is saved in the same transaction as its vector, so a
@@ -1563,15 +1534,12 @@ Docker hardening, and durability seatbelts above.
   message (a filesystem failure or an invalid path argument) relative to
   the vault root, for `safeHandler()` and the prompts' fallback messages.
   Errors the server throws itself keep their text, since they can quote the
-  caller's input. The `tool_error`, `prompt_error` and
-  `pdf_page_render_failed` logs, and the logs of PDFs the search index or
-  file watcher cannot read, keep the message
-  and the cause of a wrapped error (`describeErrorForLog`).
+  caller's input. The tool, prompt and PDF error logs keep the full message
+  and the cause of a wrapped error.
 - **Memory file read failures** (`memory-store.ts`): a failed read of a
-  memory file is rethrown as "cannot read memory file …" with the
-  vault-relative path and no Node error code, so the tool boundary adds no
-  coded remedy. A read of a file name longer than the filesystem allows
-  surfaces under this message, not as `ENAMETOOLONG`.
+  memory file, including a file name longer than the filesystem allows, is
+  rethrown as "cannot read memory file …" with the vault-relative path and
+  no remedy sentence.
 - **In-lock existence checks**: `deleteNote` and `moveNote` check file
   existence inside the lock, so a missing note returns the "note not found"
   error the tools document instead of Node's ENOENT text.
@@ -1624,7 +1592,12 @@ Docker hardening, and durability seatbelts above.
 
 **Local-only** is free — Docker on your machine, vault bind-mounted. No VPS, no Sync subscription.
 
-**Remote** adds a VPS (the reference deployment uses Lightsail) and [Obsidian Sync](https://obsidian.md/sync) ($4 USD/mo). The server runs on modest hardware — a 2 GiB instance handles full semantic search for a typical vault (~1,000 notes); 4 GiB adds headroom for concurrent ONNX inference and larger vaults. Skip semantic search entirely (`EMBEDDING_ENABLED=false`) and even smaller instances work — the keyword-only footprint is under 200 MiB without a running PDF text child. PDF extraction adds a child process with [separate allocation limits](#files). Embeddings are generated locally by in-process ONNX models (~59 MB total) — no external API, no per-query cost.
+**Remote** adds a VPS (the reference deployment uses Lightsail) and [Obsidian Sync](https://obsidian.md/sync) ($4 USD/mo). The server runs on modest hardware:
+
+- **2 GiB** handles full semantic search for a typical vault (~1,000 notes); **4 GiB** adds headroom for concurrent ONNX inference and larger vaults.
+- **Keyword-only** (`EMBEDDING_ENABLED=false`) runs on even smaller instances: under 200 MiB without a running PDF text child.
+- **PDF extraction** adds a child process with [separate allocation limits](#files).
+- **Embeddings** come from in-process ONNX models (~59 MB total), with no external API and no per-query cost.
 
 | Component          | Cost                                               |
 | ------------------ | -------------------------------------------------- |

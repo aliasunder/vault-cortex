@@ -231,9 +231,9 @@ The server runs these startup tasks on every boot:
 4. Apply the changes the watcher held, so search reflects notes added, edited
    or deleted while the server started.
 
-Restarting the container re-runs this flow (useful when testing bootstrap
-behavior). The command is the same for both setup methods, since both name
-the container after `INSTANCE_NAME` (`vault-cortex` unless you set it):
+Restarting the container re-runs this flow. The command is the same for both
+setup methods, since both name the container after `INSTANCE_NAME`
+(`vault-cortex` unless you set it):
 
 ```bash
 docker restart vault-cortex
@@ -242,9 +242,8 @@ docker restart vault-cortex
 > **Changed `.env`?** A restart does **not** re-read `.env` — the container
 > has to be re-created. Set up with the CLI? Run
 > [`npx vault-cortex@latest restart`](../../cli/#restart) — unlike
-> `docker restart`, it re-creates the container, so your edits take effect
-> ([`upgrade`](../../cli/#upgrade) also applies `.env` edits and pulls the
-> latest image on the way). Using Compose? Run `docker compose up -d` — it
+> `docker restart`, it re-creates the container, so your edits take effect.
+> Using Compose? Run `docker compose up -d` — it
 > re-creates services whose configuration changed.
 
 The container also restarts automatically on crash (`restart: unless-stopped`
@@ -388,16 +387,14 @@ links):
 
 - **"Move to system trash" (Obsidian's default)** — the container has no
   system trash, so a deleted note moves to the `.trash` folder inside your
-  vault, the same fallback Obsidian itself uses when a system trash isn't
-  available. The server cleans up the notes it put there after 30 days —
-  set `TRASH_RETENTION_DAYS` in `.env` to change the window, or
-  `TRASH_RETENTION_DAYS=none` to keep them forever. Only notes the server
-  moved there are cleaned up; anything you or Obsidian put in `.trash` is
-  never touched. Notes the server moved there with version 0.54.11 or
-  earlier also stay. To reclaim space sooner, or to clear those older
-  notes, empty the `.trash` folder yourself (it's hidden — press
-  Cmd+Shift+. in Finder, or Ctrl+H in most Linux file managers, to show
-  it).
+  vault, as it does in Obsidian when no system trash is available. The
+  server deletes the notes it put there after 30 days:
+  - Set `TRASH_RETENTION_DAYS` in `.env` to change the window, or
+    `TRASH_RETENTION_DAYS=none` to keep them forever.
+  - Anything you or Obsidian put in `.trash` is never touched.
+  - To reclaim space sooner, empty the `.trash` folder yourself. It's
+    hidden: press Cmd+Shift+. in Finder, or Ctrl+H in most Linux file
+    managers, to show it.
 - **"Move to Obsidian trash (.trash folder)"** — a deleted note moves to
   the same `.trash` folder and stays there until you empty it, exactly as
   in Obsidian.
@@ -414,13 +411,11 @@ in the main README.
 ## Troubleshooting
 
 **"This sign-in can't continue" in the browser instead of the consent page.**
-Your MCP client saved login details the server no longer has. Deleting the
-server's data (`docker compose down -v`, or a fresh install under a new name)
-resets the server's record of connected clients, so the client's saved login
-no longer matches. The same happens when a sign-in was started more than an
-hour ago and never approved. That page lists these steps too. Clear the
-client's stored authorization for this server and reconnect so it registers
-fresh:
+Your MCP client saved login details the server no longer has. That happens
+when the server's data was deleted (`docker compose down -v`, or a fresh
+install under a new name), or when a sign-in was started more than an hour
+ago and never approved. Clear the client's stored authorization for this
+server and reconnect so it registers fresh:
 
 - **Claude Code:** `claude mcp remove vault-cortex`, then
   `claude mcp add --scope user --transport http vault-cortex http://localhost:8000/mcp`
@@ -429,12 +424,10 @@ fresh:
   home folder (`%USERPROFILE%\.mcp-auth` on Windows) and restart the client.
 - **Other clients:** remove and re-add the server.
 
-**"Invalid token" on the consent page even with the correct token.** The
-consent form trims surrounding whitespace and line breaks from the token before
-checking it, so a value copied out of a terminal (where a long token can wrap
-across lines) still works. If you still see this error, double-check you copied
-the full `MCP_AUTH_TOKEN` from your `.env` — a missing or extra character is the
-usual cause.
+**"Invalid token" on the consent page even with the correct token.**
+Double-check you copied the full `MCP_AUTH_TOKEN` from your `.env` — a missing
+or extra character is the usual cause. Surrounding whitespace and line breaks,
+such as a terminal's wrap of a long token, are ignored.
 
 **"container name vault-cortex already in use" on start or upgrade.** A
 container from a different management method is still running. The CLI

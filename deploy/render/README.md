@@ -58,9 +58,7 @@ the port, the storage layout — is set by the Blueprint.
 ## Your URL and token
 
 - **URL:** shown as a link at the top of the service page. Render builds it
-  from the service name the Blueprint sets, `vault-cortex`, plus four random
-  characters, because `onrender.com` subdomains are unique across all of
-  Render and the bare name is taken. Expect
+  from the service name, `vault-cortex`, plus four random characters:
   `https://vault-cortex-xxxx.onrender.com`. Wherever this guide shows
   `<host>`, put your own `vault-cortex-xxxx.onrender.com` address in its
   place: `https://<host>/mcp` becomes
@@ -133,8 +131,7 @@ Render's edge and is checked by the server before any vault data moves:
 - **Always HTTPS.** Render provisions and renews the certificate and
   terminates TLS at its edge; the container is never reachable directly.
 - **Nothing without the token.** `/mcp` answers `401` to any request that
-  lacks a valid token, and `403` to a browser page on another site before the
-  token is checked. OAuth clients get one through the consent page (full
+  lacks a valid token. OAuth clients get one through the consent page (full
   OAuth 2.1 with PKCE and refresh-token rotation); scripts send
   `MCP_AUTH_TOKEN` as a bearer header. The login, registration, and token
   endpoints are rate-limited per visitor address.
@@ -193,9 +190,8 @@ The same three steps in every app:
    finished. Leave Client ID and Secret empty.
 2. A consent page opens in your browser. Approve it with the
    `MCP_AUTH_TOKEN` Render generated.
-3. Done — the client renews its own access from then on. Under the hood that
-   is full OAuth 2.1, with PKCE, dynamic client registration, and
-   refresh-token rotation on a 60-day sliding expiry.
+3. Done — the client renews its own access from then on (refresh tokens
+   rotate on a 60-day sliding expiry).
 
 **Other clients:**
 
@@ -230,8 +226,7 @@ Image services on Render don't redeploy on their own when a new image is
 published. To update: open the service, click **Manual Deploy → Deploy latest
 reference**. Render pulls the current `:remote` image and restarts the
 container. Your vault and search index stay on the disk, so the update takes
-a minute or two: the new image is pulled, then the container starts the same
-way a restart does.
+a minute or two.
 
 Before you redeploy, skim
 [GitHub Releases](https://github.com/aliasunder/vault-cortex/releases) — each

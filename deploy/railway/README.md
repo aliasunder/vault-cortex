@@ -134,8 +134,7 @@ Railway's edge and is checked by the server before any vault data moves:
 - **Always HTTPS.** Railway provisions and renews the certificate and
   terminates TLS at its edge; the container is never reachable directly.
 - **Nothing without the token.** `/mcp` answers `401` to any request that
-  lacks a valid token, and `403` to a browser page on another site before the
-  token is checked. OAuth clients get one through the consent page (full
+  lacks a valid token. OAuth clients get one through the consent page (full
   OAuth 2.1 with PKCE and refresh-token rotation); scripts send
   `MCP_AUTH_TOKEN` as a bearer header. The login, registration, and token
   endpoints are rate-limited per visitor address.
@@ -150,9 +149,9 @@ What the server can't protect is the Railway account that holds it: anyone
 who can open this project in the dashboard can read the variables, the logs,
 and the volume. Four steps close that, all from the dashboard:
 
-1. **Seal the secrets** once you have copied `MCP_AUTH_TOKEN`. Values are
-   masked in the dashboard, but anyone with access can reveal them with the
-   eye icon; sealing makes that impossible. Open the **⋮** menu beside
+1. **Seal the secrets** once you have copied `MCP_AUTH_TOKEN`. Anyone with
+   dashboard access can reveal a variable with the eye icon; sealing makes
+   that impossible. Open the **⋮** menu beside
    `MCP_AUTH_TOKEN` — plus `OBSIDIAN_AUTH_TOKEN` and `VAULT_PASSWORD` if you
    filled them in on the deploy form — and choose **Seal**.
 
@@ -204,9 +203,8 @@ The same three steps in every app:
    finished. Leave Client ID and Secret empty.
 2. A consent page opens in your browser. Approve it with the
    `MCP_AUTH_TOKEN` Railway generated.
-3. Done — the client renews its own access from then on. Under the hood that
-   is full OAuth 2.1, with PKCE, dynamic client registration, and
-   refresh-token rotation on a 60-day sliding expiry.
+3. Done — the client renews its own access from then on (refresh tokens
+   rotate on a 60-day sliding expiry).
 
 **Other clients:**
 
@@ -239,8 +237,7 @@ curl https://<host>/healthz
 
 Services deployed from a Docker-image template don't update on their own
 unless you turn that on. Either way, your vault and search index stay on the
-volume, so an update takes a minute or two: the new image is pulled, then
-the container starts the same way a restart does.
+volume, so an update takes a minute or two.
 
 - **By hand** — open the service, open the latest entry under
   **Deployments**, and choose **Redeploy**. Railway pulls the current
@@ -248,8 +245,7 @@ the container starts the same way a restart does.
 - **Automatically** — **Settings → Source → Configure auto updates**, pick
   **Update to the latest tag**, and choose a maintenance window (weekends,
   overnight, as soon as ready, or custom hours). Railway checks the image
-  every few hours and redeploys when `:remote` changes; the restart takes
-  the same minute or two as a redeploy by hand.
+  every few hours and redeploys when `:remote` changes.
 
 Before you redeploy, skim
 [GitHub Releases](https://github.com/aliasunder/vault-cortex/releases) — each
@@ -305,10 +301,10 @@ new variable.
 Don't set `PUBLIC_URL` or `VAULT_PATH` — the container derives
 them from `STORAGE_ROOT` and Railway's own address variable at every start.
 
-Railway's **Serverless** toggle (**Settings → Deploy**) saves nothing here.
-Serverless sleeps a service after ten minutes without outbound traffic, and
-the Obsidian Sync connection keeps sending. The container stays up, and you
-are billed for it, whether the toggle is on or off.
+Railway's **Serverless** toggle (**Settings → Deploy**) saves nothing here:
+it sleeps a service only after ten minutes without outbound traffic, and the
+Obsidian Sync connection keeps sending, so the container stays up and billed
+either way.
 
 Volume size is changed from the volume's settings on the project canvas
 (Railway can grow a volume, never shrink it).

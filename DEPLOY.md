@@ -418,7 +418,7 @@ Direct commits to `main` are blocked by a branch ruleset — every change lands 
 
 ### Rotating SSH keys
 
-Changing the deploy keypair **triggers a VM replacement**. The `SSH_PUBKEY` GitHub secret flows through CI → `sst deploy` → `readSshPublicKey()` → Lightsail KeyPair `publicKey`. A changed public key replaces the KeyPair, which cascades to an Instance replacement. There's no way to rotate the SST-managed key without replacing the VM.
+Changing the deploy keypair **triggers a VM replacement**: a changed public key replaces the Lightsail KeyPair, which cascades to an Instance replacement, so the SST-managed key can't be rotated without replacing the VM.
 
 **Steps:**
 
@@ -803,7 +803,10 @@ curl https://mcp.example.com/healthz
 # → {"ok":true}
 ```
 
-**4. Move clients to the custom domain.** A CI deploy with `CUSTOM_DOMAIN` set derives `PUBLIC_URL` from it (unless the `PUBLIC_URL` secret pins another value), so OAuth discovery metadata advertises the custom domain and every access token is minted for it. Access tokens are bound to that URL: a client still connected through the execute-api URL is rejected on its next request (its token names the old audience) and reconnects on the custom domain, where it consents once. To stage the cutover, set the `PUBLIC_URL` secret to the execute-api URL until the CNAME resolves, then clear it and redeploy. A laptop deploy follows the same rule — `npm run lightsail:up` resolves `PUBLIC_URL` identically and writes it into the instance `.env`, so the Lambda and Express stay in agreement; stage the cutover by setting `PUBLIC_URL` in `~/.config/vault-cortex/.env` instead of the secret (`npm run deploy` loads it into SST too), and re-run both `npm run deploy` and `npm run lightsail:up` when you clear it.
+**4. Move clients to the custom domain.** With `CUSTOM_DOMAIN` set, a deploy (CI or laptop) derives `PUBLIC_URL` from it unless `PUBLIC_URL` pins another value, so OAuth discovery metadata advertises the custom domain and every access token is minted for it. A client still connected through the execute-api URL is rejected on its next request and reconnects on the custom domain, where it consents once. To stage the cutover, pin `PUBLIC_URL` to the execute-api URL until the CNAME resolves, then clear it and redeploy:
+
+- CI deploys: set, then clear, the `PUBLIC_URL` secret.
+- Laptop deploys: set, then clear, `PUBLIC_URL` in `~/.config/vault-cortex/.env` (`npm run deploy` loads it into SST too); after clearing it, re-run both `npm run deploy` and `npm run lightsail:up`.
 
 **5. Close the default hostname (optional)** — once every client connects through the custom domain, set `DISABLE_EXECUTE_API_ENDPOINT=true` (a repo Variable for CI deploys, or on the command line) and redeploy. The gateway then answers only on the custom domain; a client still pointed at the execute-api URL gets a connection error until it is re-pointed. This is the precondition for `TRUST_FORWARDED_HOPS=2` when a CDN fronts the domain (see the **Client-IP trust with ORIGIN_URL** callout under [Port 8000 Hardening](#port-8000-hardening-optional)).
 

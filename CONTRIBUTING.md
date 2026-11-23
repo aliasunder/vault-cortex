@@ -163,15 +163,19 @@ from `deploy/*/.env.example`. If you change any `.env.example`, run
 **Publishing:** CLI releases are explicit and independent of server releases —
 nothing publishes to npm as a side effect of a server release. The maintainer
 runs the **"Release CLI"** workflow (Actions tab), choosing a
-`patch`/`minor`/`major` bump (or `none` to publish the current version); it
-bumps `cli/package.json` on `main`, tags `cli-v<version>`, publishes to npm
-via [Trusted Publishing](https://docs.npmjs.com/trusted-publishers) (OIDC) —
-no npm token secret is stored in the repo — and creates a `cli-v<version>`
-GitHub release (marked non-latest so server releases keep the "Latest"
-badge). The trusted publisher is
-configured in the npm package settings for this repo + `cli_release.yml`. PRs
-that change `cli/` should **not** bump the version — the release workflow owns
-it. The npm package is deliberately absent from `server.json` — it's a
+`patch`/`minor`/`major` bump (or `none` to publish the current version). The
+workflow:
+
+- bumps `cli/package.json` on `main` and tags `cli-v<version>`
+- publishes to npm via
+  [Trusted Publishing](https://docs.npmjs.com/trusted-publishers) (OIDC),
+  configured in the npm package settings for this repo + `cli_release.yml`,
+  so no npm token secret is stored in the repo
+- creates a `cli-v<version>` GitHub release, marked non-latest so server
+  releases keep the "Latest" badge
+
+PRs that change `cli/` should **not** bump the version — the release workflow
+owns it. The npm package is deliberately absent from `server.json` — it's a
 scaffolder, not a way to run the server.
 
 **Beta testing:** The same **"Release CLI"** workflow supports a `beta` bump
@@ -246,10 +250,9 @@ updating each doc or generated file the change affects.
 ## Breaking changes
 
 Release notes (`.github/scripts/generate-notes.sh`) lead with a **⚠ BREAKING
-CHANGES** section. Breaking changes are detected from the **merged PR**, read
-via the API at release time — the reliable source: a squash commit's body is
-often dropped at merge (e.g. the GitHub mobile app), but the PR body and labels
-always survive.
+CHANGES** section. Breaking changes are detected from the **merged PR**'s body
+and labels, read via the API at release time, because a squash commit's body
+is often dropped at merge (e.g. the GitHub mobile app).
 
 To mark a PR as breaking, add a **`BREAKING CHANGE:` footer** (its own
 paragraph) at the **end of the PR description**. Its text becomes the

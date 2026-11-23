@@ -91,7 +91,7 @@ docker compose up
 
 ### Remote (access from anywhere)
 
-Your vault on a server, kept current by Obsidian Sync, reachable from your phone, claude.ai, or any MCP client. The one-click options ask for your vault name and timezone (plus the vault password if your vault is encrypted), then handle HTTPS, restarts, a generated MCP token, and persistent storage. Once deployed, a setup page walks you through signing in to Obsidian Sync in your browser. On your own server the CLI asks for the public URL and vault name, captures the Sync token for you, and generates the MCP token; HTTPS is yours to set up.
+Your vault on a server, kept current by Obsidian Sync, reachable from your phone, claude.ai, or any MCP client. The one-click options ask for your vault name and timezone (plus the vault password if your vault is encrypted), then handle HTTPS, restarts, a generated MCP token, and persistent storage. On your own server, HTTPS is yours to set up.
 
 |                | Railway                                                                                                                                                                             | Render                                                                                                                                                  | Self-hosted                                                  |
 | -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
@@ -266,7 +266,7 @@ Task metadata lives in plain markdown — scattered across files, encoded in emo
 The task layer handles this so agents don't have to:
 
 - **Find** — filter by status, six date fields (due, scheduled, start, created, done, cancelled), priority, folder, or Kanban lane. Each result carries its note path, line number, and nearest heading when the task sits under one (the lane on a Kanban board) — no follow-up reads needed to locate a task
-- **Create** — add a correctly-formatted task in one step: description, priority, dates, recurrence, "On completion" action, dependencies, block ID (`^id`), and checklist sub-items (text only, no dates), placed under a heading at the top, the bottom, or an exact position, or nested under a parent task as a sub-task with its own dates. On a Kanban board a sub-task gets no block ID, since the Kanban plugin copies it onto the card when it saves the board
+- **Create** — add a correctly-formatted task in one step: description, priority, dates, recurrence, "On completion" action, dependencies, block ID (`^id`), and checklist sub-items (text only, no dates), placed under a heading at the top, the bottom, or an exact position, or nested under a parent task as a sub-task with its own dates
 - **Update** — complete, reprioritize, edit the text, set or clear dates, recurrence, and the "On completion" action, add checklist items, move tasks between headings, and reorder within a lane in a single call
 - **Complete** — marking a task done auto-detects the done lane and stamps the completion date, honoring the plugin's "Set done date" setting; reversing it removes the date. Completion also runs the Tasks plugin's own behaviors:
   - a recurring task spawns its next occurrence, dates advanced the way the plugin computes them
@@ -365,7 +365,7 @@ Vault Cortex indexes every [property](https://help.obsidian.md/Editing+and+forma
 
 **All other properties** are still fully queryable — use `vault_search` with `filters.properties` for combined text + metadata queries, or `vault_search_by_property` for metadata-only lookups. `vault_list_property_keys` and `vault_list_property_values` discover what properties exist across your vault.
 
-These are conventions, not requirements — Vault Cortex works with any property schema. Promoted properties give you richer filtering and cleaner results out of the box.
+These are conventions, not requirements — Vault Cortex works with any property schema.
 
 **Leading callouts** get the same treatment. When a note's first body content is an Obsidian [callout](https://help.obsidian.md/Editing+and+formatting/Callouts) (`> [!type]`) — either right after frontmatter or right after the title heading — it's indexed and surfaced alongside every discovery result (on `vault_search`, ask for it with `include_leading_callout`). This makes notes self-describing: an agent scanning results can see what each note is _for_ before deciding which to read. The memory templates use `> [!info] Scope of this file` callouts for this, and any note in your vault can use the same pattern.
 
@@ -391,8 +391,8 @@ All settings are environment variables with sensible defaults. Some defaults der
 | `READONLY_MODE`             | —            | `false`                                                                          | Set `true` to hide every tool that changes the vault and skip memory folder auto-creation — connected clients can read and search but never edit.                                                                                                                                                                                                      |
 | `DISABLED_TOOLS`            | —            | —                                                                                | Hide individual tools by name, comma-separated (e.g. `vault_delete_note,vault_move_note`). Names match the Tool column in the [tools table](#tools). Subtractive only — it cannot re-enable a tool another setting hides. An unknown tool name stops the server at startup, so typos surface immediately.                                              |
 | `MEMORY_DIR`                | —            | `About Me`                                                                       | Vault folder for structured memory files                                                                                                                                                                                                                                                                                                               |
-| `PROTECTED_PATHS`           | —            | `MEMORY_DIR`, daily notes folder                                                 | Folders whose notes can't be deleted or moved, and that no note can be moved into; their notes stay editable. The default daily notes folder is read from `DAILY_NOTES_FOLDER` or `.obsidian/daily-notes.json` (default `Daily Notes`); see [Daily notes](#daily-notes) for root and empty settings. A value you set replaces both default folders.    |
-| `ORPHAN_EXCLUDE_FOLDERS`    | —            | daily notes folder, `Templates`, `MEMORY_DIR`                                    | Folders excluded from orphan detection. The daily notes folder is read from `DAILY_NOTES_FOLDER` or `.obsidian/daily-notes.json` (default `Daily Notes`); see [Daily notes](#daily-notes) for root and empty settings. Set a list to replace all defaults, or `ORPHAN_EXCLUDE_FOLDERS=,` to exclude nothing. An empty value uses the defaults.         |
+| `PROTECTED_PATHS`           | —            | `MEMORY_DIR`, daily notes folder                                                 | Folders whose notes can't be deleted or moved, and that no note can be moved into; their notes stay editable. The daily notes folder comes from `DAILY_NOTES_FOLDER` or its fallbacks; see [Daily notes](#daily-notes) for root and empty settings. A value you set replaces both default folders.                                                     |
+| `ORPHAN_EXCLUDE_FOLDERS`    | —            | daily notes folder, `Templates`, `MEMORY_DIR`                                    | Folders excluded from orphan detection. The daily notes folder comes from `DAILY_NOTES_FOLDER` or its fallbacks; see [Daily notes](#daily-notes) for root and empty settings. Set a list to replace all defaults, or `ORPHAN_EXCLUDE_FOLDERS=,` to exclude nothing. An empty value uses the defaults.                                                  |
 | `DAILY_NOTES_FOLDER`        | —            | from `daily-notes.json`                                                          | Sets the folder your daily notes live in. When unset, read from `.obsidian/daily-notes.json`; `Daily Notes` when that file is missing or unreadable. See [Daily notes](#daily-notes).                                                                                                                                                                  |
 | `DAILY_NOTES_FORMAT`        | —            | from `daily-notes.json`                                                          | Sets the daily note filename format — same tokens as Obsidian's daily note date format setting. When unset, read from `.obsidian/daily-notes.json`, falling back to `YYYY-MM-DD`. See [Daily notes](#daily-notes).                                                                                                                                     |
 | `TZ`                        | —            | `UTC`                                                                            | IANA timezone for timestamps and daily note resolution                                                                                                                                                                                                                                                                                                 |
@@ -408,8 +408,6 @@ All settings are environment variables with sensible defaults. Some defaults der
 | `TRASH_RETENTION_DAYS`      | —            | `30`                                                                             | Days a note deleted under Obsidian's default "Move to system trash" setting stays in `.trash/` before the server cleans it up. Set `none` to keep those notes forever. Only notes the server itself moved there are cleaned up. Unused with Obsidian Sync (the remote image), whose deletes are permanent and recoverable from Sync's version history. |
 | `TRUST_PROXY_HOPS`          | —            | `0`                                                                              | Number of trusted reverse-proxy hops used to derive the client IP from `X-Forwarded-For` (OAuth rate limiting, request logs). Set `1` when exactly one proxy you control sits in front of the server (Caddy, nginx, Cloudflare Tunnel) and nothing else can reach the server's port. With `0`, injected forwarding headers are ignored.                |
 | `TRUST_FORWARDED_HOPS`      | —            | `0`                                                                              | How many trailing `for=` entries in the [RFC 7239](https://www.rfc-editor.org/rfc/rfc7239) `Forwarded` header belong to proxies you control. `0` ignores the header; `1` when the proxy in front writes it (e.g. AWS API Gateway) and is the only way to reach the server; `2` when a CDN fronts that proxy and is the only way to reach it.           |
-
-See [`templates/memory/`](./templates/memory/) for memory file examples and the dated-entry design philosophy.
 
 ### Daily notes
 
@@ -427,10 +425,10 @@ You can set one or both — a set value always wins over the config file. A valu
 
 - Changes in Obsidian apply on the next call when `.obsidian/daily-notes.json` is available in the server's vault.
 - Apply environment changes with the CLI's `restart` command, recreate the Compose container, or redeploy on your hosting platform.
-- If you leave the folder empty in Obsidian's Daily notes options, the server follows Obsidian's **Default location for new notes** setting (Settings → Files and links), read from `.obsidian/app.json`. **Same folder as current file** counts as the vault root, because Obsidian creates a daily note without reference to an open note and so has no folder to follow. When `app.json` isn't in the server's vault, as in remote mode until **Main settings** is synced, the server uses the vault root.
+- If you leave the folder empty in Obsidian's Daily notes options, the server follows Obsidian's **Default location for new notes** setting (Settings → Files and links), read from `.obsidian/app.json`. **Same folder as current file** counts as the vault root. When `app.json` isn't in the server's vault, as in remote mode until **Main settings** is synced, the server uses the vault root.
 - If your daily notes live in the vault root, or in the new-note folder because the folder setting is empty, delete and move don't protect them and orphan results can include them. Protecting or excluding that folder would also cover every other note in it.
 
-> **Note:** A few date format tokens are unsupported — ordinals (`Do`, `Mo`, `DDDo`, `wo`), `dd` (2-letter weekday), `d` (weekday number), `e`, `k`/`kk`, `w` (week number), `Q` (quarter), `Z`/`ZZ` (UTC offset), and the localized formats (`L`–`LLLL`, `LT`, `LTS`). The server can't reproduce the filenames Obsidian creates with these tokens, so it could never find the notes. If your format uses any of them, `vault_get_daily_note` returns a clear error — change the format in Obsidian or set `DAILY_NOTES_FORMAT` to a supported alternative.
+> **Note:** A few date format tokens are unsupported — ordinals (`Do`, `Mo`, `DDDo`, `wo`), `dd` (2-letter weekday), `d` (weekday number), `e`, `k`/`kk`, `w` (week number), `Q` (quarter), `Z`/`ZZ` (UTC offset), and the localized formats (`L`–`LLLL`, `LT`, `LTS`). If your format uses any of them, `vault_get_daily_note` returns a clear error — change the format in Obsidian or set `DAILY_NOTES_FORMAT` to a supported alternative.
 
 ---
 
@@ -438,14 +436,14 @@ You can set one or both — a set value always wins over the config file. A valu
 
 Vault Cortex writes to personal notes — the file safety layer is built to prevent corruption, not just errors.
 
-- **Atomic writes** — every file write stages to a temp file, then renames. Readers never see a partial or 0-byte note. Exclusive creates use `link()` (POSIX no-clobber) to close the TOCTOU window on note moves.
+- **Atomic writes** — every file write stages to a temp file, then renames. Readers never see a partial or 0-byte note.
 - **Per-file mutex** — concurrent MCP tool calls serialize or fail-fast per file. Moves lock the source, destination, and every backlink source as one unit.
 - **Body edits keep properties as written** — editing a note's body leaves its properties (the `---` block Obsidian shows as Properties) as they were, comments included.
 - **Property rewrites refuse what they can't keep** — `vault_update_properties`, a `vault_write_note` overwrite, the task tools and a move that changes a link inside the block rewrite the block: every property and value stays, YAML comments are dropped, and the formatting may change. A rewrite is refused, leaving the note unchanged, when the block is invalid YAML, is a list or a single value instead of `key: value` properties, or holds a value with an explicit tag such as `!!str`; the error says how to repair it.
 - **Notes with broken properties stay usable** — search treats a note whose properties are invalid YAML as having none, as Obsidian does. The note still shows in search and task lists, its body links still count as backlinks, and you can read, edit and move it with the block left as written. The server log flags it for repair.
-- **Path traversal blocked** — `resolveSafePath()` resolves then prefix-checks every path. Protected-path deletion is refused after normalization. Memory file names reject separators at the boundary.
+- **Path traversal blocked** — every path a tool receives must resolve to a location inside the vault.
 - **Hidden paths are off-limits** — files and folders starting with a dot (`.obsidian/`, `.trash/`) never appear in listings or search, and any tool call that targets one directly is rejected, matching Obsidian. Plugin configs and their API keys stay out of reach.
-- **Without Obsidian Sync, deletes honor Obsidian's trash setting** — with "Deleted files" at Obsidian's default "Move to system trash" or at "Move to Obsidian trash", a deleted note moves to `.trash/` inside the vault instead of being removed (a container has no system trash; `.trash/` is Obsidian's own fallback for that). "Permanently delete" removes the note for good.
+- **Without Obsidian Sync, deletes honor Obsidian's trash setting** — with "Deleted files" at Obsidian's default "Move to system trash" or at "Move to Obsidian trash", a deleted note moves to `.trash/` inside the vault instead of being removed. "Permanently delete" removes the note for good.
 - **With Obsidian Sync, deletes are permanent** — the server skips the trash setting because `.trash/` never syncs; the delete reaches every device, and recovery is Sync's version history.
 - **Bounded trash with a retention sweep** — notes the server moves to `.trash/` under the system-default setting are cleaned up after `TRASH_RETENTION_DAYS` (default 30 days; `none` keeps them forever). The sweep removes only files it recorded — notes Obsidian itself trashed, and "Move to Obsidian trash" deletes, are never touched.
 - **Injection prevention** — search queries are parameterized and FTS5-sanitized; prompt content is wrapped in XML data markers with closing-tag escaping to prevent tag-breakout injection.
@@ -466,8 +464,6 @@ Two methods:
 | ----------------- | -------------------------------------------------------- | -------------------- |
 | **OAuth 2.1**     | Claude Desktop, Claude Code, claude.ai, any OAuth client | JWT (HS256, 6h)      |
 | **Static bearer** | Claude Code, MCP Inspector, curl                         | Raw `MCP_AUTH_TOKEN` |
-
-The method follows from your client — OAuth when it supports it, the raw token in a header otherwise ([Connect your MCP client](#connect-your-mcp-client) shows both).
 
 OAuth uses dynamic client registration — no manual Client ID or Secret needed:
 
@@ -500,7 +496,11 @@ Every path runs the same image, `ghcr.io/aliasunder/vault-cortex` — `:latest` 
 
 > **Also on Docker Hub:** the same images are mirrored to [`aliasunder/vault-cortex`](https://hub.docker.com/r/aliasunder/vault-cortex). GHCR is the primary source; Hub tags are identical.
 
-**Cost:** A remote setup needs a VPS or a hosted platform plan, plus $4 USD/mo for [Obsidian Sync](https://obsidian.md/sync). A 2 GiB instance handles semantic search fine for a typical vault; 4 GiB adds headroom for concurrent search and larger vaults. Skip semantic search entirely to go smaller still. Local-only is free. The [reference AWS deployment](./ARCHITECTURE.md#cost) runs ~$17–29 USD/mo all-in.
+**Cost:**
+
+- **Local:** free.
+- **Remote:** a VPS or a hosted platform plan, plus $4 USD/mo for [Obsidian Sync](https://obsidian.md/sync). A 2 GiB instance handles semantic search for a typical vault, and 4 GiB adds headroom for concurrent search and larger vaults. Skip semantic search to go smaller still.
+- **[Reference AWS deployment](./ARCHITECTURE.md#cost):** ~$17–29 USD/mo all-in.
 
 **More than one vault?** Each vault runs as its own install, with its own container, data and connector. On your own machine or server, give each install its own name: see **Run more than one vault** in the [local](./deploy/local/README.md#run-more-than-one-vault) and [remote](./deploy/remote/README.md#run-more-than-one-vault) guides. On Render or Railway, deploy a separate service for each vault.
 

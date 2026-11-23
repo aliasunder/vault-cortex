@@ -127,10 +127,9 @@ If the sync can't complete on a brand-new setup, the server stops instead
 of starting with an incomplete vault, and Docker retries automatically. On
 later boots a catch-up sync runs before the server starts.
 
-**docker run (no Compose):** The command the CLI runs for you, spelled out —
-for when you have neither Node.js nor Compose, invoke a different runtime
-directly (swap `docker` for `podman` or `nerdctl`), or want the raw
-invocation for your own automation. The same `.env` file works, and the
+**docker run (no Compose):** The command the CLI runs for you, spelled out;
+swap `docker` for `podman` or `nerdctl` to use another runtime. The same
+`.env` file works, and the
 flags mirror the Compose file, volume names included, so your data carries
 over if you ever switch between methods. The command's `-p 8000:8000`
 publishes on every address, so `BIND_ADDRESS` in `.env` has no effect here.
@@ -167,8 +166,7 @@ directory
 
 The CLI's `init` always creates the three-volume layout, so single-volume
 mode is set up with `docker run` or through a hosting platform. The same
-`.env` file works; the command sets `LOG_DIR` explicitly because the
-`.env.example` default, `/data/logs`, falls outside the volume. The
+`.env` file works; the command sets `LOG_DIR` to a folder on the volume. The
 command's `-p 8000:8000` publishes on every address, so `BIND_ADDRESS` in
 `.env` has no effect here. For a server behind a tunnel or reverse proxy,
 pass `-p 127.0.0.1:8000:8000` instead. On a plain Docker host the complete
@@ -235,20 +233,21 @@ flows back through it instead of arriving directly. Requires a
 [Cloudflare account](https://dash.cloudflare.com/sign-up) (free) with a
 domain using Cloudflare's nameservers.
 
-Install [cloudflared](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/get-started/create-remote-tunnel/)
-on your server, create a tunnel in the Cloudflare dashboard
-([Zero Trust](https://one.dash.cloudflare.com/) → Networks → Tunnels), and
-point it at `http://localhost:8000`. Set `PUBLIC_URL` to the tunnel URL
-(e.g. `https://vault.yourdomain.com`) and `TRUST_PROXY_HOPS=1` in `.env` —
-with a proxy in front, that's what lets OAuth rate limiting tell clients
-apart (otherwise they all share the tunnel's budget).
-
-Once the tunnel is working, stop publishing port 8000 to the internet, as
-[Close port 8000](#hardening-recommended) describes. The tunnel runs on the
-same machine and reaches `localhost:8000`, so nothing else needs the port.
-Set `TRUST_PROXY_HOPS=1` only after the port is closed: while it stays open,
-anyone reaching it directly can write their own `X-Forwarded-For` header
-and pick their own rate-limit budget.
+1. Install [cloudflared](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/get-started/create-remote-tunnel/)
+   on your server, create a tunnel in the Cloudflare dashboard
+   ([Zero Trust](https://one.dash.cloudflare.com/) → Networks → Tunnels), and
+   point it at `http://localhost:8000`.
+2. Set `PUBLIC_URL` to the tunnel URL (e.g. `https://vault.yourdomain.com`)
+   in `.env`.
+3. Once the tunnel is working, stop publishing port 8000 to the internet, as
+   [Close port 8000](#hardening-recommended) describes. The tunnel runs on
+   the same machine and reaches `localhost:8000`, so nothing else needs the
+   port.
+4. Then set `TRUST_PROXY_HOPS=1` in `.env`, so OAuth rate limiting tells
+   clients apart instead of giving them all the tunnel's budget. Set it only
+   after the port is closed: while it stays open, anyone reaching it directly
+   can write their own `X-Forwarded-For` header and pick their own
+   rate-limit budget.
 
 ### API Gateway (AWS — no domain needed)
 
@@ -264,18 +263,21 @@ HTTP API pricing is $1.00 USD per million requests with a free tier of 1M
 requests/month for 12 months — effectively free for personal use.
 
 Create an HTTP API in API Gateway with a route that proxies to
-`http://<your-server-ip>:8000/{proxy+}`. Set `PUBLIC_URL` to the API Gateway
-URL in `.env`, and leave `TRUST_PROXY_HOPS` and `TRUST_FORWARDED_HOPS` at
-their default of `0` while port 8000 is reachable from the internet. The
-gateway reports each visitor through the
-[RFC 7239](https://www.rfc-editor.org/rfc/rfc7239) `Forwarded` header and
-sends no `X-Forwarded-For`, but anyone reaching port 8000 directly can write
-either header and pick their own OAuth rate-limit budget, so the server
-reads neither until the gateway is the only way in. Until then every visitor
-through the gateway shares one budget, the gateway's address, and one
-client's burst of sign-ins can block another's for a minute. The project's
-[full cloud deployment](../../DEPLOY.md) closes port 8000 behind a locked
-tunnel and then sets `TRUST_FORWARDED_HOPS=1`; it also adds a Lambda
+`http://<your-server-ip>:8000/{proxy+}`, and set `PUBLIC_URL` to the API
+Gateway URL in `.env`.
+
+Leave `TRUST_PROXY_HOPS` and `TRUST_FORWARDED_HOPS` at their default of `0`
+while port 8000 is reachable from the internet:
+
+- The gateway reports each visitor in the
+  [RFC 7239](https://www.rfc-editor.org/rfc/rfc7239) `Forwarded` header, not
+  `X-Forwarded-For`, but anyone reaching port 8000 directly can write either
+  header and pick their own OAuth rate-limit budget.
+- At `0`, every visitor through the gateway shares the gateway's one budget,
+  so one client's burst of sign-ins can block another's for a minute.
+
+The project's [full cloud deployment](../../DEPLOY.md) closes port 8000
+behind a locked tunnel, then sets `TRUST_FORWARDED_HOPS=1`, and adds a Lambda
 authorizer for an extra auth layer.
 
 > **Need a VPS?** Any provider works — [AWS Lightsail](https://aws.amazon.com/lightsail/),
@@ -289,9 +291,7 @@ authorizer for an extra auth layer.
 
 Use [Caddy](https://caddyserver.com/) or nginx with a domain and TLS
 certificate. Caddy handles TLS automatically. Port 443 stays open on your
-server's firewall — the proxy receives traffic directly, so your server
-stays reachable from the internet, whereas a tunnel needs no inbound ports
-at all once port 8000 is closed:
+server's firewall, since the proxy receives traffic directly:
 
 ```caddy
 vault.yourdomain.com {
@@ -299,16 +299,15 @@ vault.yourdomain.com {
 }
 ```
 
-Set `PUBLIC_URL` to `https://vault.yourdomain.com` and `TRUST_PROXY_HOPS=1`
-in `.env` — with a proxy in front, that's what lets OAuth rate limiting tell
-clients apart (otherwise they all share the proxy's budget).
-
-The proxy runs on the same machine and reaches `localhost:8000`, so stop
-publishing port 8000 to the internet, as
-[Close port 8000](#hardening-recommended) describes. Set `TRUST_PROXY_HOPS=1`
-only after the port is closed: while it stays open, anyone reaching it
-directly can write their own `X-Forwarded-For` header and pick their own
-rate-limit budget.
+1. Set `PUBLIC_URL` to `https://vault.yourdomain.com` in `.env`.
+2. Stop publishing port 8000 to the internet, as
+   [Close port 8000](#hardening-recommended) describes. The proxy runs on the
+   same machine and reaches `localhost:8000`, so nothing else needs the port.
+3. Then set `TRUST_PROXY_HOPS=1` in `.env`, so OAuth rate limiting tells
+   clients apart instead of giving them all the proxy's budget. Set it only
+   after the port is closed: while it stays open, anyone reaching it directly
+   can write their own `X-Forwarded-For` header and pick their own
+   rate-limit budget.
 
 ### Direct access (testing only)
 
@@ -322,15 +321,11 @@ accepts `https` URLs, so with an `http` PUBLIC_URL connect via Claude Code
 [mcp-remote](https://github.com/geelen/mcp-remote) stdio bridge with its
 `--allow-http` flag.
 
-> **Note:** Clients connect at `<PUBLIC_URL>/mcp`, but `PUBLIC_URL` itself is
-> the **base URL only** — the server serves the endpoint at `/mcp` and appends
-> it for you, so a `PUBLIC_URL` ending in `/mcp` becomes `…/mcp/mcp` and won't
-> connect.
->
-> The base must be exactly the one clients reach the server through (scheme
-> and host, with no path — the server's routes live at the root) — OAuth
-> discovery metadata uses this URL, so a mismatch causes authentication
-> failures.
+> **Note:** `PUBLIC_URL` is the **base URL only**: the scheme and host clients
+> reach the server through, with no path. Clients connect at
+> `<PUBLIC_URL>/mcp`, so a `PUBLIC_URL` ending in `/mcp` becomes `…/mcp/mcp`
+> and won't connect. OAuth discovery metadata uses this URL, so any other
+> mismatch causes authentication failures.
 
 ## Sign in to Obsidian Sync
 
@@ -466,9 +461,9 @@ On every boot, a catch-up sync runs before the server starts. The server then ru
 4. Apply the changes the watcher held, so search reflects notes added, edited
    or deleted while the server started.
 
-Restarting the container re-runs this flow (useful when testing bootstrap
-behavior). The command is the same for every setup method; an install with
-its own `INSTANCE_NAME` uses that name in place of `vault-cortex`:
+Restarting the container re-runs this flow. The command is the same for every
+setup method; an install with its own `INSTANCE_NAME` uses that name in place
+of `vault-cortex`:
 
 ```bash
 # Sync and the MCP server both restart; the startup steps re-run cleanly:
@@ -478,9 +473,8 @@ docker restart vault-cortex
 > **Changed `.env`?** A restart does **not** re-read `.env` — the container
 > has to be re-created. Set up with the CLI? Run
 > [`npx vault-cortex@latest restart`](../../cli/#restart) — unlike
-> `docker restart`, it re-creates the container, so your edits take effect
-> ([`upgrade`](../../cli/#upgrade) also applies `.env` edits and pulls the
-> latest image on the way). Using Compose? Run `docker compose up -d` — it
+> `docker restart`, it re-creates the container, so your edits take effect.
+> Using Compose? Run `docker compose up -d` — it
 > re-creates services whose configuration changed. Using `docker run`?
 > Remove the container (`docker rm -f vault-cortex`) and re-run the
 > `docker run` command from [Setup](#setup).
@@ -818,10 +812,7 @@ one makes a meaningful difference.
 
 ## Troubleshooting
 
-**"VAULT_NAME is not set" in `docker logs`, and the container stops.** The
-container needs your vault name to know which vault to sync. This guide's
-`docker-compose.yml` refuses to start without it, but `docker run` and
-hosting-platform settings pages don't check. Add
+**"VAULT_NAME is not set" in `docker logs`, and the container stops.** Add
 `VAULT_NAME=<your exact Obsidian vault name, case-sensitive>` to `.env` (or
 pass `-e VAULT_NAME=...`) and re-create the container, because `docker start`
 keeps the old settings. The **Changed `.env`?** note under [Restart](#restart)
@@ -894,9 +885,8 @@ command for each setup method.
 **"This sign-in can't continue" in the browser instead of the consent page.**
 Your MCP client saved login details the server no longer has. That happens
 when the server's volumes were deleted, or when a sign-in was started more
-than an hour ago and never approved. That page lists these steps too. Clear
-the client's stored authorization for this server and reconnect so it
-registers fresh:
+than an hour ago and never approved. Clear the client's stored authorization
+for this server and reconnect so it registers fresh:
 
 - **Claude Code:** `claude mcp remove vault-cortex`, then run the
   `claude mcp add` command under
