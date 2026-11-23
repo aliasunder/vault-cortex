@@ -585,6 +585,14 @@ describe("paths holding a NUL character", () => {
     )
   })
 
+  it("resolveVaultRelativePath refuses a path holding a NUL, quoting its normalized form", () => {
+    const notePath = "./Notes\\Bad\u0000Name.md"
+
+    expect(() => resolveVaultRelativePath({ vaultPath: vault, notePath })).toThrow(
+      pathHasNulError("Notes/Bad\u0000Name.md"),
+    )
+  })
+
   it("resolveSafePath gives an over-long path holding a NUL the length refusal", () => {
     expect(() => resolveSafePath(vault, overLongNulPath)).toThrow(pathTooLongError(overLongNulPath))
   })

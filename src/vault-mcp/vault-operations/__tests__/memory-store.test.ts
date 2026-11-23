@@ -389,7 +389,10 @@ describe("updateMemory", () => {
     ).rejects.toThrow(
       new Error('memory file must not start with a dot: ".secret" would be a hidden file'),
     )
-    expect(await readdir(join(vault, "About Me"))).toEqual(["Opinions.md", "Principles.md"])
+    expect((await readdir(join(vault, "About Me"))).toSorted()).toEqual([
+      "Opinions.md",
+      "Principles.md",
+    ])
   })
 
   it.each([
@@ -4050,7 +4053,10 @@ describe("over-long memory file names", () => {
         logger,
       ),
     ).rejects.toThrow(tooLongRefusal)
-    expect(await readdir(join(vault, "About Me"))).toEqual(["Opinions.md", "Principles.md"])
+    expect((await readdir(join(vault, "About Me"))).toSorted()).toEqual([
+      "Opinions.md",
+      "Principles.md",
+    ])
   })
 
   it("updateMemory passes a name whose memory path is exactly 4,095 bytes on to the filesystem", async () => {
