@@ -114,8 +114,8 @@ mechanism-level detail.
 - On the `:remote` image, `SYNC_FILE_TYPES` includes `unsupported` (Obsidian
   Sync's **Sync all other types**) by default, so the text files of any device
   with that option on reach the server, where signed-in clients can read and
-  search them. `SYNC_FILE_TYPES=image,audio,video,pdf` keeps them off the
-  server.
+  search them. `SYNC_FILE_TYPES=image,audio,video,pdf` stops new ones from
+  arriving and leaves the ones already on the server in place.
 - `vault_write_file` lets any signed-in client create or replace a visible
   non-markdown text file, whatever its extension — the same reach
   `vault_write_note` has over notes.
