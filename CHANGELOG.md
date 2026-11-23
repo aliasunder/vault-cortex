@@ -1,5 +1,37 @@
 # Changelog
 
+## [1.0.1] — 2026-11-23
+
+### Bug Fixes
+
+- Refuse a NUL character in vault paths (#829)
+- **mcp:** Expire idle sessions and limit how many stay open (#831)
+- **links:** Skip link targets longer than any link Obsidian writes (#822)
+
+### Refactoring
+
+- **memory:** Take every entry span from the one entry walk (#826)
+- **tools:** Render the searched file kinds from one phrase (#825)
+
+### Documentation
+
+- Correct five stale facts in the wiki config, DEPLOY.md, llms-install.md and ARCHITECTURE.md (#827)
+- **remote:** Name BIND_ADDRESS in the Close port 8000 step (#824)
+- Re-publish the Railway template on any edit to its definition table (#817)
+
+### CI / Infrastructure
+
+- **deploy:** Let the reference deployment publish port 8000 on loopback (#828)
+
+### Maintenance
+
+- Bust the release and npm badge caches (#821)
+
+### Other Changes
+
+- **docker:** Leave a failed remote-boot start to the run teardown and check REMOTE_IMAGE once (#832)
+- **docker:** Remove each remote-boot run's containers, volumes and image (#830)
+
 ## [1.0.0] — 2026-11-20
 
 ### Features
