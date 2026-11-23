@@ -119,6 +119,50 @@ describe("removeRunObjects", () => {
     ])
   })
 
+  it("prints the summary, then throws naming a volume it could not remove with Docker's error", async () => {
+    const runId = randomUUID()
+
+    // Vitest runs onTestFinished callbacks in reverse order, so the container
+    // goes before the volume it mounts. The teardown under test cannot remove
+    // either, so both removals are checked.
+    const heldVolume = uniqueName("teardown-held-volume")
+    await dockerOrThrow(["volume", "create", "--label", runLabel(runId), heldVolume])
+    onTestFinished(async () => {
+      await dockerOrThrow(["volume", "rm", heldVolume])
+    })
+
+    // An unlabelled container that is never started still holds the volume,
+    // so the teardown skips the container and fails to remove the volume.
+    const holderName = uniqueName("teardown-holder")
+    await dockerOrThrow([
+      "create",
+      "--pull=never",
+      "--name",
+      holderName,
+      "-v",
+      `${heldVolume}:/held-volume`,
+      IMAGE,
+    ])
+    onTestFinished(async () => {
+      await dockerOrThrow(["rm", "-f", "-v", holderName])
+    })
+
+    // The same removal the teardown runs. It must fail here, or the test would
+    // pass without a failure to report, and its error text is what the
+    // teardown should report.
+    const premiseRemoval = await docker(["volume", "rm", "-f", heldVolume])
+    expect(premiseRemoval.code).not.toBe(0)
+
+    const printedLines = capturePrintedLines()
+
+    await expect(removeRunObjects({ runId, ownedImage: undefined })).rejects.toThrow(
+      new Error(
+        `remote-boot run ${runId} left Docker objects behind:\nvolume ${heldVolume}: ${premiseRemoval.stderr.trim()}`,
+      ),
+    )
+    expect(printedLines).toEqual([`remote-boot run ${runId}: removed 0 Docker object(s)`])
+  })
+
   it("removes the image the run built, leaving the image it was tagged from", async () => {
     const runId = randomUUID()
     const ownedImage = `vault-cortex:${uniqueName("teardown-owned")}`
