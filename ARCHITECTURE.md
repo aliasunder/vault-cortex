@@ -968,9 +968,11 @@ proxy-trust config:
     directly).
   - `2` — the element before it is the client, for a gateway whose custom
     domain sits behind a CDN: the gateway's peer is the CDN, and the CDN
-    recorded the client ahead of it. Only once the CDN is the sole way in
-    (`DISABLE_EXECUTE_API_ENDPOINT=true`) — on the default hostname a
-    request skips the CDN and carries one fewer trusted element.
+    recorded the client ahead of it. Only once the CDN is the sole way in:
+    `DISABLE_EXECUTE_API_ENDPOINT=true` closes the default hostname, and the
+    custom domain must refuse connections that skip the CDN (mutual TLS
+    with the CDN), because a request on either path carries one fewer
+    trusted element.
 - Behind API Gateway, `Forwarded` is the only carrier of the client IP:
   the gateway writes that header, folds a client-supplied
   `X-Forwarded-For` into it as leading elements, and sends no
@@ -980,8 +982,10 @@ proxy-trust config:
   hardening makes the gateway the only way in.
 - `TRUST_PROXY_HOPS` (default `0`) sets Express `trust proxy` — how many
   `X-Forwarded-For` hops feed `req.ip`, the bucket key whenever `Forwarded`
-  isn't trusted. These counts prevent forged client IPs only when requests
-  arrive through the counted proxies; direct access to the server must be blocked.
+  isn't trusted. Behind a tunnel it is `1`: the tunnel appends the
+  connecting address. These counts prevent forged client IPs only when
+  requests arrive through the counted proxies; direct access to the server
+  must be blocked.
 - Whichever setting supplies the client IP, an IPv6 client is keyed by its /56
   (express-rate-limit's `ipKeyGenerator`), because one host often holds a
   /64 and could otherwise get a fresh bucket for every address in it. The
@@ -1074,7 +1078,10 @@ a tunnel or reverse proxy that terminates on the instance and forwards to
 block direct access. With that topology, bearer tokens never travel in
 plaintext on any network segment — every network hop is HTTPS or
 tunnel-encrypted, and the final proxy-to-server hop stays on loopback. A proxy
-on a separate host forwarding plain HTTP would not qualify. See
+on a separate host forwarding plain HTTP would not qualify.
+`BIND_ADDRESS=127.0.0.1` also publishes the container's port on loopback only,
+which closes it on VPN interfaces such as Tailscale that the Lightsail
+firewall does not filter. See
 [`DEPLOY.md`](./DEPLOY.md#port-8000-hardening-optional).
 
 **Optional: restrict SSH.** Set `SSH_CIDRS=none` to block public SSH and

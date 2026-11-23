@@ -23,9 +23,13 @@ import { execSync } from "node:child_process"
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { homedir, tmpdir } from "node:os"
 import { join } from "node:path"
+import { parseEnv } from "node:util"
+
+import { DateTime } from "luxon"
 
 import { DEPLOYMENT_ENV_PATH, loadDeploymentEnv } from "./deployment-env.js"
 import {
+  closesPublicPortWithoutOrigin,
   envContentWithPublicUrl,
   gatewayApiEndpointQuery,
   resolvePublicUrl,
@@ -112,9 +116,9 @@ const waitForDocker = ({
   sshIdentityOption: string
   timeoutSec?: number
 }): void => {
-  const deadline = Date.now() + timeoutSec * 1000
+  const deadline = DateTime.now().plus({ seconds: timeoutSec })
   console.log(`⏳ Waiting for Docker on the instance (up to ${timeoutSec}s)...`)
-  while (Date.now() < deadline) {
+  while (DateTime.now() < deadline) {
     try {
       execSync(
         `ssh ${sshIdentityOption} ${SSH_OPTS} ubuntu@${targetHost} 'docker --version' 2>/dev/null`,
@@ -238,6 +242,21 @@ switch (subcommand) {
     break
 
   case "lightsail:up": {
+    // A loopback bind leaves nothing answering on the instance's public port
+    // 8000, which the gateway calls while ORIGIN_URL is empty, so refuse
+    // before anything reaches the instance. BIND_ADDRESS
+    // comes from the env file, not the shell, because the instance's compose
+    // file reads only the copy of the env file shipped below.
+    const envFileContent = readFileSync(DEPLOYMENT_ENV_PATH, "utf8")
+    const bindAddress = parseEnv(envFileContent).BIND_ADDRESS
+
+    if (closesPublicPortWithoutOrigin({ bindAddress, originUrl: env.ORIGIN_URL })) {
+      console.error(
+        `✕  BIND_ADDRESS=${bindAddress} takes port 8000 off the instance's public address, but ORIGIN_URL is empty, so API Gateway would call that address. Set ORIGIN_URL, or remove BIND_ADDRESS from ~/.config/vault-cortex/.env`,
+      )
+      process.exit(1)
+    }
+
     // The instance .env must carry the same PUBLIC_URL the Lambda authorizer
     // derived at `sst deploy` — a mismatch 403s every request at the gateway.
     // Resolved before anything touches the instance, so a failed resolution
@@ -248,7 +267,7 @@ switch (subcommand) {
       console.log(`> PUBLIC_URL derived from ${publicUrlSource}`)
     }
     const shippedEnvContent = envContentWithPublicUrl({
-      envFileContent: readFileSync(DEPLOYMENT_ENV_PATH, "utf8"),
+      envFileContent,
       publicUrl: resolvedPublicUrl,
     })
     const targetHost = resolveSshHost()
