@@ -139,7 +139,6 @@ type UpdateMemoryOutcome = "created-file" | "created-section" | "appended" | "un
 type ParsedSection = Readonly<{
   heading: string
   level: 1 | 2
-  startLine: number
   bodyStartLine: number
   bodyEndLine: number
   /** The section's dated entries, from parseMemoryEntries. Every count,
@@ -173,7 +172,6 @@ const parseSections = (lines: readonly string[]): ParsedSection[] => {
     sections.push({
       heading: heading.text,
       level: heading.level,
-      startLine: heading.startLine,
       bodyStartLine: heading.bodyStartLine,
       bodyEndLine: heading.bodyEndLine,
       entries: entriesBySectionLine.get(heading.startLine) ?? [],
@@ -953,7 +951,6 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
         return "created-section"
       }
 
-      // Duplicate check scoped to genuine entries (not fenced lines).
       // An exact duplicate means the entry already landed, typically from an
       // MCP client retrying after a gateway timeout. The same bullet under a
       // different heading is a distinct entry and does not suppress the append.
@@ -1100,7 +1097,6 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
       const lines = splitIntoLines(body)
       const match = resolveSection({ lines, section: params.section, file: params.file })
 
-      // Find the target bullet among genuine (non-fenced) entry lines.
       const matchingEntries = match.entries.filter(
         (entry) => lines[entry.startLine] === targetBullet,
       )
