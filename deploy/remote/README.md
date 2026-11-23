@@ -670,10 +670,9 @@ enabled by default. Set `FILE_TOOLS_ENABLED=false` in your `.env` to hide them,
 or `DISABLED_TOOLS=vault_write_file` to keep reading files but turn off writing
 them.
 
-Until `SYNC_FILE_TYPES` includes `unsupported`, text files other than canvases,
-Bases and SVGs don't sync: a CSV you expect is missing from the server, and one
-an agent writes stays on it (see `SYNC_FILE_TYPES` under
-[Configuration](#configuration)).
+Until `SYNC_FILE_TYPES` includes `unsupported`, CSV, JSON, TXT, HTML and script
+files don't sync: one you expect is missing from the server, and one an agent
+writes stays on it (see `SYNC_FILE_TYPES` under [Configuration](#configuration)).
 
 ## Read-only mode
 

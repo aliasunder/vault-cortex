@@ -247,7 +247,7 @@ Example: vault_write_file({ path: "Bases/Books.base", content: "views:\\n  - typ
 
 When to use: Editing a canvas, a Base or a data file (.json, .csv, .svg, .txt, a script) from a client without local file tools.${whenToolEnabledText("vault_read_file", " Read the current source first with vault_read_file (raw: true for a canvas), then write the whole file back with overwrite: true.")}${whenToolEnabledText("vault_write_note", " For .md notes use vault_write_note.")}
 
-Behavior: content is saved byte for byte. An overwrite keeps no copy of the replaced file.
+Behavior: content is saved as given, encoded as UTF-8. An overwrite keeps no copy of the replaced file.
 
 Errors:
 - "file already exists" — set overwrite: true to replace it

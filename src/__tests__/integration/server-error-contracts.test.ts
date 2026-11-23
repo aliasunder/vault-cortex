@@ -897,6 +897,23 @@ describe("filesystem errors name the path vault-relative and carry their remedy"
     })
   })
 
+  it("vault_write_file through a note names the note vault-relative", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_write_file",
+      args: { path: "Projects/alpha.md/child.json", content: "{}" },
+    })
+    expect(result).toEqual({
+      content: [
+        {
+          type: "text",
+          text: `[Error]: EEXIST: file already exists, mkdir 'Projects/alpha.md'. ${FOLDER_IS_FILE_REMEDY}`,
+        },
+      ],
+      isError: true,
+    })
+  })
+
   it("vault_move_note to a path through a note names the note vault-relative", async () => {
     const sourcePath = join(serverVaultPath, "Orphan Note.md")
     const sourceContentBefore = await readFile(sourcePath, "utf8")
