@@ -1,10 +1,11 @@
-/** Remote-boot harness tests — the error path of `runContainer` that the boot
- *  scenarios never take: refusing a named volume this run did not create.
+/** Remote-boot harness tests — the two error paths of `runContainer` that the
+ *  boot scenarios never take: a start that fails after Docker created the
+ *  container, and refusing a named volume this run did not create.
  *  Needs Docker, like the rest of the remote-boot tier. */
 
 import { randomBytes } from "node:crypto"
 import { describe, expect, inject, it, onTestFinished } from "vitest"
-import { docker, dockerOrThrow, outputLines, runContainer } from "./docker-harness.js"
+import { docker, dockerOrThrow, outputLines, runContainer, runLabel } from "./docker-harness.js"
 
 const IMAGE = inject("remoteImage")
 
@@ -25,6 +26,55 @@ const containersNamed = async (name: string): Promise<string[]> => {
 }
 
 describe("runContainer", () => {
+  it("rethrows the docker run error when the start fails after Docker created the container, leaving the container with this run's label for the run teardown", async () => {
+    const name = uniqueName("failed-start")
+    onTestFinished(async () => {
+      await dockerOrThrow(["rm", "-f", "-v", name])
+    })
+
+    // A file mounted over a directory passes `docker create` and fails only
+    // when the runtime sets up the mounts at start.
+    const start = runContainer({
+      name,
+      image: IMAGE,
+      env: {},
+      volumes: ["/etc/hostname:/etc:ro"],
+      publishPort: false,
+    })
+
+    // Settles the start before the container's recorded error is read below.
+    await Promise.allSettled([start])
+
+    // Docker records the daemon's start error on the container. Its runtime
+    // text varies with the runc version, so the test reads it rather than
+    // spelling it out. The inspects throw when no container has this name.
+    const containerId = (await dockerOrThrow(["inspect", "-f", "{{.Id}}", name])).trim()
+    const recordedStartError = (
+      await dockerOrThrow(["inspect", "-f", "{{.State.Error}}", name])
+    ).trim()
+    // The start must have failed on the mount. An empty record would also let
+    // the message check below pass for any daemon error.
+    expect(recordedStartError).toMatch(/error mounting "\/etc\/hostname" to rootfs at "\/etc"/)
+
+    await expect(start).rejects.toThrow(
+      new RegExp(
+        `^docker run -d --pull=never --name ${name} .* exited 125: docker: Error response from daemon: ${RegExp.escape(recordedStartError)}`,
+        "s",
+      ),
+    )
+
+    const runLabelled = await dockerOrThrow([
+      "ps",
+      "-aq",
+      "--no-trunc",
+      "--filter",
+      `name=^${name}$`,
+      "--filter",
+      `label=${runLabel(inject("remoteBootRunId"))}`,
+    ])
+    expect(outputLines(runLabelled)).toEqual([containerId])
+  })
+
   it("refuses a named volume that exists without this run's label, leaving the volume as it was", async () => {
     const name = uniqueName("foreign-volume")
     const volume = uniqueName("foreign-volume-data")
