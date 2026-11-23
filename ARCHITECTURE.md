@@ -983,9 +983,9 @@ proxy-trust config:
 - `TRUST_PROXY_HOPS` (default `0`) sets Express `trust proxy` — how many
   `X-Forwarded-For` hops feed `req.ip`, the bucket key whenever `Forwarded`
   isn't trusted. Behind a tunnel it is `1`: the tunnel appends the
-  connecting address, and the gateway writes no `X-Forwarded-For`. These
-  counts prevent forged client IPs only when requests arrive through the
-  counted proxies; direct access to the server must be blocked.
+  connecting address. These counts prevent forged client IPs only when
+  requests arrive through the counted proxies; direct access to the server
+  must be blocked.
 - Whichever setting supplies the client IP, an IPv6 client is keyed by its /56
   (express-rate-limit's `ipKeyGenerator`), because one host often holds a
   /64 and could otherwise get a fresh bucket for every address in it. The
