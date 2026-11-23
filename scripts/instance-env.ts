@@ -58,9 +58,10 @@ export const resolvePublicUrl = ({
 }
 
 /**
- * True when BIND_ADDRESS takes port 8000 off the instance's public address
- * while ORIGIN_URL is empty. API Gateway then calls that public address, which
- * no longer answers, so every request would fail.
+ * True when BIND_ADDRESS is a loopback address (127.0.0.0/8 or ::1) while
+ * ORIGIN_URL is empty. API Gateway then calls the instance's public address,
+ * where nothing answers, so every request would fail. Any other address,
+ * such as the instance's private one, still answers through the public IP.
  */
 export const closesPublicPortWithoutOrigin = ({
   bindAddress,
@@ -69,9 +70,9 @@ export const closesPublicPortWithoutOrigin = ({
   bindAddress: string | undefined
   originUrl: string | undefined
 }): boolean => {
-  const publishesOnEveryAddress = !bindAddress || bindAddress === "0.0.0.0"
+  if (!bindAddress || originUrl) return false
 
-  return !publishesOnEveryAddress && !originUrl
+  return bindAddress.startsWith("127.") || bindAddress === "::1"
 }
 
 /**

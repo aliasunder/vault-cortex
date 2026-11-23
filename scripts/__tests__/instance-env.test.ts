@@ -271,15 +271,50 @@ describe("closesPublicPortWithoutOrigin", () => {
       bindAddress: "127.0.0.1",
       originUrl: "https://origin.example.com",
     },
+    {
+      label: "the instance's private address without ORIGIN_URL",
+      bindAddress: "172.26.15.111",
+      originUrl: undefined,
+    },
+    {
+      label: "every IPv6 address (::) without ORIGIN_URL",
+      bindAddress: "::",
+      originUrl: undefined,
+    },
   ])("allows $label", ({ bindAddress, originUrl }) => {
     expect(closesPublicPortWithoutOrigin({ bindAddress, originUrl })).toBe(false)
   })
 
   it.each([
-    { label: "ORIGIN_URL unset", originUrl: undefined },
-    { label: "an empty ORIGIN_URL (an unset CI secret)", originUrl: "" },
-  ])("refuses a loopback BIND_ADDRESS with $label", ({ originUrl }) => {
-    expect(closesPublicPortWithoutOrigin({ bindAddress: "127.0.0.1", originUrl })).toBe(true)
+    { label: "127.0.0.1 with ORIGIN_URL unset", bindAddress: "127.0.0.1", originUrl: undefined },
+    {
+      label: "127.0.0.1 with an empty ORIGIN_URL (an unset CI secret)",
+      bindAddress: "127.0.0.1",
+      originUrl: "",
+    },
+    { label: "another 127.0.0.0/8 address", bindAddress: "127.0.0.2", originUrl: undefined },
+    { label: "the IPv6 loopback ::1", bindAddress: "::1", originUrl: undefined },
+  ])("refuses $label", ({ bindAddress, originUrl }) => {
+    expect(closesPublicPortWithoutOrigin({ bindAddress, originUrl })).toBe(true)
+  })
+
+  // sst.config.ts cannot be imported into a test (its globals come from SST),
+  // so pin its call as source: deleting the check, or calling it with the
+  // wrong values, would otherwise pass every test. The check must also come
+  // before the first resource, so a refusal changes nothing.
+  it("is checked at the top of sst.config.ts's run(), before any resource", () => {
+    const sstConfigSource = readFileSync(new URL("../../sst.config.ts", import.meta.url), "utf8")
+
+    const bindAddressRead = 'const bindAddress = env("BIND_ADDRESS").asString()'
+    const checkCall = "if (closesPublicPortWithoutOrigin({ bindAddress, originUrl })) {"
+    const firstResource = "new sst."
+
+    expect(sstConfigSource).toContain(bindAddressRead)
+    expect(sstConfigSource).toContain(checkCall)
+    expect(sstConfigSource.indexOf(bindAddressRead)).toBeLessThan(
+      sstConfigSource.indexOf(checkCall),
+    )
+    expect(sstConfigSource.indexOf(checkCall)).toBeLessThan(sstConfigSource.indexOf(firstResource))
   })
 })
 
