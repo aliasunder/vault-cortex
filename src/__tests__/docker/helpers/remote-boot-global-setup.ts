@@ -59,8 +59,9 @@ const buildRunImage = async ({
 const assertSuppliedImagePresent = async (image: string): Promise<void> => {
   const inspection = await docker(["image", "inspect", image])
 
-  // Docker's error tells a missing image apart from a stopped daemon.
   if (inspection.code !== 0) {
+    // The message carries Docker's error, which tells a missing image apart
+    // from a stopped daemon.
     throw new Error(
       `REMOTE_IMAGE names ${image}, which Docker cannot inspect: ${inspection.stderr.trim()}. npm run build:remote-image builds vault-cortex:remote-ci.`,
     )
