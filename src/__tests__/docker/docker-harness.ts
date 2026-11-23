@@ -141,8 +141,8 @@ export type ContainerHandle = {
  *  The returned cleanup removes the container together with its anonymous
  *  volumes (`rm -v`); named volumes passed in `volumes` are removed
  *  explicitly, since `rm -v` leaves those alone. A removal that fails
- *  throws, naming the container or volume, so a leak fails the hook
- *  instead of accumulating silently across local runs. */
+ *  throws, naming the container or volume, so a leaked object fails the
+ *  describe block that leaked it, before the run teardown runs. */
 export const runContainer = async ({
   name,
   image,

@@ -85,7 +85,7 @@ const printContainerDiagnostics = async (containerId: string): Promise<void> => 
 }
 
 /** Removes every container and volume labelled with the run ID, then the image
- *  the run built, and throws when any removal failed. A leftover container
+ *  the run built, and throws when any listing or removal failed. A leftover container
  *  means its scenario's own cleanup never ran, so its diagnostics go to the
  *  log first. */
 export const removeRunObjects = async ({
