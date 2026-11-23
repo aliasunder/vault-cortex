@@ -75,6 +75,17 @@ const assertPathHasNoNul = (notePath: string): void => {
   throw new Error(`EINVAL: a path cannot contain a NUL character, '${notePath}'`)
 }
 
+/** Checks a path as sent, before anything normalizes or resolves it:
+ *  - normalizing, resolve() and the case-folding callers apply (the write-lock
+ *    key, isProtectedPath) cost more than linear time on some crafted inputs;
+ *  - the absolute-path check leads, so an absolute path gets that refusal
+ *    whatever its length. */
+const assertPathCanBeResolved = (notePath: string): void => {
+  assertRelativePath(notePath)
+  assertPathWithinMaxLength(notePath)
+  assertPathHasNoNul(notePath)
+}
+
 /** Resolves a note path within the vault. It throws on:
  *  - absolute paths;
  *  - paths longer than any filesystem accepts;
@@ -86,14 +97,7 @@ const assertPathHasNoNul = (notePath: string): void => {
  *  Internal ".obsidian/" config readers deliberately bypass this via direct
  *  readFile. */
 export const resolveSafePath = (vaultPath: string, notePath: string): string => {
-  assertRelativePath(notePath)
-
-  // resolve() below costs more than linear time on some crafted inputs, as
-  // does the case-folding that callers apply to its result (the write-lock
-  // key, isProtectedPath). A path the filesystem would refuse anyway is
-  // therefore refused before either runs.
-  assertPathWithinMaxLength(notePath)
-  assertPathHasNoNul(notePath)
+  assertPathCanBeResolved(notePath)
 
   const vaultRoot = resolve(vaultPath)
   const resolvedPath = resolve(vaultRoot, notePath)
@@ -128,17 +132,11 @@ export const resolveVaultRelativePath = (params: {
   vaultPath: string
   notePath: string
 }): string => {
-  // The absolute-path check comes first, as in resolveSafePath, so an
-  // absolute path gets that refusal whatever its length.
-  assertRelativePath(params.notePath)
-
-  // Normalizing costs more than linear time on some crafted inputs, so the
-  // length check runs on the input as sent, before toVaultRelativePath. The
-  // NUL check runs on it too, because normalizing drops a segment that ".."
-  // cancels ("a<NUL>/../b.md" becomes "b.md"). resolveSafePath repeats the
-  // absolute-path, length and NUL checks for its own direct callers.
-  assertPathWithinMaxLength(params.notePath)
-  assertPathHasNoNul(params.notePath)
+  // The checks run on the input as sent, before toVaultRelativePath: besides
+  // its cost, normalizing drops a segment that ".." cancels, so a NUL in
+  // "a<NUL>/../b.md" would never reach resolveSafePath, which repeats the
+  // checks for its own direct callers.
+  assertPathCanBeResolved(params.notePath)
 
   const normalizedInput = toVaultRelativePath(params.notePath)
   // resolveSafePath is called for its safety guards; its absolute result is
