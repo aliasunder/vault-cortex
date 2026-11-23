@@ -4,6 +4,7 @@ import express, { Router } from "express"
 import type { NextFunction, Request, Response } from "express"
 import { ipKeyGenerator, rateLimit } from "express-rate-limit"
 import { randomUUID } from "node:crypto"
+import { DateTime, Duration } from "luxon"
 import type { PdfExtractor } from "../vault-operations/pdf-extractor.js"
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js"
@@ -19,6 +20,7 @@ import { TOOL_REGISTRY } from "./tool-registry.js"
 import type { ToolName } from "./tool-registry.js"
 import { createToolAvailability } from "./tool-availability.js"
 import { logger } from "../../logger.js"
+import { describeErrorForLog } from "../../utils/describe-error.js"
 import { extractClientIp, headerAsString, mcpResourceUrl } from "../../auth.js"
 
 type McpRouterOptions = {
@@ -60,6 +62,35 @@ const SERVER_ICONS = [
 const MCP_JSON_BODY_LIMIT = "5mb"
 
 const SERVER_WEBSITE_URL = "https://github.com/aliasunder/vault-cortex"
+
+// A conversation left open overnight keeps its session, unless the session
+// limit below closes it first.
+const MCP_SESSION_IDLE_TIMEOUT = Duration.fromObject({ hours: 24 })
+
+// Each session holds its own server instance, about 0.9 MB, so 300 sessions
+// stay near 270 MB, within the 2 GB tiers the hosted deploy guides recommend.
+const MAX_MCP_SESSIONS = 300
+
+// One admission can close many sessions; the log line lists the first IDs
+// only, because logger.ts caps each string but keeps every array element.
+const MAX_LOGGED_REMOVED_SESSION_IDS = 20
+
+type SessionRemovalReason = "idle" | "capacity"
+
+/** One live MCP session. The record is mutated in place, because each routed
+ *  request updates its start time. */
+type McpSession = {
+  transport: StreamableHTTPServerTransport
+  lastRequestStartedAt: DateTime
+}
+
+type SessionEntry = { sessionId: string; session: McpSession }
+
+type SessionRemoval = SessionEntry & { reason: SessionRemovalReason }
+
+const hasIdledOut = (session: Readonly<McpSession>, now: DateTime): boolean => {
+  return session.lastRequestStartedAt.plus(MCP_SESSION_IDLE_TIMEOUT) < now
+}
 
 /** Metadata names only served tools; memory and search framing follow config. */
 export const buildServerMetadata = (
@@ -136,7 +167,78 @@ export const createMcpRouter = ({
     verifier: provider,
     resourceMetadataUrl: getOAuthProtectedResourceMetadataUrl(mcpResourceUrl(serverUrl)),
   })
-  const transports = new Map<string, StreamableHTTPServerTransport>()
+  // Insertion order is recency order: admitSession stamps a new session and
+  // inserts it last, and touchSession stamps a routed one and moves it to the
+  // end, so each entry's position matches its start time and the first entry
+  // is the session whose last request started earliest.
+  const sessions = new Map<string, McpSession>()
+
+  /** Takes the session out of the map, then closes it. */
+  const removeSession = ({ sessionId, session }: SessionEntry): void => {
+    sessions.delete(sessionId)
+    // Not awaited, so admitSession stays synchronous: an await here would let
+    // another initialize admit its session before admitSession's own insert,
+    // and the map could pass MAX_MCP_SESSIONS. close() ends the session's open
+    // streams before it returns, so only a failure arrives later.
+    session.transport.close().catch((closeError: unknown) => {
+      logger.warn("mcp_session_close_failed", { sessionId, ...describeErrorForLog(closeError) })
+    })
+  }
+
+  const logRemovedSessions = (removedSessions: ReadonlyArray<SessionRemoval>): void => {
+    if (removedSessions.length === 0) return
+
+    const countRemovedFor = (reason: SessionRemovalReason): number => {
+      return removedSessions.filter((removed) => removed.reason === reason).length
+    }
+    logger.info("mcp_sessions_removed", {
+      idleCount: countRemovedFor("idle"),
+      capacityCount: countRemovedFor("capacity"),
+      sessionIds: removedSessions
+        .slice(0, MAX_LOGGED_REMOVED_SESSION_IDS)
+        .map((removed) => removed.sessionId),
+    })
+  }
+
+  /** The only place a new session enters the map. Synchronous, so each
+   *  admission runs to completion before another can start, and the map
+   *  never holds more than MAX_MCP_SESSIONS. */
+  const admitSession = (sessionId: string, transport: StreamableHTTPServerTransport): void => {
+    const now = DateTime.now()
+
+    // Every entry is checked, never stopping at the first active one: a wall
+    // clock set backwards can leave an idle session behind an active one in
+    // the map's order.
+    const idleRemovals = [...sessions]
+      .filter(([, candidate]) => hasIdledOut(candidate, now))
+      .map(([idleSessionId, idleSession]): SessionRemoval => {
+        return { sessionId: idleSessionId, session: idleSession, reason: "idle" }
+      })
+    for (const removal of idleRemovals) removeSession(removal)
+
+    // The first entries are the least recently used, so they make room for
+    // the new session.
+    const overCapacityCount = Math.max(sessions.size - MAX_MCP_SESSIONS + 1, 0)
+    const capacityRemovals = [...sessions]
+      .slice(0, overCapacityCount)
+      .map(([leastRecentSessionId, leastRecentSession]): SessionRemoval => {
+        return { sessionId: leastRecentSessionId, session: leastRecentSession, reason: "capacity" }
+      })
+    for (const removal of capacityRemovals) removeSession(removal)
+
+    // Stamped here rather than when its initialize started: initializes can
+    // overlap, so an earlier time could be older than an entry already in the
+    // map, and the map's order would no longer match the start times.
+    sessions.set(sessionId, { transport, lastRequestStartedAt: now })
+    logRemovedSessions([...idleRemovals, ...capacityRemovals])
+  }
+
+  /** Marks a request's start: the session becomes the most recently used. */
+  const touchSession = (sessionId: string, session: McpSession): void => {
+    session.lastRequestStartedAt = DateTime.now()
+    sessions.delete(sessionId)
+    sessions.set(sessionId, session)
+  }
 
   // The MCP Streamable HTTP spec requires servers to validate Origin against
   // DNS rebinding, where a page on another site points its own hostname at
@@ -197,16 +299,43 @@ export const createMcpRouter = ({
     const clientIp = extractClientIp(req, config.trustForwardedHops)
     logger.info("mcp_request", { sessionId, clientIp, method: "POST" })
 
-    const existingTransport = sessionId ? transports.get(sessionId) : undefined
+    const existingSession = sessionId ? sessions.get(sessionId) : undefined
 
-    if (existingTransport) {
-      logger.info("mcp_response", {
+    if (sessionId && existingSession) {
+      // An expired session gets the same 404 an unknown session gets, so its
+      // client starts a new session.
+      if (hasIdledOut(existingSession, DateTime.now())) {
+        const removal: SessionRemoval = { sessionId, session: existingSession, reason: "idle" }
+        removeSession(removal)
+        logRemovedSessions([removal])
+        logger.warn("mcp_response", {
+          sessionId,
+          clientIp,
+          status: 404,
+          outcome: "session expired",
+        })
+        res.status(404).json({ error: "session not found" })
+        return
+      }
+
+      touchSession(sessionId, existingSession)
+      await existingSession.transport.handleRequest(req, res, req.body)
+      // Logged after the transport answers, so a follow-up it rejects (406,
+      // 400) is logged with that status, as a warn like the router's own
+      // rejections.
+      const routedResponse = {
         sessionId,
         clientIp,
-        status: 200,
+        status: res.statusCode,
         outcome: "routed to existing session",
-      })
-      await existingTransport.handleRequest(req, res, req.body)
+      }
+      const transportRejected = res.statusCode >= 400
+
+      if (transportRejected) {
+        logger.warn("mcp_response", routedResponse)
+        return
+      }
+      logger.info("mcp_response", routedResponse)
       return
     }
 
@@ -235,17 +364,12 @@ export const createMcpRouter = ({
       res.status(400).json({ error: "no session" })
       return
     }
-    const transport = new StreamableHTTPServerTransport({
+    // The SDK calls onsessioninitialized only inside handleRequest, once it has
+    // assigned the session ID, and never for a rejected initialize.
+    const transport: StreamableHTTPServerTransport = new StreamableHTTPServerTransport({
       sessionIdGenerator: () => randomUUID(),
+      onsessioninitialized: (newSessionId) => admitSession(newSessionId, transport),
     })
-    transport.onclose = () => {
-      if (transport.sessionId) {
-        transports.delete(transport.sessionId)
-        logger.info("session_closed", {
-          sessionId: transport.sessionId,
-        })
-      }
-    }
     const { instructions, description } = buildServerMetadata(
       config,
       computeEnabledToolNames(config),
@@ -297,7 +421,6 @@ export const createMcpRouter = ({
       })
       return
     }
-    transports.set(transport.sessionId, transport)
     logger.info("mcp_response", {
       sessionId: transport.sessionId,
       clientIp,
@@ -326,13 +449,13 @@ export const createMcpRouter = ({
     })
   })
 
-  router.delete("/mcp", ...guards, bearerAuth, async (req: Request, res: Response) => {
+  router.delete("/mcp", ...guards, bearerAuth, (req: Request, res: Response) => {
     const sessionId = headerAsString(req.headers["mcp-session-id"])
     const clientIp = extractClientIp(req, config.trustForwardedHops)
     logger.info("mcp_request", { sessionId, clientIp, method: "DELETE" })
-    const transport = sessionId ? transports.get(sessionId) : undefined
+    const session = sessionId ? sessions.get(sessionId) : undefined
 
-    if (!sessionId || !transport) {
+    if (!sessionId || !session) {
       logger.warn("mcp_response", {
         sessionId,
         clientIp,
@@ -342,8 +465,12 @@ export const createMcpRouter = ({
       res.status(404).json({ error: "session not found" })
       return
     }
-    await transport.close()
-    transports.delete(sessionId)
+    // A DELETE answers 200 whatever the session's idle time, so a client's
+    // clean shutdown after a long idle succeeds.
+    removeSession({ sessionId, session })
+    // Logged only here: a session the server removes is logged by
+    // mcp_sessions_removed instead.
+    logger.info("session_closed", { sessionId })
     logger.info("mcp_response", {
       sessionId,
       clientIp,
