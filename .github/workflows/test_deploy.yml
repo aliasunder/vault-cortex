@@ -265,6 +265,14 @@ jobs:
           LOG_RETENTION_DAYS: ${{ vars.LOG_RETENTION_DAYS }}
           LOG_MAX_DAILY_MB: ${{ vars.LOG_MAX_DAILY_MB }}
           WINDOWS_MODE: ${{ vars.WINDOWS_MODE }}
+          PUID: ${{ vars.PUID }}
+          PGID: ${{ vars.PGID }}
+          DEVICE_NAME: ${{ vars.DEVICE_NAME }}
+          CONFLICT_STRATEGY: ${{ vars.CONFLICT_STRATEGY }}
+          SYNC_MODE: ${{ vars.SYNC_MODE }}
+          MAX_FILE_BYTES: ${{ vars.MAX_FILE_BYTES }}
+          MAX_IMAGE_OUTPUT_BYTES: ${{ vars.MAX_IMAGE_OUTPUT_BYTES }}
+          MAX_PDF_RENDER_PAGES: ${{ vars.MAX_PDF_RENDER_PAGES }}
         run: |
           umask 077
           cat > "$RUNNER_TEMP/lightsail.env" <<EOF
@@ -279,11 +287,11 @@ jobs:
           MEMORY_ENABLED=${MEMORY_ENABLED:-true}
           FILE_TOOLS_ENABLED=${FILE_TOOLS_ENABLED:-true}
           MEMORY_DIR=${MEMORY_DIR:-About Me}
-          PUID=1000
-          PGID=1000
-          DEVICE_NAME=vault-cortex-lightsail
-          CONFLICT_STRATEGY=merge
-          SYNC_MODE=bidirectional
+          PUID=${PUID:-1000}
+          PGID=${PGID:-1000}
+          DEVICE_NAME=${DEVICE_NAME:-vault-cortex-lightsail}
+          CONFLICT_STRATEGY=${CONFLICT_STRATEGY:-merge}
+          SYNC_MODE=${SYNC_MODE:-bidirectional}
           LOG_LEVEL=${LOG_LEVEL:-info}
           LOG_DIR=${LOG_DIR:-/data/logs}
           LOG_RETENTION_DAYS=${LOG_RETENTION_DAYS:-90}
@@ -307,6 +315,9 @@ jobs:
           if [ -n "$TRUST_PROXY_HOPS" ]; then echo "TRUST_PROXY_HOPS=$TRUST_PROXY_HOPS" >> "$RUNNER_TEMP/lightsail.env"; fi
           if [ -n "$TRUST_FORWARDED_HOPS" ]; then echo "TRUST_FORWARDED_HOPS=$TRUST_FORWARDED_HOPS" >> "$RUNNER_TEMP/lightsail.env"; fi
           if [ -n "$BIND_ADDRESS" ]; then echo "BIND_ADDRESS=$BIND_ADDRESS" >> "$RUNNER_TEMP/lightsail.env"; fi
+          if [ -n "$MAX_FILE_BYTES" ]; then echo "MAX_FILE_BYTES=$MAX_FILE_BYTES" >> "$RUNNER_TEMP/lightsail.env"; fi
+          if [ -n "$MAX_IMAGE_OUTPUT_BYTES" ]; then echo "MAX_IMAGE_OUTPUT_BYTES=$MAX_IMAGE_OUTPUT_BYTES" >> "$RUNNER_TEMP/lightsail.env"; fi
+          if [ -n "$MAX_PDF_RENDER_PAGES" ]; then echo "MAX_PDF_RENDER_PAGES=$MAX_PDF_RENDER_PAGES" >> "$RUNNER_TEMP/lightsail.env"; fi
 
       - name: Ship compose + .env to instance
         env:
