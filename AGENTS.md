@@ -90,7 +90,7 @@ src/
   utils/ # Generic helpers with no domain logic (admission rules under Module layering)
   functions/authorizer.ts # Lambda: validates the static token or a JWT on every protected route
   __tests__/integration/ # Server tests over real HTTP through the SDK Client; files listed under "Integration tests — when to add"
-  __tests__/docker/ # :remote image boot tests (npm run test:remote-boot): docker-harness, and fixtures/ob, a stub of the obsidian-headless CLI
+  __tests__/docker/ # :remote image boot tests (npm run test:remote-boot): docker-harness, helpers/remote-boot-global-setup (builds each run's image and removes what the run created), and fixtures/ob, a stub of the obsidian-headless CLI
   vault-mcp/
     server.ts, config.ts # Entry point and env-var loader, the only loose files here
     obsidian-markdown/ # Pure parsers and transforms with no I/O (pdf-engine excepted): lines, frontmatter, callouts, headings, links, tags, aliases, body-tags + obsidian-remark-parser + remark-ports/, tasks, recurrence, memory-entries, canvas, file-kinds, html, plaintext, pdf + pdf-engine, moment-format
@@ -1162,9 +1162,9 @@ Remote image boot tests (`src/__tests__/docker/`) boot the built
 They catch what a single script's test file cannot: the ordering of
 init scripts, the `container_environment` files the init chain
 writes, the volume layout, and the guards that stop the container on bad
-state (such as the deletion-storm guard). Run via `npm run test:remote-boot`
-(builds the image, then runs a separate vitest config excluded from
-`npm test`).
+state (such as the deletion-storm guard). Run via `npm run test:remote-boot`,
+a separate vitest config excluded from `npm test`; its global setup builds
+the image unless `REMOTE_IMAGE` names one.
 
 Tests in a `describe` block share one booted container. Two places boot
 more often, because each scenario sets a different environment or

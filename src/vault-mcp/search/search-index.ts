@@ -1553,14 +1553,17 @@ export const createSearchIndex = (
    *  The exact, relative and stem tiers run with exact letter case first, and
    *  the two path-suffix tiers ignore ASCII letter case, as LIKE does. Only
    *  when every tier misses do the exact, relative and stem comparisons run
-   *  again with ASCII letter case folded. */
+   *  again with ASCII letter case folded. A target over the link-target limit
+   *  resolves to null, as in links.resolveAsset. */
   const resolveNonMarkdownFile = (params: {
     target: string
     sourcePath?: string
   }): string | null => {
     const { target, sourcePath } = params
-    const relativeTarget =
-      sourcePath === undefined ? null : posix.join(posix.dirname(sourcePath), target)
+
+    if (!links.isWithinLinkTargetLimit(target)) return null
+
+    const relativeTarget = sourcePath ? links.joinToSourceFolder(sourcePath, target) : null
 
     return (
       resolveNonMarkdownFileInExactCase({ target, relativeTarget }) ??
@@ -1593,8 +1596,9 @@ export const createSearchIndex = (
   }
 
   /** Stores the links typed in one note, or in one canvas's text cards, as
-   *  "link" rows. They all resolve against the one `notePaths` list, so
-   *  links.resolve folds it only once. */
+   *  "link" rows. They all resolve against the one `notePaths` list, and
+   *  links.resolve caches folded paths per list, so it folds that list only
+   *  once. */
   const insertTypedLinks = (params: {
     source: string
     linkTexts: readonly string[]
@@ -1618,15 +1622,25 @@ export const createSearchIndex = (
   const reResolveLinks = (storedLinks: readonly StoredLink[]): void => {
     if (storedLinks.length === 0) return
 
-    // Read here rather than from getNotePathsForCanvasLinks, so the paths
-    // include the note the triggering write just added or removed. Every link
-    // resolves against this one list, so links.resolve folds it only once.
+    // Read here rather than from getNotePathsForCanvasLinks' cache, so the
+    // paths include the note the triggering write just added or removed.
+    // Every link resolves against this one list, so links.resolve folds it
+    // only once.
     const notePaths = selectAllNotePathsStmt.all().map((note) => note.path)
     // Only the relative tiers read a link's source, and only its folder, so one
     // answer serves every link with the same text from the same folder.
     const resolvedTargets = new Map<string, string>()
     for (const { source, target, linkText } of storedLinks) {
-      const memoKey = JSON.stringify([posix.dirname(source), linkText])
+      // The key joins the folder and the link text with a NUL:
+      // - A vault path holds no NUL, so the first NUL ends the folder and two
+      //   pairs never share a key.
+      // - The folder (at most 4,095 bytes), the NUL and the link text (at most
+      //   10,236 bytes) total at most 14,332 characters, since a string has
+      //   no more UTF-16 units than UTF-8 bytes. V8 hashes a string
+      //   longer than 16,383 characters by its length alone, and a Map of such
+      //   keys compares each new key with every key of that length.
+      // - JSON quoting would grow control characters six-fold, past that bound.
+      const memoKey = `${posix.dirname(source)}\u0000${linkText}`
       const resolvedTarget =
         resolvedTargets.get(memoKey) ??
         resolveLinkTarget({ linkText, notePaths, sourcePath: source })
