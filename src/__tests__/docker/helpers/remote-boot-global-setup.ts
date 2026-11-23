@@ -1,8 +1,9 @@
 /** Remote-boot global setup: one test run owns its image and every Docker
  *  object it labels.
  *  1. Picks a run ID.
- *  2. Builds the `:remote` image under a tag of its own, unless REMOTE_IMAGE
- *     names an image the caller built (CI, or a reused local build).
+ *  2. Builds the `:remote` image under a tag of its own. When REMOTE_IMAGE
+ *     names an image the caller built (CI, or a reused local build), it
+ *     checks that the image exists instead.
  *  3. Hands the image and run ID to the tests (`inject`).
  *  4. On teardown, prints then removes every container left with the run's
  *     label, removes the run's labelled volumes, then the image it built. */
@@ -52,6 +53,21 @@ const buildRunImage = async ({
   if (exitCode !== 0) throw new Error(`docker build of ${image} exited ${exitCode}`)
 }
 
+/** Throws before any test file runs when Docker cannot inspect the image
+ *  REMOTE_IMAGE names. Without this check, every scenario fails at its own
+ *  start. */
+export const assertSuppliedImagePresent = async (image: string): Promise<void> => {
+  const inspection = await docker(["image", "inspect", image])
+
+  if (inspection.code !== 0) {
+    // The message carries Docker's error, which tells a missing image apart
+    // from a stopped daemon.
+    throw new Error(
+      `REMOTE_IMAGE names ${image}, which Docker cannot inspect: ${inspection.stderr.trim()}. npm run build:remote-image builds vault-cortex:remote-ci.`,
+    )
+  }
+}
+
 /** Prints a leftover container's state and logs. A failed diagnostic is
  *  printed in their place, so it never stops the container's removal. */
 const printContainerDiagnostics = async (containerId: string): Promise<void> => {
@@ -72,9 +88,9 @@ const printContainerDiagnostics = async (containerId: string): Promise<void> => 
 }
 
 /** Removes every container and volume labelled with the run ID, then the image
- *  the run built, and throws when any removal failed. A leftover container
- *  means its scenario's own cleanup never ran, so its diagnostics go to the
- *  log first. */
+ *  the run built, and throws when any listing or removal failed. A leftover
+ *  container means its scenario's own cleanup never ran, so its diagnostics go
+ *  to the log first. */
 export const removeRunObjects = async ({
   runId,
   ownedImage,
@@ -148,6 +164,7 @@ const setup = async (project: TestProject): Promise<() => Promise<void>> => {
   )
 
   if (buildsOwnImage) await buildRunImage({ image, repositoryRoot: project.config.root })
+  else await assertSuppliedImagePresent(image)
 
   project.provide("remoteImage", image)
   project.provide("remoteBootRunId", runId)
