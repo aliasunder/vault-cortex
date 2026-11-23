@@ -207,7 +207,8 @@ describe("assertTextFileSyntax — .base", () => {
       assertTextFileSyntax({ path: "Bases/large.base", content: largeBase })
     })
 
-    // Eight times the keys; the library's own duplicate-key check grows about 56-fold here
+    // Eight times the keys. The library's own duplicate-key check, which
+    // parseYamlWithFirstError turns off, took about 56 times as long here.
     expect(largeMs / smallMs).toBeLessThanOrEqual(8 * LINEAR_GROWTH_ALLOWANCE)
   }, 30_000)
 })
