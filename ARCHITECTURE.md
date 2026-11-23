@@ -1479,9 +1479,9 @@ Docker hardening, and durability seatbelts above.
   filesystem access. Throws on absolute paths (`/vault/Note.md` — vault
   paths are always vault-relative, and an absolute spelling would tie
   behavior to the deployment's mount point), on traversal
-  (`../../etc/passwd`), and on
-  hidden paths — any dot-prefixed segment (`.obsidian/x`, `.trash/y.md`),
-  checked on the resolved relative path so `a/../.obsidian/x` is caught
+  (`../../etc/passwd`), on a NUL character (Node's file calls would reject
+  it with a bare `TypeError`), and on hidden paths — any dot-prefixed
+  segment (`.obsidian/x`, `.trash/y.md`), checked on the resolved relative path so `a/../.obsidian/x` is caught
   while `notes/./plan.md` passes. The predicate
   (`utils/has-hidden-path-segment.ts`) is shared with the listing
   filter, file watcher, and index rebuild — one definition of "hidden",
@@ -1501,10 +1501,6 @@ Docker hardening, and durability seatbelts above.
   `ENAMETOOLONG` and its remedy. It runs in `resolveVaultRelativePath()`,
   `resolveSafePath()`, PDF text reads, and memory updates and deletes;
   memory reads take no lock and skip it.
-- **NUL character in a path** (`resolveSafePath()` in
-  `vault-filesystem.ts`): a path holding a NUL character is refused before
-  any filesystem call. Unchecked, Node's file calls would throw a bare
-  `TypeError` instead of a filesystem error.
 - **`vaultFolderName`** (Zod schema in `config.ts`): config-time
   validation rejects absolute paths, traversal (`..`), and blank names
   before they reach any file operation.
