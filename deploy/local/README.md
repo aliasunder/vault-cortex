@@ -388,7 +388,7 @@ links):
 - **"Move to system trash" (Obsidian's default)** — the container has no
   system trash, so a deleted note moves to the `.trash` folder inside your
   vault, as it does in Obsidian when no system trash is available. The
-  server deletes the notes it put there after 30 days:
+  server deletes each note it puts there 30 days later:
   - Set `TRASH_RETENTION_DAYS` in `.env` to change the window, or
     `TRASH_RETENTION_DAYS=none` to keep them forever.
   - Anything you or Obsidian put in `.trash` is never touched.

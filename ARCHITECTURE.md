@@ -1422,8 +1422,8 @@ Docker hardening, and durability seatbelts above.
   at any step leaves both copies rather than losing content.
   1. **Verify:** under the lock, the move scans notes and Canvas files for
      backlinks the search index missed. A file it cannot read, or a Canvas
-     file whose JSON it cannot parse, is skipped with a warning, so it
-     aborts the move only when the index lists it as a backlink; a note
+     file whose JSON it cannot parse, is skipped with a warning, so such a
+     file aborts the move only when the index lists it as a backlink; a note
      whose properties block is not valid YAML is scanned for its body
      links. New linking notes join the lock set and the scan repeats, up to
      3 retries; if new ones still appear, the move aborts with nothing
