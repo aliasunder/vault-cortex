@@ -53,14 +53,16 @@ const buildRunImage = async ({
   if (exitCode !== 0) throw new Error(`docker build of ${image} exited ${exitCode}`)
 }
 
-/** Throws before any test file runs when the image REMOTE_IMAGE names is
- *  missing. Without this check, every scenario fails at its own start. */
+/** Throws before any test file runs when Docker cannot inspect the image
+ *  REMOTE_IMAGE names. Without this check, every scenario fails at its own
+ *  start. */
 const assertSuppliedImagePresent = async (image: string): Promise<void> => {
   const inspection = await docker(["image", "inspect", image])
 
+  // Docker's error tells a missing image apart from a stopped daemon.
   if (inspection.code !== 0) {
     throw new Error(
-      `REMOTE_IMAGE names ${image}, which is missing. npm run build:remote-image builds vault-cortex:remote-ci.`,
+      `REMOTE_IMAGE names ${image}, which Docker cannot inspect: ${inspection.stderr.trim()}. npm run build:remote-image builds vault-cortex:remote-ci.`,
     )
   }
 }
@@ -85,9 +87,9 @@ const printContainerDiagnostics = async (containerId: string): Promise<void> => 
 }
 
 /** Removes every container and volume labelled with the run ID, then the image
- *  the run built, and throws when any listing or removal failed. A leftover container
- *  means its scenario's own cleanup never ran, so its diagnostics go to the
- *  log first. */
+ *  the run built, and throws when any listing or removal failed. A leftover
+ *  container means its scenario's own cleanup never ran, so its diagnostics go
+ *  to the log first. */
 export const removeRunObjects = async ({
   runId,
   ownedImage,
