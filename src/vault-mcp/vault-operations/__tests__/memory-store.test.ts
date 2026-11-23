@@ -2057,7 +2057,19 @@ describe("deleteMemory", () => {
         logger,
       )
 
-      expect(entriesBefore.map((entry) => entry.text)).toEqual(["- **2026-01-02**: two"])
+      // Lines: 0 "# T", 1 "", 2 the H2, 3 the bullet, 4 the blank line the
+      // entry's text leaves out.
+      expect(entriesBefore).toEqual([
+        {
+          section: "S (newest first)",
+          date: "2026-01-02",
+          text: "- **2026-01-02**: two",
+          entryIndex: 0,
+          sectionStartLine: 2,
+          startLine: 3,
+          endLine: 4,
+        },
+      ])
       expect(await readFile(join(vault, "About Me/Sectioned.md"), "utf8")).toBe(
         `# T\n\n## S (newest first)\n\n### Sub${lineBreak}text\nkeep\n- **2026-01-01**: one\n`,
       )
@@ -3475,8 +3487,18 @@ created: 2026-01-01T00:00:00-05:00
       },
       logger,
     )
-    expect(entries.map((entry) => entry.text)).toEqual([
-      "- **2026-05-06**: Newer entry placed second",
+    // Line indexes count the body below the properties block: 0 is the blank
+    // line after it, 3 the H2, and the matching bullet is the second entry.
+    expect(entries).toEqual([
+      {
+        section: "Items (newest first)",
+        date: "2026-05-06",
+        text: "- **2026-05-06**: Newer entry placed second",
+        entryIndex: 1,
+        sectionStartLine: 3,
+        startLine: 5,
+        endLine: 6,
+      },
     ])
   })
 
