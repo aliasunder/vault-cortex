@@ -60,8 +60,10 @@ export const resolvePublicUrl = ({
 /**
  * True when BIND_ADDRESS is a loopback address (127.0.0.0/8 or ::1) while
  * ORIGIN_URL is empty. API Gateway then calls the instance's public address,
- * where nothing answers, so every request would fail. Any other address,
- * such as the instance's private one, still answers through the public IP.
+ * where nothing answers, so every request would fail. Only loopback is
+ * refused because only loopback is certain to close that path: the deploy
+ * can't tell which interface the gateway's traffic arrives on, and a bind to
+ * the instance's private address still answers through the public IP.
  */
 export const closesPublicPortWithoutOrigin = ({
   bindAddress,

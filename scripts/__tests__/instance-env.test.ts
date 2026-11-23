@@ -219,9 +219,12 @@ describe("gatewayApiEndpointQuery", () => {
   // dev.ts interpolates the stage — substituting that literal reproduces the
   // exact string each workflow must carry. toContain is deliberate: the
   // workflow file is the haystack; only the embedded query is under test.
-  it.each(["deploy.yml", "test_deploy.yml"])(
-    "matches the query %s embeds, so CI and laptop deploys resolve the same gateway",
-    (workflowFile) => {
+  it.each([
+    { label: "deploy.yml", workflowFile: "deploy.yml" },
+    { label: "test_deploy.yml", workflowFile: "test_deploy.yml" },
+  ])(
+    "matches the query $label embeds, so CI and laptop deploys resolve the same gateway",
+    ({ workflowFile }) => {
       const workflowContent = readFileSync(
         new URL(`../../.github/workflows/${workflowFile}`, import.meta.url),
         "utf8",
@@ -276,12 +279,14 @@ describe("closesPublicPortWithoutOrigin", () => {
       bindAddress: "172.26.15.111",
       originUrl: undefined,
     },
+    // Not refused because the check covers loopback alone, not because the
+    // gateway's path is known to stay open.
     {
       label: "every IPv6 address (::) without ORIGIN_URL",
       bindAddress: "::",
       originUrl: undefined,
     },
-  ])("allows $label", ({ bindAddress, originUrl }) => {
+  ])("does not refuse $label", ({ bindAddress, originUrl }) => {
     expect(closesPublicPortWithoutOrigin({ bindAddress, originUrl })).toBe(false)
   })
 
@@ -341,9 +346,12 @@ const findDeployStep = ({
 describe("deploy workflows", () => {
   // sst.config.ts refuses a closed public port only with the values the step
   // passes; without BIND_ADDRESS every bind would pass in CI.
-  it.each(["deploy.yml", "test_deploy.yml"])(
-    "%s passes the BIND_ADDRESS Variable and the ORIGIN_URL secret to SST deploy",
-    (workflowFile) => {
+  it.each([
+    { label: "deploy.yml", workflowFile: "deploy.yml" },
+    { label: "test_deploy.yml", workflowFile: "test_deploy.yml" },
+  ])(
+    "$label passes the BIND_ADDRESS Variable and the ORIGIN_URL secret to SST deploy",
+    ({ workflowFile }) => {
       const sstDeployEnv = findDeployStep({ workflowFile, stepName: "SST deploy" }).env
 
       expect({
@@ -365,5 +373,20 @@ describe("deploy workflows", () => {
 
     expect(testStep.env).toEqual(releaseStep.env)
     expect(testStep.run?.replace("VAULT_CORTEX_TAG=test\n", "")).toBe(releaseStep.run)
+  })
+
+  // The parity test above passes when both workflows drop the same line, so
+  // the bind is pinned on its own: without it the instance publishes port
+  // 8000 on every address again.
+  it("write BIND_ADDRESS into the instance .env when the repo Variable is set", () => {
+    const releaseStep = findDeployStep({
+      workflowFile: "deploy.yml",
+      stepName: "Write Lightsail .env from secrets",
+    })
+    const bindAddressLine =
+      'if [ -n "$BIND_ADDRESS" ]; then echo "BIND_ADDRESS=$BIND_ADDRESS" >> "$RUNNER_TEMP/lightsail.env"; fi'
+
+    expect(releaseStep.env?.BIND_ADDRESS).toBe("${{ vars.BIND_ADDRESS }}")
+    expect(releaseStep.run?.split("\n")).toContain(bindAddressLine)
   })
 })

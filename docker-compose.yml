@@ -134,9 +134,9 @@ services:
       - mcp_index_data:/data
       - obsidian_config:/home/obsidian/.config
     ports:
-      # - Default: every IPv4 address. Without ORIGIN_URL, the SST setting that
-      #   routes the gateway through a tunnel, the gateway calls this port on
-      #   the instance's public address.
+      # - Default: every IPv4 address. ORIGIN_URL is the SST setting that routes
+      #   the gateway through a tunnel; without it, the gateway calls this port
+      #   on the instance's public address.
       # - BIND_ADDRESS=127.0.0.1, once a tunnel or proxy on the instance fronts
       #   the server: loopback only. The port then stops answering on the
       #   public address and on VPN interfaces such as Tailscale, which the
