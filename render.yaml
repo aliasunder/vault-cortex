@@ -72,8 +72,9 @@ services:
         value: "true"
       - key: SYNC_MODE
         value: bidirectional
-      # The Obsidian Sync settings the image forwards; empty keeps the Sync
-      # client's default.
+      # The Obsidian Sync settings the image forwards. Empty keeps the Sync
+      # client's default, except that an empty SYNC_FILE_TYPES adds
+      # unsupported ("Sync all other types") to the client's list.
       - key: CONFLICT_STRATEGY
         value: merge
       - key: SYNC_EXCLUDED_FOLDERS

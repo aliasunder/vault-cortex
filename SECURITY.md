@@ -111,6 +111,11 @@ mechanism-level detail.
   folder (a `deploy.env` or `secrets.txt`) is readable by any signed-in client.
   A file named as an image or a PDF goes to the image or PDF reader instead.
   Hidden files such as `.env` stay refused by the hidden-path check above.
+- On the `:remote` image, `SYNC_FILE_TYPES` includes `unsupported` (Obsidian
+  Sync's **Sync all other types**) by default, so the text files of any device
+  with that option on reach the server, where signed-in clients can read and
+  search them. `SYNC_FILE_TYPES=image,audio,video,pdf` keeps them off the
+  server.
 - `vault_write_file` lets any signed-in client create or replace a visible
   non-markdown text file, whatever its extension — the same reach
   `vault_write_note` has over notes.
