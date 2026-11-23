@@ -44,6 +44,11 @@ project itself — adopters may use any hosting, reverse proxy, and CI/CD setup:
   bypass the Lambda.
 - **CI/CD workflows** — GitHub Actions with OIDC AWS auth, SSH to Lightsail,
   GHCR image push
+- **Port 8000 hardening (optional)** — `ORIGIN_URL` routes the gateway through
+  a tunnel on the instance, `MCP_PORT_CIDRS=none` closes the port on the
+  Lightsail firewall, and `BIND_ADDRESS=127.0.0.1` publishes it on loopback
+  only, so interfaces the firewall does not filter, such as Tailscale, cannot
+  reach it either
 
 ## Runtime Hardening
 
