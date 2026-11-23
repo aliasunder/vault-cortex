@@ -51,8 +51,9 @@ These change only in a major release:
   refused, and its message keeps naming the fix; the exact wording may
   change in any release
 - **Settings** — environment variable names, their accepted values, what
-  each value does, and their defaults, except the two default changes
-  "Not covered" lists
+  each value does, and their defaults, except that a numeric limit's
+  default may rise and `SYNC_FILE_TYPES`'s default may gain a file type, as
+  "Not covered" says
 - **Deployment contract** — the image name, its Docker Hub mirror and the
   tags (`:latest` is the server alone, `:remote` bundles Obsidian Sync,
   `:vX.Y.Z` and `:vX.Y.Z-remote` pin a release), the container's port
@@ -84,8 +85,8 @@ These may change in any release:
 - Raising a numeric limit's default, because a raise refuses nothing that
   worked before; lowering one is a breaking change
 - Adding a file type to `SYNC_FILE_TYPES`'s default. More of your vault's
-  files then reach the server, and the server uploads its own files of that
-  type, but nothing that synced before stops syncing; removing a type is a
+  files then reach the server, and the server uploads files of that type
+  that an agent writes, but nothing that synced before stops syncing; removing a type is a
   breaking change
 - Log format and log fields
 - Internal module layout and the search index's schema. The index is
