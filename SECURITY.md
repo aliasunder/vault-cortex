@@ -44,6 +44,11 @@ project itself — adopters may use any hosting, reverse proxy, and CI/CD setup:
   bypass the Lambda.
 - **CI/CD workflows** — GitHub Actions with OIDC AWS auth, SSH to Lightsail,
   GHCR image push
+- **Port 8000 hardening (optional)** — `ORIGIN_URL` routes the gateway through
+  a tunnel on the instance, `MCP_PORT_CIDRS=none` closes the port on the
+  Lightsail firewall, and `BIND_ADDRESS=127.0.0.1` publishes it on loopback
+  only, so interfaces the firewall does not filter, such as Tailscale, cannot
+  reach it either
 
 ## Runtime Hardening
 
@@ -294,9 +299,10 @@ The server, and the `:remote` image's setup mode, set these headers:
 - Loopback by default: the local installs (the CLI, the local Compose file
   and the MCP Registry entry) publish the server's port on the host's
   loopback address only, and the server listens on 127.0.0.1 when `HOST` is
-  unset. For the local CLI and Compose installs, the `BIND_ADDRESS` setting
-  in `.env` chooses the published address and defaults to 127.0.0.1; remote
-  installs leave it empty by default and publish on every address
+  unset. For CLI and Compose installs, the `BIND_ADDRESS` setting in `.env`
+  chooses the published address: local installs default to 127.0.0.1, and
+  remote installs leave it empty by default and publish on every address
+  until it is set to 127.0.0.1 behind a tunnel or reverse proxy
 
 ### Setup mode (remote image)
 

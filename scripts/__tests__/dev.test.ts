@@ -146,6 +146,85 @@ describe("dev deployment helper", () => {
     )
   })
 
+  it("rejects lightsail deployment that binds port 8000 off the public address without ORIGIN_URL", () => {
+    const directory = createTempDirectory()
+    const deploymentEnvDirectory = join(directory, ".config", "vault-cortex")
+    mkdirSync(deploymentEnvDirectory, { recursive: true })
+    writeFileSync(
+      join(deploymentEnvDirectory, ".env"),
+      "GHCR_USER=file-user\nPUBLIC_URL=https://mcp.example.com\nBIND_ADDRESS=127.0.0.1\n",
+    )
+
+    const result = runDev({ subcommand: "lightsail:up", homeDirectory: directory })
+
+    expect(result.status).toBe(1)
+    expect(result.stderr).toBe(
+      "✕  BIND_ADDRESS=127.0.0.1 takes port 8000 off the instance's public address, but ORIGIN_URL is empty, so API Gateway would call that address. Set ORIGIN_URL, or remove BIND_ADDRESS from ~/.config/vault-cortex/.env\n",
+    )
+  })
+
+  it("rejects lightsail deployment on the env file's BIND_ADDRESS even when the shell sets 0.0.0.0", () => {
+    const directory = createTempDirectory()
+    const deploymentEnvDirectory = join(directory, ".config", "vault-cortex")
+    mkdirSync(deploymentEnvDirectory, { recursive: true })
+    writeFileSync(
+      join(deploymentEnvDirectory, ".env"),
+      "GHCR_USER=file-user\nPUBLIC_URL=https://mcp.example.com\nBIND_ADDRESS=127.0.0.1\n",
+    )
+    const workingDirectory = join(directory, "repo")
+    mkdirSync(join(workingDirectory, ".sst"), { recursive: true })
+    writeFileSync(join(workingDirectory, ".sst", "stage"), "teststage\n")
+    // If the bind check read the shell's value, the deployment would pass it
+    // and stop at this stubbed instance address lookup instead.
+    writeCommandStub({ directory, name: "aws", script: "echo None\n" })
+
+    const result = runDev({
+      subcommand: "lightsail:up",
+      homeDirectory: directory,
+      workingDirectory,
+      additionalEnv: { BIND_ADDRESS: "0.0.0.0" },
+    })
+
+    expect(result.status).toBe(1)
+    expect(result.stderr).toBe(
+      "✕  BIND_ADDRESS=127.0.0.1 takes port 8000 off the instance's public address, but ORIGIN_URL is empty, so API Gateway would call that address. Set ORIGIN_URL, or remove BIND_ADDRESS from ~/.config/vault-cortex/.env\n",
+    )
+  })
+
+  it.each([
+    {
+      label: "a loopback BIND_ADDRESS when ORIGIN_URL is set",
+      bindLines: "BIND_ADDRESS=127.0.0.1\nORIGIN_URL=https://origin.example.com\n",
+    },
+    {
+      label: "BIND_ADDRESS=0.0.0.0 without ORIGIN_URL",
+      bindLines: "BIND_ADDRESS=0.0.0.0\n",
+    },
+  ])("lets lightsail deployment past the bind check with $label", ({ bindLines }) => {
+    const directory = createTempDirectory()
+    const deploymentEnvDirectory = join(directory, ".config", "vault-cortex")
+    mkdirSync(deploymentEnvDirectory, { recursive: true })
+    writeFileSync(
+      join(deploymentEnvDirectory, ".env"),
+      `GHCR_USER=file-user\nPUBLIC_URL=https://mcp.example.com\n${bindLines}`,
+    )
+    const workingDirectory = join(directory, "repo")
+    mkdirSync(join(workingDirectory, ".sst"), { recursive: true })
+    writeFileSync(join(workingDirectory, ".sst", "stage"), "teststage\n")
+    // The instance address lookup runs after the bind check, so its failure
+    // shows the check let the deployment through; "None" stops it before ssh.
+    writeCommandStub({ directory, name: "aws", script: "echo None\n" })
+
+    const result = runDev({
+      subcommand: "lightsail:up",
+      homeDirectory: directory,
+      workingDirectory,
+    })
+
+    expect(result.status).toBe(1)
+    expect(result.stderr).toBe("✕  Could not resolve vault-cortex-ip-teststage from AWS.\n")
+  })
+
   it("rejects lightsail deployment when the external env file is unreadable", () => {
     const directory = createTempDirectory()
     const deploymentEnvPath = join(directory, ".config", "vault-cortex", ".env")
