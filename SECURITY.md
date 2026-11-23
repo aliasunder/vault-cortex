@@ -112,15 +112,14 @@ mechanism-level detail.
   runs scripts from a visible folder (Templater's user scripts, Dataview's
   `dv.view()`) will run one this tool writes, as Dataview already runs a
   `dataviewjs` block that `vault_write_note` writes into a note.
-  `DISABLED_TOOLS=vault_write_file` removes this tool and keeps file reads,
-  while note writes stay on; `READONLY_MODE=true` hides both.
+  `DISABLED_TOOLS=vault_write_file` removes only this tool;
+  `READONLY_MODE=true` hides it with every other write tool.
 - The path checks are lexical: a visible folder symlink is followed for
   reads and for writes wherever it points, so one into `.obsidian/` or
   outside the vault lets `vault_write_file` save files there. A symlink at a
-  file's own path is read through but never written through: a broken one
-  is refused, and an overwrite replaces the link with a regular file.
-  Creating a symlink requires direct filesystem access — no tool can create
-  one, and anyone with that access can already read and write those files.
+  file's own path is read through but never written through. Creating a
+  symlink requires direct filesystem access — no tool can create one, and
+  anyone with that access can already read and write those files.
 
 ### Read-only mode
 

@@ -666,15 +666,14 @@ and [templates/memory](../../templates/memory/README.md) for the file format.
 ## File Tools
 
 File tools (`vault_read_file`, `vault_write_file`, `vault_list_files`) are
-enabled by default. Set `FILE_TOOLS_ENABLED=false` in your `.env` to hide them.
+enabled by default. Set `FILE_TOOLS_ENABLED=false` in your `.env` to hide them,
+or `DISABLED_TOOLS=vault_write_file` to keep reading files but turn off writing
+them.
 
-To keep reading files but turn off writing them, set
-`DISABLED_TOOLS=vault_write_file` instead.
-
-Text files other than canvases, Bases and SVGs sync only when
-`SYNC_FILE_TYPES` includes `unsupported`. Until it does, a CSV you expect is
-missing from the server, and one an agent writes stays on it; see
-`SYNC_FILE_TYPES` under [Configuration](#configuration).
+Until `SYNC_FILE_TYPES` includes `unsupported`, text files other than canvases,
+Bases and SVGs don't sync: a CSV you expect is missing from the server, and one
+an agent writes stays on it (see `SYNC_FILE_TYPES` under
+[Configuration](#configuration)).
 
 ## Read-only mode
 
