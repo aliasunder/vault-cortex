@@ -113,15 +113,16 @@ mechanism-level detail.
   Hidden files such as `.env` stay refused by the hidden-path check above.
 - `vault_write_file` lets any signed-in client create or replace a visible
   non-markdown text file, whatever its extension — the same reach
-  `vault_write_note` has over notes. It refuses hidden paths (so no path under
-  `.obsidian/`: no plugin, snippet or setting), notes, images and PDFs, and an
-  existing HTML page, script or unlisted file with a NUL byte near its start. A
-  community plugin that
-  runs scripts from a visible folder (Templater's user scripts, Dataview's
-  `dv.view()`) will run one this tool writes, as Dataview already runs a
-  `dataviewjs` block that `vault_write_note` writes into a note.
-  `DISABLED_TOOLS=vault_write_file` removes only this tool;
-  `READONLY_MODE=true` hides it with every other write tool.
+  `vault_write_note` has over notes.
+  - It refuses hidden paths, so it cannot write a plugin, snippet or setting
+    under `.obsidian/`. It also refuses notes, images, PDFs, and an existing
+    HTML page, script or unlisted file with a NUL byte near its start.
+  - A community plugin that runs scripts from a visible folder (Templater's
+    user scripts, Dataview's `dv.view()`) can run one this tool writes, as
+    Dataview already runs a `dataviewjs` block that `vault_write_note` writes
+    into a note.
+  - `DISABLED_TOOLS=vault_write_file` removes only this tool;
+    `READONLY_MODE=true` hides it with every other write tool.
 - The path checks are lexical: a visible folder symlink is followed for
   reads and for writes wherever it points, so one into `.obsidian/` or
   outside the vault lets `vault_write_file` save files there. A symlink at a

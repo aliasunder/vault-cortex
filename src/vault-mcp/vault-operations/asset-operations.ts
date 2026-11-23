@@ -430,7 +430,7 @@ const saveNewFile = async (
 
 /**
  * Creates a non-markdown text file, or with `overwrite` replaces one, saving
- * `content` byte for byte. Refuses, before touching the vault:
+ * `content` encoded as UTF-8. Refuses, before touching the vault:
  * - a markdown note, an image or a PDF path;
  * - content with a control character other than tab, LF or CR;
  * - `.canvas`, `.json` or `.base` content that would break its format.

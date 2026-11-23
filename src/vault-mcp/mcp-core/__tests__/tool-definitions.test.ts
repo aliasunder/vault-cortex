@@ -3249,7 +3249,7 @@ describe("file tool handlers", () => {
   ])(
     "vault_write_file hands the write the WINDOWS_MODE setting when it is $label",
     async ({ env, windowsBindMount }) => {
-      // A stand-in write, so the test sees the arguments the handler maps
+      // The write is stubbed, so the test sees the arguments the handler maps
       const writeSpy = vi
         .spyOn(assetOperations, "writeAssetContent")
         .mockResolvedValueOnce(undefined)
