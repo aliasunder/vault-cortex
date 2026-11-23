@@ -185,4 +185,25 @@ describe("removeRunObjects", () => {
     expect(await dockerOrThrow(["image", "ls", "-q", ownedImage])).toBe("")
     expect(await dockerOrThrow(["image", "inspect", "-f", "{{.Id}}", IMAGE])).toBe(sourceImageId)
   })
+
+  it("prints the summary, then throws naming an image it could not remove with Docker's error", async () => {
+    const runId = randomUUID()
+    // Never tagged, as when the image is gone before the teardown runs.
+    const ownedImage = `vault-cortex:${uniqueName("teardown-missing")}`
+
+    // The same removal the teardown runs. It must fail here, or the test would
+    // pass without a failure to report, and its error text is what the
+    // teardown should report.
+    const premiseRemoval = await docker(["image", "rm", ownedImage])
+    expect(premiseRemoval.code).not.toBe(0)
+
+    const printedLines = capturePrintedLines()
+
+    await expect(removeRunObjects({ runId, ownedImage })).rejects.toThrow(
+      new Error(
+        `remote-boot run ${runId} left Docker objects behind:\nimage ${ownedImage}: ${premiseRemoval.stderr.trim()}`,
+      ),
+    )
+    expect(printedLines).toEqual([`remote-boot run ${runId}: removed 0 Docker object(s)`])
+  })
 })
