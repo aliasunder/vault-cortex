@@ -1651,7 +1651,7 @@ describe("createMcpRouter — session expiry and limit", { timeout: 20_000 }, ()
     expect(await postToSession(harness, firstSession.sessionId)).toEqual(ROUTED)
   })
 
-  it("logs a warn instead of 'session created' when a session is removed before its initialize finished", async () => {
+  it("closes a session removed for capacity before its initialize finished, and its next request gets 404", async () => {
     const harness = await setupHarness({ config: TRUSTED_PROXY_CONFIG })
     const createdSessions = await createSessions(harness, SESSION_LIMIT - 1)
     const releaseInitialize = Promise.withResolvers<undefined>()
@@ -1689,16 +1689,6 @@ describe("createMcpRouter — session expiry and limit", { timeout: 20_000 }, ()
 
     expect(pausedTransport.closed).toBe(true)
     expect(closedSessionIds(createdSessions)).toEqual([])
-    expect(mockedLogger.warn).toHaveBeenCalledWith("mcp_response", {
-      sessionId: pausedSessionId,
-      clientIp: FORWARDED_IP,
-      status: 202,
-      outcome: "session removed before its initialize finished",
-    })
-    expect(mockedLogger.info).not.toHaveBeenCalledWith(
-      "mcp_response",
-      expect.objectContaining({ sessionId: pausedSessionId, outcome: "session created" }),
-    )
     expect(await postToSession(harness, pausedSessionId)).toEqual(NOT_FOUND)
   })
 
