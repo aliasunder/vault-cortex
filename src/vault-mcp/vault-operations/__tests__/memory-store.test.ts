@@ -927,10 +927,13 @@ created: 2026-01-01T00:00:00-05:00
 
     const outlines = await listMemoryFiles({ vaultPath: vault }, logger)
     const principles = outlines.find((outline) => outline.file === "Principles")
-    const workingStyle = principles?.headings.find(
-      (heading) => heading.text === "Working style (newest first)",
-    )
-    expect(workingStyle?.entry_count).toBe(2)
+
+    expect(principles?.headings).toEqual([
+      { level: 1, text: "Principles" },
+      { level: 2, text: "Decision heuristics (newest first)", entry_count: 2 },
+      { level: 2, text: "Working style (newest first)", entry_count: 2 },
+      { level: 2, text: "Empty section (newest first)", entry_count: 0 },
+    ])
   })
 })
 
@@ -1324,6 +1327,26 @@ created: 2026-01-01T00:00:00-05:00
     )
     expect(workingStyle).toBe(
       "- **2026-07-02**: cross-section entry\n- **2026-05-04**: Single-purpose files",
+    )
+  })
+
+  // A named section resolves to the first H2 with that text, so the same
+  // bullet under a later H2 with the same text is a different entry
+  it("an identical bullet under a later H2 with the same text does not suppress the append", async () => {
+    await writeFile(
+      join(vault, "About Me/Twice.md"),
+      "# T\n\n## S (newest first)\n- **2026-01-01**: first section\n\n## S (newest first)\n- **2026-01-02**: repeated\n",
+      "utf8",
+    )
+
+    const outcome = await updateMemory(
+      { vaultPath: vault, file: "Twice", section: "S", entry: "repeated", date: "2026-01-02" },
+      logger,
+    )
+
+    expect(outcome).toBe("appended")
+    expect(await readFile(join(vault, "About Me/Twice.md"), "utf8")).toBe(
+      "# T\n\n## S (newest first)\n- **2026-01-02**: repeated\n- **2026-01-01**: first section\n\n## S (newest first)\n- **2026-01-02**: repeated\n",
     )
   })
 })
@@ -1992,6 +2015,67 @@ describe("deleteMemory", () => {
     )
   })
 
+  it("deleting an entry keeps a ### subsection and the entry after it", async () => {
+    await writeFile(
+      join(vault, "About Me/Sectioned.md"),
+      "# T\n\n## S (newest first)\n- **2026-01-02**: two\n\n### Sub\nkeep\n- **2026-01-01**: one\n",
+      "utf8",
+    )
+
+    await deleteMemory(
+      { vaultPath: vault, file: "Sectioned", section: "S", date: "2026-01-02", entry: "two" },
+      logger,
+    )
+
+    expect(await readFile(join(vault, "About Me/Sectioned.md"), "utf8")).toBe(
+      "# T\n\n## S (newest first)\n\n### Sub\nkeep\n- **2026-01-01**: one\n",
+    )
+  })
+
+  // parseHeadings' ATX pattern stops at a carriage return or a Unicode line
+  // separator, so it reads this line as text while the entry reads end the
+  // entry there; the delete follows the reads and keeps the lines that belong
+  // to no entry.
+  it.each([
+    { label: "a carriage return", lineBreak: "\r" },
+    { label: "a Unicode line separator", lineBreak: " " },
+  ])(
+    "deleting an entry keeps a heading line that holds $label and the lines after it",
+    async ({ lineBreak }) => {
+      await writeFile(
+        join(vault, "About Me/Sectioned.md"),
+        `# T\n\n## S (newest first)\n- **2026-01-02**: two\n\n### Sub${lineBreak}text\nkeep\n- **2026-01-01**: one\n`,
+        "utf8",
+      )
+
+      const entriesBefore = await getMemoryEntries(
+        { vaultPath: vault, file: "Sectioned", section: "S", onOrAfter: "2026-01-02" },
+        logger,
+      )
+      await deleteMemory(
+        { vaultPath: vault, file: "Sectioned", section: "S", date: "2026-01-02", entry: "two" },
+        logger,
+      )
+
+      // Lines: 0 "# T", 1 "", 2 the H2, 3 the bullet, 4 the blank line the
+      // entry's text leaves out.
+      expect(entriesBefore).toEqual([
+        {
+          section: "S (newest first)",
+          date: "2026-01-02",
+          text: "- **2026-01-02**: two",
+          entryIndex: 0,
+          sectionStartLine: 2,
+          startLine: 3,
+          endLine: 4,
+        },
+      ])
+      expect(await readFile(join(vault, "About Me/Sectioned.md"), "utf8")).toBe(
+        `# T\n\n## S (newest first)\n\n### Sub${lineBreak}text\nkeep\n- **2026-01-01**: one\n`,
+      )
+    },
+  )
+
   it("deletes an exact matching entry and keeps the rest of the file, properties included, as written", async () => {
     await deleteMemory(
       {
@@ -2299,6 +2383,32 @@ created: 2026-01-01T00:00:00-05:00
       ].join("\n"),
     )
   })
+
+  // A named section resolves to the first H2 with that text, so a delete
+  // never reaches an entry under a later H2 with the same text
+  it("does not delete a matching entry under a later H2 with the same text", async () => {
+    const twiceContent =
+      "# T\n\n## S (newest first)\n- **2026-01-01**: first section\n\n## S (newest first)\n- **2026-01-02**: only in the second\n"
+    await writeFile(join(vault, "About Me/Twice.md"), twiceContent, "utf8")
+
+    await expect(
+      deleteMemory(
+        {
+          vaultPath: vault,
+          file: "Twice",
+          section: "S",
+          date: "2026-01-02",
+          entry: "only in the second",
+        },
+        logger,
+      ),
+    ).rejects.toThrow(
+      new Error(
+        'no entry matching (2026-01-02, "only in the second") under ## S (newest first) in About Me/Twice.md',
+      ),
+    )
+    expect(await readFile(join(vault, "About Me/Twice.md"), "utf8")).toBe(twiceContent)
+  })
 })
 
 describe("listMemoryFiles", () => {
@@ -2530,20 +2640,29 @@ describe("listMemoryFiles", () => {
   it("includes correct entry counts per section", async () => {
     const outlines = await listMemoryFiles({ vaultPath: vault }, logger)
     const principles = outlines.find((outline) => outline.file === "Principles")
-    const heuristics = principles?.headings.find(
-      (heading) => heading.text === "Decision heuristics (newest first)",
-    )
-    expect(heuristics?.entry_count).toBe(2)
 
-    const workingStyle = principles?.headings.find(
-      (heading) => heading.text === "Working style (newest first)",
-    )
-    expect(workingStyle?.entry_count).toBe(1)
+    expect(principles?.headings).toEqual([
+      { level: 1, text: "Principles" },
+      { level: 2, text: "Decision heuristics (newest first)", entry_count: 2 },
+      { level: 2, text: "Working style (newest first)", entry_count: 1 },
+      { level: 2, text: "Empty section (newest first)", entry_count: 0 },
+    ])
+  })
 
-    const emptySection = principles?.headings.find(
-      (heading) => heading.text === "Empty section (newest first)",
+  it("counts the entries of two H2s with the same text separately", async () => {
+    await writeFile(
+      join(vault, "About Me/Twice.md"),
+      "# Twice\n\n## S (newest first)\n- **2026-01-02**: first section\n\n## S (newest first)\n- **2026-01-03**: second section\n- **2026-01-01**: second section, older\n",
+      "utf8",
     )
-    expect(emptySection?.entry_count).toBe(0)
+
+    const outlines = await listMemoryFiles({ vaultPath: vault }, logger)
+
+    expect(outlines.find((outline) => outline.file === "Twice")?.headings).toEqual([
+      { level: 1, text: "Twice" },
+      { level: 2, text: "S (newest first)", entry_count: 1 },
+      { level: 2, text: "S (newest first)", entry_count: 2 },
+    ])
   })
 
   it("counts the entries getMemoryEntries reads when an empty line ends a fence inside a blockquote", async () => {
@@ -3215,6 +3334,9 @@ describe("getMemoryEntries", () => {
         date: "2026-05-06",
         text: "- **2026-05-06**: Secrets invisible at every layer",
         entryIndex: 0,
+        sectionStartLine: 7,
+        startLine: 8,
+        endLine: 9,
       },
     ])
   })
@@ -3235,12 +3357,18 @@ describe("getMemoryEntries", () => {
         date: "2026-05-06",
         text: "- **2026-05-06**: Secrets invisible at every layer",
         entryIndex: 0,
+        sectionStartLine: 7,
+        startLine: 8,
+        endLine: 9,
       },
       {
         section: "Decision heuristics (newest first)",
         date: "2026-05-05",
         text: "- **2026-05-05**: Least-privilege for AI agents",
         entryIndex: 1,
+        sectionStartLine: 7,
+        startLine: 9,
+        endLine: 10,
       },
     ])
   })
@@ -3277,18 +3405,27 @@ created: 2026-01-01T00:00:00-05:00
         date: "2026-06-15",
         text: "- **2026-06-15**: Third entry on same day",
         entryIndex: 0,
+        sectionStartLine: 3,
+        startLine: 4,
+        endLine: 5,
       },
       {
         section: "Items (newest first)",
         date: "2026-06-15",
         text: "- **2026-06-15**: Second entry on same day",
         entryIndex: 1,
+        sectionStartLine: 3,
+        startLine: 5,
+        endLine: 6,
       },
       {
         section: "Items (newest first)",
         date: "2026-06-15",
         text: "- **2026-06-15**: First entry on same day",
         entryIndex: 2,
+        sectionStartLine: 3,
+        startLine: 6,
+        endLine: 7,
       },
     ])
   })
@@ -3309,12 +3446,18 @@ created: 2026-01-01T00:00:00-05:00
         date: "2026-05-06",
         text: "- **2026-05-06**: Secrets invisible at every layer",
         entryIndex: 0,
+        sectionStartLine: 7,
+        startLine: 8,
+        endLine: 9,
       },
       {
         section: "Decision heuristics (newest first)",
         date: "2026-05-05",
         text: "- **2026-05-05**: Least-privilege for AI agents",
         entryIndex: 1,
+        sectionStartLine: 7,
+        startLine: 9,
+        endLine: 10,
       },
     ])
   })
@@ -3344,8 +3487,18 @@ created: 2026-01-01T00:00:00-05:00
       },
       logger,
     )
-    expect(entries.map((entry) => entry.text)).toEqual([
-      "- **2026-05-06**: Newer entry placed second",
+    // Line indexes count the body below the properties block: 0 is the blank
+    // line after it, 3 the H2, and the matching bullet is the second entry.
+    expect(entries).toEqual([
+      {
+        section: "Items (newest first)",
+        date: "2026-05-06",
+        text: "- **2026-05-06**: Newer entry placed second",
+        entryIndex: 1,
+        sectionStartLine: 3,
+        startLine: 5,
+        endLine: 6,
+      },
     ])
   })
 
@@ -3389,12 +3542,18 @@ created: 2026-01-01T00:00:00-05:00
         date: "2026-05-06",
         text: "- **2026-05-06**: Secrets invisible at every layer",
         entryIndex: 0,
+        sectionStartLine: 7,
+        startLine: 8,
+        endLine: 9,
       },
       {
         section: "Decision heuristics (newest first)",
         date: "2026-05-05",
         text: "- **2026-05-05**: Least-privilege for AI agents",
         entryIndex: 1,
+        sectionStartLine: 7,
+        startLine: 9,
+        endLine: 10,
       },
     ])
   })
@@ -3431,6 +3590,9 @@ created: 2026-01-01T00:00:00-05:00
         date: "2026-06-15",
         text: "- **2026-06-15**: First line of the entry\n  Continuation line one\n  Continuation line two",
         entryIndex: 0,
+        sectionStartLine: 3,
+        startLine: 4,
+        endLine: 7,
       },
     ])
   })
@@ -3515,6 +3677,9 @@ created: 2026-01-01T00:00:00-05:00
         date: "2026-05-04",
         text: "- **2026-05-04**: Single-purpose files",
         entryIndex: 2,
+        sectionStartLine: 11,
+        startLine: 12,
+        endLine: 13,
       },
     ])
   })
@@ -3534,6 +3699,9 @@ created: 2026-01-01T00:00:00-05:00
         date: "2026-05-04",
         text: "- **2026-05-04**: Single-purpose files",
         entryIndex: 2,
+        sectionStartLine: 11,
+        startLine: 12,
+        endLine: 13,
       },
     ])
   })
@@ -3553,18 +3721,27 @@ created: 2026-01-01T00:00:00-05:00
         date: "2026-05-06",
         text: "- **2026-05-06**: Secrets invisible at every layer",
         entryIndex: 0,
+        sectionStartLine: 7,
+        startLine: 8,
+        endLine: 9,
       },
       {
         section: "Decision heuristics (newest first)",
         date: "2026-05-05",
         text: "- **2026-05-05**: Least-privilege for AI agents",
         entryIndex: 1,
+        sectionStartLine: 7,
+        startLine: 9,
+        endLine: 10,
       },
       {
         section: "Working style (newest first)",
         date: "2026-05-04",
         text: "- **2026-05-04**: Single-purpose files",
         entryIndex: 2,
+        sectionStartLine: 11,
+        startLine: 12,
+        endLine: 13,
       },
     ])
   })
@@ -3584,12 +3761,45 @@ created: 2026-01-01T00:00:00-05:00
         date: "2026-05-06",
         text: "- **2026-05-06**: Secrets invisible at every layer",
         entryIndex: 0,
+        sectionStartLine: 7,
+        startLine: 8,
+        endLine: 9,
       },
       {
         section: "Decision heuristics (newest first)",
         date: "2026-05-05",
         text: "- **2026-05-05**: Least-privilege for AI agents",
         entryIndex: 1,
+        sectionStartLine: 7,
+        startLine: 9,
+        endLine: 10,
+      },
+    ])
+  })
+
+  // The section read, the write and the delete all use the first H2 a name
+  // resolves to; the entries read must not add a second H2 with the same text.
+  it("reads only the first of two H2s with the same text for a named section", async () => {
+    await writeFile(
+      join(vault, "About Me/Twice.md"),
+      "# T\n\n## S (newest first)\n- **2026-01-02**: first section\n\n## S (newest first)\n- **2026-01-03**: second section\n",
+      "utf8",
+    )
+
+    const entries = await getMemoryEntries(
+      { vaultPath: vault, file: "Twice", section: "S", onOrAfter: "2026-01-01" },
+      logger,
+    )
+
+    expect(entries).toEqual([
+      {
+        section: "S (newest first)",
+        date: "2026-01-02",
+        text: "- **2026-01-02**: first section",
+        entryIndex: 0,
+        sectionStartLine: 2,
+        startLine: 3,
+        endLine: 4,
       },
     ])
   })
@@ -3610,18 +3820,27 @@ created: 2026-01-01T00:00:00-05:00
         date: "2026-05-07",
         text: "- **2026-05-07**: **Research current docs before configuring.** AI agents should consult docs",
         entryIndex: 0,
+        sectionStartLine: 3,
+        startLine: 4,
+        endLine: 5,
       },
       {
         section: "AI tooling & memory (newest first)",
         date: "2026-05-04",
         text: "- **2026-05-04**: **Clean breaks over placeholders.** Remove all references",
         entryIndex: 1,
+        sectionStartLine: 3,
+        startLine: 5,
+        endLine: 6,
       },
       {
         section: "Code patterns (newest first)",
         date: "2026-05-07",
         text: "- **2026-05-07**: **.reduce() over filter/map chains.** Single reduce pass",
         entryIndex: 2,
+        sectionStartLine: 7,
+        startLine: 8,
+        endLine: 9,
       },
     ])
   })
@@ -3647,18 +3866,27 @@ created: 2026-01-01T00:00:00-05:00
         date: "2026-05-07",
         text: "- **2026-05-07**: **Research current docs before configuring.** AI agents should consult docs",
         entryIndex: 0,
+        sectionStartLine: 3,
+        startLine: 4,
+        endLine: 5,
       },
       {
         section: "AI tooling & memory (newest first)",
         date: "2026-05-04",
         text: "- **2026-05-04**: **Clean breaks over placeholders.** Remove all references",
         entryIndex: 1,
+        sectionStartLine: 3,
+        startLine: 5,
+        endLine: 6,
       },
       {
         section: "Code patterns (newest first)",
         date: "2026-05-07",
         text: "- **2026-05-07**: **.reduce() over filter/map chains.** Single reduce pass",
         entryIndex: 2,
+        sectionStartLine: 7,
+        startLine: 8,
+        endLine: 9,
       },
     ])
   })
@@ -3839,6 +4067,9 @@ describe("memory file with a properties block the server cannot read or keep", (
         date: "2026-05-05",
         text: "- **2026-05-05**: kept entry",
         entryIndex: 0,
+        sectionStartLine: 2,
+        startLine: 3,
+        endLine: 4,
       },
     ])
   })

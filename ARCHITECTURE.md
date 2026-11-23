@@ -651,7 +651,7 @@ Vector tables persist across restarts and rebuilds (only FTS, notes, links, task
 
 Content-hash gating (SHA-256 per chunk) skips re-embedding unchanged content on both incremental file-watcher updates and full rebuilds. A chunk whose text already has a stored vector elsewhere in the same note or file gets that vector copied, so an edit near the top of a long note re-embeds only the chunks whose text changed.
 
-**Vector schema:** Four tables in the same SQLite database as FTS5 (which also holds the `tasks` table — see [Tasks](#tasks)):
+**Vector schema:** Four tables in the same SQLite database as FTS5 hold note and file vectors; memory entry vectors are described under [Memory](#memory):
 
 - `note_chunks`: stores chunk text, position index, and content hash per note
 - `note_vectors` (vec0): stores 384-dim Float32 embeddings keyed by chunk ID
@@ -1647,7 +1647,7 @@ Docker hardening, and durability seatbelts above.
 | Component          | Cost                                               |
 | ------------------ | -------------------------------------------------- |
 | Lightsail instance | $12/mo (1 vCPU / 2 GiB) or $24/mo (2 vCPU / 4 GiB) |
-| Auto-snapshots     | ~$0.50–1.50/mo (used disk × 7d × $0.05/GiB)        |
+| Auto-snapshots     | ~$0.50–1.50/mo (used disk × $0.05/GB-month)        |
 | API Gateway        | <$1/mo                                             |
 | Obsidian Sync      | $4 USD/mo                                          |
 | **Total**          | **~$17–29/mo**                                     |

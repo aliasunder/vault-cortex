@@ -25,11 +25,12 @@ Pulumi-driven replacement and `sst remove`.
   sub-daily option).
 - **Retention:** 7 days rolling, automatically (Lightsail caps at 7).
 - **What's captured:** the full boot disk — Docker volumes
-  (`vault_data`, `mcp_index_data`, `obsidian_config`),
+  (`vault-cortex_vault_data`, `vault-cortex_mcp_index_data`,
+  `vault-cortex_obsidian_config`),
   `/opt/vault-cortex/`, `/etc/`, cron, Tailscale state, anything you
   `apt install`ed in an SSH session. Everything except in-memory state.
 - **What's not captured:** running container memory, transient connections.
-- **Cost:** ~$0.05/mo at typical usage (snapshot storage is $0.05/GB-month
+- **Cost:** ~$0.50–1.50/mo at typical usage (snapshot storage is $0.05/GB-month
   on used disk space, not allocated; daily incremental deltas are small).
 - **Security:** snapshots inherit account-level IAM access. Treat them as
   sensitive — the disk image contains `/opt/vault-cortex/.env` and
