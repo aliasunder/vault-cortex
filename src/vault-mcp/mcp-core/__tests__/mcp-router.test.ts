@@ -1325,8 +1325,10 @@ describe("createMcpRouter — DELETE /mcp", () => {
       headers: { ...baseHeaders, "mcp-session-id": sessionId },
       body: JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/list" }),
     })
-    await followUp.arrayBuffer()
-    expect(followUp.status).toBe(404)
+    expect({ status: followUp.status, body: await followUp.json() }).toEqual({
+      status: 404,
+      body: { error: "session not found" },
+    })
   })
 
   it("returns 404 when the mcp-session-id header is missing", async () => {
