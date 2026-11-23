@@ -1019,6 +1019,28 @@ const findRejectionMessage = async (operation: Promise<unknown>): Promise<string
 }
 
 describe("writeAssetContent — creating", () => {
+  it("refuses creating a file while another write to the same path is in flight, creating nothing", async () => {
+    const vaultPath = await makeTempVault()
+    const { promise: inFlightWrite, resolve: finishInFlightWrite } =
+      Promise.withResolvers<undefined>()
+    const heldLock = withExclusiveFileLock(
+      join(vaultPath, "Boards/new.canvas"),
+      () => inFlightWrite,
+    )
+    onTestFinished(async () => {
+      finishInFlightWrite(undefined)
+      await heldLock
+    })
+
+    await expect(
+      assetOperations.writeAssetContent(
+        { ...writeDefaults, vaultPath, path: "Boards/new.canvas", content: "{}" },
+        logger,
+      ),
+    ).rejects.toThrow(new Error("concurrent write in progress"))
+    expect(await readdir(vaultPath)).toEqual([])
+  })
+
   it("creates a file with the exact content, making its parent folders", async () => {
     const vaultPath = await makeTempVault()
     const content = '{"nodes":[],"edges":[]}'
