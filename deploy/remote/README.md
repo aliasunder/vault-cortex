@@ -795,9 +795,6 @@ sign-in pages are public. These optional measures add defense-in-depth:
   - With the CLI or Compose: set `BIND_ADDRESS=127.0.0.1` in the install's
     `.env`, then re-create the container with
     `npx vault-cortex@latest restart` or `docker compose up -d`.
-  - Older `docker-compose.yml`: if its `ports` line has no `BIND_ADDRESS`,
-    change that line to `"127.0.0.1:${PORT:-8000}:8000"` or download the
-    current file (step 2 of **Manual setup**).
   - With `docker run`: re-create the container with
     `-p 127.0.0.1:8000:8000` in place of `-p 8000:8000`, keeping your own
     host port if you changed it.
