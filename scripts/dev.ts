@@ -25,8 +25,11 @@ import { homedir, tmpdir } from "node:os"
 import { join } from "node:path"
 import { parseEnv } from "node:util"
 
+import { DateTime } from "luxon"
+
 import { DEPLOYMENT_ENV_PATH, loadDeploymentEnv } from "./deployment-env.js"
 import {
+  closesPublicPortWithoutOrigin,
   envContentWithPublicUrl,
   gatewayApiEndpointQuery,
   resolvePublicUrl,
@@ -113,9 +116,9 @@ const waitForDocker = ({
   sshIdentityOption: string
   timeoutSec?: number
 }): void => {
-  const deadline = Date.now() + timeoutSec * 1000
+  const deadline = DateTime.now().plus({ seconds: timeoutSec })
   console.log(`⏳ Waiting for Docker on the instance (up to ${timeoutSec}s)...`)
-  while (Date.now() < deadline) {
+  while (DateTime.now() < deadline) {
     try {
       execSync(
         `ssh ${sshIdentityOption} ${SSH_OPTS} ubuntu@${targetHost} 'docker --version' 2>/dev/null`,
@@ -246,9 +249,8 @@ switch (subcommand) {
     // file reads only the copy of the env file shipped below.
     const envFileContent = readFileSync(DEPLOYMENT_ENV_PATH, "utf8")
     const bindAddress = parseEnv(envFileContent).BIND_ADDRESS
-    const publishesOnEveryAddress = !bindAddress || bindAddress === "0.0.0.0"
 
-    if (!publishesOnEveryAddress && !env.ORIGIN_URL) {
+    if (closesPublicPortWithoutOrigin({ bindAddress, originUrl: env.ORIGIN_URL })) {
       console.error(
         `✕  BIND_ADDRESS=${bindAddress} takes port 8000 off the instance's public address, but ORIGIN_URL is empty, so API Gateway would call that address. Set ORIGIN_URL, or remove BIND_ADDRESS from ~/.config/vault-cortex/.env`,
       )

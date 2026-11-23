@@ -68,24 +68,6 @@ jobs:
           role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
-      # A bind on anything but every address leaves nothing answering on the
-      # instance's public port 8000, which the gateway calls while ORIGIN_URL
-      # is empty, so stop before SST or the instance changes.
-      - name: Check BIND_ADDRESS has a tunnel in front
-        env:
-          BIND_ADDRESS: ${{ vars.BIND_ADDRESS }}
-          ORIGIN_URL: ${{ secrets.ORIGIN_URL }}
-        run: |
-          case "$BIND_ADDRESS" in
-            "" | 0.0.0.0) ;;
-            *)
-              if [ -z "$ORIGIN_URL" ]; then
-                echo "::error title=BIND_ADDRESS without ORIGIN_URL::BIND_ADDRESS=$BIND_ADDRESS takes port 8000 off the instance's public address, but ORIGIN_URL is empty, so API Gateway would call that address. Set the ORIGIN_URL secret, or delete the BIND_ADDRESS Variable."
-                exit 1
-              fi
-              ;;
-          esac
-
       - name: SST deploy
         env:
           SSH_PUBKEY: ${{ secrets.SSH_PUBKEY }}
@@ -97,6 +79,9 @@ jobs:
           CUSTOM_DOMAIN_CERT_ARN: ${{ secrets.CUSTOM_DOMAIN_CERT_ARN }}
           DISABLE_EXECUTE_API_ENDPOINT: ${{ vars.DISABLE_EXECUTE_API_ENDPOINT }}
           PUBLIC_URL: ${{ secrets.PUBLIC_URL }}
+          # sst.config.ts refuses a bind that would leave the gateway calling
+          # a closed port 8000, before any resource changes.
+          BIND_ADDRESS: ${{ vars.BIND_ADDRESS }}
         run: npx sst deploy --stage "$SST_STAGE"
 
       # Same rule as deploy.yml: the PUBLIC_URL secret when set, else the

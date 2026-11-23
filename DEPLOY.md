@@ -702,7 +702,7 @@ curl -H "CF-Access-Client-Id: <client-id>" -H "CF-Access-Client-Secret: <client-
 npm run deploy
 ```
 
-Keep the three settings in the file: a deploy without them routes the gateway back to port 8000 and reopens the port. After step 10 publishes port 8000 on loopback only, such a deploy fails every request until the settings are back.
+Keep the three settings in the file: a deploy without them routes the gateway back to port 8000 and reopens the port. Once step 10 sets `BIND_ADDRESS`, a deploy without `ORIGIN_URL` is refused before it changes the gateway; [Rollback](#rollback-1) gives the order that removes both.
 
 **9. Verify the new path:**
 
@@ -740,40 +740,45 @@ To check the bind, run `docker port vault-cortex` on the instance over SSH; it p
 
 #### Fresh VM bootstrap
 
-If the VM is replaced (key rotation, bundle upgrade) and `MCP_PORT_CIDRS=none`, port 8000 is blocked — but `cloudflared` isn't running on the new VM yet. Recovery:
+If the VM is replaced (key rotation, bundle upgrade) and `MCP_PORT_CIDRS=none`, port 8000 is blocked — but `cloudflared` isn't running on the new VM yet. Recover from your laptop, because a CI deploy would re-apply the `SSH_CIDRS`, `ORIGIN_URL` and `MCP_PORT_CIDRS` secrets that steps 2 and 7 override:
 
-1. Before the new instance's first deploy, remove `BIND_ADDRESS` and set `TRUST_FORWARDED_HOPS` and `TRUST_PROXY_HOPS` to `0` in `~/.config/vault-cortex/.env` (or the repo Variables), as **Rollback** below does, because until step 5 the gateway reaches the new instance on its public port 8000. Then temporarily open both ports and disable tunnel routing, and deploy the instance from your laptop with `npm run lightsail:up` (a CI deploy would re-apply the `SSH_CIDRS`, `ORIGIN_URL` and `MCP_PORT_CIDRS` secrets):
+1. Reset the instance settings as step 1 of [Rollback](#rollback-1) does: remove `BIND_ADDRESS` and set `TRUST_FORWARDED_HOPS` and `TRUST_PROXY_HOPS` to `0` in `~/.config/vault-cortex/.env`. Until step 7, the gateway reaches the new instance on its public port 8000.
+2. Temporarily open both ports and disable tunnel routing:
 
    ```bash
    SSH_CIDRS=0.0.0.0/0 ORIGIN_URL= MCP_PORT_CIDRS=0.0.0.0/0 npm run deploy
    ```
 
-2. SSH in via public IP, install Tailscale (see [SSH Hardening](#ssh-hardening-with-tailscale-optional))
-3. Install `cloudflared` using step 2 of [Port 8000 Hardening](#port-8000-hardening-optional), including its apt repository and key, and register with the existing tunnel token.
-4. Verify the locked tunnel using the service-token request in step 7 of [Port 8000 Hardening](#port-8000-hardening-optional).
-5. Re-harden (drop `ORIGIN_ACCESS_SERVICE_TOKEN_ENABLED=true` if the tunnel hostname is not locked with a service token):
+3. Deploy the instance with `npm run lightsail:up`.
+4. SSH in via public IP, install Tailscale (see [SSH Hardening](#ssh-hardening-with-tailscale-optional))
+5. Install `cloudflared` using step 2 of [Port 8000 Hardening](#port-8000-hardening-optional), including its apt repository and key, and register with the existing tunnel token.
+6. Verify the locked tunnel using the service-token request in step 7 of [Port 8000 Hardening](#port-8000-hardening-optional).
+7. Re-harden (drop `ORIGIN_ACCESS_SERVICE_TOKEN_ENABLED=true` if the tunnel hostname is not locked with a service token):
 
    ```bash
    SSH_CIDRS=none ORIGIN_URL=https://<subdomain>.<yourdomain> MCP_PORT_CIDRS=none ORIGIN_ACCESS_SERVICE_TOKEN_ENABLED=true npm run deploy
    ```
 
-6. Set the trust values and `BIND_ADDRESS=127.0.0.1` again and redeploy the instance (step 10 of [Port 8000 Hardening](#port-8000-hardening-optional)).
+8. Set the trust values and `BIND_ADDRESS=127.0.0.1` again and redeploy the instance (step 10 of [Port 8000 Hardening](#port-8000-hardening-optional)).
 
 The tunnel token doesn't change when the VM is replaced — it's tied to the Cloudflare tunnel resource, not the host.
 
 #### Rollback
 
-To revert to direct port 8000 access at any time, first reset the instance: remove `BIND_ADDRESS`, so port 8000 is published on every address again, and set `TRUST_FORWARDED_HOPS` and `TRUST_PROXY_HOPS` to `0` in `~/.config/vault-cortex/.env` (or the repo Variables), then redeploy the instance (`npm run lightsail:up` or a CI deploy). The trust values assume the gateway is the only way in, which stops being true once the port reopens. Then route the gateway back:
+To revert to direct port 8000 access at any time:
 
-```bash
-# Remove ORIGIN_URL and re-open port 8000 (no SSH needed — runs from your laptop).
-# First delete ORIGIN_URL, MCP_PORT_CIDRS, and ORIGIN_ACCESS_SERVICE_TOKEN_ENABLED
-# from ~/.config/vault-cortex/.env (for CI deploys, the matching repo secrets
-# and Variables), or the next deploy restores them.
-npm run deploy
-```
+1. Reset the instance: remove `BIND_ADDRESS`, so port 8000 is published on every address again, and set `TRUST_FORWARDED_HOPS` and `TRUST_PROXY_HOPS` to `0` in `~/.config/vault-cortex/.env` (or the repo Variables), then redeploy the instance (`npm run lightsail:up` or a CI deploy). The trust values assume the gateway is the only way in, which stops being true once the port reopens.
+2. Route the gateway back. The deploy refuses to run while `BIND_ADDRESS` is still set, which is why step 1 comes first:
 
-Or via AWS CLI for immediate firewall change (overwritten on next SST deploy), after the instance redeploy above. This command replaces every firewall rule, so it sets both ports. If you restrict SSH with `SSH_CIDRS`, replace port 22's `0.0.0.0/0` with your configured CIDRs (`192.0.2.1/32` for `none`), or the command reopens SSH to the internet:
+   ```bash
+   # Remove ORIGIN_URL and re-open port 8000 (no SSH needed — runs from your laptop).
+   # First delete ORIGIN_URL, MCP_PORT_CIDRS, and ORIGIN_ACCESS_SERVICE_TOKEN_ENABLED
+   # from ~/.config/vault-cortex/.env (for CI deploys, the matching repo secrets
+   # and Variables), or the next deploy restores them.
+   npm run deploy
+   ```
+
+Or, in place of step 2's deploy, change the firewall at once with the AWS CLI (overwritten on the next SST deploy). This command replaces every firewall rule, so it sets both ports. If you restrict SSH with `SSH_CIDRS`, replace port 22's `0.0.0.0/0` with your configured CIDRs (`192.0.2.1/32` for `none`), or the command reopens SSH to the internet:
 
 ```bash
 aws lightsail put-instance-public-ports \
@@ -781,7 +786,7 @@ aws lightsail put-instance-public-ports \
   --port-infos '[{"protocol":"tcp","fromPort":22,"toPort":22,"cidrs":["0.0.0.0/0"]},{"protocol":"tcp","fromPort":8000,"toPort":8000,"cidrs":["0.0.0.0/0"]}]'
 ```
 
-Once the instance redeploy and either firewall change are done, the direct `curl http://<lightsailIp>:8000/healthz` under [Verify](#verify) answers again.
+Once step 1 and either firewall change are done, the direct `curl http://<lightsailIp>:8000/healthz` under [Verify](#verify) answers again.
 
 ---
 
