@@ -235,11 +235,12 @@ const FENCE_OPEN = /^ {0,3}(`{3,}|~{3,})/
  *  closes it implicitly (the container ended per CommonMark §5.1). */
 export type OpenFence = { delimiter: string; quoteDepth: number } | null
 
-type FenceResult = {
+export type FenceResult = {
   openFence: OpenFence
   isFenceDelimiter: boolean
-  /** Whether this line is inside a fenced code block — accounts for blockquote
-   *  depth, including implicit fence closure when the container ends. Consumers
+  /** Whether this line is inside a fenced code block, its opening and closing
+   *  delimiter lines included — accounts for blockquote depth, including
+   *  implicit fence closure when the container ends. Consumers
    *  should use this instead of computing `isFenceDelimiter || openFence !== null`. */
   lineIsCode: boolean
 }
