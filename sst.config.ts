@@ -131,7 +131,7 @@ export default $config({
     }
 
     // DISABLE_EXECUTE_API_ENDPOINT=true: the gateway stops answering on its
-    // default execute-api hostname, so the custom domain is the only way in.
+    // default execute-api hostname, so clients must use the custom domain.
     const disableExecuteApiEndpoint =
       env("DISABLE_EXECUTE_API_ENDPOINT").asString()?.toLowerCase() === "true"
 

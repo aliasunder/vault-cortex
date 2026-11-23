@@ -968,9 +968,11 @@ proxy-trust config:
     directly).
   - `2` — the element before it is the client, for a gateway whose custom
     domain sits behind a CDN: the gateway's peer is the CDN, and the CDN
-    recorded the client ahead of it. Only once the CDN is the sole way in
-    (`DISABLE_EXECUTE_API_ENDPOINT=true`) — on the default hostname a
-    request skips the CDN and carries one fewer trusted element.
+    recorded the client ahead of it. Only once the CDN is the sole way in:
+    `DISABLE_EXECUTE_API_ENDPOINT=true` closes the default hostname, and the
+    custom domain must refuse connections that skip the CDN (mutual TLS
+    with the CDN), because a request on either path carries one fewer
+    trusted element.
 - Behind API Gateway, `Forwarded` is the only carrier of the client IP:
   the gateway writes that header, folds a client-supplied
   `X-Forwarded-For` into it as leading elements, and sends no
@@ -980,8 +982,10 @@ proxy-trust config:
   hardening makes the gateway the only way in.
 - `TRUST_PROXY_HOPS` (default `0`) sets Express `trust proxy` — how many
   `X-Forwarded-For` hops feed `req.ip`, the bucket key whenever `Forwarded`
-  isn't trusted. These counts prevent forged client IPs only when requests
-  arrive through the counted proxies; direct access to the server must be blocked.
+  isn't trusted. Behind a tunnel it is `1`: the tunnel appends the
+  connecting address, and the gateway writes no `X-Forwarded-For`. These
+  counts prevent forged client IPs only when requests arrive through the
+  counted proxies; direct access to the server must be blocked.
 - Whichever setting supplies the client IP, an IPv6 client is keyed by its /56
   (express-rate-limit's `ipKeyGenerator`), because one host often holds a
   /64 and could otherwise get a fresh bucket for every address in it. The
