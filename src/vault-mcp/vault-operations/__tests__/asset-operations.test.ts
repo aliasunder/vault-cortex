@@ -18,8 +18,8 @@ import { logger } from "../../../logger.js"
 // Every vault-filesystem export becomes a pass-through spy: the read tests
 // stub vaultFs, and the write tests run on a real temporary vault.
 vi.mock("../vault-filesystem.js", { spy: true })
-// Pass-through too, so one write test can delete a file between the write's
-// existence check and its binary check
+// The fs helpers are pass-through spies too, so one write test can delete a
+// file between the write's existence check and its binary check.
 vi.mock("../../../utils/fs.js", { spy: true })
 
 const {
@@ -59,6 +59,7 @@ vi.mock("../../../utils/fit-image-to-byte-budget.js", () => ({
 import { atomicWriteFileExclusive, vaultFs } from "../vault-filesystem.js"
 import { fitImageToByteBudget } from "../../../utils/fit-image-to-byte-budget.js"
 import { readFileBytePrefixOrNull, statOrNull } from "../../../utils/fs.js"
+import { withExclusiveFileLock } from "../../../utils/file-write-lock.js"
 
 const mockedReadAsset = vi.mocked(vaultFs.readAsset)
 const mockedListAssets = vi.mocked(vaultFs.listAssets)
@@ -1274,6 +1275,26 @@ describe("writeAssetContent — overwriting", () => {
 
     expect(await readFile(join(vaultPath, "data.csv"), "utf8")).toBe("a,b\n3,4\n")
     expect(await readdir(vaultPath)).toEqual(["data.csv"])
+  })
+
+  it("refuses a write while another write to the same file is in flight, leaving it unchanged", async () => {
+    const vaultPath = await makeTempVault()
+    await writeFile(join(vaultPath, "data.csv"), "a,b\n1,2\n", "utf8")
+    const { promise: inFlightWrite, resolve: finishInFlightWrite } =
+      Promise.withResolvers<undefined>()
+    const heldLock = withExclusiveFileLock(join(vaultPath, "data.csv"), () => inFlightWrite)
+    onTestFinished(async () => {
+      finishInFlightWrite(undefined)
+      await heldLock
+    })
+
+    await expect(
+      assetOperations.writeAssetContent(
+        { ...writeDefaults, vaultPath, path: "data.csv", content: "a,b\n3,4\n", overwrite: true },
+        logger,
+      ),
+    ).rejects.toThrow(new Error("concurrent write in progress"))
+    expect(await readFile(join(vaultPath, "data.csv"), "utf8")).toBe("a,b\n1,2\n")
   })
 
   it.each([
