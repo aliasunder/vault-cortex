@@ -194,7 +194,7 @@ The three anchor tools share one resolution rule: a short, case-sensitive substr
 `vault_list_notes` matches its glob in a worker thread, one per call, with a 2-second limit:
 
 - At most one worker per CPU core, and never more than four, runs at a time.
-- A call still waiting or matching after 2 seconds returns a timeout error, and its worker is stopped.
+- A call still waiting or matching after 2 seconds returns a timeout error, and a worker still matching is stopped.
 - Up to four calls per worker can wait; a call beyond them returns a timeout error at once, saying too many glob calls are waiting.
 
 `vault_update_properties` merges properties — sets new keys, overwrites matching keys, deletes keys set to `null` — and keeps the body, adding only a missing final newline. With `replace: true` it replaces the whole properties block instead, without parsing the old one, so it can repair any block a merge refuses.
