@@ -68,6 +68,8 @@ mechanism-level detail.
 - A path longer than any Linux filesystem accepts (more than 4,095 bytes)
   is refused before path resolution or a write lock sees it — a note, file
   or folder path, and the memory file name of a memory write
+- A path holding a NUL character, which no file name can hold, is refused
+  before any filesystem call uses it — a note, file or folder path
 - Protected-path checks run on the canonical vault-relative form of the
   resolved path (`resolveVaultRelativePath()`), with a case-folded
   comparison — an aliased spelling (`\` separators,
@@ -388,6 +390,10 @@ while the owner decides are bounded:
   boot. A generated token (every install guide makes one of 256 random
   bits) cannot be guessed, so the limiter stays off and no one sharing the
   owner's IP or proxy can lock the owner's clients out
+- **Sessions expire** — an MCP session idle for 24 hours closes, and the
+  server keeps at most 300 open, closing the least recently used one when a
+  new session starts; a closed session's client gets 404 and starts a new
+  session
 
 ### OAuth client registrations
 

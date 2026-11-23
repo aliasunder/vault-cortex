@@ -116,19 +116,6 @@ export const dockerOrThrow = async (argv: string[]): Promise<string> => {
   return result.stdout
 }
 
-/** Fail fast with a build hint when the image under test is missing —
- *  without this, every container start would fail with Docker's own
- *  "No such image" message buried in a timeout. */
-export const assertImagePresent = async (image: string): Promise<void> => {
-  const result = await docker(["image", "inspect", image])
-
-  if (result.code !== 0) {
-    throw new Error(
-      `Remote image "${image}" not found — npm run test:remote-boot builds one for each run; REMOTE_IMAGE must name an image you built (npm run build:remote-image tags vault-cortex:remote-ci)`,
-    )
-  }
-}
-
 type RunContainerOptions = {
   name: string
   image: string
@@ -154,8 +141,8 @@ export type ContainerHandle = {
  *  The returned cleanup removes the container together with its anonymous
  *  volumes (`rm -v`); named volumes passed in `volumes` are removed
  *  explicitly, since `rm -v` leaves those alone. A removal that fails
- *  throws, naming the container or volume, so a leak fails the hook
- *  instead of accumulating silently across local runs. */
+ *  throws, naming the container or volume, so the scenario that leaked the
+ *  object fails. */
 export const runContainer = async ({
   name,
   image,
@@ -177,28 +164,25 @@ export const runContainer = async ({
     await ensureRunVolume(volume)
   }
 
-  try {
-    // `--pull=never`: only the image this run just built may boot. Without
-    // it, a missing local tag would pull the published `:remote` and the
-    // tests would silently run against the released image instead of the
-    // branch.
-    await dockerOrThrow([
-      "run",
-      "-d",
-      "--pull=never",
-      "--name",
-      name,
-      ...runLabelArgs(),
-      "-v",
-      `${OB_STUB_PATH}:${OB_CLI_PATH_IN_IMAGE}:ro`,
-      ...envArgs,
-      ...volumeArgs,
-      ...publishArgs,
-      image,
-    ])
-  } catch (startError) {
-    await removeFailedStartThenThrow({ name, startError })
-  }
+  // - `--pull=never` keeps Docker off the registries. The image under test is
+  //   always local, and a pull for a missing tag could run a published image
+  //   instead of the branch's build.
+  // - A start that fails after Docker created the container leaves it behind
+  //   with the run label, so the run teardown prints its state and removes it.
+  await dockerOrThrow([
+    "run",
+    "-d",
+    "--pull=never",
+    "--name",
+    name,
+    ...runLabelArgs(),
+    "-v",
+    `${OB_STUB_PATH}:${OB_CLI_PATH_IN_IMAGE}:ro`,
+    ...envArgs,
+    ...volumeArgs,
+    ...publishArgs,
+    image,
+  ])
 
   const cleanup = async (): Promise<void> => {
     // Sequential on purpose: a named volume is still in use until the
@@ -234,49 +218,6 @@ const ensureRunVolume = async (name: string): Promise<void> => {
   if (!runVolumes.has(name)) {
     throw new Error(`volume ${name} exists without this run's ${RUN_LABEL_KEY} label`)
   }
-}
-
-/** After a failed `docker run`, removes the container it may have created, and
- *  rethrows the start error. Docker creates the container before starting it,
- *  so a start that fails (a bad mount, say) leaves the container and its
- *  anonymous volumes behind.
- *  - Only a container matching both the exact name and this run's label is
- *    removed, so a create that never happened, or another holder of the
- *    name, is left alone.
- *  - A failed removal is appended to the start error's message, and the start
- *    error stays the `cause`. */
-const removeFailedStartThenThrow = async ({
-  name,
-  startError,
-}: {
-  name: string
-  startError: unknown
-}): Promise<never> => {
-  const removalError = await removeRunContainerNamed(name)
-
-  if (!removalError) throw startError
-
-  const startMessage = startError instanceof Error ? startError.message : String(startError)
-  throw new Error(`${startMessage}; removing the failed container also failed: ${removalError}`, {
-    cause: startError,
-  })
-}
-
-/** Removes this run's container with exactly this name, if there is one, and
- *  returns Docker's error text when listing or removal fails. */
-const removeRunContainerNamed = async (name: string): Promise<string | undefined> => {
-  // Docker matches the name filter as a regular expression against the name
-  // without its stored leading slash, so `^name$` matches this name only.
-  const listing = await docker(["ps", "-aq", "--filter", `name=^${name}$`, ...runLabelFilterArgs()])
-
-  if (listing.code !== 0) return listing.stderr.trim()
-
-  const containerIds = outputLines(listing.stdout)
-
-  if (containerIds.length === 0) return undefined
-
-  const removal = await docker(["rm", "-f", "-v", ...containerIds])
-  return removal.code === 0 ? undefined : removal.stderr.trim()
 }
 
 /** Node one-liner that prints how many files the sync state under a config

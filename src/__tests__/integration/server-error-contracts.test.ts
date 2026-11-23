@@ -1106,20 +1106,105 @@ describe("filesystem errors name the path vault-relative and carry their remedy"
     })
   })
 
-  // A coded TypeError about the arguments is not a filesystem error, so no
-  // remedy is appended: the message already says what to fix
+  /** The response a path holding a NUL character gets: the path quoted, with
+   *  no remedy appended, since the message says what to fix. */
+  const nulPathRefusal = (path: string): ToolResult => {
+    return {
+      content: [
+        { type: "text", text: `[Error]: EINVAL: a path cannot contain a NUL character, '${path}'` },
+      ],
+      isError: true,
+    }
+  }
+
   it("vault_patch_note on a path holding a NUL character", async () => {
     const result = await callTool({
       client,
       name: "vault_patch_note",
       args: { path: "Bad\u0000Name.md", operation: "append", content: "added" },
     })
+    expect(result).toEqual(nulPathRefusal("Bad\u0000Name.md"))
+  })
+
+  it("vault_read_note on a path holding a NUL character", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_read_note",
+      args: { path: "Bad\u0000Name.md" },
+    })
+    expect(result).toEqual(nulPathRefusal("Bad\u0000Name.md"))
+  })
+
+  it("vault_list_notes on a folder holding a NUL character", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_list_notes",
+      args: { folder: "Bad\u0000Folder" },
+    })
+    expect(result).toEqual(nulPathRefusal("Bad\u0000Folder"))
+  })
+
+  it("vault_move_note on an old_path holding a NUL character, quoted as sent", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_move_note",
+      args: { old_path: "./Bad\u0000Name.md", new_path: "Moved.md" },
+    })
+    expect(result).toEqual(nulPathRefusal("./Bad\u0000Name.md"))
+  })
+
+  it("vault_delete_note on a path holding a NUL character", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_delete_note",
+      args: { path: "Bad\u0000Name.md" },
+    })
+    expect(result).toEqual(nulPathRefusal("Bad\u0000Name.md"))
+  })
+
+  // Normalizing drops a segment that ".." cancels, so this path would name
+  // Missing.md if only the normalized form were checked.
+  it("vault_delete_note on a path whose NUL sits in a segment '..' cancels", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_delete_note",
+      args: { path: "Bad\u0000/../Missing.md" },
+    })
+    expect(result).toEqual(nulPathRefusal("Bad\u0000/../Missing.md"))
+  })
+
+  it("vault_read_file on a PDF path holding a NUL character", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_read_file",
+      args: { path: "Bad\u0000Name.pdf" },
+    })
+    expect(result).toEqual(nulPathRefusal("Bad\u0000Name.pdf"))
+  })
+
+  it("vault_update_memory on a file name holding a NUL character", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_update_memory",
+      args: { file: "Bad\u0000Name", section: "Notes (newest first)", entry: "refused" },
+    })
     expect(result).toEqual({
       content: [
-        {
-          type: "text",
-          text: "[TypeError]: The argument 'path' must be a string, Uint8Array, or URL without null bytes. Received 'Bad\\x00Name.md'",
-        },
+        { type: "text", text: '[Error]: cannot read memory file "About Me/Bad\u0000Name.md"' },
+      ],
+      isError: true,
+    })
+  })
+
+  it("vault_delete_memory on a file name holding a NUL character", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_delete_memory",
+      args: { file: "Bad\u0000Name", section: "Notes", date: "2026-01-01", entry: "refused" },
+    })
+    expect(result).toEqual({
+      content: [
+        { type: "text", text: '[Error]: cannot read memory file "About Me/Bad\u0000Name.md"' },
       ],
       isError: true,
     })

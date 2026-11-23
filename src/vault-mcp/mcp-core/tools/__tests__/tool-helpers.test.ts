@@ -1,5 +1,9 @@
 import { describe, it, expect, expectTypeOf, onTestFinished, vi } from "vitest"
+import { mkdir, mkdtemp, rm } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import { logger } from "../../../../logger.js"
+import { vaultFs } from "../../../vault-operations/vault-filesystem.js"
 import {
   OverwriteBlockedError,
   UnkeepableOpeningBlockError,
@@ -447,6 +451,31 @@ describe("safeHandler", () => {
         {
           type: "text",
           text: `[Error]: properties block uses the YAML tag !done. ${OBSIDIAN_ONLY_STEP}`,
+        },
+      ],
+      isError: true,
+    })
+  })
+
+  it("returns the NUL refusal, quoting the folder as sent, for a listing under a vault path over 128 characters", async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), "probe-nul-listing-"))
+    onTestFinished(() => rm(tempRoot, { recursive: true, force: true }))
+    const vaultPath = join(tempRoot, "v".repeat(140))
+    await mkdir(vaultPath)
+    const requestLogger = { ...logger, warn: vi.fn() }
+    const { safeHandler } = createSafeHandlers({ vaultPath, isToolEnabled: everyToolServed })
+
+    const result = await safeHandler(
+      requestLogger,
+      () => vaultFs.listNotes({ vaultPath, folder: "Bad\u0000Folder" }, logger),
+      (paths) => JSON.stringify(paths),
+    )
+
+    expect(result).toEqual({
+      content: [
+        {
+          type: "text",
+          text: "[Error]: EINVAL: a path cannot contain a NUL character, 'Bad\u0000Folder'",
         },
       ],
       isError: true,

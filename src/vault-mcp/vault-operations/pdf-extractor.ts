@@ -619,6 +619,8 @@ export const createPdfExtractor = (params: {
 
       // The child's refusal of an over-long path comes back as a plain Error, which gets no remedy
       // at the tool boundary, so this process refuses the path before the request is sent.
+      // extractForIndex skips the check: its paths name files already in the vault, and its
+      // failures go to the log, not to a client.
       assertPathWithinMaxLength(path)
 
       const request: PdfRequest = {

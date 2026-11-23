@@ -126,6 +126,16 @@ graph TB
 
 Embeddings persist across rebuilds to reuse unchanged content and can be regenerated from the vault.
 
+### MCP sessions
+
+Each MCP `initialize` gets its own server instance and session in `mcp-core/mcp-router.ts`. A session ends when:
+
+- **its client sends DELETE:** the server closes it and answers 200.
+- **it sits idle for 24 hours:** no request has started in that time.
+- **the server holds 300 sessions and admits another:** the session whose last request started earliest closes. A request still running on it gets no response, though a write it started still completes.
+
+A closed session's client gets `404 {"error":"session not found"}`, the same answer a restart gives, and starts a new session. A session idle for 24 hours closes at its next request or when a new session starts. No timer sweeps idle sessions, because sessions accumulate only when new ones start.
+
 ### Note-content parsers
 
 The `obsidian-markdown/` parsers read text straight from vault files, so one crafted note must not be able to stall the server. Their work grows linearly with input size (sorting canvas nodes adds a log factor), and adversarial tests check that bound at doubling input sizes. Two exceptions remain:
@@ -1504,10 +1514,11 @@ Docker hardening, and durability seatbelts above.
   filesystem access. Throws on absolute paths (`/vault/Note.md` — vault
   paths are always vault-relative, and an absolute spelling would tie
   behavior to the deployment's mount point), on traversal
-  (`../../etc/passwd`), and on
-  hidden paths — any dot-prefixed segment (`.obsidian/x`, `.trash/y.md`),
-  checked on the resolved relative path so `a/../.obsidian/x` is caught
-  while `notes/./plan.md` passes. The predicate
+  (`../../etc/passwd`), on a NUL character (Node's file calls would reject
+  it with a bare `TypeError`), and on hidden paths — any dot-prefixed
+  segment (`.obsidian/x`, `.trash/y.md`), checked on the resolved
+  relative path so `a/../.obsidian/x` is caught while `notes/./plan.md`
+  passes. The predicate
   (`utils/has-hidden-path-segment.ts`) is shared with the listing
   filter, file watcher, and index rebuild — one definition of "hidden",
   every layer ("one rule, every layer", like `assertPathHasExtension`).

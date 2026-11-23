@@ -67,9 +67,30 @@ export const assertRelativePath = (notePath: string): void => {
   throw new Error(`absolute path blocked: "${notePath}" must be vault-relative`)
 }
 
+/** Refuses a path holding a NUL character. Node's file calls would reject one
+ *  with a TypeError that no tool's Errors list names, so the refusal takes a
+ *  filesystem error's form, which the "another filesystem error" entry covers. */
+const assertPathHasNoNul = (notePath: string): void => {
+  if (!notePath.includes("\u0000")) return
+  throw new Error(`EINVAL: a path cannot contain a NUL character, '${notePath}'`)
+}
+
+/** Checks a path as sent, before anything normalizes or resolves it:
+ *  - normalizing, resolve() and the case-folding applied to their result (the
+ *    write-lock key, isProtectedPath) cost more than linear time on some
+ *    crafted inputs;
+ *  - the absolute-path check leads, so an absolute path gets that refusal
+ *    whatever its length. */
+const assertPathCanBeResolved = (notePath: string): void => {
+  assertRelativePath(notePath)
+  assertPathWithinMaxLength(notePath)
+  assertPathHasNoNul(notePath)
+}
+
 /** Resolves a note path within the vault. It throws on:
  *  - absolute paths;
  *  - paths longer than any filesystem accepts;
+ *  - paths holding a NUL character, which no file name can hold;
  *  - traversal, and the vault root itself, which names no entry;
  *  - hidden paths (dot-prefixed segments, which Obsidian ignores), checked on
  *    the resolved relative path so "./" and "../" normalize first, and before
@@ -77,13 +98,7 @@ export const assertRelativePath = (notePath: string): void => {
  *  Internal ".obsidian/" config readers deliberately bypass this via direct
  *  readFile. */
 export const resolveSafePath = (vaultPath: string, notePath: string): string => {
-  assertRelativePath(notePath)
-
-  // resolve() below costs more than linear time on some crafted inputs, as
-  // does the case-folding that callers apply to its result (the write-lock
-  // key, isProtectedPath). A path the filesystem would refuse anyway is
-  // therefore refused before either runs.
-  assertPathWithinMaxLength(notePath)
+  assertPathCanBeResolved(notePath)
 
   const vaultRoot = resolve(vaultPath)
   const resolvedPath = resolve(vaultRoot, notePath)
@@ -112,20 +127,17 @@ export const resolveSafePath = (vaultPath: string, notePath: string): string => 
 
 /** Canonical vault-relative form of a note path — prefix guards must run on
  *  this form so path aliases (separator variants, traversal segments) can't
- *  evade them. Throws resolveSafePath's absolute/length/traversal/hidden
+ *  evade them. Throws resolveSafePath's absolute/length/NUL/traversal/hidden
  *  errors for unsafe input. */
 export const resolveVaultRelativePath = (params: {
   vaultPath: string
   notePath: string
 }): string => {
-  // The absolute-path check comes first, as in resolveSafePath, so an
-  // absolute path gets that refusal whatever its length.
-  assertRelativePath(params.notePath)
-
-  // Normalizing costs more than linear time on some crafted inputs, so the
-  // length check runs on the input as sent, before toVaultRelativePath.
-  // resolveSafePath repeats both checks for its own direct callers.
-  assertPathWithinMaxLength(params.notePath)
+  // The checks run on the input as sent, before toVaultRelativePath: besides
+  // its cost, normalizing drops a segment that ".." cancels, so a NUL in
+  // "a<NUL>/../b.md" would never reach resolveSafePath, which repeats the
+  // checks for its own direct callers.
+  assertPathCanBeResolved(params.notePath)
 
   const normalizedInput = toVaultRelativePath(params.notePath)
   // resolveSafePath is called for its safety guards; its absolute result is
@@ -165,7 +177,7 @@ export const isProtectedPath = (params: {
  * The delete/move that triggered the prune has already succeeded, so a failure
  * to remove a folder (permissions, a race, a vanished dir) is logged and ends
  * the walk rather than thrown — it never fails the tool call. An unsafe `path`
- * throws resolveSafePath's absolute/length/traversal/hidden error before any folder
+ * throws resolveSafePath's absolute/length/NUL/traversal/hidden error before any folder
  * is touched.
  * Returns the number of folders removed.
  */

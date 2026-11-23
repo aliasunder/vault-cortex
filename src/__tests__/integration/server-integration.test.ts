@@ -16,7 +16,11 @@ import { readFile, readdir, rm, stat, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import Database from "better-sqlite3"
 import { fileExists } from "../../utils/fs.js"
-import type { Client } from "@modelcontextprotocol/sdk/client/index.js"
+import { Client } from "@modelcontextprotocol/sdk/client/index.js"
+import {
+  StreamableHTTPClientTransport,
+  StreamableHTTPError,
+} from "@modelcontextprotocol/sdk/client/streamableHttp.js"
 import {
   startServer,
   startServerExpectingFailure,
@@ -2634,4 +2638,75 @@ describe("trash retention sweep gating", () => {
     },
     30_000,
   )
+})
+
+describe("session limit", () => {
+  // The test builds its own SDK clients, so it boots the server with a token
+  // it knows. A generated token's length keeps the failed sign-in limiter off.
+  const SESSION_LIMIT_TOKEN = "session-limit-integration-token".padEnd(64, "x")
+  const SESSION_LIMIT = 300
+  // Concurrent initializes per batch: enough to overlap admissions without
+  // opening hundreds of sockets at once.
+  const INITIALIZE_BATCH_SIZE = 50
+
+  const initializeRawSession = async (
+    port: number,
+  ): Promise<{ status: number; sessionId: string | null }> => {
+    const response = await fetch(`http://127.0.0.1:${port}/mcp`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${SESSION_LIMIT_TOKEN}`,
+        "Content-Type": "application/json",
+        Accept: "application/json, text/event-stream",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: {
+          protocolVersion: "2025-03-26",
+          capabilities: {},
+          clientInfo: { name: "session-filler", version: "1.0.0" },
+        },
+      }),
+    })
+    // Drained, so the server finishes the response and frees the socket.
+    await response.text()
+    return { status: response.status, sessionId: response.headers.get("mcp-session-id") }
+  }
+
+  it("closes the least recently used session at the limit, and its client starts a new one", async () => {
+    const server = await startServer(await freePort(), { MCP_AUTH_TOKEN: SESSION_LIMIT_TOKEN })
+    onTestFinished(server.cleanup)
+    const connectClient = async (): Promise<Client> => {
+      const transport = new StreamableHTTPClientTransport(
+        new URL(`http://127.0.0.1:${server.port}/mcp`),
+        { requestInit: { headers: { Authorization: `Bearer ${SESSION_LIMIT_TOKEN}` } } },
+      )
+      const client = new Client({ name: "integration-test", version: "1.0.0" })
+      onTestFinished(() => client.close())
+      await client.connect(transport)
+      return client
+    }
+    const evictedClient = await connectClient()
+    const evictedClientToolNames = await toolNames(evictedClient)
+
+    const fillerSessions: { status: number; sessionId: string | null }[] = []
+    while (fillerSessions.length < SESSION_LIMIT) {
+      const batch = await Promise.all(
+        Array.from({ length: INITIALIZE_BATCH_SIZE }, () => initializeRawSession(server.port)),
+      )
+      fillerSessions.push(...batch)
+    }
+
+    expect({
+      statuses: new Set(fillerSessions.map((filler) => filler.status)),
+      distinctSessionIds: new Set(fillerSessions.map((filler) => filler.sessionId)).size,
+    }).toEqual({ statuses: new Set([200]), distinctSessionIds: SESSION_LIMIT })
+    await expect(evictedClient.listTools()).rejects.toEqual(
+      new StreamableHTTPError(404, 'Error POSTing to endpoint: {"error":"session not found"}'),
+    )
+    const freshClient = await connectClient()
+    expect(await toolNames(freshClient)).toEqual(evictedClientToolNames)
+  }, 60_000)
 })
