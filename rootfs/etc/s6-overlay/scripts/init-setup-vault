@@ -28,8 +28,9 @@ fi
 
 # Passes --device-name to ob sync-setup, which rewrites the device name on
 # every boot, because without it the CLI names the device after the container
-# hostname and every re-created container adds a new Obsidian Sync device. "$@" carries the caller's flags
-# and "$DEVICE_NAME" is quoted, so a vault or device name with spaces stays
+# hostname and every re-created container adds a new Obsidian Sync device.
+# "$@" carries the caller's flags and "$DEVICE_NAME" is quoted, so a vault or
+# device name with spaces stays
 # one argument.
 run_sync_setup() {
   if [ -n "$DEVICE_NAME" ]; then

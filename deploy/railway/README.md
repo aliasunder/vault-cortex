@@ -345,7 +345,8 @@ has synced.
 A volume created on the trial plan is 0.5 GB and stays that size after an
 upgrade. Upgrade to Hobby, delete the volume (**Settings → Volumes**), add a
 new one at `/persist`, then **Redeploy** — the container downloads the vault
-again, like a first deploy. If archives, office files or other files under
+again, like a first deploy, and each MCP client must remove and re-add the
+server, because the new volume has no record of them. If archives, office files or other files under
 **Sync all other types** filled it, set `SYNC_FILE_TYPES` to
 `image,audio,video,pdf` under **Variables** before you delete the volume, so
 they stay off the new one.
