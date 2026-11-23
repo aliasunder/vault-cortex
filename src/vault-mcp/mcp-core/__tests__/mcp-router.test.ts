@@ -4,7 +4,6 @@ import express from "express"
 import { randomUUID } from "node:crypto"
 import { DateTime } from "luxon"
 import type { Server } from "node:http"
-import type { AddressInfo } from "node:net"
 import { createMcpRouter } from "../mcp-router.js"
 import { loadConfig } from "../../config.js"
 import type { SearchIndex } from "../../search/search-index.js"
@@ -221,7 +220,6 @@ const setupHarness = async (
   const httpServer = await new Promise<Server>((resolve) => {
     const listener = app.listen(0, "127.0.0.1", () => resolve(listener))
   })
-  const port = (httpServer.address() as AddressInfo).port
 
   // Close the listening socket when the test ends — vitest's onTestFinished
   // ties cleanup to the same test that called setupHarness, so we don't
@@ -232,6 +230,12 @@ const setupHarness = async (
         httpServer.close((err) => (err ? reject(err) : resolve()))
       }),
   )
+  const address = httpServer.address()
+
+  if (!address || typeof address === "string") {
+    throw new Error("the harness server is not listening on a TCP port")
+  }
+  const { port } = address
 
   return {
     url: (path = "/mcp") => `http://127.0.0.1:${port}${path}`,
