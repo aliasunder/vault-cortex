@@ -67,6 +67,14 @@ export const assertRelativePath = (notePath: string): void => {
   throw new Error(`absolute path blocked: "${notePath}" must be vault-relative`)
 }
 
+/** Refuses a path holding a NUL character. Node's file calls would reject one
+ *  with a TypeError that no tool's Errors list names, so the refusal takes a
+ *  filesystem error's form, which the "another filesystem error" entry covers. */
+const assertPathHasNoNul = (notePath: string): void => {
+  if (!notePath.includes("\u0000")) return
+  throw new Error(`EINVAL: a path cannot contain a NUL character, '${notePath}'`)
+}
+
 /** Resolves a note path within the vault. It throws on:
  *  - absolute paths;
  *  - paths longer than any filesystem accepts;
@@ -85,11 +93,7 @@ export const resolveSafePath = (vaultPath: string, notePath: string): string => 
   // key, isProtectedPath). A path the filesystem would refuse anyway is
   // therefore refused before either runs.
   assertPathWithinMaxLength(notePath)
-
-  // Node's file calls would refuse a NUL with a bare TypeError, not a filesystem error.
-  if (notePath.includes("\u0000")) {
-    throw new Error(`EINVAL: a path cannot contain a NUL character, '${notePath}'`)
-  }
+  assertPathHasNoNul(notePath)
 
   const vaultRoot = resolve(vaultPath)
   const resolvedPath = resolve(vaultRoot, notePath)
@@ -129,9 +133,12 @@ export const resolveVaultRelativePath = (params: {
   assertRelativePath(params.notePath)
 
   // Normalizing costs more than linear time on some crafted inputs, so the
-  // length check runs on the input as sent, before toVaultRelativePath.
-  // resolveSafePath repeats both checks for its own direct callers.
+  // length check runs on the input as sent, before toVaultRelativePath. The
+  // NUL check runs on it too, because normalizing drops a segment that ".."
+  // cancels ("a<NUL>/../b.md" becomes "b.md"). resolveSafePath repeats the
+  // absolute-path, length and NUL checks for its own direct callers.
   assertPathWithinMaxLength(params.notePath)
+  assertPathHasNoNul(params.notePath)
 
   const normalizedInput = toVaultRelativePath(params.notePath)
   // resolveSafePath is called for its safety guards; its absolute result is

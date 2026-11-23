@@ -585,11 +585,19 @@ describe("paths holding a NUL character", () => {
     )
   })
 
-  it("resolveVaultRelativePath refuses a path holding a NUL, quoting its normalized form", () => {
+  it("resolveVaultRelativePath refuses a path holding a NUL, quoting it as sent", () => {
     const notePath = "./Notes\\Bad\u0000Name.md"
 
     expect(() => resolveVaultRelativePath({ vaultPath: vault, notePath })).toThrow(
-      pathHasNulError("Notes/Bad\u0000Name.md"),
+      pathHasNulError(notePath),
+    )
+  })
+
+  it("resolveVaultRelativePath refuses a NUL in a segment that '..' cancels", () => {
+    const notePath = "a\u0000/../b.md"
+
+    expect(() => resolveVaultRelativePath({ vaultPath: vault, notePath })).toThrow(
+      pathHasNulError(notePath),
     )
   })
 

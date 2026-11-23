@@ -1112,13 +1112,13 @@ describe("filesystem errors name the path vault-relative and carry their remedy"
     expect(result).toEqual(nulPathRefusal("Bad\u0000Folder"))
   })
 
-  it("vault_move_note on an old_path holding a NUL character, quoted in normalized form", async () => {
+  it("vault_move_note on an old_path holding a NUL character, quoted as sent", async () => {
     const result = await callTool({
       client,
       name: "vault_move_note",
       args: { old_path: "./Bad\u0000Name.md", new_path: "Moved.md" },
     })
-    expect(result).toEqual(nulPathRefusal("Bad\u0000Name.md"))
+    expect(result).toEqual(nulPathRefusal("./Bad\u0000Name.md"))
   })
 
   it("vault_delete_note on a path holding a NUL character", async () => {
@@ -1128,6 +1128,17 @@ describe("filesystem errors name the path vault-relative and carry their remedy"
       args: { path: "Bad\u0000Name.md" },
     })
     expect(result).toEqual(nulPathRefusal("Bad\u0000Name.md"))
+  })
+
+  // Normalizing drops a segment that ".." cancels, so this path would name
+  // Missing.md if only the normalized form were checked.
+  it("vault_delete_note on a path whose NUL sits in a segment '..' cancels", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_delete_note",
+      args: { path: "Bad\u0000/../Missing.md" },
+    })
+    expect(result).toEqual(nulPathRefusal("Bad\u0000/../Missing.md"))
   })
 
   it("vault_read_file on a PDF path holding a NUL character", async () => {
