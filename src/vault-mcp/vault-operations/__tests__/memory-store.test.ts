@@ -2032,30 +2032,37 @@ describe("deleteMemory", () => {
     )
   })
 
-  // parseHeadings' ATX pattern stops at a carriage return, so it reads this
-  // line as text while the entry reads end the entry there; the delete
-  // follows the reads and keeps the lines that belong to no entry.
-  it("deleting an entry keeps a heading line that holds a carriage return and the lines after it", async () => {
-    await writeFile(
-      join(vault, "About Me/Sectioned.md"),
-      "# T\n\n## S (newest first)\n- **2026-01-02**: two\n\n### Sub\rtext\nkeep\n- **2026-01-01**: one\n",
-      "utf8",
-    )
+  // parseHeadings' ATX pattern stops at a carriage return or a Unicode line
+  // separator, so it reads this line as text while the entry reads end the
+  // entry there; the delete follows the reads and keeps the lines that belong
+  // to no entry.
+  it.each([
+    { label: "a carriage return", lineBreak: "\r" },
+    { label: "a Unicode line separator", lineBreak: " " },
+  ])(
+    "deleting an entry keeps a heading line that holds $label and the lines after it",
+    async ({ lineBreak }) => {
+      await writeFile(
+        join(vault, "About Me/Sectioned.md"),
+        `# T\n\n## S (newest first)\n- **2026-01-02**: two\n\n### Sub${lineBreak}text\nkeep\n- **2026-01-01**: one\n`,
+        "utf8",
+      )
 
-    const entriesBefore = await getMemoryEntries(
-      { vaultPath: vault, file: "Sectioned", section: "S", onOrAfter: "2026-01-02" },
-      logger,
-    )
-    await deleteMemory(
-      { vaultPath: vault, file: "Sectioned", section: "S", date: "2026-01-02", entry: "two" },
-      logger,
-    )
+      const entriesBefore = await getMemoryEntries(
+        { vaultPath: vault, file: "Sectioned", section: "S", onOrAfter: "2026-01-02" },
+        logger,
+      )
+      await deleteMemory(
+        { vaultPath: vault, file: "Sectioned", section: "S", date: "2026-01-02", entry: "two" },
+        logger,
+      )
 
-    expect(entriesBefore.map((entry) => entry.text)).toEqual(["- **2026-01-02**: two"])
-    expect(await readFile(join(vault, "About Me/Sectioned.md"), "utf8")).toBe(
-      "# T\n\n## S (newest first)\n\n### Sub\rtext\nkeep\n- **2026-01-01**: one\n",
-    )
-  })
+      expect(entriesBefore.map((entry) => entry.text)).toEqual(["- **2026-01-02**: two"])
+      expect(await readFile(join(vault, "About Me/Sectioned.md"), "utf8")).toBe(
+        `# T\n\n## S (newest first)\n\n### Sub${lineBreak}text\nkeep\n- **2026-01-01**: one\n`,
+      )
+    },
+  )
 
   it("deletes an exact matching entry and keeps the rest of the file, properties included, as written", async () => {
     await deleteMemory(
