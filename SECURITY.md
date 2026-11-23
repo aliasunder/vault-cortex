@@ -369,10 +369,10 @@ while the owner decides are bounded:
   boot. A generated token (every install guide makes one of 256 random
   bits) cannot be guessed, so the limiter stays off and no one sharing the
   owner's IP or proxy can lock the owner's clients out
-- **Sessions expire** — an MCP session idle for 24 hours closes at its next
-  request or when a new session starts, and the server keeps at most 300
-  open, closing the least recently used one when a new session starts; a
-  closed session's client gets 404 and starts a new session
+- **Sessions expire** — an MCP session idle for 24 hours closes, and the
+  server keeps at most 300 open, closing the least recently used one when a
+  new session starts; a closed session's client gets 404 and starts a new
+  session
 
 ### OAuth client registrations
 

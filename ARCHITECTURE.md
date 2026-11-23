@@ -130,16 +130,11 @@ Embeddings persist across rebuilds to reuse unchanged content and can be regener
 
 Each MCP `initialize` gets its own server instance and session in `mcp-core/mcp-router.ts`. A session ends when:
 
-- **its client sends DELETE:** the server closes it and answers 200, however long it sat idle.
-- **it sits idle for 24 hours:** no request has started in that time. The next request to it, or the next new session, closes it.
-- **the server holds 300 sessions and admits another:** the session whose last request started earliest closes. A request in progress on it gets no response, but the server does not stop the tool call, so a write it started still completes.
+- **its client sends DELETE:** the server closes it and answers 200.
+- **it sits idle for 24 hours:** no request has started in that time.
+- **the server holds 300 sessions and admits another:** the session whose last request started earliest closes. A request still running on it gets no response, though a write it started still completes.
 
-A closed session's client gets `404 {"error":"session not found"}`, the same answer a restart gives, and starts a new session. No timer sweeps idle sessions, because sessions accumulate only when new ones start, and each new session first closes the idle ones.
-
-Two log lines tell the cases apart:
-
-- **`mcp_sessions_removed`:** one line each time the server closes sessions itself, with the idle and capacity counts and up to 20 session IDs.
-- **`session_closed`:** a client's DELETE.
+A closed session's client gets `404 {"error":"session not found"}`, the same answer a restart gives, and starts a new session. No timer sweeps idle sessions: sessions accumulate only when new ones start, so each new session first closes the idle ones, and a request to an idle session closes it.
 
 ### Note-content parsers
 
