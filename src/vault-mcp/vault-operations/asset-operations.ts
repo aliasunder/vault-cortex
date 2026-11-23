@@ -434,10 +434,12 @@ const saveNewFile = async (
  * - a markdown note, an image or a PDF path;
  * - content with a control character other than tab, LF or CR;
  * - `.canvas`, `.json` or `.base` content that would break its format.
- * Inside the write lock it creates any missing parent folders, then refuses
- * an existing file without `overwrite`, a folder or a broken symlink at the
- * path, and an existing html, script or other-kind file holding a NUL byte in
- * its leading window.
+ *
+ * Inside the write lock it creates any missing parent folders, then refuses:
+ * - an existing file without `overwrite`;
+ * - a folder or a broken symlink at the path;
+ * - an existing file of the html, script or other kind holding a NUL byte in
+ *   its first NUL_SEARCH_WINDOW_BYTES.
  */
 const writeAssetContent = async (
   params: {
