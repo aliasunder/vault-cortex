@@ -1,13 +1,16 @@
-/** Remote-boot global teardown tests — `removeRunObjects` removes exactly the
- *  Docker objects of one run: its labelled containers with their anonymous
- *  volumes, its labelled volumes, and the image it built. Each test sweeps a
- *  run ID of its own, never the current run's. Needs Docker, like the rest of
- *  the remote-boot tier. */
+/** Remote-boot global setup tests.
+ *  - `assertSuppliedImagePresent` stops the run when REMOTE_IMAGE names an
+ *    image Docker cannot inspect.
+ *  - `removeRunObjects` removes exactly the Docker objects of one run: its
+ *    labelled containers with their anonymous volumes, its labelled volumes,
+ *    and the image it built. Each test sweeps a run ID of its own, never the
+ *    current run's.
+ *  Needs Docker, like the rest of the remote-boot tier. */
 
 import { randomBytes, randomUUID } from "node:crypto"
 import { describe, expect, inject, it, onTestFinished, vi } from "vitest"
 import { docker, dockerOrThrow, outputLines, runLabel } from "../docker-harness.js"
-import { removeRunObjects } from "./remote-boot-global-setup.js"
+import { assertSuppliedImagePresent, removeRunObjects } from "./remote-boot-global-setup.js"
 
 const IMAGE = inject("remoteImage")
 
@@ -45,6 +48,29 @@ const capturePrintedLines = (): string[] => {
   })
   return printedLines
 }
+
+describe("assertSuppliedImagePresent", () => {
+  it("resolves for an image Docker can inspect", async () => {
+    await expect(assertSuppliedImagePresent(IMAGE)).resolves.toBeUndefined()
+  })
+
+  it("throws with Docker's inspect error and the build command for an image Docker cannot inspect", async () => {
+    // Never tagged, as when REMOTE_IMAGE names an image nobody built.
+    const missingImage = `vault-cortex:${uniqueName("never-built")}`
+
+    // The same inspection the check runs. It must fail here, or the test would
+    // pass without a failure to report, and its error text is what the check
+    // should carry.
+    const premiseInspection = await docker(["image", "inspect", missingImage])
+    expect(premiseInspection.code).not.toBe(0)
+
+    await expect(assertSuppliedImagePresent(missingImage)).rejects.toThrow(
+      new Error(
+        `REMOTE_IMAGE names ${missingImage}, which Docker cannot inspect: ${premiseInspection.stderr.trim()}. npm run build:remote-image builds vault-cortex:remote-ci.`,
+      ),
+    )
+  })
+})
 
 describe("removeRunObjects", () => {
   it("removes the run's labelled containers with their anonymous volumes and its labelled volumes, prints each container's state first, and leaves unlabelled containers alone", async () => {

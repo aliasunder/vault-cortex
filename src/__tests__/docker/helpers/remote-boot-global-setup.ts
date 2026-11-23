@@ -56,7 +56,7 @@ const buildRunImage = async ({
 /** Throws before any test file runs when Docker cannot inspect the image
  *  REMOTE_IMAGE names. Without this check, every scenario fails at its own
  *  start. */
-const assertSuppliedImagePresent = async (image: string): Promise<void> => {
+export const assertSuppliedImagePresent = async (image: string): Promise<void> => {
   const inspection = await docker(["image", "inspect", image])
 
   if (inspection.code !== 0) {
