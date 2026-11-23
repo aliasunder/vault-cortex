@@ -888,7 +888,7 @@ Vault content is Obsidian Flavored Markdown. Write tools pass content through wi
     })
   })
 
-  it("logs a routed request with the status its transport answered, not 200", async () => {
+  it("logs a routed request its transport rejects as a warn with the status it answered", async () => {
     const harness = await setupHarness({ config: TRUSTED_PROXY_CONFIG })
     const { sessionId, transport } = await createSession(harness)
     transport.handleRequest.mockImplementationOnce(
@@ -897,6 +897,7 @@ Vault content is Obsidian Flavored Markdown. Write tools pass content through wi
       },
     )
     mockedLogger.info.mockClear()
+    mockedLogger.warn.mockClear()
     vi.mocked(isInitializeRequest).mockReturnValue(false)
 
     const response = await fetch(harness.url(), {
@@ -909,12 +910,14 @@ Vault content is Obsidian Flavored Markdown. Write tools pass content through wi
       status: 406,
       body: { error: "not acceptable" },
     })
-    expect(mockedLogger.info).toHaveBeenCalledWith("mcp_response", {
+    expect(mockedLogger.warn).toHaveBeenCalledWith("mcp_response", {
       sessionId,
       clientIp: FORWARDED_IP,
       status: 406,
       outcome: "routed to existing session",
     })
+    // A negative check, so any info mcp_response line fails it, whatever its fields.
+    expect(mockedLogger.info).not.toHaveBeenCalledWith("mcp_response", expect.anything())
   })
 
   it("returns 400 with 'no session' when there is no session and the body is not an initialize request", async () => {

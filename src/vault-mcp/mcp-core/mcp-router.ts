@@ -320,13 +320,21 @@ export const createMcpRouter = ({
       touchSession(sessionId, existingSession)
       await existingSession.transport.handleRequest(req, res, req.body)
       // Logged after the transport answers, so a follow-up it rejects (406,
-      // 400) is logged with that status.
-      logger.info("mcp_response", {
+      // 400) is logged with that status, as a warn like the router's own
+      // rejections.
+      const routedResponse = {
         sessionId,
         clientIp,
         status: res.statusCode,
         outcome: "routed to existing session",
-      })
+      }
+      const transportRejected = res.statusCode >= 400
+
+      if (transportRejected) {
+        logger.warn("mcp_response", routedResponse)
+        return
+      }
+      logger.info("mcp_response", routedResponse)
       return
     }
 
