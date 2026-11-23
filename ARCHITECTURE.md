@@ -134,7 +134,7 @@ Each MCP `initialize` gets its own server instance and session in `mcp-core/mcp-
 - **it sits idle for 24 hours:** no request has started in that time.
 - **the server holds 300 sessions and admits another:** the session whose last request started earliest closes. A request still running on it gets no response, though a write it started still completes.
 
-A closed session's client gets `404 {"error":"session not found"}`, the same answer a restart gives, and starts a new session. No timer sweeps idle sessions: sessions accumulate only when new ones start, so each new session first closes the idle ones, and a request to an idle session closes it.
+A closed session's client gets `404 {"error":"session not found"}`, the same answer a restart gives, and starts a new session. A session idle for 24 hours closes at its next request or when a new session starts. No timer sweeps idle sessions, because sessions accumulate only when new ones start.
 
 ### Note-content parsers
 
