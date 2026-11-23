@@ -726,7 +726,13 @@ curl --connect-timeout 5 http://<lightsailIp>:8000/healthz
 curl https://<api-gateway-url>/healthz
 ```
 
-**10. Set the instance's client-IP trust and loopback bind** — `TRUST_FORWARDED_HOPS=1`, `TRUST_PROXY_HOPS=1` and `BIND_ADDRESS=127.0.0.1` in `~/.config/vault-cortex/.env` (repo Variables for CI deploys), then redeploy the instance (`npm run lightsail:up` or a CI deploy). If you set any of these earlier, such as `TRUST_FORWARDED_HOPS=0` while the tunnel was open, change it in place (deleting a line falls back to the compose default of `0`) and don't add a second line. Use `TRUST_FORWARDED_HOPS=2` instead only if the gateway's custom domain is a proxied Cloudflare record **and** the CDN is the only way into the gateway — see the **Client-IP trust with ORIGIN_URL** callout under [How it works](#port-8000-hardening-optional).
+**10. Set the instance's client-IP trust and loopback bind** in `~/.config/vault-cortex/.env` (repo Variables for CI deploys), then redeploy the instance (`npm run lightsail:up` or a CI deploy):
+
+- `TRUST_FORWARDED_HOPS=1`, or `2` only if the gateway's custom domain is a proxied Cloudflare record **and** the CDN is the only way into the gateway (see the **Client-IP trust with ORIGIN_URL** callout under [How it works](#port-8000-hardening-optional))
+- `TRUST_PROXY_HOPS=1`
+- `BIND_ADDRESS=127.0.0.1`
+
+If one of these is already in the file, such as `TRUST_FORWARDED_HOPS=0` set while the tunnel was open, change that line instead of adding a second one.
 
 To check the bind, run `docker port vault-cortex` on the instance over SSH; it prints `8000/tcp -> 127.0.0.1:8000`. Then confirm the gateway still answers: `curl https://<api-gateway-url>/healthz` returns `{"ok":true}`.
 
