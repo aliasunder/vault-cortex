@@ -7,8 +7,9 @@
  *  the safety checks that stop the container. The per-script tests in
  *  `src/vault-mcp/__tests__/` cannot see these cross-script interactions.
  *
- *  Needs Docker; `npm run test:remote-boot` builds the image and runs the
- *  suite (REMOTE_IMAGE points the tests at a different image tag).
+ *  Needs Docker; `npm run test:remote-boot` builds an image for the run, runs
+ *  the suite and removes what the run created (REMOTE_IMAGE points the tests
+ *  at an image you built instead, which the run leaves in place).
  *
  *  One container per describe block: a boot is the expensive resource that
  *  justifies `beforeAll` over const-per-test. Each test then reads its own
@@ -18,7 +19,7 @@
  *  re-reads the published port, which Docker may reassign. */
 
 import { randomBytes } from "node:crypto"
-import { afterAll, beforeAll, describe, expect, it, onTestFinished } from "vitest"
+import { afterAll, beforeAll, describe, expect, inject, it, onTestFinished } from "vitest"
 import { callTool, textContent } from "../integration/test-harness.js"
 import {
   FAKE_OBSIDIAN_ACCOUNT,
@@ -49,7 +50,16 @@ import {
 } from "./docker-harness.js"
 import type { ContainerHandle } from "./docker-harness.js"
 
-const IMAGE = process.env.REMOTE_IMAGE ?? "vault-cortex:remote-ci"
+// The global setup (helpers/remote-boot-global-setup.ts) builds this run's
+// image unless REMOTE_IMAGE names one, and gives every run an ID.
+const IMAGE = inject("remoteImage")
+
+// The run's part of each container name, which tells a reader of `docker ps`
+// or the CI dump which run left a container. Teardown matches the label, not
+// the name.
+// - The dashes are dropped so the run is one segment of the dash-separated name.
+// - Twelve hex characters keep names short and still tell runs apart.
+const RUN_NAME_PREFIX = inject("remoteBootRunId").replaceAll("-", "").slice(0, 12)
 
 /** Deliberately low-entropy fixtures so secret scanners never flag them. The
  *  Sync token only has to be non-empty (init-check-auth) — the stub ignores
@@ -178,8 +188,11 @@ Delivered by the stubbed first sync. Links to [[Sync Log]].
 
 const OWNERSHIP_LINE = "Ownership IDs changed"
 
+/** The random suffix gives every boot its own name, even a second boot of one
+ *  scenario in the same run (`--retry`). Without it, the retry would collide
+ *  with a container the failed attempt left, or reuse that attempt's volumes. */
 const uniqueName = (scenario: string): string => {
-  return `remote-boot-${scenario}-${randomBytes(4).toString("hex")}`
+  return `remote-boot-${RUN_NAME_PREFIX}-${scenario}-${randomBytes(4).toString("hex")}`
 }
 
 const bootedStartedAt = async (name: string): Promise<string> => {
