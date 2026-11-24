@@ -982,6 +982,19 @@ describe("init-first-sync gate script", () => {
     expect(run.setuidgidCalls).toEqual(["obsidian ob", "obsidian ob"])
   })
 
+  it("skips the pull-only drop step on a device that has never synced (no store yet)", () => {
+    const run = runGateScript({
+      syncOutcomes: [0],
+      vaultName: "Test",
+      syncConfigJson: JSON.stringify({ vaultId: "vault-id", syncMode: "pull-only" }),
+    })
+
+    expect(run.status).toBe(0)
+    expect(run.syncCalls).toBe(1)
+    // The config read and the sync: no node step reads the missing store.
+    expect(run.setuidgidCalls).toEqual(["obsidian ob", "obsidian ob"])
+  })
+
   it("queues nothing from another vault's store", () => {
     const run = runGateScript({
       syncOutcomes: [1],
@@ -1174,6 +1187,25 @@ describe("init-first-sync gate script", () => {
       unchangedPendingRows(keptCase.pendingRecords),
     )
     expect(run.stderr).toBe("")
+  })
+
+  it("drops a queued replay in pull-only when the file's path is a symbolic link to a file", () => {
+    // The Sync client writes through the link, so the edit at its target needs
+    // the same protection as one at the path itself.
+    const run = runWithQueuedReplay({
+      syncMode: "pull-only",
+      vaultFiles: ["Notes/kept.md", "Data/real.csv"],
+      vaultSymlinks: [{ path: EDITED_FILE, target: "real.csv" }],
+    })
+
+    expect(run.status).toBe(0)
+    expect(readPendingRows(run.activeStateDbPath)).toEqual([])
+    expect(run.stderr).toBe("")
+    expect(run.stdout).toBe(
+      SKIPPED_ONE_DOWNLOAD +
+        "[obsidian-sync] First sync (attempt 1/3) — waiting for completion before starting services...\n" +
+        "[obsidian-sync] First sync complete.\n",
+    )
   })
 
   it("keeps the queued row and syncs when the file's path can't be checked on disk", () => {
