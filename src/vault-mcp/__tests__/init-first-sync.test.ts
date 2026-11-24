@@ -72,6 +72,16 @@ type SyncRecord = {
   uid: number
   folder?: boolean
   deleted?: boolean
+  hash?: string
+}
+
+/** One row of the engine's local_files table, stored as JSON in `data`.
+ *  `synchash` is the hash of the server version the file last synced from. */
+type LocalRecord = {
+  path: string
+  folder: boolean
+  hash: string
+  synchash: string
 }
 
 /** Stub `sleep`: no-op so retry pauses don't slow the suite down. */
@@ -133,6 +143,8 @@ type GateRunOptions = {
   pendingRecords?: SyncRecord[]
   /** Paths to write to the active store's local_files table. */
   localPaths?: string[]
+  /** Full records to write to the active store's local_files table. */
+  localRecords?: LocalRecord[]
   /** Server rows to write to a second, inactive store. */
   inactiveStoreServerRecords?: SyncRecord[]
   /** When true, the active store has only a local_files table. */
@@ -161,6 +173,7 @@ const writeSyncState = ({
   knownFiles = 0,
   knownFolders = 0,
   localPaths = [],
+  localRecords = [],
   serverRecords = [],
   pendingRecords = [],
   schema = SYNC_STATE_SCHEMA,
@@ -169,6 +182,7 @@ const writeSyncState = ({
   knownFiles?: number
   knownFolders?: number
   localPaths?: string[]
+  localRecords?: LocalRecord[]
   serverRecords?: SyncRecord[]
   pendingRecords?: SyncRecord[]
   schema?: string
@@ -185,6 +199,9 @@ const writeSyncState = ({
   }
   for (const localPath of localPaths) {
     insertLocal.run(localPath, JSON.stringify({ path: localPath, folder: false }))
+  }
+  for (const localRecord of localRecords) {
+    insertLocal.run(localRecord.path, JSON.stringify(localRecord))
   }
   for (const serverRecord of serverRecords) {
     db.prepare("INSERT INTO server_files VALUES (?, ?)").run(
@@ -242,7 +259,9 @@ const runGateScript = (options: GateRunOptions): GateRun => {
   // needs the explicit undefined check.
   const activeStoreSeeded =
     options.knownSyncFiles !== undefined ||
-    Boolean(options.serverRecords || options.pendingRecords || options.localPaths) ||
+    Boolean(
+      options.serverRecords || options.pendingRecords || options.localPaths || options.localRecords,
+    ) ||
     Boolean(options.unrecognizedStoreSchema)
 
   if (activeStoreSeeded) {
@@ -251,6 +270,7 @@ const runGateScript = (options: GateRunOptions): GateRun => {
       knownFiles: options.knownSyncFiles ?? 0,
       knownFolders: options.knownSyncFolders ?? 0,
       localPaths: options.localPaths ?? [],
+      localRecords: options.localRecords ?? [],
       serverRecords: options.serverRecords ?? [],
       pendingRecords: options.pendingRecords ?? [],
       ...(options.unrecognizedStoreSchema
@@ -897,10 +917,12 @@ describe("init-first-sync gate script", () => {
     })
 
     expect(run.obCalls).toEqual(["sync-config --json", "sync", "sync", "sync"])
-    // The config read, then a queue step and a sync per attempt, then the
-    // final queue step and the count, all as the Sync user.
+    // The config read, the pull-only drop step, then a queue step and a sync
+    // per attempt, then the final queue step and the count, all as the Sync
+    // user.
     expect(run.setuidgidCalls).toEqual([
       "obsidian ob",
+      "obsidian node",
       "obsidian node",
       "obsidian ob",
       "obsidian node",
@@ -977,6 +999,154 @@ describe("init-first-sync gate script", () => {
       "pending_files has no uid, path, data column\n" +
         `[obsidian-sync] ERROR: Could not queue the files this device has not downloaded yet (${run.activeStateDbPath}).\n` +
         "[obsidian-sync] Refusing to sync: without that step, a sync could delete those files from Obsidian Sync and your other devices.\n",
+    )
+  })
+
+  // -- Server edits in pull-only (queued replays dropped before the attempts) --
+
+  /** A file edited on the server since it last synced: the queued row carries
+   *  the hash the local record says the file last synced from. */
+  const EDITED_FILE = "Data/table.csv"
+  const syncedVersion = {
+    path: EDITED_FILE,
+    uid: 11,
+    folder: false,
+    deleted: false,
+    hash: "hash-a",
+  }
+  const editedFileRecord = { path: EDITED_FILE, folder: false, hash: "", synchash: "hash-a" }
+
+  const KEPT_ONE_EDIT =
+    "[obsidian-sync] Kept 1 edit(s) made on the server: Sync has no newer version of those files (pull-only).\n"
+
+  /** The pending_files rows a store holds when nothing removed any. */
+  const unchangedPendingRows = (
+    pendingRecords: SyncRecord[],
+  ): { uid: number; path: string; data: string }[] => {
+    return pendingRecords.map((pendingRecord) => ({
+      uid: pendingRecord.uid,
+      path: pendingRecord.path,
+      data: JSON.stringify(pendingRecord),
+    }))
+  }
+
+  /** Runs one successful sync with the edited file on disk and recorded
+   *  locally; `Notes/kept.md` keeps the vault non-empty when a case removes
+   *  the edited file. */
+  const runWithQueuedReplay = ({
+    syncMode,
+    pendingRecords = [syncedVersion],
+    vaultFiles = ["Notes/kept.md", EDITED_FILE],
+    localRecords = [editedFileRecord],
+  }: {
+    syncMode: string
+    pendingRecords?: SyncRecord[]
+    vaultFiles?: string[]
+    localRecords?: LocalRecord[]
+  }): GateRun => {
+    return runGateScript({
+      syncOutcomes: [0],
+      vaultName: "Test",
+      vaultFiles,
+      serverRecords: [syncedVersion],
+      pendingRecords,
+      localRecords,
+      syncConfigJson: JSON.stringify({ vaultId: "vault-id", syncMode }),
+    })
+  }
+
+  it("drops a queued replay of the synced version in pull-only, and only that row", () => {
+    // A real update on another path stays queued beside the dropped row.
+    const otherUpdate = { path: "Data/other.csv", uid: 12, hash: "hash-new" }
+    const run = runWithQueuedReplay({
+      syncMode: "pull-only",
+      pendingRecords: [syncedVersion, otherUpdate],
+      vaultFiles: ["Notes/kept.md", EDITED_FILE, "Data/other.csv"],
+      localRecords: [
+        editedFileRecord,
+        { path: "Data/other.csv", folder: false, hash: "", synchash: "hash-old" },
+      ],
+    })
+
+    expect(run.status).toBe(0)
+    expect(readPendingRows(run.activeStateDbPath)).toEqual(unchangedPendingRows([otherUpdate]))
+    expect(run.stderr).toBe(KEPT_ONE_EDIT)
+    expect(run.stdout).toBe(
+      "[obsidian-sync] First sync (attempt 1/3) — waiting for completion before starting services...\n" +
+        "[obsidian-sync] First sync complete.\n",
+    )
+  })
+
+  it.each([
+    {
+      label: "a queued hash that differs (a real update)",
+      pendingRecords: [{ ...syncedVersion, hash: "hash-b" }],
+    },
+    {
+      label: "a file missing on disk",
+      pendingRecords: [syncedVersion],
+      vaultFiles: ["Notes/kept.md"],
+    },
+    {
+      label: "a folder record",
+      pendingRecords: [{ ...syncedVersion, folder: true }],
+    },
+    {
+      label: "a deletion record",
+      pendingRecords: [{ ...syncedVersion, deleted: true }],
+    },
+    {
+      label: "an empty queued hash",
+      pendingRecords: [{ ...syncedVersion, hash: "" }],
+      localRecords: [{ ...editedFileRecord, synchash: "" }],
+    },
+    {
+      label: "two queued rows for the path, the synced version then a newer one",
+      pendingRecords: [syncedVersion, { ...syncedVersion, uid: 12, hash: "hash-b" }],
+    },
+    {
+      label: "the synced version queued again after a deletion",
+      pendingRecords: [
+        syncedVersion,
+        { ...syncedVersion, uid: 12, deleted: true },
+        { ...syncedVersion, uid: 13 },
+      ],
+    },
+  ])("keeps every queued row in pull-only for $label", (keptCase) => {
+    const run = runWithQueuedReplay({ syncMode: "pull-only", ...keptCase })
+
+    expect(run.status).toBe(0)
+    expect(readPendingRows(run.activeStateDbPath)).toEqual(
+      unchangedPendingRows(keptCase.pendingRecords),
+    )
+    expect(run.stderr).toBe("")
+  })
+
+  it.each([
+    { label: "bidirectional", syncMode: "bidirectional" },
+    { label: "mirror-remote", syncMode: "mirror-remote" },
+  ])("keeps a queued replay of the synced version in $label", ({ syncMode }) => {
+    const run = runWithQueuedReplay({ syncMode })
+
+    expect(run.status).toBe(0)
+    expect(readPendingRows(run.activeStateDbPath)).toEqual(unchangedPendingRows([syncedVersion]))
+    expect(run.stderr).toBe("")
+  })
+
+  it("refuses to sync in pull-only when the store's table layout is not the Sync client's", () => {
+    const run = runGateScript({
+      syncOutcomes: [0],
+      vaultName: "Test",
+      unrecognizedStoreSchema: true,
+      syncConfigJson: JSON.stringify({ vaultId: "vault-id", syncMode: "pull-only" }),
+    })
+
+    expect(run.status).toBe(1)
+    expect(run.syncCalls).toBe(0)
+    expect(run.stderr).toBe(
+      "pending_files has no uid, path, data column\n" +
+        `[obsidian-sync] ERROR: Could not check the queued downloads for edits made on the server (${run.activeStateDbPath}).\n` +
+        "[obsidian-sync] Refusing to sync: without that step, a pull-only sync could overwrite those edits, and Obsidian Sync keeps no copy of them.\n",
     )
   })
 
