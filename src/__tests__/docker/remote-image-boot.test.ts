@@ -18,7 +18,7 @@
  *  restarts the one its parent booted (same name, same volumes) and
  *  re-reads the published port, which Docker may reassign. */
 
-import { randomBytes } from "node:crypto"
+import { createHash, randomBytes } from "node:crypto"
 import { afterAll, beforeAll, describe, expect, inject, it, onTestFinished } from "vitest"
 import { callTool, textContent } from "../integration/test-harness.js"
 import {
@@ -1150,8 +1150,25 @@ describe("remote image boot — safety checks in the init chain stop the contain
   })
 })
 
-describe("the image's Sync engine, run on a file the device never downloaded", () => {
-  // The contract init-first-sync relies on, checked against the real engine:
+describe("the image's Sync engine, run on the files init-first-sync queues or drops", () => {
+  // `let` because beforeAll assigns it after the one oracle run; the tests
+  // only read it.
+  let scenarioResults: unknown[] = []
+
+  beforeAll(async () => {
+    scenarioResults = (await runSyncEngineOracle(IMAGE))
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line))
+  })
+
+  /** The engine stores a download's SHA-256 hex as the record's synchash. */
+  const sha256Hex = (contents: string): string => {
+    return createHash("sha256").update(contents).digest("hex")
+  }
+
+  // The contract init-first-sync's queue step relies on, checked against the
+  // real engine:
   // - Two-way sync pushes an unqueued never-downloaded file as a deletion.
   // - A queued one is downloaded, fails before the deletion scan, or is
   //   dropped by the filter — never deleted.
@@ -1159,17 +1176,14 @@ describe("the image's Sync engine, run on a file the device never downloaded", (
   //   why the script lets those modes continue past a failed first sync.
   // - A download is recorded locally and leaves the queue, so the next
   //   boot neither re-queues it nor counts it as still waiting.
-  it("deletes it only in two-way sync, and only when it is not queued", async () => {
-    const scenarioResults = (await runSyncEngineOracle(IMAGE))
-      .trim()
-      .split("\n")
-      .map((line) => JSON.parse(line))
+  it("deletes a never-downloaded file only in two-way sync, and only when it is not queued", () => {
     const downloadEvents = [
       "Downloading Archive/old.csv",
       "Downloaded Archive/old.csv",
       "Accepted Archive/old.csv",
     ]
-    expect(scenarioResults).toEqual([
+    const downloadedHash = sha256Hex("old")
+    expect(scenarioResults.slice(0, 8)).toEqual([
       {
         label: "not queued",
         outcome: "returned true",
@@ -1179,6 +1193,8 @@ describe("the image's Sync engine, run on a file the device never downloaded", (
         ],
         stillQueued: false,
         recordedLocally: false,
+        contents: null,
+        synchash: null,
       },
       {
         label: "queued",
@@ -1186,6 +1202,8 @@ describe("the image's Sync engine, run on a file the device never downloaded", (
         events: downloadEvents,
         stillQueued: false,
         recordedLocally: true,
+        contents: "old",
+        synchash: downloadedHash,
       },
       {
         label: "queued, download fails",
@@ -1193,6 +1211,8 @@ describe("the image's Sync engine, run on a file the device never downloaded", (
         events: ["Downloading Archive/old.csv"],
         stillQueued: true,
         recordedLocally: false,
+        contents: null,
+        synchash: null,
       },
       {
         label: "queued, excluded by the filter",
@@ -1200,6 +1220,8 @@ describe("the image's Sync engine, run on a file the device never downloaded", (
         events: [],
         stillQueued: false,
         recordedLocally: false,
+        contents: null,
+        synchash: null,
       },
       {
         label: "queued, pull-only",
@@ -1207,6 +1229,8 @@ describe("the image's Sync engine, run on a file the device never downloaded", (
         events: downloadEvents,
         stillQueued: false,
         recordedLocally: true,
+        contents: "old",
+        synchash: downloadedHash,
       },
       {
         label: "queued, mirror-remote",
@@ -1214,6 +1238,8 @@ describe("the image's Sync engine, run on a file the device never downloaded", (
         events: downloadEvents,
         stillQueued: false,
         recordedLocally: true,
+        contents: "old",
+        synchash: downloadedHash,
       },
       {
         label: "not queued, pull-only",
@@ -1221,6 +1247,8 @@ describe("the image's Sync engine, run on a file the device never downloaded", (
         events: ["Fully synced"],
         stillQueued: false,
         recordedLocally: false,
+        contents: null,
+        synchash: null,
       },
       {
         label: "not queued, mirror-remote",
@@ -1232,6 +1260,67 @@ describe("the image's Sync engine, run on a file the device never downloaded", (
         ],
         stillQueued: false,
         recordedLocally: true,
+        contents: "old",
+        synchash: downloadedHash,
+      },
+    ])
+  })
+
+  // The premise of init-first-sync's pull-only drop step:
+  // - A download stores the SHA-256 hex of the served bytes as synchash, the
+  //   same value as the record's hash.
+  // - A queued row with that hash writes the synced version over an edit.
+  // - Without a queued row, pull-only runs no other pass, so the edit and
+  //   its synchash stay.
+  // - A real update carries a new hash, which the drop step never matches.
+  it("writes a queued synced version over a pull-only edit, and keeps the edit when nothing is queued", () => {
+    const syncedHash = sha256Hex("server text\n")
+    const editThenDownloadEvents = [
+      "Checking Data/table.csv",
+      "Downloading Data/table.csv",
+      "Downloaded Data/table.csv",
+      "Accepted Data/table.csv",
+    ]
+    expect(scenarioResults.slice(8)).toEqual([
+      {
+        label: "downloaded, pull-only",
+        outcome: "returned true",
+        events: [
+          "Downloading Data/table.csv",
+          "Downloaded Data/table.csv",
+          "Accepted Data/table.csv",
+        ],
+        stillQueued: false,
+        recordedLocally: true,
+        contents: "server text\n",
+        synchash: syncedHash,
+      },
+      {
+        label: "edited, synced version queued, pull-only",
+        outcome: "returned true",
+        events: editThenDownloadEvents,
+        stillQueued: false,
+        recordedLocally: true,
+        contents: "server text\n",
+        synchash: syncedHash,
+      },
+      {
+        label: "edited, not queued, pull-only",
+        outcome: "returned false",
+        events: ["Fully synced"],
+        stillQueued: false,
+        recordedLocally: true,
+        contents: "edited on the server\n",
+        synchash: syncedHash,
+      },
+      {
+        label: "edited, update queued, pull-only",
+        outcome: "returned true",
+        events: editThenDownloadEvents,
+        stillQueued: false,
+        recordedLocally: true,
+        contents: "updated text\n",
+        synchash: sha256Hex("updated text\n"),
       },
     ])
   })

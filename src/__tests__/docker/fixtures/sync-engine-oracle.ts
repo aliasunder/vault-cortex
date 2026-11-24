@@ -1,17 +1,23 @@
 /**
- * Shows what the image's real Sync engine does with a file the server lists
- * but this device never downloaded, which is the case init-first-sync's queue
- * step exists for. The other remote-boot tests replace the Sync CLI with a
- * stub, so this script is the only check against the engine itself.
+ * Shows what the image's real Sync engine does with the two cases
+ * init-first-sync handles before the first sync: a file the server lists but
+ * this device never downloaded (the queue step), and a downloaded file edited
+ * here and then queued again in pull-only (the drop step). The other
+ * remote-boot tests replace the Sync CLI with a stub, so this script is the
+ * only check against the engine itself.
  *
  * For each scenario in SCENARIOS below, it runs one sync pass (the engine's
  * `_sync()` method) and prints one JSON line. The scenarios vary the sync
- * mode, whether the file is queued, and whether its download fails or the
- * filter excludes it. Each line gives how the pass ended, the engine's log
- * lines (including any deletion it pushed), and whether the file is still
- * queued and recorded locally afterwards. The remote-boot test "the image's
- * Sync engine, run on a file the device never downloaded" checks every line
- * exactly.
+ * mode, the local copy, what is queued, and whether the download fails or the
+ * filter excludes the file. Each line gives:
+ * - how the pass ended, and the engine's log lines, including any deletion it
+ *   pushed;
+ * - whether the file is still queued and recorded locally afterwards;
+ * - the file's contents on disk, and the stored hash of the server version it
+ *   last synced from (`synchash`), each null when absent.
+ *
+ * The remote-boot tests under "the image's Sync engine, run on the files
+ * init-first-sync queues or drops" check every line exactly.
  *
  * Runs inside the `:remote` image (`node sync-engine-oracle.ts <cli.js>`),
  * so the engine under test is the exact one the image ships. The bundle has
@@ -24,11 +30,12 @@
  * it loads, so each scenario points both at a fresh temp directory and then
  * loads its own copy. Nothing is written under the real home directory.
  *
- * A stand-in replaces the server. Its `pull` returns the file's bytes, or
- * nothing to fail the download, and its `push` records the call, so nothing
- * reaches Obsidian.
+ * A stand-in replaces the server. Its `pull` returns the requested version's
+ * bytes, or nothing to fail the download, and its `push` records the call, so
+ * nothing reaches Obsidian.
  */
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs"
+import { createHash } from "node:crypto"
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs"
 import { createRequire } from "node:module"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
@@ -51,6 +58,25 @@ type ServerRecord = {
   mtime: number
 }
 
+/** A version of the file on the server, and the text its download serves. */
+type ServedVersion = {
+  record: ServerRecord
+  contents: string
+}
+
+/** The engine's record of a local file (a local_files row). */
+type LocalRecord = {
+  path: string
+  previouspath: string
+  ctime: number
+  mtime: number
+  size: number
+  folder: boolean
+  hash: string
+  synchash: string
+  synctime: number
+}
+
 type FakeServer = {
   pull: (uid: number) => Promise<Uint8Array | null>
   push: (path: string, ...details: unknown[]) => Promise<void>
@@ -65,10 +91,12 @@ type SyncEngine = {
   ready: boolean
   initial: boolean
   serverFiles: Record<string, ServerRecord>
+  localFiles: Record<string, LocalRecord>
   newServerFiles: ServerRecord[]
   adapter: { watch: (handler: unknown) => Promise<void>; stopWatch: () => void }
   stateStore: {
     setServerFile: (record: ServerRecord) => void
+    setLocalFile: (record: LocalRecord) => void
     addPendingFile: (record: ServerRecord) => void
     getPendingFiles: () => ServerRecord[]
     setVersion: (version: number) => void
@@ -123,39 +151,111 @@ type Scenario = {
   label: string
   /** The value the CLI hands the engine (`bidirectional` when unset). */
   syncMode: "bidirectional" | "pull-only" | "mirror-remote"
-  /** Queue the never-downloaded file first, as init-first-sync does. */
-  queued: boolean
+  /** The version the server lists (server_files). A factory, because the
+   *  engine marks the record deleted in place when it pushes a deletion. */
+  listed: () => ServedVersion
+  /** The version queued before the pass (pending_files), as init-first-sync
+   *  or a filter change queues it; absent when nothing is queued. */
+  queued?: () => ServedVersion
+  /** The local copy's contents, edited here since it synced from the listed
+   *  version; absent when this device never downloaded the file. */
+  localEdit?: string
   downloadFails: boolean
   /** The attachment types the filter allows; the file is a CSV. */
   fileTypes: string[]
 }
 
+/** The engine's own record hash: the SHA-256 hex of the file's bytes. */
+const sha256Hex = (contents: string): string => {
+  return createHash("sha256").update(contents).digest("hex")
+}
+
+/** A file the server lists that this device never downloaded. */
+const neverDownloaded = (): ServedVersion => {
+  return {
+    record: {
+      path: "Archive/old.csv",
+      uid: 11,
+      folder: false,
+      deleted: false,
+      hash: "old-hash",
+      size: 3,
+      ctime: 1,
+      mtime: 1,
+    },
+    contents: "old",
+  }
+}
+
+/** The version of Data/table.csv that this device last synced, when it has
+ *  a local copy. */
+const syncedTable = (): ServedVersion => {
+  const contents = "server text\n"
+  return {
+    record: {
+      path: "Data/table.csv",
+      uid: 21,
+      folder: false,
+      deleted: false,
+      hash: sha256Hex(contents),
+      size: contents.length,
+      ctime: 1,
+      mtime: 1,
+    },
+    contents,
+  }
+}
+
+/** A newer version of Data/table.csv that another device uploaded. */
+const updatedTable = (): ServedVersion => {
+  const contents = "updated text\n"
+  return {
+    record: {
+      path: "Data/table.csv",
+      uid: 22,
+      folder: false,
+      deleted: false,
+      hash: sha256Hex(contents),
+      size: contents.length,
+      ctime: 2,
+      mtime: 2,
+    },
+    contents,
+  }
+}
+
+/** The local copy's text in the scenarios with a server edit. */
+const SERVER_EDIT = "edited on the server\n"
+
 const SCENARIOS: Scenario[] = [
   {
     label: "not queued",
     syncMode: "bidirectional",
-    queued: false,
+    listed: neverDownloaded,
     downloadFails: false,
     fileTypes: ["unsupported"],
   },
   {
     label: "queued",
     syncMode: "bidirectional",
-    queued: true,
+    listed: neverDownloaded,
+    queued: neverDownloaded,
     downloadFails: false,
     fileTypes: ["unsupported"],
   },
   {
     label: "queued, download fails",
     syncMode: "bidirectional",
-    queued: true,
+    listed: neverDownloaded,
+    queued: neverDownloaded,
     downloadFails: true,
     fileTypes: ["unsupported"],
   },
   {
     label: "queued, excluded by the filter",
     syncMode: "bidirectional",
-    queued: true,
+    listed: neverDownloaded,
+    queued: neverDownloaded,
     downloadFails: false,
     fileTypes: [],
   },
@@ -165,48 +265,72 @@ const SCENARIOS: Scenario[] = [
   {
     label: "queued, pull-only",
     syncMode: "pull-only",
-    queued: true,
+    listed: neverDownloaded,
+    queued: neverDownloaded,
     downloadFails: false,
     fileTypes: ["unsupported"],
   },
   {
     label: "queued, mirror-remote",
     syncMode: "mirror-remote",
-    queued: true,
+    listed: neverDownloaded,
+    queued: neverDownloaded,
     downloadFails: false,
     fileTypes: ["unsupported"],
   },
   {
     label: "not queued, pull-only",
     syncMode: "pull-only",
-    queued: false,
+    listed: neverDownloaded,
     downloadFails: false,
     fileTypes: ["unsupported"],
   },
   {
     label: "not queued, mirror-remote",
     syncMode: "mirror-remote",
-    queued: false,
+    listed: neverDownloaded,
+    downloadFails: false,
+    fileTypes: ["unsupported"],
+  },
+  // The drop step's premise in pull-only. A download stores the record's
+  // hash as synchash, and a local edit leaves it, so a queued row with that
+  // hash brings back the synced version over the edit, while a real update
+  // carries a new hash.
+  {
+    label: "downloaded, pull-only",
+    syncMode: "pull-only",
+    listed: syncedTable,
+    queued: syncedTable,
+    downloadFails: false,
+    fileTypes: ["unsupported"],
+  },
+  {
+    label: "edited, synced version queued, pull-only",
+    syncMode: "pull-only",
+    listed: syncedTable,
+    queued: syncedTable,
+    localEdit: SERVER_EDIT,
+    downloadFails: false,
+    fileTypes: ["unsupported"],
+  },
+  {
+    label: "edited, not queued, pull-only",
+    syncMode: "pull-only",
+    listed: syncedTable,
+    localEdit: SERVER_EDIT,
+    downloadFails: false,
+    fileTypes: ["unsupported"],
+  },
+  {
+    label: "edited, update queued, pull-only",
+    syncMode: "pull-only",
+    listed: syncedTable,
+    queued: updatedTable,
+    localEdit: SERVER_EDIT,
     downloadFails: false,
     fileTypes: ["unsupported"],
   },
 ]
-
-/** A file the server lists that this device never downloaded. A new object
- *  per scenario, because the engine marks the record deleted in place when
- *  it pushes the deletion. */
-const neverDownloadedRecord = (): ServerRecord => {
-  return {
-    path: "Archive/old.csv",
-    uid: 11,
-    folder: false,
-    deleted: false,
-    hash: "old-hash",
-    size: 3,
-    ctime: 1,
-    mtime: 1,
-  }
-}
 
 const runScenario = async ({
   cliPath,
@@ -220,6 +344,8 @@ const runScenario = async ({
   events: string[]
   stillQueued: boolean
   recordedLocally: boolean
+  contents: string | null
+  synchash: string | null
 }> => {
   const scenarioRoot = mkdtempSync(join(tmpdir(), "sync-engine-oracle-"))
   // Scenarios run sequentially (the top-level loop awaits each), so global mutation is safe.
@@ -247,24 +373,39 @@ const runScenario = async ({
     events.push(path ? `${message} ${path}` : message)
   }
 
-  const neverDownloaded = neverDownloadedRecord()
+  const listed = scenario.listed()
+  const queued = scenario.queued?.()
+  const { path } = listed.record
   // setServerFile persists to SQLite; serverFiles is the in-memory map
   // _sync() reads during the deletion scan. Both must be populated.
-  engine.stateStore.setServerFile(neverDownloaded)
-  engine.serverFiles[neverDownloaded.path] = neverDownloaded
-  if (scenario.queued) {
-    engine.stateStore.addPendingFile(neverDownloaded)
+  engine.stateStore.setServerFile(listed.record)
+  engine.serverFiles[path] = listed.record
+  if (queued) {
+    engine.stateStore.addPendingFile(queued.record)
     engine.newServerFiles = engine.stateStore.getPendingFiles()
   }
-  // The "version" is the sync cursor — setting it to the file's uid tells
+  if (scenario.localEdit) {
+    writeLocalEdit({ engine, vaultPath, listed, localEdit: scenario.localEdit })
+  }
+  // The "version" is the sync cursor — setting it to the newest uid tells
   // the engine it has already seen this point in the server's history.
-  engine.stateStore.setVersion(neverDownloaded.uid)
+  engine.stateStore.setVersion(Math.max(listed.record.uid, queued?.record.uid ?? 0))
   engine.initial = false
 
+  const servedContents = new Map(
+    [listed, queued]
+      .filter((version) => version !== undefined)
+      .map((version) => [version.record.uid, version.contents]),
+  )
   const fakeServer: FakeServer = {
-    pull: async () => (scenario.downloadFails ? null : new TextEncoder().encode("old")),
-    push: async (path, ...details) => {
-      events.push(`push ${path} ${JSON.stringify(details)}`)
+    pull: async (uid) => {
+      const contents = servedContents.get(uid)
+      return scenario.downloadFails || contents === undefined
+        ? null
+        : new TextEncoder().encode(contents)
+    },
+    push: async (pushedPath, ...details) => {
+      events.push(`push ${pushedPath} ${JSON.stringify(details)}`)
     },
   }
   engine.getServer = async () => fakeServer
@@ -278,11 +419,55 @@ const runScenario = async ({
   // The next boot's queue step and refusal read this stored state, so a
   // download that logs success without recording the file would loop. Read
   // from the file: some runs (pull-only) close the engine's own connection.
-  const storedState = readStoredState({
+  const { stillQueued, recordedLocally, synchash } = readStoredState({
     stateDbPath: engine.stateStore.db.name,
-    path: neverDownloaded.path,
+    path,
   })
-  return { label: scenario.label, outcome, events, ...storedState }
+  const filePath = join(vaultPath, path)
+  const contents = existsSync(filePath) ? readFileSync(filePath, "utf8") : null
+  return {
+    label: scenario.label,
+    outcome,
+    events,
+    stillQueued,
+    recordedLocally,
+    contents,
+    synchash,
+  }
+}
+
+/** Writes an edited local copy of a file this device downloaded, with the
+ *  local record the download left: synchash is the listed version's hash.
+ *  The record's mtime differs from the file's, so the engine re-hashes the
+ *  file as it would after an edit. */
+const writeLocalEdit = ({
+  engine,
+  vaultPath,
+  listed,
+  localEdit,
+}: {
+  engine: SyncEngine
+  vaultPath: string
+  listed: ServedVersion
+  localEdit: string
+}): void => {
+  const { path, hash, size, ctime, mtime } = listed.record
+  mkdirSync(dirname(join(vaultPath, path)), { recursive: true })
+  writeFileSync(join(vaultPath, path), localEdit)
+  const localRecord: LocalRecord = {
+    path,
+    previouspath: "",
+    ctime,
+    mtime,
+    size,
+    folder: false,
+    hash,
+    synchash: hash,
+    synctime: 1,
+  }
+  // Both the stored table and the in-memory map, as for the server record.
+  engine.stateStore.setLocalFile(localRecord)
+  engine.localFiles[path] = localRecord
 }
 
 const readStoredState = ({
@@ -291,12 +476,15 @@ const readStoredState = ({
 }: {
   stateDbPath: string
   path: string
-}): { stillQueued: boolean; recordedLocally: boolean } => {
+}): { stillQueued: boolean; recordedLocally: boolean; synchash: string | null } => {
   const db = new DatabaseSync(stateDbPath, { readOnly: true })
   const queuedRow = db.prepare("SELECT 1 FROM pending_files WHERE path = ?").get(path)
-  const localRow = db.prepare("SELECT 1 FROM local_files WHERE path = ?").get(path)
+  const localRow = db
+    .prepare("SELECT json_extract(data, '$.synchash') AS synchash FROM local_files WHERE path = ?")
+    .get(path)
   db.close()
-  return { stillQueued: Boolean(queuedRow), recordedLocally: Boolean(localRow) }
+  const synchash = typeof localRow?.synchash === "string" ? localRow.synchash : null
+  return { stillQueued: Boolean(queuedRow), recordedLocally: Boolean(localRow), synchash }
 }
 
 const describeSyncOutcome = async (engine: SyncEngine): Promise<string> => {
