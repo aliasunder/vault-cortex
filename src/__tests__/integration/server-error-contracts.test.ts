@@ -2657,16 +2657,6 @@ describe("vault_write_file refusals", () => {
     isError: true,
   })
 
-  /** The message JSON.parse gives for `text`, read the way the server reads it. */
-  const jsonParseMessage = (text: string): string => {
-    try {
-      JSON.parse(text)
-    } catch (error) {
-      return error instanceof Error ? error.message : String(error)
-    }
-    throw new Error(`expected JSON.parse to refuse ${text}`)
-  }
-
   it("refuses an existing file without overwrite", async () => {
     const result = await callTool({
       client,
@@ -2775,7 +2765,7 @@ describe("vault_write_file refusals", () => {
       label: "a .json file that is not JSON",
       path: "Scratch/broken.json",
       content: "{",
-      message: () => `invalid JSON: ${jsonParseMessage("{")}`,
+      message: () => `invalid JSON: ${jsonParseFailureMessage("{")}`,
     },
     {
       label: "a Base whose top level is a list",

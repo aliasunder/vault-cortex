@@ -269,7 +269,7 @@ Returns: "Wrote <path>".`,
           .string()
           .min(1)
           .describe(
-            'Vault-relative path including the extension (e.g. "Boards/Roadmap.canvas"). Must NOT end in ".md". Parent folders are created as needed. Use the exact letter case.',
+            'Vault-relative path including the extension (e.g. "Boards/Roadmap.canvas"). Must NOT end in ".md", ".MD" or another casing of it. Parent folders are created as needed. Use the exact letter case.',
           ),
         content: z.string().describe("The file's complete text."),
         overwrite: z
