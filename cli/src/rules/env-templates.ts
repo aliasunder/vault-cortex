@@ -412,17 +412,16 @@ SYNC_EXCLUDED_FOLDERS=
 # Sync → "Selective sync".
 #   Valid values: image | audio | video | pdf | unsupported
 #   Empty (default): image,audio,video,pdf,unsupported
-# The text files Vault Cortex reads and writes (CSV, JSON, TXT, HTML, scripts
-# and other UTF-8 files) fall under "unsupported", Obsidian Sync's name for its
-# "Sync all other types" category; SVG syncs as "image", and notes, canvases,
-# and bases always sync.
+# "unsupported" is Obsidian Sync's "Sync all other types": the CSV, JSON, TXT,
+# HTML, script and other UTF-8 files Vault Cortex reads and writes, plus
+# archives and office files it stores but can't read. SVG syncs as "image",
+# and notes, canvases, and bases always sync.
 # While this list includes "unsupported", the server uploads these files, the
 # ones an agent writes included. Other devices send and receive them only with
 # "Sync all other types" turned on in their own Sync settings, so turn it on
-# for every device that holds or should receive them. "unsupported" also
-# brings archives and office files from those devices, which the server stores
-# but can't read. To stop syncing all of these, set
-# SYNC_FILE_TYPES=image,audio,video,pdf; the copies already on the server stay.
+# for every device that holds or should receive them. To stop syncing them,
+# set SYNC_FILE_TYPES=image,audio,video,pdf; the copies already on the server
+# stay.
 # A value with an invalid entry is skipped whole, with a warning in the logs,
 # and only image,audio,video,pdf sync.
 SYNC_FILE_TYPES=
