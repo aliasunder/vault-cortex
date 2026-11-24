@@ -1356,18 +1356,20 @@ re-verify each contract against the new source before merging:
      call, and `is` as the engine class's name.
 - In `pull-only`, `init-first-sync` also drops a queued download whose
   `hash` equals the local record's `synchash`, which would replay the synced
-  version over a server edit. The oracle's pull-only scenarios cover
-  behaviours 2 to 4; re-check 1 and 5 by hand:
-  1. Each `sync-config` filter flag re-queues every server file it newly
-     allows over the reset filter (`ss()`, `changeFilter`), downloaded or not.
+  version over a local edit. The oracle scenarios named in parentheses cover
+  their behaviour; re-check by hand behaviours 1 and 5, the upload half of 3
+  and the cursor half of 4:
+  1. The re-queue in the `sync-setup` bullet above includes files this
+     device already downloaded (`ss()`, `changeFilter`).
   2. `pull-only` and `mirror-remote` download a queued file over a differing
-     local copy ("edited, synced version queued, pull-only").
+     local copy, and two-way sync keeps the copy ("edited, synced version
+     queued" in each of the three modes).
   3. A download, or an upload, sets `synchash` to the SHA-256 hex of the
      bytes, equal to the record's `hash`; a local edit leaves it
      ("downloaded, pull-only", "edited, not queued, pull-only").
-  4. `pull-only` runs no pass after the pending loop ("edited, not queued,
-     pull-only"), and the sync cursor is past a dropped row, so the server
-     never sends that row again.
+  4. `pull-only` runs neither an upload nor a deletion scan after the
+     pending loop ("edited, not queued, pull-only"), and the sync cursor is
+     past a dropped row, so the server never sends that row again.
   5. Pending rows load once, when the engine starts, in `uid` order, and a
      later row for the same path supersedes an earlier one.
 
