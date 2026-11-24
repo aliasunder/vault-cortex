@@ -418,12 +418,10 @@ The extension-to-representation routing above is implemented by the `vault-opera
 
 `vault_write_file` creates a non-markdown text file, or with `overwrite` replaces one, through `assetOperations.writeAssetContent` in the same use-case, so the read and write type rules sit in one module:
 
-1. **By path,** the tool refuses `.md` in any letter case (notes belong to `vault_write_note`, and on a macOS or Windows bind mount `Plan.MD` opens `Plan.md`) and the image and PDF kinds, which text input cannot produce. Every other path is writable, as on the read side.
-2. **By content, before any file access,** it refuses control characters other than tab, LF and CR (the guard `vault_write_note` applies) and syntax that would break the format (`obsidian-markdown/text-file-syntax.ts`). `.canvas` must be JSON Canvas 1.0's top level (an object whose `nodes` and `edges`, when present, are arrays), and `.json` must be valid JSON. `.base` must be YAML with a mapping or nothing at the top, with no key repeated in a mapping and every alias naming an anchor set before it. A leading byte-order mark is skipped for parsing only.
-3. **Inside the fail-fast write lock,** it creates missing parent folders, then refuses an existing file without `overwrite` and a folder or a broken symlink at the path. With `overwrite`, a NUL byte in the existing file's first 8,000 bytes refuses the write for HTML pages, scripts and unlisted types, the kinds the read list's item 5 refuses as binary. Text and canvas kinds skip that check, as they do on read.
-4. **The save** is atomic. A path that was missing at the existence check is created exclusively (`atomicWriteFileExclusive`), even with `overwrite`, so outside `WINDOWS_MODE` a file Obsidian Sync delivers between the check and the save is never replaced unchecked. An existing file is overwritten by a rename over the path, so the last writer wins against writers outside the server, as for notes. No copy of a replaced file is kept.
-
-The tool's content reaches the server inside one MCP request, which the router caps at 5 MB. On an Obsidian Sync vault, written canvases and Bases always sync and SVG files sync as images, while other text files reach other devices only when `SYNC_FILE_TYPES` includes `unsupported`.
+1. **By path,** the tool refuses `.md` in any letter case, because on a macOS or Windows bind mount `Plan.MD` opens the note `Plan.md`. It also refuses the image and PDF kinds, which text input cannot produce.
+2. **By content, before any file access,** it refuses control characters other than tab and line breaks, as `vault_write_note` does, and syntax that would break the format (`obsidian-markdown/text-file-syntax.ts`): a `.canvas` file that isn't a JSON Canvas object, a `.json` file that isn't valid JSON, or a `.base` file that isn't valid YAML.
+3. **Inside the fail-fast write lock,** it creates missing parent folders, then refuses an existing file without `overwrite` and a folder or a broken symlink at the path. With `overwrite`, it also refuses an existing file that the read side's item 5 treats as binary.
+4. **The save** is atomic. A path that was missing at the existence check is created exclusively (`atomicWriteFileExclusive`), even with `overwrite`, so outside `WINDOWS_MODE` a file Obsidian Sync delivers between the check and the save is never replaced unchecked. An existing file is overwritten by a rename over the path, so the last writer wins against writers outside the server, as for notes.
 
 `vault_list_files` is the discovery surface (also `vault-operations/asset-operations.ts`): a filesystem walk (`vaultFs.listAssets` — filesystem truth, deliberately not the index), folder and case-insensitive extension filters, per-extension counts computed over the full filtered set, and byte sizes statted only for the returned slice.
 
@@ -454,12 +452,7 @@ Search indexes file content in the `file_content` + `file_content_fts` tables, c
 
 How extracted text reaches the index, and when, is under [Indexing](#indexing).
 
-**Opt-out:** file tools are on by default.
-
-- `FILE_TOOLS_ENABLED=false` hides `vault_read_file`, `vault_write_file` and `vault_list_files`, and strips file tool references from server metadata and other tool descriptions.
-- `READONLY_MODE=true` hides `vault_write_file` with every other write tool; `DISABLED_TOOLS=vault_write_file` hides it alone.
-- `vault_get_outgoing_links` continues to report file links, because it reads the links table, not the file tools.
-- File config vars (`MAX_FILE_BYTES`, `MAX_IMAGE_OUTPUT_BYTES`, `MAX_PDF_RENDER_PAGES`) are still parsed when file tools are disabled.
+**Opt-out:** File tools are opt-out: set `FILE_TOOLS_ENABLED=false` to hide `vault_read_file`, `vault_write_file` and `vault_list_files`, and strip file tool references from server metadata and other tool descriptions. The `vault_get_outgoing_links` tool continues to report file links (it indexes from the links table, not the file tools). File config vars (`MAX_FILE_BYTES`, `MAX_IMAGE_OUTPUT_BYTES`, `MAX_PDF_RENDER_PAGES`) are still parsed when disabled.
 
 ### Tasks
 
