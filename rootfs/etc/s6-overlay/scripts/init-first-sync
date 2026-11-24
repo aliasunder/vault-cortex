@@ -1,7 +1,7 @@
 #!/command/with-contenv sh
 # shellcheck shell=sh # ShellCheck cannot read the with-contenv shebang
 # One-shot first sync: run `ob sync` (no --continuous) to COMPLETION before
-# svc-obsidian-sync and svc-vault-mcp start — otherwise the server boots
+# svc-obsidian-sync and svc-vault-mcp start — otherwise the MCP server boots
 # against a still-empty vault, bootstraps default About Me/ templates, and
 # bidirectional sync pushes them over the user's real memory files.
 #
@@ -35,14 +35,14 @@
 # - A one-shot `ob sync` stops at the first failed download, before the scan,
 #   so a failed first-sync attempt can't push deletions either.
 #
-# Server edits in pull-only: once before the attempts, the script drops each
+# Local edits in pull-only: once before the attempts, the script drops each
 # queued download that would only bring back the version this device last
-# synced, so an edit made on the server survives a restart.
+# synced, so a file edited on this device survives a restart.
 # - init-setup-vault's filter step makes the engine queue every server file
 #   the filter allows beyond the reset default, downloaded or not.
 # - In pull-only, the engine downloads a queued file over a local copy that
 #   differs. A pull-only edit is never uploaded, so Sync keeps no copy of it.
-# - mirror-remote overwrites server edits by design. Two-way sync keeps a
+# - mirror-remote overwrites local edits by design. Two-way sync keeps a
 #   local edit the server hasn't superseded, and uploads it.
 #
 # Failure policy once attempts are exhausted:
@@ -189,7 +189,7 @@ ACTIVE_SYNC_STATE="$SYNC_STATE_ROOT/$SYNC_VAULT_ID/state.db"
 # unrecognized table layout exits non-zero, so a Sync client upgrade cannot
 # turn either step into a silent no-op.
 # shellcheck disable=SC2016 # ${table} is a JavaScript template, not a shell expansion
-CHECK_SYNC_STATE_COLUMNS='
+CHECK_SYNC_STATE_COLUMNS_JS='
   const requiredColumns = {
     pending_files: ["uid", "path", "data"],
     server_files: ["path", "data"],
@@ -224,11 +224,13 @@ queue_never_downloaded_files() {
   s6-setuidgid obsidian node --no-warnings -e '
     const { DatabaseSync } = require("node:sqlite")
     const db = new DatabaseSync(process.argv[1])
-  '"$CHECK_SYNC_STATE_COLUMNS"'
+  '"$CHECK_SYNC_STATE_COLUMNS_JS"'
     db.exec("BEGIN IMMEDIATE")
     // OR IGNORE skips a row whose uid is already queued (uid is the PK);
-    // NOT EXISTS skips a path with an existing queued entry (may be a newer
+    // NOT IN skips a path with an existing queued entry (may be a newer
     // version). Both are needed: uid dedupes by identity, path by location.
+    // The subquery leaves out NULL paths, because one NULL in a NOT IN list
+    // makes it match no row, and then nothing would be queued.
     const { changes } = db
       .prepare(`
         INSERT OR IGNORE INTO pending_files (uid, path, data)
@@ -237,7 +239,7 @@ queue_never_downloaded_files() {
         LEFT JOIN local_files AS local ON local.path = server.path
         WHERE local.path IS NULL
           AND COALESCE(json_extract(server.data, ?), 0) = 0
-          AND NOT EXISTS (SELECT 1 FROM pending_files AS queued WHERE queued.path = server.path)
+          AND server.path NOT IN (SELECT queued.path FROM pending_files AS queued WHERE queued.path IS NOT NULL)
       `)
       // Positional params: first ? → $.uid (the SELECT), second ? → $.deleted (the WHERE)
       .run("$.uid", "$.deleted")
@@ -260,12 +262,13 @@ queue_never_downloaded_files_or_exit() {
   fi
 }
 
-# In pull-only, deletes each queued download that would only replay the
-# server version this device last synced over a local edit. The "Server edits
-# in pull-only" note at the top of this file says why. Takes the sync mode and
-# the vault path, and exits the script when the store can't be updated.
+# In pull-only, deletes each queued download of the server version this
+# device last synced, so the download cannot replace a local edit. The "Local
+# edits in pull-only" note at the top of this file says why. Exits the script
+# when the store can't be updated.
 # A row is deleted, by uid, only when all of these hold:
-# 1. It is a file, not a deletion, and carries a hash.
+# 1. It and its local record are files, not folders, it is not a deletion,
+#    and it carries a hash.
 # 2. It is the only queued row for its path. The engine skips an earlier row
 #    when a later one has the same path, so removing one row of several
 #    could bring back a version the newest row replaced.
@@ -273,24 +276,26 @@ queue_never_downloaded_files_or_exit() {
 #    version newer than the one the local copy came from.
 # 4. The file exists, so a missing file still downloads.
 drop_pull_only_replays() {
-  [ "$1" = "pull-only" ] || return 0
+  [ "$SYNC_MODE_IN_EFFECT" = "pull-only" ] || return 0
   # A device that has never synced has no store yet, so nothing is queued.
   [ -e "$ACTIVE_SYNC_STATE" ] || return 0
 
   # As the obsidian user, so any SQLite journal files stay writable by the
   # Sync client.
   # shellcheck disable=SC2016 # the JavaScript's "$.folder" and other JSON paths must reach node unexpanded
-  if ! KEPT_EDITS=$(s6-setuidgid obsidian node --no-warnings -e '
+  if ! DROPPED_DOWNLOADS=$(s6-setuidgid obsidian node --no-warnings -e '
     const { statSync } = require("node:fs")
     const { join } = require("node:path")
     const { DatabaseSync } = require("node:sqlite")
     const [stateDbPath, vaultPath] = process.argv.slice(1)
     const db = new DatabaseSync(stateDbPath)
-  '"$CHECK_SYNC_STATE_COLUMNS"'
+  '"$CHECK_SYNC_STATE_COLUMNS_JS"'
     db.exec("BEGIN IMMEDIATE")
     // Conditions 1 to 3 of the shell comment above; the JSON paths are bound
     // as parameters because this program sits inside shell single quotes.
-    const replays = db
+    // The IN subquery groups pending_files once; a COUNT(*) per row would
+    // scan the whole table for every queued row.
+    const replayCandidates = db
       .prepare(`
         SELECT queued.uid AS uid, queued.path AS path
         FROM pending_files AS queued
@@ -300,27 +305,36 @@ drop_pull_only_replays() {
           AND length(json_extract(queued.data, :hash)) > 0
           AND COALESCE(json_extract(local.data, :folder), 0) = 0
           AND json_extract(local.data, :synchash) = json_extract(queued.data, :hash)
-          AND (SELECT COUNT(*) FROM pending_files AS sibling WHERE sibling.path = queued.path) = 1
+          AND queued.path IN (SELECT path FROM pending_files GROUP BY path HAVING COUNT(*) = 1)
       `)
       .all({ folder: "$.folder", deleted: "$.deleted", hash: "$.hash", synchash: "$.synchash" })
+
+    // A path the stat cannot read keeps its queued download, because only a
+    // file known to be on disk has a local edit to protect.
     const isFileOnDisk = (replay) => {
-      return statSync(join(vaultPath, replay.path), { throwIfNoEntry: false })?.isFile() ?? false
+      try {
+        return statSync(join(vaultPath, replay.path), { throwIfNoEntry: false })?.isFile() ?? false
+      } catch (error) {
+        console.error(`[obsidian-sync] Could not check ${replay.path} on disk (${error.code}); keeping its queued download.`)
+        return false
+      }
     }
+    const droppedReplays = replayCandidates.filter(isFileOnDisk)
     const deleteQueuedRow = db.prepare("DELETE FROM pending_files WHERE uid = ?")
-    const droppedReplays = replays.filter(isFileOnDisk)
     for (const replay of droppedReplays) {
       deleteQueuedRow.run(replay.uid)
     }
+
     db.exec("COMMIT")
     db.close()
     console.log(droppedReplays.length)
-  ' "$ACTIVE_SYNC_STATE" "$2"); then
-    echo "[obsidian-sync] ERROR: Could not check the queued downloads for edits made on the server (${ACTIVE_SYNC_STATE})." >&2
+  ' "$ACTIVE_SYNC_STATE" "$VAULT_PATH"); then
+    echo "[obsidian-sync] ERROR: Could not check the queued downloads for edits made on this device (${ACTIVE_SYNC_STATE})." >&2
     echo "[obsidian-sync] Refusing to sync: without that step, a pull-only sync could overwrite those edits, and Obsidian Sync keeps no copy of them." >&2
     exit 1
   fi
-  if [ "$KEPT_EDITS" -gt 0 ]; then
-    echo "[obsidian-sync] Kept ${KEPT_EDITS} edit(s) made on the server: Sync has no newer version of those files (pull-only)." >&2
+  if [ "$DROPPED_DOWNLOADS" -gt 0 ]; then
+    echo "[obsidian-sync] Skipped ${DROPPED_DOWNLOADS} queued download(s) of a version this device already has (pull-only)."
   fi
 }
 
@@ -359,9 +373,8 @@ if [ "$MEMORY_ENABLED" = "false" ] || [ "$MEMORY_ENABLED" = "0" ]; then
   MEMORY_IS_ENABLED=false
 fi
 
+drop_pull_only_replays
 MAX_ATTEMPTS=3
-
-drop_pull_only_replays "$SYNC_MODE_IN_EFFECT" "$VAULT_PATH"
 
 ATTEMPT=1
 while :; do
@@ -393,7 +406,7 @@ if [ "$SYNC_MODE_IN_EFFECT" = "bidirectional" ] && [ "$QUEUED_DOWNLOADS" -gt 0 ]
   echo "[obsidian-sync] Refusing to start two-way sync: it could delete those files from Obsidian Sync and your other devices." >&2
   echo "[obsidian-sync] The count may include files excluded by SYNC_FILE_TYPES, SYNC_EXCLUDED_FOLDERS, or SYNC_CONFIGS — those are dropped from the queue during a successful sync." >&2
   echo "[obsidian-sync] Check the network, your Obsidian Sync login, and the log above for a file that keeps failing to download — the container's restart policy retries." >&2
-  echo "[obsidian-sync] To start the server while the downloads retry, set SYNC_MODE=pull-only — it never deletes anything from Obsidian Sync." >&2
+  echo "[obsidian-sync] To start the MCP server while the downloads retry, set SYNC_MODE=pull-only — it never deletes anything from Obsidian Sync." >&2
   exit 1
 fi
 
