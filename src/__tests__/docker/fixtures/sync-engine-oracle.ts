@@ -224,8 +224,8 @@ const updatedTable = (): ServedVersion => {
   }
 }
 
-/** The local copy's text in the scenarios with a server edit. */
-const SERVER_EDIT = "edited on the server\n"
+/** The local copy's text in the scenarios with a local edit. */
+const LOCAL_EDIT = "edited on this device\n"
 
 const SCENARIOS: Scenario[] = [
   {
@@ -309,7 +309,7 @@ const SCENARIOS: Scenario[] = [
     syncMode: "pull-only",
     listed: syncedTable,
     queued: syncedTable,
-    localEdit: SERVER_EDIT,
+    localEdit: LOCAL_EDIT,
     downloadFails: false,
     fileTypes: ["unsupported"],
   },
@@ -317,7 +317,7 @@ const SCENARIOS: Scenario[] = [
     label: "edited, not queued, pull-only",
     syncMode: "pull-only",
     listed: syncedTable,
-    localEdit: SERVER_EDIT,
+    localEdit: LOCAL_EDIT,
     downloadFails: false,
     fileTypes: ["unsupported"],
   },
@@ -326,7 +326,27 @@ const SCENARIOS: Scenario[] = [
     syncMode: "pull-only",
     listed: syncedTable,
     queued: updatedTable,
-    localEdit: SERVER_EDIT,
+    localEdit: LOCAL_EDIT,
+    downloadFails: false,
+    fileTypes: ["unsupported"],
+  },
+  // Why the drop step leaves the other modes alone: two-way sync rejects the
+  // queued synced version and keeps the edit, and mirror-remote overwrites it.
+  {
+    label: "edited, synced version queued, bidirectional",
+    syncMode: "bidirectional",
+    listed: syncedTable,
+    queued: syncedTable,
+    localEdit: LOCAL_EDIT,
+    downloadFails: false,
+    fileTypes: ["unsupported"],
+  },
+  {
+    label: "edited, synced version queued, mirror-remote",
+    syncMode: "mirror-remote",
+    listed: syncedTable,
+    queued: syncedTable,
+    localEdit: LOCAL_EDIT,
     downloadFails: false,
     fileTypes: ["unsupported"],
   },

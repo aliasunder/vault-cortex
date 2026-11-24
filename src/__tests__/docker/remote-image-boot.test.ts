@@ -1273,7 +1273,9 @@ describe("the image's Sync engine, run on the files init-first-sync queues or dr
   // - Without a queued row, pull-only runs no other pass, so the edit and
   //   its synchash stay.
   // - A real update carries a new hash, which the drop step never matches.
-  it("writes a queued synced version over a pull-only edit, and keeps the edit when nothing is queued", () => {
+  // - Two-way sync rejects a queued synced version and keeps the edit, and
+  //   mirror-remote writes over it, so the drop step runs only in pull-only.
+  it("writes a queued synced version over a pull-only edit, keeps the edit when nothing is queued, and two-way sync keeps it", () => {
     const syncedHash = sha256Hex("server text\n")
     const editThenDownloadEvents = [
       "Checking Data/table.csv",
@@ -1310,7 +1312,7 @@ describe("the image's Sync engine, run on the files init-first-sync queues or dr
         events: ["Fully synced"],
         stillQueued: false,
         recordedLocally: true,
-        contents: "edited on the server\n",
+        contents: "edited on this device\n",
         synchash: syncedHash,
       },
       {
@@ -1321,6 +1323,24 @@ describe("the image's Sync engine, run on the files init-first-sync queues or dr
         recordedLocally: true,
         contents: "updated text\n",
         synchash: sha256Hex("updated text\n"),
+      },
+      {
+        label: "edited, synced version queued, bidirectional",
+        outcome: "returned true",
+        events: ["Checking Data/table.csv", "Rejected server change Data/table.csv"],
+        stillQueued: false,
+        recordedLocally: true,
+        contents: "edited on this device\n",
+        synchash: syncedHash,
+      },
+      {
+        label: "edited, synced version queued, mirror-remote",
+        outcome: "returned true",
+        events: editThenDownloadEvents,
+        stillQueued: false,
+        recordedLocally: true,
+        contents: "server text\n",
+        synchash: syncedHash,
       },
     ])
   })
