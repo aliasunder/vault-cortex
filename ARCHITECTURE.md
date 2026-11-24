@@ -1154,7 +1154,7 @@ graph LR
    the boot switches to [setup mode](#setup-mode) instead of stopping) →
    `init-obsidian-login` (`ob login`) → `init-setup-vault` (sets up the
    vault's Sync in the steps listed after this chain) → `init-first-sync`
-   (one-shot `ob sync` run to _completion_, with retries; its four steps,
+   (one-shot `ob sync` run to _completion_, with retries; its five steps,
    failure branches included, are listed below). Any
    fatal init failure stops the container
    (`S6_BEHAVIOUR_IF_STAGE2_FAILS=2`) — the restart policy owns retry.
