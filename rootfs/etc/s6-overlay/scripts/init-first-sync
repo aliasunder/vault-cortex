@@ -309,12 +309,18 @@ drop_pull_only_replays() {
       `)
       .all({ folder: "$.folder", deleted: "$.deleted", hash: "$.hash", synchash: "$.synchash" })
 
-    // A path the stat cannot read keeps its queued download, because only a
-    // file known to be on disk has a local edit to protect.
+    // The Sync client runs as the same user, so a path the stat cannot reach
+    // for one of these reasons holds no file it could write over.
+    const unreachableCodes = ["ELOOP", "ENAMETOOLONG", "EACCES"]
+    // Such a path keeps its queued download. Any other stat error stops the
+    // boot, because a file that is there could hold a local edit.
     const isFileOnDisk = (replay) => {
       try {
         return statSync(join(vaultPath, replay.path), { throwIfNoEntry: false })?.isFile() ?? false
       } catch (error) {
+        if (!unreachableCodes.includes(error.code)) {
+          throw error
+        }
         console.error(`[obsidian-sync] Could not check ${replay.path} on disk (${error.code}); keeping its queued download.`)
         return false
       }
@@ -334,7 +340,7 @@ drop_pull_only_replays() {
     exit 1
   fi
   if [ "$DROPPED_DOWNLOADS" -gt 0 ]; then
-    echo "[obsidian-sync] Skipped ${DROPPED_DOWNLOADS} queued download(s) of a version this device already has (pull-only)."
+    echo "[obsidian-sync] Skipped ${DROPPED_DOWNLOADS} queued download(s) of the version this device last synced (pull-only)."
   fi
 }
 

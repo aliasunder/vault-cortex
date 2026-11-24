@@ -1368,8 +1368,9 @@ re-verify each contract against the new source before merging:
      bytes, equal to the record's `hash`; a local edit leaves it
      ("downloaded, pull-only", "edited, not queued, pull-only").
   4. `pull-only` runs neither an upload nor a deletion scan after the
-     pending loop ("edited, not queued, pull-only"), and the sync cursor is
-     past a dropped row, so the server never sends that row again.
+     pending loop ("edited, not queued, pull-only", "not queued,
+     pull-only"), and the sync cursor is past a dropped row, so the server
+     never sends that row again.
   5. Pending rows load once, when the engine starts, in `uid` order, and a
      later row for the same path supersedes an earlier one.
 

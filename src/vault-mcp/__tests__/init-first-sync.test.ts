@@ -1057,7 +1057,7 @@ describe("init-first-sync gate script", () => {
   const editedFileRecord = { path: EDITED_FILE, folder: false, hash: "", synchash: "hash-a" }
 
   const SKIPPED_ONE_DOWNLOAD =
-    "[obsidian-sync] Skipped 1 queued download(s) of a version this device already has (pull-only).\n"
+    "[obsidian-sync] Skipped 1 queued download(s) of the version this device last synced (pull-only).\n"
 
   /** The pending_files rows a store holds when nothing removed any. */
   const unchangedPendingRows = (
@@ -1191,6 +1191,29 @@ describe("init-first-sync gate script", () => {
     expect(readPendingRows(run.activeStateDbPath)).toEqual(unchangedPendingRows([syncedVersion]))
     expect(run.stderr).toBe(
       `[obsidian-sync] Could not check ${EDITED_FILE} on disk (ELOOP); keeping its queued download.\n`,
+    )
+  })
+
+  it("refuses to sync when the file's path fails the disk check for another reason", () => {
+    // A NUL character makes the stat throw ERR_INVALID_ARG_VALUE, which is not
+    // one of the codes that prove no file could be written over.
+    const pathWithNul = `Data/ta${String.fromCodePoint(0)}ble.csv`
+    const run = runWithQueuedReplay({
+      syncMode: "pull-only",
+      pendingRecords: [{ ...syncedVersion, path: pathWithNul }],
+      localRecords: [{ ...editedFileRecord, path: pathWithNul }],
+    })
+
+    expect(run.status).toBe(1)
+    expect(run.syncCalls).toBe(0)
+    expect(readPendingRows(run.activeStateDbPath)).toEqual(
+      unchangedPendingRows([{ ...syncedVersion, path: pathWithNul }]),
+    )
+    // Node prints the thrown error's stack before the script's own lines, and
+    // the stack's file paths vary, so only the script's lines are pinned.
+    expect(run.stderr).toContain(
+      `[obsidian-sync] ERROR: Could not check the queued downloads for edits made on this device (${run.activeStateDbPath}).\n` +
+        "[obsidian-sync] Refusing to sync: without that step, a pull-only sync could overwrite those edits, and Obsidian Sync keeps no copy of them.\n",
     )
   })
 

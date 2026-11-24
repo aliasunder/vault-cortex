@@ -1166,6 +1166,13 @@ describe("the image's Sync engine, run on the files init-first-sync queues or dr
   const sha256Hex = (contents: string): string => {
     return createHash("sha256").update(contents).digest("hex")
   }
+  const syncedHash = sha256Hex("server text\n")
+  const editThenDownloadEvents = [
+    "Checking Data/table.csv",
+    "Downloading Data/table.csv",
+    "Downloaded Data/table.csv",
+    "Accepted Data/table.csv",
+  ]
 
   // The contract init-first-sync's queue step relies on, checked against the
   // real engine:
@@ -1273,17 +1280,8 @@ describe("the image's Sync engine, run on the files init-first-sync queues or dr
   // - Without a queued row, pull-only runs no other pass, so the edit and
   //   its synchash stay.
   // - A real update carries a new hash, which the drop step never matches.
-  // - Two-way sync rejects a queued synced version and keeps the edit, and
-  //   mirror-remote writes over it, so the drop step runs only in pull-only.
-  it("writes a queued synced version over a pull-only edit, keeps the edit when nothing is queued, and two-way sync keeps it", () => {
-    const syncedHash = sha256Hex("server text\n")
-    const editThenDownloadEvents = [
-      "Checking Data/table.csv",
-      "Downloading Data/table.csv",
-      "Downloaded Data/table.csv",
-      "Accepted Data/table.csv",
-    ]
-    expect(scenarioResults.slice(8)).toEqual([
+  it("writes a queued synced version over a pull-only edit, and keeps the edit when nothing is queued", () => {
+    expect(scenarioResults.slice(8, 12)).toEqual([
       {
         label: "downloaded, pull-only",
         outcome: "returned true",
@@ -1324,6 +1322,13 @@ describe("the image's Sync engine, run on the files init-first-sync queues or dr
         contents: "updated text\n",
         synchash: sha256Hex("updated text\n"),
       },
+    ])
+  })
+
+  // Why the drop step runs only in pull-only: two-way sync rejects a queued
+  // synced version and keeps the edit, and mirror-remote writes over it.
+  it("keeps the edit in two-way sync and writes the queued synced version over it in mirror-remote", () => {
+    expect(scenarioResults.slice(12)).toEqual([
       {
         label: "edited, synced version queued, bidirectional",
         outcome: "returned true",
