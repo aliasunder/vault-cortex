@@ -670,9 +670,10 @@ enabled by default. Set `FILE_TOOLS_ENABLED=false` in your `.env` to hide them,
 or `DISABLED_TOOLS=vault_write_file` to keep reading files but turn off writing
 them.
 
-Until `SYNC_FILE_TYPES` includes `unsupported`, CSV, JSON, TXT, HTML and script
-files don't sync: one you expect is missing from the server, and one an agent
-writes stays on it (see `SYNC_FILE_TYPES` under [Configuration](#configuration)).
+Unless `SYNC_FILE_TYPES` includes `unsupported`, the server doesn't sync CSV,
+JSON, TXT, HTML or script files. Those files on your other devices never reach
+the server, and the ones an agent writes never reach your other devices. See
+`SYNC_FILE_TYPES` under [Configuration](#configuration).
 
 ## Read-only mode
 
