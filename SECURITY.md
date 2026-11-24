@@ -111,29 +111,20 @@ mechanism-level detail.
   folder (a `deploy.env` or `secrets.txt`) is readable by any signed-in client.
   A file named as an image or a PDF goes to the image or PDF reader instead.
   Hidden files such as `.env` stay refused by the hidden-path check above.
-- On the `:remote` image, `SYNC_FILE_TYPES` includes `unsupported` (Obsidian
-  Sync's **Sync all other types**) by default, so the text files of any device
-  with that option on reach the server, where signed-in clients can read them.
-  `SYNC_FILE_TYPES=image,audio,video,pdf` stops new ones from arriving and
-  leaves the ones already on the server in place.
+- On the `:remote` image, the default `SYNC_FILE_TYPES` downloads the text
+  files of every device that has **Sync all other types** turned on.
+  `SYNC_FILE_TYPES=image,audio,video,pdf` keeps new ones off the server.
 - `vault_write_file` lets any signed-in client create or replace a visible
   non-markdown text file, whatever its extension — the same reach
-  `vault_write_note` has over notes.
-  - It refuses hidden paths, so it cannot write a plugin, snippet or setting
-    under `.obsidian/`. It also refuses notes, images, PDFs, and an existing
-    HTML page, script or unlisted file with a NUL byte near its start.
-  - A community plugin that runs scripts from a visible folder (Templater's
-    user scripts, Dataview's `dv.view()`) can run one this tool writes, as
-    Dataview already runs a `dataviewjs` block that `vault_write_note` writes
-    into a note.
-  - `DISABLED_TOOLS=vault_write_file` removes only this tool;
-    `READONLY_MODE=true` hides it with every other write tool.
-- The path checks are lexical: a visible folder symlink is followed for
-  reads and for writes wherever it points, so one into `.obsidian/` or
-  outside the vault lets `vault_write_file` save files there. A symlink at a
-  file's own path is read through but never written through. Creating a
-  symlink requires direct filesystem access — no tool can create one, and
-  anyone with that access can already read and write those files.
+  `vault_write_note` has over notes. That includes a script a community
+  plugin runs from a visible folder (Templater's user scripts, Dataview's
+  `dv.view()`), just as `vault_write_note` can write a `dataviewjs` block
+  that Dataview runs.
+- The path checks are lexical: reads follow a visible symlink, and writes
+  follow a visible folder symlink, even into `.obsidian/` or outside the
+  vault. Creating a symlink requires direct filesystem access — no tool can
+  create one, and anyone with that access can already read and write those
+  files.
 
 ### Read-only mode
 
