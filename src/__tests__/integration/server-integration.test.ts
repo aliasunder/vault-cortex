@@ -1460,6 +1460,11 @@ describe("default config", () => {
         name: "vault_write_file",
         args: { path: canvasPath, content: firstCanvas },
       })
+      const createdReadback = await callTool({
+        client,
+        name: "vault_read_file",
+        args: { path: canvasPath, raw: true },
+      })
       const replaced = await callTool({
         client,
         name: "vault_write_file",
@@ -1472,6 +1477,7 @@ describe("default config", () => {
       })
 
       expect(textContent(created)).toBe(`Wrote ${canvasPath}`)
+      expect(textContent(createdReadback)).toBe(firstCanvas)
       expect(textContent(replaced)).toBe(`Wrote ${canvasPath}`)
       expect(textContent(readback)).toBe(secondCanvas)
     })

@@ -1345,18 +1345,21 @@ describe("writeAssetContent — overwriting", () => {
   it.each([
     { label: "a NUL-padded log", path: "logs/app.log", content: "fresh log\n" },
     { label: "a canvas holding a NUL", path: "Boards/plan.canvas", content: "{}" },
-  ])("replaces $label, which vault_read_file reads as text", async ({ path, content }) => {
-    const vaultPath = await makeTempVault()
-    await mkdir(join(vaultPath, dirname(path)), { recursive: true })
-    await writeFile(join(vaultPath, path), Buffer.from("old\u0000\u0000\u0000", "utf8"))
+  ])(
+    "replaces $label, which vault_read_file does not refuse as binary",
+    async ({ path, content }) => {
+      const vaultPath = await makeTempVault()
+      await mkdir(join(vaultPath, dirname(path)), { recursive: true })
+      await writeFile(join(vaultPath, path), Buffer.from("old\u0000\u0000\u0000", "utf8"))
 
-    await assetOperations.writeAssetContent(
-      { ...writeDefaults, vaultPath, path, content, overwrite: true },
-      logger,
-    )
+      await assetOperations.writeAssetContent(
+        { ...writeDefaults, vaultPath, path, content, overwrite: true },
+        logger,
+      )
 
-    expect(await readFile(join(vaultPath, path), "utf8")).toBe(content)
-  })
+      expect(await readFile(join(vaultPath, path), "utf8")).toBe(content)
+    },
+  )
 
   it("replaces an extensionless file whose first NUL byte sits past the 8,000-byte window", async () => {
     const vaultPath = await makeTempVault()
