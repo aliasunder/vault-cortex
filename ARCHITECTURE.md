@@ -1216,6 +1216,10 @@ process has spawned. Two mechanisms with distinct jobs:
        or is skipped if the filter still excludes it.
      - A file deleted through Vault Cortex that hasn't uploaded when the
        container restarts looks the same to the step, so it downloads again.
+     - In `pull-only`, the step first drops each queued download that would
+       only bring back the version a server edit replaced. Every boot's
+       file-type setting queues downloaded files again, and a `pull-only`
+       edit has no copy in Sync.
   3. **Sync succeeds**: the first sync runs to completion before any service
      starts. A one-shot sync stops at the first failed download, before its
      deletion scan.

@@ -1354,6 +1354,22 @@ re-verify each contract against the new source before merging:
      path (`DELETE FROM pending_files WHERE path = ?`).
   5. The oracle's minified names are unchanged: the closing `x.parse();`
      call, and `is` as the engine class's name.
+- In `pull-only`, `init-first-sync` also drops a queued download whose
+  `hash` equals the local record's `synchash`, which would replay the synced
+  version over a server edit. The oracle's pull-only scenarios cover
+  behaviours 2 to 4; re-check 1 and 5 by hand:
+  1. Each `sync-config` filter flag re-queues every server file it newly
+     allows over the reset filter (`ss()`, `changeFilter`), downloaded or not.
+  2. `pull-only` and `mirror-remote` download a queued file over a differing
+     local copy ("edited, synced version queued, pull-only").
+  3. A download, or an upload, sets `synchash` to the SHA-256 hex of the
+     bytes, equal to the record's `hash`; a local edit leaves it
+     ("downloaded, pull-only", "edited, not queued, pull-only").
+  4. `pull-only` runs no pass after the pending loop ("edited, not queued,
+     pull-only"), and the sync cursor is past a dropped row, so the server
+     never sends that row again.
+  5. Pending rows load once, when the engine starts, in `uid` order, and a
+     later row for the same path supersedes an earlier one.
 
 - The setup page's pre-flight (`src/vault-mcp/setup/`) mirrors two calls
   `ob sync-setup` makes on the next boot: `/vault/list` (an
