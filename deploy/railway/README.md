@@ -342,14 +342,14 @@ reused, so the second attempt is much faster. For very large vaults, set
 has synced.
 
 **The logs repeat `ENOSPC: no space left on device`.** The volume is full.
-A volume created on the trial plan is 0.5 GB and stays that size after an
-upgrade. Upgrade to Hobby, delete the volume (**Settings → Volumes**), add a
-new one at `/persist`, then **Redeploy** — the container downloads the vault
-again, like a first deploy, and each MCP client must remove and re-add the
-server, because the new volume has no record of them. If archives, office files or other files under
-**Sync all other types** filled it, set `SYNC_FILE_TYPES` to
-`image,audio,video,pdf` under **Variables** before you delete the volume, so
-they stay off the new one.
+If archives, office files or other files under **Sync all other types**
+filled it, first set `SYNC_FILE_TYPES` to `image,audio,video,pdf` under
+**Variables**, so they stay off the new volume. A volume created on the trial
+plan is 0.5 GB and stays that size after an upgrade. Upgrade to Hobby, delete
+the volume (**Settings → Volumes**), add a new one at `/persist`, then
+**Redeploy** — the container downloads the vault again, like a first deploy,
+and each MCP client must remove and re-add the server, because the new volume
+has no record of them.
 
 **A redeploy took as long as the first deploy and downloaded the whole vault
 again.** The volume was replaced, or `/persist/config` was removed, so the
