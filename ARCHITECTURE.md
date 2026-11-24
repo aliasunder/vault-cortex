@@ -1188,7 +1188,7 @@ process has spawned. Two mechanisms with distinct jobs:
   sync health, and a later sync crash restarts just that service, not the
   MCP server.
 - **`init-first-sync` keeps the first sync from deleting or overwriting
-  files.** Four steps, in order:
+  files.** Five steps, in order:
   1. **Deletion-storm guard** (before sync runs): the container refuses to
      start when the Sync client's file record lists files but the vault has
      no content.
@@ -1203,7 +1203,12 @@ process has spawned. Two mechanisms with distinct jobs:
        are not synced and do not count either.
      - A record that exists but cannot be read also stops the container.
      - No record means a fresh device, which downloads without deleting.
-  2. **Filtered-out file queue** (before each attempt and once after the
+  2. **Pull-only edit guard** (once, before the attempts, in `pull-only`
+     only): the step drops each queued download that would only bring back
+     the version an edit made through Vault Cortex replaced. Applying the
+     file-type setting on every boot queues downloaded files again, and a
+     `pull-only` edit has no copy in Sync.
+  3. **Filtered-out file queue** (before each attempt and once after the
      last): the step queues for download every file the Sync client knows
      is in the vault but has no local record of, so widening a filter
      can't delete them.
@@ -1216,14 +1221,10 @@ process has spawned. Two mechanisms with distinct jobs:
        or is skipped if the filter still excludes it.
      - A file deleted through Vault Cortex that hasn't uploaded when the
        container restarts looks the same to the step, so it downloads again.
-     - In `pull-only`, the step first drops each queued download that would
-       only bring back the version an edit made through Vault Cortex
-       replaced. Applying the file-type setting on every boot queues
-       downloaded files again, and a `pull-only` edit has no copy in Sync.
-  3. **Sync succeeds**: the first sync runs to completion before any service
+  4. **Sync succeeds**: the first sync runs to completion before any service
      starts. A one-shot sync stops at the first failed download, before its
      deletion scan.
-  4. **Sync fails**:
+  5. **Sync fails**:
      - FATAL when files are still queued for download and the Sync client's
        stored mode is two-way. Continuous sync retries a failed download
        with a backoff and runs its deletion scan meanwhile, which would

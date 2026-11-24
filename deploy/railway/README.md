@@ -353,8 +353,9 @@ has no record of them.
 
 **A redeploy took as long as the first deploy and downloaded the whole vault
 again.** The volume was replaced, or `/persist/config` was removed, so the
-container started over with a fresh Obsidian Sync connection. Nothing needs
-cleaning up. To switch to another vault, don't remove `/persist/config` on
+container started over with a fresh Obsidian Sync connection. If the volume
+was replaced, remove and re-add the server in each MCP client; nothing else
+needs cleaning up. To switch to another vault, don't remove `/persist/config` on
 its own: follow the last step of the next entry.
 
 **`This install is set up to sync a different vault than VAULT_NAME.`** The
