@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.0] — 2026-11-25
+
+### Features
+
+- **remote:** Sync the files under "Sync all other types" by default (#834)
+- **files:** Vault_write_file for canvases, Bases and other text files (#823)
+
 ## [1.0.1] — 2026-11-23
 
 ### Bug Fixes
