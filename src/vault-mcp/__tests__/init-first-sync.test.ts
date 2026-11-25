@@ -1,11 +1,20 @@
 import { spawnSync } from "node:child_process"
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync, rmSync, symlinkSync } from "node:fs"
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  writeFileSync,
+  rmSync,
+  symlinkSync,
+} from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 import { DatabaseSync } from "node:sqlite"
 
 import { describe, expect, it, onTestFinished } from "vitest"
 
+import { runsAsRoot } from "../../__tests__/runs-as-root.js"
 import { loadConfig } from "../config.js"
 
 /**
@@ -119,6 +128,9 @@ type GateRunOptions = {
   /** Vault-relative symbolic links to create before running, each pointing
    *  at its target as written (parents created). */
   vaultSymlinks?: { path: string; target: string }[]
+  /** Vault-relative folders whose permissions are all removed after the files
+   *  above are written, so a non-root stat of anything inside fails (EACCES). */
+  lockedVaultDirs?: string[]
   /** When false, VAULT_PATH points at a directory that doesn't exist. */
   vaultExists?: boolean
   /** Number of files to record in the device's sync state
@@ -276,6 +288,13 @@ const runGateScript = (options: GateRunOptions): GateRun => {
   for (const vaultSymlink of options.vaultSymlinks ?? []) {
     mkdirSync(dirname(join(vaultPath, vaultSymlink.path)), { recursive: true })
     symlinkSync(vaultSymlink.target, join(vaultPath, vaultSymlink.path))
+  }
+  for (const lockedVaultDir of options.lockedVaultDirs ?? []) {
+    const lockedPath = join(vaultPath, lockedVaultDir)
+    chmodSync(lockedPath, 0o000)
+    // onTestFinished runs its callbacks in reverse order, so the folder is
+    // searchable again before the temp folder's removal descends into it.
+    onTestFinished(() => chmodSync(lockedPath, 0o755))
   }
   const activeStateDbPath = join(syncStateDir, "state.db")
   // knownSyncFiles: 0 is a real case (a store that records nothing), so it
@@ -1091,12 +1110,14 @@ describe("init-first-sync gate script", () => {
     pendingRecords = [syncedVersion],
     vaultFiles = ["Notes/kept.md", EDITED_FILE],
     vaultSymlinks = [],
+    lockedVaultDirs = [],
     localRecords = [editedFileRecord],
   }: {
     syncMode: string
     pendingRecords?: SyncRecord[]
     vaultFiles?: string[]
     vaultSymlinks?: { path: string; target: string }[]
+    lockedVaultDirs?: string[]
     localRecords?: LocalRecord[]
   }): GateRun => {
     return runGateScript({
@@ -1104,6 +1125,7 @@ describe("init-first-sync gate script", () => {
       vaultName: "Test",
       vaultFiles,
       vaultSymlinks,
+      lockedVaultDirs,
       serverRecords: [syncedVersion],
       pendingRecords,
       localRecords,
@@ -1225,6 +1247,52 @@ describe("init-first-sync gate script", () => {
       `[obsidian-sync] Could not check ${EDITED_FILE} on disk (ELOOP); keeping its queued download.\n`,
     )
   })
+
+  it("keeps the queued row and syncs when the file's name is too long for the filesystem", () => {
+    // A name past the filesystem's 255-byte limit makes the stat fail with
+    // ENAMETOOLONG, for any user. Its folder must exist, or the stat fails
+    // first with ENOENT on the missing folder.
+    const longPath = `Data/${"a".repeat(256)}.csv`
+    const longVersion = { ...syncedVersion, path: longPath }
+    const run = runGateScript({
+      syncOutcomes: [0],
+      vaultName: "Test",
+      vaultDirs: ["Data"],
+      vaultFiles: ["Notes/kept.md"],
+      serverRecords: [longVersion],
+      pendingRecords: [longVersion],
+      localRecords: [{ ...editedFileRecord, path: longPath }],
+      syncConfigJson: JSON.stringify({ vaultId: "vault-id", syncMode: "pull-only" }),
+    })
+
+    expect(run.status).toBe(0)
+    expect(run.syncCalls).toBe(1)
+    expect(readPendingRows(run.activeStateDbPath)).toEqual(unchangedPendingRows([longVersion]))
+    expect(run.stderr).toBe(
+      `[obsidian-sync] Could not check ${longPath} on disk (ENAMETOOLONG); keeping its queued download.\n`,
+    )
+  })
+
+  it.skipIf(runsAsRoot)(
+    "keeps the queued row and syncs when the file's folder can't be searched",
+    () => {
+      const run = runWithQueuedReplay({ syncMode: "pull-only", lockedVaultDirs: ["Data"] })
+
+      expect(run.status).toBe(0)
+      expect(run.syncCalls).toBe(1)
+      expect(readPendingRows(run.activeStateDbPath)).toEqual(unchangedPendingRows([syncedVersion]))
+      // The empty-vault check's `find` also meets the locked folder, and
+      // whether it reports that before its search ends varies by run, so its
+      // lines are left out of the comparison.
+      const scriptStderr = run.stderr
+        .split("\n")
+        .filter((stderrLine) => !stderrLine.startsWith("find: "))
+        .join("\n")
+      expect(scriptStderr).toBe(
+        `[obsidian-sync] Could not check ${EDITED_FILE} on disk (EACCES); keeping its queued download.\n`,
+      )
+    },
+  )
 
   it("refuses to sync when the file's path fails the disk check for another reason", () => {
     // A NUL character makes the stat throw ERR_INVALID_ARG_VALUE, which is not
