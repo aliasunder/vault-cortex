@@ -84,10 +84,8 @@ These may change in any release:
   each result's fields stay as covered above
 - Raising a numeric limit's default, because a raise refuses nothing that
   worked before; lowering one is a breaking change
-- Adding a file type to `SYNC_FILE_TYPES`'s default. More of your vault's
-  files then reach the server, and the server uploads files of that type
-  that an agent writes, but nothing that synced before stops syncing; removing a type is a
-  breaking change
+- Adding a file type to `SYNC_FILE_TYPES`'s default, because every file
+  that synced before still syncs; removing one is a breaking change
 - Log format and log fields
 - Internal module layout and the search index's schema. The index is
   rebuilt from the vault at every start, so a schema change needs nothing
