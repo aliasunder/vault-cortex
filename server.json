@@ -88,7 +88,7 @@
         },
         {
           "name": "WINDOWS_MODE",
-          "description": "Windows bind-mount mode: enables filesystem polling for the file watcher and rename-based moves across the Docker Desktop/WSL2 bridge. Set to true when the vault lives on a Windows drive.",
+          "description": "Windows bind-mount mode: enables filesystem polling for the file watcher and rename-based moves and file creation across the Docker Desktop/WSL2 bridge. Set to true when the vault lives on a Windows drive.",
           "default": "false"
         },
         {
@@ -98,7 +98,7 @@
         },
         {
           "name": "FILE_TOOLS_ENABLED",
-          "description": "Enable or disable file tools (vault_read_file, vault_list_files). When false, file tools are hidden and server metadata omits file tool references.",
+          "description": "Enable or disable file tools (vault_read_file, vault_write_file, vault_list_files). When false, file tools are hidden and server metadata omits file tool references.",
           "default": "true"
         },
         {

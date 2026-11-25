@@ -195,6 +195,42 @@ describe("atomicWriteFile", () => {
     })
   })
 
+  /** The permission bits the process umask leaves on a file created with every
+   *  bit set, so the expected modes hold under any contributor's umask. */
+  const bitsTheUmaskKeeps = async (): Promise<number> => {
+    const probe = join(vault, "umask-probe")
+    await writeFile(probe, "", { mode: 0o777 })
+    return (await stat(probe)).mode & 0o777
+  }
+
+  it.each([
+    { label: "a private file", mode: 0o600 },
+    { label: "an executable script", mode: 0o755 },
+  ])("keeps the permission bits of $label it replaces", async ({ mode }) => {
+    const target = join(vault, "kept-mode.sh")
+    await writeFile(target, "before\n", "utf8")
+    await chmod(target, mode)
+
+    await atomicWriteFile({ filePath: target, content: "after\n" }, logger)
+
+    expect(await readFile(target, "utf8")).toBe("after\n")
+    expect((await stat(target)).mode & 0o777).toBe(mode & (await bitsTheUmaskKeeps()))
+  })
+
+  it("never copies the setuid, setgid or sticky bit of the file it replaces", async () => {
+    // Writing content clears setuid and setgid for a process without
+    // CAP_FSETID, but the sticky bit stays, so only the save's own mask drops it
+    const target = join(vault, "privileged.sh")
+    await writeFile(target, "before\n", "utf8")
+    await chmod(target, 0o7755)
+    expect((await stat(target)).mode & 0o7777).toBe(0o7755)
+
+    await atomicWriteFile({ filePath: target, content: "after\n" }, logger)
+
+    expect(await readFile(target, "utf8")).toBe("after\n")
+    expect((await stat(target)).mode & 0o7777).toBe(0o755 & (await bitsTheUmaskKeeps()))
+  })
+
   it("saves a note whose name is one byte under the filesystem's name limit", async () => {
     const target = join(vault, NAME_ONE_BYTE_UNDER_LIMIT)
 
@@ -3811,6 +3847,25 @@ describe("readAsset", () => {
     await expect(
       readAsset({ vaultPath: vault, path: "note.md", maxBytes: 1024 }, logger),
     ).rejects.toThrow(new Error('not a file: "note.md" is a markdown note'))
+  })
+
+  it("reads a file whose extension is .md in another letter case", async () => {
+    const bytes = Buffer.from("# Readme\n", "utf8")
+    await writeFile(join(vault, "README.MD"), bytes)
+
+    await expect(
+      readAsset({ vaultPath: vault, path: "README.MD", maxBytes: 1024 }, logger),
+    ).resolves.toEqual({ buffer: bytes, bytes: 9, extension: ".md" })
+  })
+
+  it.each([
+    { label: "a trailing slash", path: "note.md/" },
+    { label: "a trailing dot segment", path: "note.md/." },
+  ])("rejects a .md path hidden behind $label", async ({ path }) => {
+    await writeFile(join(vault, "note.md"), "# note", "utf8")
+    await expect(readAsset({ vaultPath: vault, path, maxBytes: 1024 }, logger)).rejects.toThrow(
+      new Error(`not a file: "${path}" is a markdown note`),
+    )
   })
 
   it("blocks path traversal out of the vault", async () => {

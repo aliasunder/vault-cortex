@@ -1,4 +1,4 @@
-/** Asset tool registration — reading and discovering non-markdown vault files. */
+/** Asset tool registration — reading, writing and discovering non-markdown vault files. */
 
 import { z } from "zod"
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js"
@@ -9,6 +9,7 @@ import type { FittedImage } from "../../../utils/fit-image-to-byte-budget.js"
 import { TOOL_NAMES } from "../tool-registry.js"
 import type { ToolRegistrationContext } from "./tool-helpers.js"
 import {
+  CONTENT_CONTROL_CHARACTER_ERROR_ENTRY,
   describeTextWindow,
   FILESYSTEM_ERROR_ENTRY,
   formatExtensionsOfKind,
@@ -230,6 +231,71 @@ Returns: by file type:
               break
           }
           return formatAssetReadResult(result)
+        },
+      )
+    },
+  )
+
+  registerTool(
+    TOOL_NAMES.VAULT_WRITE_FILE,
+    {
+      title: "Write File",
+      description: `Create a non-markdown text file, or with overwrite: true replace one.
+
+Example: vault_write_file({ path: "Boards/Roadmap.canvas", content: "{\\"nodes\\":[],\\"edges\\":[]}" })
+Example: vault_write_file({ path: "Bases/Books.base", content: "views:\\n  - type: table\\n    name: All\\n", overwrite: true })
+
+When to use: Editing a canvas, a Base or a data file (.json, .csv, .svg, .txt, a script) from a client without local file tools.${whenToolEnabledText("vault_read_file", " Read the current source first with vault_read_file (raw: true for a canvas), then write the whole file back with overwrite: true.")}${whenToolEnabledText("vault_write_note", " For .md notes use vault_write_note.")}
+
+Behavior: content is saved as given, encoded as UTF-8. An overwrite keeps no copy of the replaced file.
+
+Errors:
+- "file already exists" — set overwrite: true to replace it
+- "not a file: … is a markdown note" — the path ends in .md${whenToolEnabledText("vault_write_note", "; write notes with vault_write_note")}
+- "cannot write … as text" — the path names an image or a PDF; save it outside the server
+- "cannot write file …: that path is not a file" — a folder or a broken symlink already has this name; choose another path
+${PATH_SAFETY_ERROR_ENTRY}
+- "concurrent write in progress" — a write to this file is in flight; re-read it and retry
+${CONTENT_CONTROL_CHARACTER_ERROR_ENTRY}
+- "invalid .canvas JSON" / "invalid JSON" / "invalid .base YAML" — .canvas and .json must be valid JSON (a canvas: an object whose nodes and edges, when present, are arrays), .base YAML with a mapping, or nothing, at the top; fix what the message names
+- "cannot overwrite …: it holds binary data" — the file at the path holds a NUL byte near its start; replace or remove it outside the server, or write to another path
+${FILESYSTEM_ERROR_ENTRY}
+
+Obsidian syntax: .canvas is JSON Canvas 1.0: nodes carry id, type (text, file, link or group), x, y, width and height, plus text, file, url or label; edges carry id, fromNode and toNode. .base is Obsidian Bases YAML (filters, formulas, properties, views).
+
+Returns: "Wrote <path>".`,
+      inputSchema: {
+        path: z
+          .string()
+          .min(1)
+          .describe(
+            'Vault-relative path including the extension (e.g. "Boards/Roadmap.canvas"). Must NOT end in ".md", ".MD" or another casing of it. Parent folders are created as needed. Use the exact letter case.',
+          ),
+        content: z.string().describe("The file's complete text."),
+        overwrite: z
+          .boolean()
+          .optional()
+          .default(false)
+          .describe("Allow replacing an existing file (default: false)."),
+      },
+    },
+    async ({ path, content, overwrite }, extra) => {
+      const reqLogger = sessionLogger.child({
+        requestId: extra.requestId,
+        tool: TOOL_NAMES.VAULT_WRITE_FILE,
+      })
+      reqLogger.info("tool_call", { path, overwrite })
+      return safeHandler(
+        reqLogger,
+        () => {
+          return assetOperations.writeAssetContent(
+            { vaultPath, path, content, overwrite, windowsBindMount: config.windowsBindMount },
+            reqLogger,
+          )
+        },
+        () => {
+          reqLogger.info("tool_result", { outcome: "written" })
+          return `Wrote ${path}`
         },
       )
     },

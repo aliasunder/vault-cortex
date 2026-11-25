@@ -1,4 +1,5 @@
 import { posix } from "node:path"
+import { stripLeadingBom } from "./frontmatter.js"
 import { links } from "./links.js"
 
 /**
@@ -173,6 +174,41 @@ const displayName = (node: CanvasNode): string => {
   return `(${node.type} node)`
 }
 
+// An edge line names both of its endpoints, and one node can sit on every
+// edge, so a long name would repeat into each line. 100 code points still
+// tells cards apart in the list, and each node's own section keeps its full
+// text.
+const EDGE_NAME_CODE_POINT_LIMIT = 100
+
+const graphemeSegmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" })
+
+/** Cuts the node's display name to whole graphemes within
+ *  EDGE_NAME_CODE_POINT_LIMIT code points, ending in an ellipsis when anything
+ *  was cut. */
+const edgeLineName = (node: CanvasNode): string => {
+  const name = displayName(node)
+
+  // A string never holds more code points than UTF-16 units.
+  if (name.length <= EDGE_NAME_CODE_POINT_LIMIT) return name
+
+  const codePointPrefix = name[Symbol.iterator]()
+    .take(EDGE_NAME_CODE_POINT_LIMIT)
+    .toArray()
+    .join("")
+  const cutIndex = codePointPrefix.length
+  const nameFitsLimit = cutIndex === name.length
+
+  if (nameFitsLimit) return name
+
+  // Whether the cut splits a grapheme depends on the text before it and the
+  // one code point after it, at most two UTF-16 units.
+  const graphemeAtCut = graphemeSegmenter.segment(name.slice(0, cutIndex + 2)).containing(cutIndex)
+
+  // cutIndex is inside the segmented text, so a segment always contains it.
+  if (!graphemeAtCut) throw new Error(`no grapheme contains index ${cutIndex}`)
+  return `${name.slice(0, graphemeAtCut.index)}…`
+}
+
 /** One node's rendition: a `[type]` marker, then its content. */
 const renderNode = (node: CanvasNode): string => {
   if (node.type === "text") return `[text]\n${node.text ?? ""}`
@@ -202,6 +238,12 @@ const groupHeading = (group: CanvasNode, depth: number): string => {
   // H1 is the overview, so groups start at H2 and deeper groups cap at H6.
   const heading = "#".repeat(Math.min(2 + depth, 6))
   return `${heading} Group: ${group.label ?? "(unlabeled)"}`
+}
+
+/** One node's section when groups are not nested: a group becomes a top-level heading. */
+const renderFlatNode = (node: CanvasNode): string => {
+  if (node.type === "group") return groupHeading(node, 0)
+  return renderNode(node)
 }
 
 /** Groups a list by a key function, preserving each bucket's insertion order. */
@@ -259,13 +301,11 @@ const renderNestedNodes = ({
 
 /** Parses canvas JSON with a contextual error message on failure. */
 const parseCanvasJson = (canvasJson: string): unknown => {
-  // Callers pass a Canvas's text as saved, so a leading byte-order mark from a Windows editor
-  // reaches here. JSON.parse rejects the mark, and RFC 8259 §8.1 lets a JSON parser skip it:
-  // https://www.rfc-editor.org/rfc/rfc8259#section-8.1
-  const jsonText = canvasJson.startsWith("\uFEFF") ? canvasJson.slice(1) : canvasJson
-
   try {
-    return JSON.parse(jsonText)
+    // Callers pass a Canvas's text as saved, so a leading byte-order mark from a Windows editor
+    // reaches here. JSON.parse rejects the mark, and RFC 8259 §8.1 lets a JSON parser skip it:
+    // https://www.rfc-editor.org/rfc/rfc8259#section-8.1
+    return JSON.parse(stripLeadingBom(canvasJson))
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     throw new Error(`invalid .canvas JSON: ${message}`, { cause: error })
@@ -273,10 +313,33 @@ const parseCanvasJson = (canvasJson: string): unknown => {
 }
 
 /**
+ * Throws unless the text parses as JSON Canvas 1.0's top level
+ * (https://jsoncanvas.org/spec/1.0/), which is stricter than linearizeCanvas,
+ * a reader that accepts any JSON:
+ * - the top level is an object, and `{}` is an empty canvas;
+ * - `nodes` and `edges` are arrays when present, as the spec makes both optional.
+ */
+export const assertCanvasTopLevel = (canvasJson: string): void => {
+  const parsed = parseCanvasJson(canvasJson)
+
+  if (!isRecord(parsed)) {
+    throw new Error("invalid .canvas JSON: the top level must be an object")
+  }
+  for (const listKey of ["nodes", "edges"]) {
+    // A null list is refused: the spec types each list as an array, and a
+    // canvas without one leaves the key out instead of setting it to null
+    if (parsed[listKey] !== undefined && !Array.isArray(parsed[listKey])) {
+      throw new Error(`invalid .canvas JSON: "${listKey}" must be an array`)
+    }
+  }
+}
+
+/**
  * Linearizes .canvas JSON into readable markdown: an overview line, ungrouped
  * node content first, each group's content under a `Group:` heading (nested
  * groups one level deeper), then a `Connections` edge list in `A → B (label)`
- * form with ids resolved to display names. A canvas too large for nesting
+ * form with ids resolved to display names, each cut at
+ * EDGE_NAME_CODE_POINT_LIMIT code points. A canvas too large for nesting
  * (see canNestCanvasGroups) keeps node content and group headings flat, in
  * reading order. Throws on unparseable JSON. Every valid node is rendered
  * once, even when IDs repeat; an edge to a repeated ID names the last such
@@ -301,12 +364,14 @@ export const linearizeCanvas = (canvasJson: string): string => {
   })
   const nodeSections = keepNesting
     ? renderNestedNodes({ contentNodes, groups })
-    : nodes.map((node) => (node.type === "group" ? groupHeading(node, 0) : renderNode(node)))
+    : nodes.map(renderFlatNode)
 
-  const nodeById = new Map(nodes.map((node) => [node.id, node]))
+  // Each node's name is worked out once, because an edge list can name the
+  // same node on every line and a text card's name scans its whole text.
+  // A later node with a repeated ID replaces the earlier one's entry.
+  const edgeNameById = new Map(nodes.map((node) => [node.id, edgeLineName(node)]))
   const edgeEndpointName = (id: string): string => {
-    const node = nodeById.get(id)
-    return node ? displayName(node) : `(missing node "${id}")`
+    return edgeNameById.get(id) ?? `(missing node "${id}")`
   }
 
   const edgeLines = edges.map((edge) => {

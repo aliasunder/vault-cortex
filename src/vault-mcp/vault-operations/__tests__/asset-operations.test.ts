@@ -1,15 +1,26 @@
 import { describe, it, expect, vi, beforeEach, onTestFinished } from "vitest"
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  readlink,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { dirname, join } from "node:path"
 import { assetOperations } from "../asset-operations.js"
 import type { PdfExtractor } from "../pdf-extractor.js"
 import { logger } from "../../../logger.js"
 
-vi.mock("../vault-filesystem.js", () => ({
-  vaultFs: {
-    readAsset: vi.fn(),
-    listAssets: vi.fn(),
-    statAssets: vi.fn(),
-  },
-}))
+// Every vault-filesystem export becomes a pass-through spy: the read tests
+// stub vaultFs, and the write tests run on a real temporary vault.
+vi.mock("../vault-filesystem.js", { spy: true })
+// The fs helpers are pass-through spies too, so one write test can delete a
+// file between the write's existence check and its binary check.
+vi.mock("../../../utils/fs.js", { spy: true })
 
 const {
   mockDestroy,
@@ -45,8 +56,10 @@ vi.mock("../../../utils/fit-image-to-byte-budget.js", () => ({
   fitImageToByteBudget: vi.fn(),
 }))
 
-import { vaultFs } from "../vault-filesystem.js"
+import { atomicWriteFileExclusive, vaultFs } from "../vault-filesystem.js"
 import { fitImageToByteBudget } from "../../../utils/fit-image-to-byte-budget.js"
+import { readFileBytePrefixOrNull, statOrNull } from "../../../utils/fs.js"
+import { withExclusiveFileLock } from "../../../utils/file-write-lock.js"
 
 const mockedReadAsset = vi.mocked(vaultFs.readAsset)
 const mockedListAssets = vi.mocked(vaultFs.listAssets)
@@ -970,4 +983,478 @@ describe("buildAssetListing", () => {
     })
     expect(elapsedMs).toBeLessThan(1_000)
   })
+})
+
+// ── writeAssetContent ─────────────────────────────────────────────
+
+const actualVaultFilesystem =
+  await vi.importActual<typeof import("../vault-filesystem.js")>("../vault-filesystem.js")
+const mockedAtomicWriteFileExclusive = vi.mocked(atomicWriteFileExclusive)
+const actualFs =
+  await vi.importActual<typeof import("../../../utils/fs.js")>("../../../utils/fs.js")
+const mockedReadFileBytePrefixOrNull = vi.mocked(readFileBytePrefixOrNull)
+const mockedStatOrNull = vi.mocked(statOrNull)
+
+const makeTempVault = async (): Promise<string> => {
+  const vaultPath = await mkdtemp(join(tmpdir(), "asset-write-test-"))
+  onTestFinished(async () => {
+    await rm(vaultPath, { recursive: true, force: true })
+  })
+  return vaultPath
+}
+
+/** Bytes that hold a NUL inside the read side's 8,000-byte binary window. */
+const BINARY_BYTES = Buffer.from([0x89, 0x50, 0x00, 0x01, 0x02])
+
+const writeDefaults = { overwrite: false, windowsBindMount: false }
+
+/** The message an operation rejects with, or null when it succeeds. */
+const findRejectionMessage = async (operation: Promise<unknown>): Promise<string | null> => {
+  try {
+    await operation
+    return null
+  } catch (error) {
+    return String(error)
+  }
+}
+
+describe("writeAssetContent — creating", () => {
+  it("refuses creating a file while another write to the same path is in flight, creating nothing", async () => {
+    const vaultPath = await makeTempVault()
+    const { promise: inFlightWrite, resolve: finishInFlightWrite } =
+      Promise.withResolvers<undefined>()
+    const heldLock = withExclusiveFileLock(
+      join(vaultPath, "Boards/new.canvas"),
+      () => inFlightWrite,
+    )
+    onTestFinished(async () => {
+      finishInFlightWrite(undefined)
+      await heldLock
+    })
+
+    await expect(
+      assetOperations.writeAssetContent(
+        { ...writeDefaults, vaultPath, path: "Boards/new.canvas", content: "{}" },
+        logger,
+      ),
+    ).rejects.toThrow(new Error("concurrent write in progress"))
+    expect(await readdir(vaultPath)).toEqual([])
+  })
+
+  it("creates a file with the exact content, making its parent folders", async () => {
+    const vaultPath = await makeTempVault()
+    const content = '{"nodes":[],"edges":[]}'
+
+    await assetOperations.writeAssetContent(
+      { ...writeDefaults, vaultPath, path: "Boards/Q4/plan.canvas", content },
+      logger,
+    )
+
+    expect(await readFile(join(vaultPath, "Boards/Q4/plan.canvas"), "utf8")).toBe(content)
+  })
+
+  it("keeps a byte-order mark and CRLF line endings byte for byte", async () => {
+    const vaultPath = await makeTempVault()
+    const content = `${String.fromCodePoint(0xfeff)}views:\r\n  - type: table\r\n`
+
+    await assetOperations.writeAssetContent(
+      { ...writeDefaults, vaultPath, path: "Bases/books.base", content },
+      logger,
+    )
+
+    expect(await readFile(join(vaultPath, "Bases/books.base"))).toEqual(
+      Buffer.from(content, "utf8"),
+    )
+  })
+
+  it("refuses an existing file without overwrite and leaves it unchanged", async () => {
+    const vaultPath = await makeTempVault()
+    await writeFile(join(vaultPath, "notes.txt"), "original", "utf8")
+
+    await expect(
+      assetOperations.writeAssetContent(
+        { ...writeDefaults, vaultPath, path: "notes.txt", content: "replacement" },
+        logger,
+      ),
+    ).rejects.toThrow(new Error('file already exists: "notes.txt"'))
+    expect(await readFile(join(vaultPath, "notes.txt"), "utf8")).toBe("original")
+  })
+
+  it.each([
+    {
+      label: "a create with hard links",
+      overwrite: false,
+      windowsBindMount: false,
+      hardLinksSupported: true,
+    },
+    {
+      label: "a create on a Windows bind mount",
+      overwrite: false,
+      windowsBindMount: true,
+      hardLinksSupported: false,
+    },
+    {
+      label: "an overwrite of a path that was missing",
+      overwrite: true,
+      windowsBindMount: false,
+      hardLinksSupported: true,
+    },
+  ])(
+    "never replaces a file that appears after the existence check ($label)",
+    async ({ overwrite, windowsBindMount, hardLinksSupported }) => {
+      const vaultPath = await makeTempVault()
+      const filePath = join(vaultPath, "plan.canvas")
+      // Stands in for Obsidian Sync writing the same path between the check and the save
+      mockedAtomicWriteFileExclusive.mockImplementationOnce(async (params, saveLogger) => {
+        await writeFile(filePath, "from sync", "utf8")
+        return actualVaultFilesystem.atomicWriteFileExclusive(params, saveLogger)
+      })
+
+      await expect(
+        assetOperations.writeAssetContent(
+          { vaultPath, path: "plan.canvas", content: "{}", overwrite, windowsBindMount },
+          logger,
+        ),
+      ).rejects.toThrow(new Error('file already exists: "plan.canvas"'))
+      expect(await readFile(filePath, "utf8")).toBe("from sync")
+      expect(await readdir(vaultPath)).toEqual(["plan.canvas"])
+      // The save turns hard links off exactly on a Windows bind mount
+      expect(mockedAtomicWriteFileExclusive).toHaveBeenCalledTimes(1)
+      expect(mockedAtomicWriteFileExclusive).toHaveBeenCalledWith(
+        { filePath, content: "{}", hardLinksSupported },
+        logger,
+      )
+    },
+  )
+
+  it("creates a missing file when overwrite is set", async () => {
+    const vaultPath = await makeTempVault()
+
+    await assetOperations.writeAssetContent(
+      { ...writeDefaults, vaultPath, path: "Scratch/new.json", content: "[]", overwrite: true },
+      logger,
+    )
+
+    expect(await readFile(join(vaultPath, "Scratch/new.json"), "utf8")).toBe("[]")
+  })
+
+  it("refuses a folder at the path", async () => {
+    const vaultPath = await makeTempVault()
+    await mkdir(join(vaultPath, "exports.json"))
+
+    await expect(
+      assetOperations.writeAssetContent(
+        { ...writeDefaults, vaultPath, path: "exports.json", content: "{}", overwrite: true },
+        logger,
+      ),
+    ).rejects.toThrow(new Error('cannot write file "exports.json": that path is not a file'))
+  })
+
+  it.each([
+    { label: "a create", overwrite: false },
+    { label: "an overwrite", overwrite: true },
+  ])(
+    "refuses a broken symlink at the path and leaves it in place ($label)",
+    async ({ overwrite }) => {
+      const vaultPath = await makeTempVault()
+      const missingTarget = join(vaultPath, "missing.json")
+      await symlink(missingTarget, join(vaultPath, "broken.json"))
+
+      await expect(
+        assetOperations.writeAssetContent(
+          { ...writeDefaults, vaultPath, path: "broken.json", content: "{}", overwrite },
+          logger,
+        ),
+      ).rejects.toThrow(new Error('cannot write file "broken.json": that path is not a file'))
+      expect(await readlink(join(vaultPath, "broken.json"))).toBe(missingTarget)
+      expect(await readdir(vaultPath)).toEqual(["broken.json"])
+    },
+  )
+
+  it("refuses a file that appears between the existence check and the link check as existing", async () => {
+    const vaultPath = await makeTempVault()
+    await writeFile(join(vaultPath, "plan.json"), "from sync", "utf8")
+    // Stands in for Obsidian Sync writing the path just after the existence check missed it
+    mockedStatOrNull.mockResolvedValueOnce(null)
+
+    await expect(
+      assetOperations.writeAssetContent(
+        { ...writeDefaults, vaultPath, path: "plan.json", content: "{}", overwrite: true },
+        logger,
+      ),
+    ).rejects.toThrow(new Error('file already exists: "plan.json"'))
+    expect(await readFile(join(vaultPath, "plan.json"), "utf8")).toBe("from sync")
+    expect(await readdir(vaultPath)).toEqual(["plan.json"])
+    expect(mockedStatOrNull).toHaveBeenCalledTimes(1)
+    expect(mockedStatOrNull).toHaveBeenCalledWith(join(vaultPath, "plan.json"))
+  })
+
+  it("refuses a symlink to a folder and leaves the link in place", async () => {
+    const vaultPath = await makeTempVault()
+    await mkdir(join(vaultPath, "real-folder"))
+    await symlink(join(vaultPath, "real-folder"), join(vaultPath, "linked.json"))
+
+    await expect(
+      assetOperations.writeAssetContent(
+        { ...writeDefaults, vaultPath, path: "linked.json", content: "{}", overwrite: true },
+        logger,
+      ),
+    ).rejects.toThrow(new Error('cannot write file "linked.json": that path is not a file'))
+    expect(await readlink(join(vaultPath, "linked.json"))).toBe(join(vaultPath, "real-folder"))
+  })
+})
+
+describe("writeAssetContent — refusals before any file is written", () => {
+  it.each([
+    {
+      label: "a markdown note",
+      path: "Projects/plan.md",
+      content: "# Plan",
+      message: 'not a file: "Projects/plan.md" is a markdown note',
+    },
+    {
+      label: "a markdown note named in another letter case",
+      path: "Projects/Plan.MD",
+      content: "# Plan",
+      message: 'not a file: "Projects/Plan.MD" is a markdown note',
+    },
+    {
+      label: "a markdown note named with a trailing slash",
+      path: "Projects/plan.md/",
+      content: "# Plan",
+      message: 'not a file: "Projects/plan.md/" is a markdown note',
+    },
+    {
+      label: 'an image named with a trailing "/."',
+      path: "attachments/diagram.png/.",
+      content: "<svg/>",
+      message: 'cannot write "attachments/diagram.png/." as text: images and PDFs are binary files',
+    },
+    {
+      label: 'a canvas named with a trailing "/." that is not an object',
+      path: "Boards/plan.canvas/.",
+      content: "[]",
+      message: "invalid .canvas JSON: the top level must be an object",
+    },
+    {
+      label: "an image",
+      path: "attachments/diagram.png",
+      content: "<svg/>",
+      message: 'cannot write "attachments/diagram.png" as text: images and PDFs are binary files',
+    },
+    {
+      label: "a PDF",
+      path: "papers/report.PDF",
+      content: "text",
+      message: 'cannot write "papers/report.PDF" as text: images and PDFs are binary files',
+    },
+    {
+      label: "content with a control character",
+      path: "notes/todo.txt",
+      content: "a\u0007b",
+      message:
+        "content contains a control character (U+0007 at position 1) — control characters other than tab, LF, and CR are not allowed",
+    },
+    {
+      label: "a canvas that is not an object",
+      path: "Boards/plan.canvas",
+      content: "[]",
+      message: "invalid .canvas JSON: the top level must be an object",
+    },
+  ])("refuses $label", async ({ path, content, message }) => {
+    const vaultPath = await makeTempVault()
+
+    await expect(
+      assetOperations.writeAssetContent({ ...writeDefaults, vaultPath, path, content }, logger),
+    ).rejects.toThrow(new Error(message))
+    expect(await readdir(vaultPath)).toEqual([])
+  })
+
+  it("refuses a hidden path before checking the content", async () => {
+    const vaultPath = await makeTempVault()
+
+    await expect(
+      assetOperations.writeAssetContent(
+        { ...writeDefaults, vaultPath, path: ".obsidian/app.json", content: "not json" },
+        logger,
+      ),
+    ).rejects.toThrow(
+      new Error('hidden path blocked: ".obsidian/app.json" targets a hidden file or folder'),
+    )
+    expect(await readdir(vaultPath)).toEqual([])
+  })
+})
+
+describe("writeAssetContent — overwriting", () => {
+  it("replaces an existing file with overwrite", async () => {
+    const vaultPath = await makeTempVault()
+    await writeFile(join(vaultPath, "data.csv"), "a,b\n1,2\n", "utf8")
+
+    await assetOperations.writeAssetContent(
+      { ...writeDefaults, vaultPath, path: "data.csv", content: "a,b\n3,4\n", overwrite: true },
+      logger,
+    )
+
+    expect(await readFile(join(vaultPath, "data.csv"), "utf8")).toBe("a,b\n3,4\n")
+    expect(await readdir(vaultPath)).toEqual(["data.csv"])
+  })
+
+  it("refuses a write while another write to the same file is in flight, leaving it unchanged", async () => {
+    const vaultPath = await makeTempVault()
+    await writeFile(join(vaultPath, "data.csv"), "a,b\n1,2\n", "utf8")
+    const { promise: inFlightWrite, resolve: finishInFlightWrite } =
+      Promise.withResolvers<undefined>()
+    const heldLock = withExclusiveFileLock(join(vaultPath, "data.csv"), () => inFlightWrite)
+    onTestFinished(async () => {
+      finishInFlightWrite(undefined)
+      await heldLock
+    })
+
+    await expect(
+      assetOperations.writeAssetContent(
+        { ...writeDefaults, vaultPath, path: "data.csv", content: "a,b\n3,4\n", overwrite: true },
+        logger,
+      ),
+    ).rejects.toThrow(new Error("concurrent write in progress"))
+    expect(await readFile(join(vaultPath, "data.csv"), "utf8")).toBe("a,b\n1,2\n")
+  })
+
+  it.each([
+    { label: "an extensionless file", path: "backups/vault" },
+    { label: "an HTML page", path: "exports/page.html" },
+    { label: "a script", path: "scripts/run.py" },
+  ])("refuses to replace $label that holds binary data", async ({ path }) => {
+    const vaultPath = await makeTempVault()
+    await mkdir(join(vaultPath, dirname(path)), { recursive: true })
+    await writeFile(join(vaultPath, path), BINARY_BYTES)
+
+    await expect(
+      assetOperations.writeAssetContent(
+        { ...writeDefaults, vaultPath, path, content: "text", overwrite: true },
+        logger,
+      ),
+    ).rejects.toThrow(
+      new Error(
+        `cannot overwrite "${path}": it holds binary data (a NUL byte in its first 8,000 bytes). ` +
+          "Replace or remove it outside the server, or write to another path",
+      ),
+    )
+    expect(await readFile(join(vaultPath, path))).toEqual(BINARY_BYTES)
+  })
+
+  it.each([
+    { label: "a NUL-padded log", path: "logs/app.log", content: "fresh log\n" },
+    { label: "a canvas holding a NUL", path: "Boards/plan.canvas", content: "{}" },
+  ])(
+    "replaces $label, which vault_read_file does not refuse as binary",
+    async ({ path, content }) => {
+      const vaultPath = await makeTempVault()
+      await mkdir(join(vaultPath, dirname(path)), { recursive: true })
+      await writeFile(join(vaultPath, path), Buffer.from("old\u0000\u0000\u0000", "utf8"))
+
+      await assetOperations.writeAssetContent(
+        { ...writeDefaults, vaultPath, path, content, overwrite: true },
+        logger,
+      )
+
+      expect(await readFile(join(vaultPath, path), "utf8")).toBe(content)
+    },
+  )
+
+  it("replaces an extensionless file whose first NUL byte sits past the 8,000-byte window", async () => {
+    const vaultPath = await makeTempVault()
+    const lateNulBytes = Buffer.concat([Buffer.alloc(8_000, 0x61), Buffer.from([0x00])])
+    await writeFile(join(vaultPath, "notes"), lateNulBytes)
+
+    await assetOperations.writeAssetContent(
+      { ...writeDefaults, vaultPath, path: "notes", content: "short", overwrite: true },
+      logger,
+    )
+
+    expect(await readFile(join(vaultPath, "notes"), "utf8")).toBe("short")
+  })
+
+  it("refuses to replace an extensionless file whose NUL byte is the window's last byte", async () => {
+    const vaultPath = await makeTempVault()
+    const edgeNulBytes = Buffer.concat([Buffer.alloc(7_999, 0x61), Buffer.from([0x00])])
+    await writeFile(join(vaultPath, "notes"), edgeNulBytes)
+
+    await expect(
+      assetOperations.writeAssetContent(
+        { ...writeDefaults, vaultPath, path: "notes", content: "short", overwrite: true },
+        logger,
+      ),
+    ).rejects.toThrow(
+      new Error(
+        'cannot overwrite "notes": it holds binary data (a NUL byte in its first 8,000 bytes). ' +
+          "Replace or remove it outside the server, or write to another path",
+      ),
+    )
+    expect(await readFile(join(vaultPath, "notes"))).toEqual(edgeNulBytes)
+  })
+
+  it("writes the file when it is deleted between the existence check and the binary check", async () => {
+    const vaultPath = await makeTempVault()
+    const filePath = join(vaultPath, "exports/page.html")
+    await mkdir(join(vaultPath, "exports"))
+    await writeFile(filePath, BINARY_BYTES)
+    // Stands in for Obsidian Sync deleting the file after the write found it
+    mockedReadFileBytePrefixOrNull.mockImplementationOnce(async (params) => {
+      await rm(filePath)
+      return actualFs.readFileBytePrefixOrNull(params)
+    })
+
+    await assetOperations.writeAssetContent(
+      {
+        ...writeDefaults,
+        vaultPath,
+        path: "exports/page.html",
+        content: "<p>new</p>",
+        overwrite: true,
+      },
+      logger,
+    )
+
+    expect(mockedReadFileBytePrefixOrNull).toHaveBeenCalledTimes(1)
+    expect(await readFile(filePath, "utf8")).toBe("<p>new</p>")
+  })
+
+  it.each([
+    { kind: "text", path: "logs/app.log", readRefusesAsBinary: false },
+    { kind: "canvas", path: "Boards/plan.canvas", readRefusesAsBinary: false },
+    { kind: "html", path: "exports/page.html", readRefusesAsBinary: true },
+    { kind: "script", path: "scripts/run.sh", readRefusesAsBinary: true },
+    { kind: "other", path: "backups/vault", readRefusesAsBinary: true },
+  ])(
+    "refuses to replace a $kind file exactly when vault_read_file refuses it as binary",
+    async ({ path, readRefusesAsBinary }) => {
+      const vaultPath = await makeTempVault()
+      await mkdir(join(vaultPath, dirname(path)), { recursive: true })
+      await writeFile(join(vaultPath, path), BINARY_BYTES)
+      // The read stub serves the same bytes the write inspects on disk
+      mockedReadAsset.mockResolvedValue({
+        buffer: BINARY_BYTES,
+        bytes: BINARY_BYTES.length,
+        extension: "",
+      })
+
+      const readRefusal = await findRejectionMessage(
+        assetOperations.readAssetContent({ ...defaultParams, vaultPath, path, raw: true }, logger),
+      )
+      const writeRefusal = await findRejectionMessage(
+        assetOperations.writeAssetContent(
+          { ...writeDefaults, vaultPath, path, content: "{}", overwrite: true },
+          logger,
+        ),
+      )
+
+      expect({
+        readRefusesAsBinary: readRefusal?.includes("unsupported file type") ?? false,
+        writeRefusesAsBinary: writeRefusal?.includes("it holds binary data") ?? false,
+      }).toEqual({
+        readRefusesAsBinary,
+        writeRefusesAsBinary: readRefusesAsBinary,
+      })
+    },
+  )
 })

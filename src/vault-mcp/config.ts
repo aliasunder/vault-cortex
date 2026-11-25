@@ -84,7 +84,7 @@ export type VaultConfig = Readonly<{
   /** When false, the memory layer is fully disabled — bootstrap is skipped,
    *  memory tools are hidden, and server metadata omits memory references. */
   memoryEnabled: boolean
-  /** When false, file tools (vault_read_file, vault_list_files) are hidden —
+  /** When false, file tools (vault_read_file, vault_write_file, vault_list_files) are hidden —
    *  tool registration is skipped and server metadata omits file tool
    *  references. File config vars are still parsed when disabled. */
   fileToolsEnabled: boolean
@@ -150,7 +150,8 @@ export type VaultConfig = Readonly<{
   /** "Windows mode": the vault is bind-mounted from a Windows drive into Docker
    *  Desktop, so it crosses the Docker Desktop ↔ WSL2 bridge. Enables filesystem
    *  polling for the watcher (inotify doesn't cross the bridge) and a
-   *  rename-based exclusive write for moves (hard links aren't supported there).
+   *  rename-based exclusive write for note moves and the new files
+   *  vault_write_file creates (hard links aren't supported there).
    *  Set via WINDOWS_MODE; safe to leave on for any Windows setup. */
   windowsBindMount: boolean
   /** Per-read byte cap for vault_read_file (memory guard); a PDF above it is found in search

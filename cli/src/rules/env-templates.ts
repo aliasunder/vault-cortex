@@ -86,8 +86,10 @@ RERANK_MODE=blended
 # Set to false to hide memory tools and skip memory-folder creation.
 # MEMORY_DIR still supplies default protected folders and orphan exclusions when false.
 MEMORY_ENABLED=true
-# Enable or disable file tools — vault_read_file and vault_list_files (default: true).
-# Set to false when Obsidian Sync has attachment syncing disabled.
+# Enable or disable file tools — vault_read_file, vault_write_file and
+# vault_list_files (default: true).
+# To keep reading files but turn off writing them, set
+# DISABLED_TOOLS=vault_write_file.
 FILE_TOOLS_ENABLED=true
 # Run the server in read-only mode (default: false).
 # Set to true to hide every tool that changes the vault — clients can only
@@ -201,8 +203,8 @@ LOG_DIR=none
 # LOG_MAX_DAILY_MB=25
 
 # Windows users: set this to true. Makes a vault stored on a C: drive work
-# through Docker Desktop (switches the file watcher to polling and note moves
-# to rename-based writes). Only strictly needed when your vault is on a C:
+# through Docker Desktop (switches the file watcher to polling, and note moves
+# and new files to rename-based writes). Only strictly needed when your vault is on a C:
 # drive rather than inside WSL2, but harmless to enable for any Windows setup.
 WINDOWS_MODE=false
 `
@@ -243,8 +245,8 @@ RERANK_MODE=blended
 
 # Windows bind-mount mode (default: false).
 # Set to true when your vault is on a Windows drive (Docker Desktop).
-# Enables polling for the file watcher and rename-based moves across
-# the Docker Desktop/WSL2 bridge.
+# Enables polling for the file watcher and rename-based moves and file
+# creation across the Docker Desktop/WSL2 bridge.
 WINDOWS_MODE=false
 
 # Largest file vault_read_file will read, in bytes (default: 52428800 = 50 MiB).
@@ -267,8 +269,10 @@ MAX_PDF_RENDER_PAGES=5
 # Set to false to hide memory tools and skip memory-folder creation.
 # MEMORY_DIR still supplies default protected folders and orphan exclusions when false.
 MEMORY_ENABLED=true
-# Enable or disable file tools — vault_read_file and vault_list_files (default: true).
-# Set to false when Obsidian Sync has attachment syncing disabled.
+# Enable or disable file tools — vault_read_file, vault_write_file and
+# vault_list_files (default: true).
+# To keep reading files but turn off writing them, set
+# DISABLED_TOOLS=vault_write_file.
 FILE_TOOLS_ENABLED=true
 # Run the server in read-only mode (default: false).
 # Set to true to hide every tool that changes the vault — clients can only
@@ -408,15 +412,16 @@ SYNC_EXCLUDED_FOLDERS=
 # Sync → "Selective sync".
 #   Valid values: image | audio | video | pdf | unsupported
 #   Empty (default): image,audio,video,pdf
-# The text files Vault Cortex reads (CSV, JSON, TXT, HTML, scripts and other
-# UTF-8 files) fall under "unsupported", Obsidian Sync's name for its "Sync
-# all other types" category; SVG syncs as "image", and notes, canvases, and
-# bases always sync.
-# To read those text files, set
+# The text files Vault Cortex reads and writes (CSV, JSON, TXT, HTML, scripts
+# and other UTF-8 files) fall under "unsupported", Obsidian Sync's name for its
+# "Sync all other types" category; SVG syncs as "image", and notes, canvases,
+# and bases always sync.
+# To read those text files, or sync the ones an agent writes, set
 # SYNC_FILE_TYPES=image,audio,video,pdf,unsupported (the value replaces the
 # default list, so keep the four defaults) and turn on "Sync all other types"
-# in Obsidian's Sync settings on the device that has them. An invalid value
-# is skipped with a warning in the logs, and the default types sync instead.
+# in Obsidian's Sync settings on every device that holds or should receive
+# those files. An invalid value is skipped with a warning in the logs, and the
+# default types sync instead.
 SYNC_FILE_TYPES=
 
 # Obsidian settings categories to sync into the server's .obsidian/ folder

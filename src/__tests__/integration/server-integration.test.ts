@@ -160,7 +160,7 @@ describe("default config", () => {
   })
 
   describe("surface", () => {
-    it("lists 33 tools", async () => {
+    it("lists 34 tools", async () => {
       const names = await toolNames(client)
       expect(names).toEqual([
         "vault_create_task",
@@ -195,6 +195,7 @@ describe("default config", () => {
         "vault_update_memory",
         "vault_update_properties",
         "vault_update_task",
+        "vault_write_file",
         "vault_write_note",
       ])
     })
@@ -1447,6 +1448,40 @@ describe("default config", () => {
       expect(text).toContain('"fromNode": "1"')
     })
 
+    it("vault_write_file — creates a canvas, then replaces it, as vault_read_file returns it", async () => {
+      const canvasPath = "Scratch/written.canvas"
+      onTestFinished(() => rm(join(vaultPath, canvasPath), { force: true }))
+      const firstCanvas = '{"nodes":[],"edges":[]}'
+      const secondCanvas =
+        '{"nodes":[{"id":"n1","type":"text","text":"Zebra card","x":0,"y":0,"width":200,"height":80}],"edges":[]}'
+
+      const created = await callTool({
+        client,
+        name: "vault_write_file",
+        args: { path: canvasPath, content: firstCanvas },
+      })
+      const createdReadback = await callTool({
+        client,
+        name: "vault_read_file",
+        args: { path: canvasPath, raw: true },
+      })
+      const replaced = await callTool({
+        client,
+        name: "vault_write_file",
+        args: { path: canvasPath, content: secondCanvas, overwrite: true },
+      })
+      const readback = await callTool({
+        client,
+        name: "vault_read_file",
+        args: { path: canvasPath, raw: true },
+      })
+
+      expect(textContent(created)).toBe(`Wrote ${canvasPath}`)
+      expect(textContent(createdReadback)).toBe(firstCanvas)
+      expect(textContent(replaced)).toBe(`Wrote ${canvasPath}`)
+      expect(textContent(readback)).toBe(secondCanvas)
+    })
+
     it("vault_read_file — text with line paging", async () => {
       const result = await callTool({
         client,
@@ -1899,6 +1934,7 @@ describe("READONLY_MODE=true", () => {
     expect(names).not.toContain("vault_update_memory")
     expect(names).not.toContain("vault_delete_memory")
     expect(names).not.toContain("vault_update_task")
+    expect(names).not.toContain("vault_write_file")
     expect(names).toContain("vault_search")
   })
 
@@ -1946,7 +1982,7 @@ describe("READONLY_MODE=true", () => {
   })
 })
 
-// ── DISABLED_TOOLS (selective, 30 tools) ──────────────────────
+// ── DISABLED_TOOLS (selective, 31 tools) ──────────────────────
 
 describe("DISABLED_TOOLS=vault_delete_note,vault_move_note,vault_delete_memory", () => {
   let client: Client
@@ -1968,9 +2004,9 @@ describe("DISABLED_TOOLS=vault_delete_note,vault_move_note,vault_delete_memory",
     }
   })
 
-  it("lists 30 tools with expected survivors", async () => {
+  it("lists 31 tools with expected survivors", async () => {
     const names = await toolNames(client)
-    expect(names).toHaveLength(30)
+    expect(names).toHaveLength(31)
     expect(names).not.toContain("vault_delete_note")
     expect(names).not.toContain("vault_move_note")
     expect(names).not.toContain("vault_delete_memory")
@@ -2028,9 +2064,9 @@ describe("DISABLED_TOOLS=vault_update_memory", () => {
     }
   })
 
-  it("lists 32 tools", async () => {
+  it("lists 33 tools", async () => {
     const names = await toolNames(client)
-    expect(names).toHaveLength(32)
+    expect(names).toHaveLength(33)
     expect(names).not.toContain("vault_update_memory")
     expect(names).toContain("vault_get_memory")
   })
@@ -2042,7 +2078,7 @@ describe("DISABLED_TOOLS=vault_update_memory", () => {
   })
 })
 
-// ── MEMORY_ENABLED=false (28 tools, 2 prompts) ───────────────
+// ── MEMORY_ENABLED=false (29 tools, 2 prompts) ───────────────
 
 describe("MEMORY_ENABLED=false", () => {
   let client: Client
@@ -2064,9 +2100,9 @@ describe("MEMORY_ENABLED=false", () => {
     }
   })
 
-  it("lists 28 tools — no memory group", async () => {
+  it("lists 29 tools — no memory group", async () => {
     const names = await toolNames(client)
-    expect(names).toHaveLength(28)
+    expect(names).toHaveLength(29)
     expect(names).not.toContain("vault_get_memory")
     expect(names).not.toContain("vault_list_memory_files")
     expect(names).not.toContain("vault_memory_recall")
@@ -2108,6 +2144,7 @@ describe("FILE_TOOLS_ENABLED=false", () => {
     expect(names).toHaveLength(31)
     expect(names).not.toContain("vault_read_file")
     expect(names).not.toContain("vault_list_files")
+    expect(names).not.toContain("vault_write_file")
     expect(names).toContain("vault_read_note")
   })
 

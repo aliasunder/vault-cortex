@@ -16,6 +16,7 @@ import type { ToolRegistrationContext } from "./tool-helpers.js"
 import {
   BLANK_LINES_NEVER_DOUBLE_CLAUSE,
   CONCURRENT_WRITE_RETRY_ERROR_ENTRY,
+  CONTENT_CONTROL_CHARACTER_ERROR_ENTRY,
   EDIT_SAVE_RULES_SENTENCE,
   FILESYSTEM_ERROR_ENTRY,
   HEADING_LIST_CAP_CLAUSE,
@@ -36,8 +37,6 @@ import {
 const HEADING_NOT_FOUND_ERROR_ENTRY = `- "heading not found" — the message lists the available headings; ${HEADING_LIST_CAP_CLAUSE}`
 const EMPTY_HEADING_ERROR_ENTRY =
   '- "heading cannot be empty" — heading is whitespace only; pass the heading\'s text'
-const CONTENT_CONTROL_CHARACTER_ERROR_ENTRY =
-  '- "content contains a control character" — remove the character the message names'
 const AMBIGUOUS_SPAN_ANCHOR_ERROR_ENTRY =
   '- "ambiguous start anchor …" / "ambiguous end anchor …" — the anchor matches multiple lines; use a longer fragment or set first_match: true'
 
@@ -468,6 +467,10 @@ Returns: JSON array of every matching vault-relative path (e.g. ["Notes/idea.md"
       "vault_update_memory",
       `Prefer vault_update_memory for appending dated entries to ${config.memoryDir}/ memory files.`,
     ),
+    whenToolEnabledText(
+      "vault_write_file",
+      "For a non-markdown file (.canvas, .base, .json), use vault_write_file.",
+    ),
   ]
     .filter(Boolean)
     .map((line) => `\n${line}`)
@@ -490,7 +493,7 @@ Behavior:
 
 Errors:
 - "note already exists" — set overwrite: true to replace it
-${NOTE_EXTENSION_ERROR_ENTRY}
+- 'path must end in ".md"' — add the extension to a note's path${whenToolEnabledText("vault_write_file", "; write other files (.canvas, .base, .json) with vault_write_file")}
 - "cannot write note …: that path is not a file" — a folder already has this name; choose another path
 ${PATH_SAFETY_ERROR_ENTRY}
 ${CONCURRENT_WRITE_REREAD_ERROR_ENTRY}

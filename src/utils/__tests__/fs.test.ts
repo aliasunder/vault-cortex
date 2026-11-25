@@ -18,6 +18,7 @@ import { tmpdir } from "node:os"
 vi.mock("node:fs/promises", { spy: true })
 import {
   readFileOrNull,
+  readFileBytePrefixOrNull,
   readFileTextPrefix,
   readdirOrNull,
   realpathOrNull,
@@ -186,6 +187,76 @@ describe("readFileTextPrefix", () => {
       missingFileError,
     )
   })
+})
+
+describe("readFileBytePrefixOrNull", () => {
+  it("returns the first maxBytes of a longer file", async () => {
+    const dir = await makeTempDir()
+    const path = join(dir, "data.bin")
+    await writeFile(path, Buffer.from([0x00, 0x01, 0x02, 0x03, 0x04]))
+
+    expect(await readFileBytePrefixOrNull({ path, maxBytes: 3 })).toEqual(
+      Buffer.from([0x00, 0x01, 0x02]),
+    )
+  })
+
+  it("returns the whole file when it is shorter than maxBytes", async () => {
+    const dir = await makeTempDir()
+    const path = join(dir, "short.bin")
+    await writeFile(path, Buffer.from([0x61, 0x00]))
+
+    expect(await readFileBytePrefixOrNull({ path, maxBytes: 100 })).toEqual(
+      Buffer.from([0x61, 0x00]),
+    )
+  })
+
+  it("reads the start of a file too large to load whole", async () => {
+    const dir = await makeTempDir()
+    const path = join(dir, "huge.bin")
+    await writeFile(path, "head", "utf8")
+    // A sparse 3 GiB file takes no disk space, and readFile refuses any file over 2 GiB
+    await truncate(path, 3 * 1024 ** 3)
+
+    expect(await readFileBytePrefixOrNull({ path, maxBytes: 4 })).toEqual(Buffer.from("head"))
+  })
+
+  it("returns an empty buffer for a maxBytes below one byte", async () => {
+    const dir = await makeTempDir()
+    const path = join(dir, "short.bin")
+    await writeFile(path, "abc", "utf8")
+
+    expect(await readFileBytePrefixOrNull({ path, maxBytes: 0.5 })).toEqual(Buffer.alloc(0))
+  })
+
+  it("returns null when the file does not exist", async () => {
+    const dir = await makeTempDir()
+
+    expect(await readFileBytePrefixOrNull({ path: join(dir, "missing.bin"), maxBytes: 8 })).toBe(
+      null,
+    )
+  })
+
+  it("returns null when a parent of the path is a file", async () => {
+    const dir = await makeTempDir()
+    const filePath = join(dir, "data.bin")
+    await writeFile(filePath, "x", "utf8")
+
+    expect(await readFileBytePrefixOrNull({ path: join(filePath, "child"), maxBytes: 8 })).toBe(
+      null,
+    )
+  })
+
+  it.skipIf(runsAsRoot)(
+    "rethrows a permission error rather than swallowing it as missing",
+    async () => {
+      const dir = await makeTempDir()
+      const lockedDir = await makeUnreadableDir(dir)
+
+      await expect(
+        readFileBytePrefixOrNull({ path: join(lockedDir, "inner.md"), maxBytes: 8 }),
+      ).rejects.toThrow(/EACCES/)
+    },
+  )
 })
 
 describe("readdirOrNull", () => {

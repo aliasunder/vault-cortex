@@ -147,6 +147,13 @@ export const resolveVaultRelativePath = (params: {
   return toVaultRelativePath(relativePath)
 }
 
+/** Refuses a markdown note where a non-markdown file is expected, the one
+ *  boundary between the note tools and the file tools. */
+export const assertNotMarkdownNote = (params: { fullPath: string; path: string }): void => {
+  if (!params.fullPath.endsWith(".md")) return
+  throw new Error(`not a file: "${params.path}" is a markdown note`)
+}
+
 /** True when the path sits under one of the protected folders (memory, daily
  *  notes). The comparison is case-folded so a case-aliased spelling can't slip
  *  past the guard on a case-insensitive filesystem (macOS/Windows bind
@@ -233,6 +240,10 @@ const removeLeftoverFile = async (
   }
 }
 
+// Read, write and execute for owner, group and others. A save never copies the
+// setuid, setgid or sticky bits onto the file it writes.
+const PERMISSION_BITS = 0o777
+
 /**
  * Stages content to a unique temp file, then renames over the target.
  * `rename` is atomic on the same filesystem, so the target is never
@@ -247,8 +258,15 @@ export const atomicWriteFile = async (
   logger: Logger,
 ): Promise<void> => {
   const tmpPath = tempSavePath(params.filePath)
+
+  // The temp file takes the target's permission bits, so an edit keeps a
+  // private file private and an executable script runnable; the process umask
+  // still removes its own bits.
+  const targetStats = await statOrNull(params.filePath)
+  const modeOption = targetStats ? { mode: targetStats.mode & PERMISSION_BITS } : {}
+
   try {
-    await writeFile(tmpPath, params.content, "utf8")
+    await writeFile(tmpPath, params.content, { encoding: "utf8", ...modeOption })
     await rename(tmpPath, params.filePath)
   } catch (err) {
     // A failed write never strands its temp file
@@ -1059,10 +1077,11 @@ const readAsset = async (
   params: { vaultPath: string; path: string; maxBytes: number },
   logger: Logger,
 ): Promise<{ buffer: Buffer; bytes: number; extension: string }> => {
-  if (params.path.endsWith(".md")) {
-    throw new Error(`not a file: "${params.path}" is a markdown note`)
-  }
   const fullPath = resolveSafePath(params.vaultPath, params.path)
+
+  // Checked on the resolved path, so a trailing "/" or "/." cannot hide a note
+  assertNotMarkdownNote({ fullPath, path: params.path })
+
   const fileStats = await statOrNull(fullPath)
 
   if (!fileStats || !fileStats.isFile()) {

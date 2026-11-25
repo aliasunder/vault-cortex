@@ -1,34 +1,50 @@
-import { posix } from "node:path"
+import { mkdir } from "node:fs/promises"
+import { dirname, posix } from "node:path"
 import { getMeta, renderPageAsImage } from "unpdf"
 import type { PDFDocumentProxy } from "unpdf/pdfjs"
-import { vaultFs } from "./vault-filesystem.js"
+import {
+  atomicWriteFile,
+  assertNotMarkdownNote,
+  atomicWriteFileExclusive,
+  resolveSafePath,
+  vaultFs,
+} from "./vault-filesystem.js"
 import { buildTextResult, requestsLineWindow, describePdfOpenFailure } from "./asset-text.js"
 import type { AssetTextResult } from "./asset-text.js"
 import type { PdfExtractor } from "./pdf-extractor.js"
 import { linearizeCanvas } from "../obsidian-markdown/canvas.js"
 import { getExtensionsOfKind, getFileKind } from "../obsidian-markdown/file-kinds.js"
+import type { FileKind } from "../obsidian-markdown/file-kinds.js"
 import { canvasImport, createPdfDocumentProxy } from "../obsidian-markdown/pdf-engine.js"
 import { toPdfData } from "../obsidian-markdown/pdf.js"
+import { assertTextFileSyntax } from "../obsidian-markdown/text-file-syntax.js"
+import { assertNoControlCharacters } from "../../utils/assert-no-control-characters.js"
 import {
   decodeTextBuffer,
   decodeUtf8OrNull,
   NUL_SEARCH_WINDOW_BYTES,
 } from "../../utils/decode-text-buffer.js"
 import { describeErrorForLog } from "../../utils/describe-error.js"
+import { withExclusiveFileLock } from "../../utils/file-write-lock.js"
+import { lstatOrNull, readFileBytePrefixOrNull, statOrNull } from "../../utils/fs.js"
+import { isErrnoException } from "../../utils/is-errno-exception.js"
 import { fitImageToByteBudget } from "../../utils/fit-image-to-byte-budget.js"
 import type { FittedImage } from "../../utils/fit-image-to-byte-budget.js"
 import type { Logger } from "../../logger.js"
 
 /**
- * Asset operations use-case — the grouped read/browse surface over the
+ * Asset operations use-case — the grouped read/write/browse surface over the
  * vault's non-markdown files, composing vaultFs primitives with the parsers
- * and the image pipeline. Two operations share the domain:
+ * and the image pipeline. Three operations share the domain:
  *
  * - `readAssetContent` dispatches one file to its most useful representation:
  *   images fitted to a byte budget, canvases linearized (or their raw JSON
  *   source), PDFs as extracted text (or rendered page images), and every other
  *   file decoded verbatim as UTF-8 text — whole, or as a 1-based line window
  *   when paging params are supplied.
+ * - `writeAssetContent` creates or replaces one text file, refusing images,
+ *   PDFs, malformed `.canvas`/`.json`/`.base` content, and an existing file
+ *   the read side treats as binary.
  * - `buildAssetListing` browses many: extension-filtered, counted per
  *   extension over the full filtered set, and capped to a statted slice.
  *   There is no pagination — `limit` caps the returned entries, and
@@ -350,6 +366,146 @@ const readAssetContent = async (
   }
 }
 
+// ── Writing ─────────────────────────────────────────────────────
+
+/** The kinds readAssetContent refuses as binary data when a NUL byte sits in
+ *  the first NUL_SEARCH_WINDOW_BYTES (its html, script and other cases). Text
+ *  and canvas kinds read past NUL bytes, so a NUL-padded log stays text. */
+const NUL_REFUSING_KINDS: ReadonlySet<FileKind> = new Set(["html", "script", "other"])
+
+/** Throws when the file at fullPath is one readAssetContent would refuse as
+ *  binary, so text never replaces it. Reads only the leading window, whatever
+ *  the file's size. */
+const assertExistingFileIsText = async (params: {
+  fullPath: string
+  path: string
+}): Promise<void> => {
+  if (!NUL_REFUSING_KINDS.has(getFileKind(params.fullPath))) return
+
+  const leadingBytes = await readFileBytePrefixOrNull({
+    path: params.fullPath,
+    maxBytes: NUL_SEARCH_WINDOW_BYTES,
+  })
+
+  // null means the file was deleted after writeAssetContent found it, so
+  // nothing is left to protect
+  if (!leadingBytes) return
+  if (!leadingBytes.includes(0)) return
+  throw new Error(
+    `cannot overwrite "${params.path}": it holds binary data (a NUL byte in its first ` +
+      `${NUL_SEARCH_WINDOW_BYTES.toLocaleString("en-US")} bytes). Replace or remove it ` +
+      `outside the server, or write to another path`,
+  )
+}
+
+const fileExistsMessage = (path: string): string => `file already exists: "${path}"`
+
+const notAFileMessage = (path: string): string => {
+  return `cannot write file "${path}": that path is not a file`
+}
+
+/** Saves a file that must be new. The save is exclusive, so a file that
+ *  appeared since the existence check (Obsidian Sync delivering the same path)
+ *  is never replaced on a filesystem with hard links. */
+const saveNewFile = async (
+  params: { fullPath: string; path: string; content: string; hardLinksSupported: boolean },
+  logger: Logger,
+): Promise<void> => {
+  try {
+    await atomicWriteFileExclusive(
+      {
+        filePath: params.fullPath,
+        content: params.content,
+        hardLinksSupported: params.hardLinksSupported,
+      },
+      logger,
+    )
+  } catch (error) {
+    if (isErrnoException(error, "EEXIST")) {
+      throw new Error(fileExistsMessage(params.path), { cause: error })
+    }
+    throw error
+  }
+}
+
+/**
+ * Creates a non-markdown text file, or with `overwrite` replaces one, saving
+ * `content` encoded as UTF-8. Refuses, before touching the vault:
+ * - a markdown note, an image or a PDF path;
+ * - content with a control character other than tab, LF or CR;
+ * - `.canvas`, `.json` or `.base` content that would break its format.
+ *
+ * Inside the write lock it creates any missing parent folders, then refuses:
+ * - an existing file without `overwrite`;
+ * - a folder or a broken symlink at the path;
+ * - an existing file of the html, script or other kind holding a NUL byte in
+ *   its first NUL_SEARCH_WINDOW_BYTES.
+ */
+const writeAssetContent = async (
+  params: {
+    vaultPath: string
+    path: string
+    content: string
+    overwrite: boolean
+    windowsBindMount: boolean
+  },
+  logger: Logger,
+): Promise<void> => {
+  const { path, content, overwrite } = params
+  const fullPath = resolveSafePath(params.vaultPath, path)
+
+  // The type checks read the resolved path, the file the save writes, so a
+  // trailing "/" or "/." on the path cannot hide a note, an image or a canvas.
+  // The note check also ignores letter case: on a macOS or Windows bind mount,
+  // "Plan.MD" opens the note "Plan.md". Reads keep the exact match, so a
+  // "README.MD" that is not a note stays readable.
+  assertNotMarkdownNote({ fullPath: fullPath.toLowerCase(), path })
+
+  const fileKind = getFileKind(fullPath)
+
+  if (fileKind === "image" || fileKind === "pdf") {
+    throw new Error(`cannot write "${path}" as text: images and PDFs are binary files`)
+  }
+  assertNoControlCharacters(content, "content")
+  assertTextFileSyntax({ path: fullPath, content })
+
+  await withExclusiveFileLock(fullPath, async () => {
+    await mkdir(dirname(fullPath), { recursive: true })
+
+    const existingStats = await statOrNull(fullPath)
+
+    // stat follows a symlink, so a broken symlink reads as no file, but the exclusive
+    // save below refuses the link as an existing file, which overwrite cannot clear.
+    const isDanglingLink =
+      !existingStats && Boolean((await lstatOrNull(fullPath))?.isSymbolicLink())
+
+    if (isDanglingLink) throw new Error(notAFileMessage(path))
+    if (existingStats) {
+      // The rename that saves the file would replace a folder symlink, and
+      // assertExistingFileIsText would fail reading a folder, so anything but a
+      // file stops here.
+      if (!existingStats.isFile()) throw new Error(notAFileMessage(path))
+      if (!overwrite) throw new Error(fileExistsMessage(path))
+      await assertExistingFileIsText({ fullPath, path })
+      await atomicWriteFile({ filePath: fullPath, content }, logger)
+    } else {
+      // The path was missing at the stat, so the save is exclusive even with
+      // overwrite. A file that appears after the stat was never checked, and
+      // the exclusive save refuses to replace it.
+      await saveNewFile(
+        { fullPath, path, content, hardLinksSupported: !params.windowsBindMount },
+        logger,
+      )
+    }
+
+    logger.info("wrote file", {
+      path,
+      beforeBytes: existingStats?.size ?? 0,
+      afterBytes: Buffer.byteLength(content, "utf8"),
+    })
+  })
+}
+
 // ── Browsing ────────────────────────────────────────────────────
 
 /** The extension a listing shows, lowercased with its dot, or "(none)" for an
@@ -431,10 +587,11 @@ const buildAssetListing = async (
   }
 }
 
-/** The asset operations surface — one namespace for the grouped read/browse
+/** The asset operations surface — one namespace for the grouped read/write/browse
  *  functionality, matching the folder's operation modules (noteMover,
  *  vaultPatcher, taskMutations). */
 export const assetOperations = {
   readAssetContent,
+  writeAssetContent,
   buildAssetListing,
 }

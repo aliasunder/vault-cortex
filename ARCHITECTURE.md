@@ -44,7 +44,7 @@ this repo's own IaC provisions (Lightsail + API Gateway via SST, walkthrough in
 The MCP surface is **tools + prompts** — model-driven tools plus user-initiated prompt workflows (see [MCP Prompts](#mcp-prompts)). Behind it, capabilities fall into three groups with different availability semantics:
 
 - **Base surface — always on:** vault CRUD (read/write, heading-targeted patching, note moving with link rewriting), FTS5 keyword search, property discovery, daily notes, task queries and mutations, and the link graph.
-- **Toggleable feature groups:** the About Me/ memory layer for AI personalization (`MEMORY_ENABLED`) and non-markdown file reading (`FILE_TOOLS_ENABLED`) — images, canvases, PDFs, and data files, each in the form most useful to an agent. Independent opt-outs — either can be disabled without affecting anything else. A third switch cuts across the groups: `READONLY_MODE` hides every vault-writing tool while leaving all reads, search, and indexing untouched. A fourth, `DISABLED_TOOLS`, subtracts individually named tools for finer control.
+- **Toggleable feature groups:** the About Me/ memory layer for AI personalization (`MEMORY_ENABLED`) and non-markdown file reading and writing (`FILE_TOOLS_ENABLED`) — images, canvases, PDFs, and data files, each in the form most useful to an agent, with text formats writable. Independent opt-outs — either can be disabled without affecting anything else. A third switch cuts across the groups: `READONLY_MODE` hides every vault-writing tool while leaving all reads, search, and indexing untouched. A fourth, `DISABLED_TOOLS`, subtracts individually named tools for finer control.
 - **Search enhancement ladder:** unlike the toggles above, each rung builds on the previous. Keyword search → sqlite-vec vector similarity fused via RRF (`EMBEDDING_ENABLED`; local ONNX embeddings, no external API) → cross-encoder reranking with position-aware score blending for intent-heavy queries where keywords and vectors both miss (`RERANK_MODE`). Each step is opt-out with graceful fallback to the one below.
 
 ## Design Constraints
@@ -383,15 +383,16 @@ Link queries use a `links` table populated during indexing:
 
 ### Files
 
-| Tool               | Input                             | Annotation   |
-| ------------------ | --------------------------------- | ------------ |
-| `vault_read_file`  | `path, raw?, start_line?, limit?` | readOnlyHint |
-| `vault_list_files` | `folder?, extensions?, limit?`    | readOnlyHint |
+| Tool               | Input                             | Annotation      |
+| ------------------ | --------------------------------- | --------------- |
+| `vault_read_file`  | `path, raw?, start_line?, limit?` | readOnlyHint    |
+| `vault_write_file` | `path, content, overwrite?`       | destructiveHint |
+| `vault_list_files` | `folder?, extensions?, limit?`    | readOnlyHint    |
 
-`vault_read_file` reads non-markdown vault files, dispatching on the file's kind to the most useful representation per type. `obsidian-markdown/file-kinds.ts` maps the lowercased extension to a kind, so `Report.PDF` is a PDF. Reads, indexing, the note mover and the link tools take every non-markdown file's kind from it:
+`vault_read_file` reads non-markdown vault files, dispatching on the file's kind to the most useful representation per type. `obsidian-markdown/file-kinds.ts` maps the lowercased extension to a kind, so `Report.PDF` is a PDF. Reads, writes, indexing, the note mover and the link tools take every non-markdown file's kind from it:
 
 1. **Images** (`.png`/`.jpg`/`.jpeg`/`.gif`/`.webp`) return an MCP `image` content block plus a one-line metadata text block: the path, the delivered format, dimensions and bytes, and, when the image was recompressed, its original dimensions and bytes. A shared fit-to-byte-budget pipeline (`utils/fit-image-to-byte-budget.ts`, built on sharp) makes oversized images deliverable: EXIF auto-orient → resize long edge to ≤1568px → walk a fixed quality ladder (JPEG via mozjpeg for opaque images, WebP for alpha — PNG has no quality knob) → shrink dimensions by √(budget/actual) if the ladder floor still exceeds the budget. Deterministic and terminating (bounded attempts, 64px floor); sharp's default `limitInputPixels` stays active as the decompression-bomb guard. The budget (`MAX_IMAGE_OUTPUT_BYTES`, default 48 KiB binary) is sized for the tightest mainstream client cap.
-2. **Canvas** (`.canvas`) linearizes to markdown via the pure `obsidian-markdown/canvas.ts` parser ([JSON Canvas 1.0](https://jsoncanvas.org)): group membership by spatial rect containment within the [nesting limit](#note-content-parsers) (innermost group wins; equal rects tiebreak deterministically by id), nodes in reading order (y, then x), and an edge list with node ids resolved to display names. Lenient parsing — a leading byte-order mark skipped, unknown properties ignored, malformed entries skipped. `raw: true` skips the linearizer and returns the JSON source verbatim for full structural fidelity. Canvas content is also FTS-indexed (linearized text in `file_content` + `file_content_fts` tables, gated behind `FILE_TOOLS_ENABLED`) so canvas files appear in `vault_search` results with `kind: "file"`. Canvas file cards and the links typed in text cards are extracted into the `links` table for graph queries regardless of the feature gate.
+2. **Canvas** (`.canvas`) linearizes to markdown via the pure `obsidian-markdown/canvas.ts` parser ([JSON Canvas 1.0](https://jsoncanvas.org)): group membership by spatial rect containment within the [nesting limit](#note-content-parsers) (innermost group wins; equal rects tiebreak deterministically by id), nodes in reading order (y, then x), and an edge list with node ids resolved to display names, each cut at 100 code points. Lenient parsing — a leading byte-order mark skipped, unknown properties ignored, malformed entries skipped. `raw: true` skips the linearizer and returns the JSON source verbatim for full structural fidelity. Canvas content is also FTS-indexed (linearized text in `file_content` + `file_content_fts` tables, gated behind `FILE_TOOLS_ENABLED`) so canvas files appear in `vault_search` results with `kind: "file"`. Canvas file cards and the links typed in text cards are extracted into the `links` table for graph queries regardless of the feature gate.
 3. **Text formats** (`.svg`/`.json`/`.txt`/`.csv`/`.xml`/`.log`/`.yaml`/`.yml`/`.base`) pass through as text, byte-exact when read whole, capped at a fixed 100 KiB output size (explicit error over silent truncation). They skip the NUL-byte check in item 5, so a NUL-padded log still reads. `start_line`/`limit` page any text result — text files, canvas renditions, PDF-extracted text — as a 1-based line window preceded by a window-metadata block stating the range, total line count, and next `start_line`; the cap applies to the window.
 4. **PDFs** (`.pdf`) return structured markdown reconstructed from layout-aware extraction (`unpdf`, based on Mozilla's PDF.js):
    - A document metadata header (title, page count, link count)
@@ -414,6 +415,13 @@ Link queries use a `links` table populated during indexing:
    - bytes that are not UTF-8
 
 The extension-to-representation routing above is implemented by the `vault-operations/asset-operations.ts` use-case. Beneath it, every read goes through `vaultFs.readAsset`, which applies the same `resolveSafePath` traversal + hidden-path guards as notes, rejects `.md` paths (notes belong to `vault_read_note`), and enforces a stat-before-read size cap (`MAX_FILE_BYTES`, default 50 MiB). The read buffer is one byte longer than the statted size, so a file that grows during the read (an Obsidian Sync download can do this) fills that byte, and the read fails with "file changed while reading".
+
+`vault_write_file` creates a non-markdown text file, or with `overwrite` replaces one, through `assetOperations.writeAssetContent` in the same use-case, so the read and write type rules sit in one module:
+
+1. **By path,** the tool refuses `.md` in any letter case, because on a macOS or Windows bind mount `Plan.MD` opens the note `Plan.md`. It also refuses the image and PDF kinds, which text input cannot produce.
+2. **By content, before any file access,** it refuses control characters other than tab and line breaks, as `vault_write_note` does, and syntax that would break the format (`obsidian-markdown/text-file-syntax.ts`): a `.canvas` file that isn't a JSON Canvas object, a `.json` file that isn't valid JSON, or a `.base` file that isn't valid YAML.
+3. **Inside the fail-fast write lock,** it creates missing parent folders, then refuses an existing file without `overwrite` and a folder or a broken symlink at the path. With `overwrite`, it also refuses an existing file that the read side's item 5 treats as binary.
+4. **The save** is atomic. A path that was missing at the existence check is created exclusively (`atomicWriteFileExclusive`), even with `overwrite`, so outside `WINDOWS_MODE` a file Obsidian Sync delivers between the check and the save is never replaced unchecked. An existing file is overwritten by a rename over the path, so the last writer wins against writers outside the server, as for notes.
 
 `vault_list_files` is the discovery surface (also `vault-operations/asset-operations.ts`): a filesystem walk (`vaultFs.listAssets` — filesystem truth, deliberately not the index), folder and case-insensitive extension filters, per-extension counts computed over the full filtered set, and byte sizes statted only for the returned slice.
 
@@ -444,7 +452,7 @@ Search indexes file content in the `file_content` + `file_content_fts` tables, c
 
 How extracted text reaches the index, and when, is under [Indexing](#indexing).
 
-**Opt-out:** File tools are opt-out: set `FILE_TOOLS_ENABLED=false` to hide `vault_read_file` and `vault_list_files`, and strip file tool references from server metadata and other tool descriptions. The `vault_get_outgoing_links` tool continues to report file links (it indexes from the links table, not the file tools). File config vars (`MAX_FILE_BYTES`, `MAX_IMAGE_OUTPUT_BYTES`, `MAX_PDF_RENDER_PAGES`) are still parsed when disabled.
+**Opt-out:** File tools are opt-out: set `FILE_TOOLS_ENABLED=false` to hide `vault_read_file`, `vault_write_file` and `vault_list_files`, and strip file tool references from server metadata and other tool descriptions. The `vault_get_outgoing_links` tool continues to report file links (it indexes from the links table, not the file tools). File config vars (`MAX_FILE_BYTES`, `MAX_IMAGE_OUTPUT_BYTES`, `MAX_PDF_RENDER_PAGES`) are still parsed when disabled.
 
 ### Tasks
 
@@ -1417,7 +1425,9 @@ Docker hardening, and durability seatbelts above.
   - 41 bytes whatever the note's name, so a note named near the
     filesystem's per-name limit still saves;
   - on the note's filesystem, so the rename (or the hard link of an
-    exclusive create, below) stays atomic.
+    exclusive create, below) stays atomic;
+  - created with the target's permission bits, so an edit keeps a private
+    file private and a script executable (the process umask still applies).
 
   A `catch` in `atomicWriteFile` removes the temp file after a failure. A
   `finally` in `atomicWriteFileExclusive` removes it after every call,
@@ -1426,8 +1436,9 @@ Docker hardening, and durability seatbelts above.
 - **Exclusive atomic creates** (`atomicWriteFileExclusive`): uses
   `link()` for POSIX no-clobber semantics — fails atomically with
   `EEXIST` if the target already exists, closing the TOCTOU race on
-  `vault_move_note`'s destination. Falls back to `writeFile` with `'wx'`
-  flag on Windows-drive bind mounts where hard links aren't supported.
+  `vault_move_note`'s destination. On Windows-drive bind mounts, where
+  hard links aren't supported, it reserves the target with a `'wx'` create,
+  then renames the staged temp file over that empty placeholder.
 - **Per-file mutex** (`file-write-lock.ts`): three modes sharing one
   lock map. `withFileLock` (serializing) queues writes behind the
   previous write on the same path — used by memory-store where
