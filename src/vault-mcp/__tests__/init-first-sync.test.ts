@@ -1,11 +1,20 @@
 import { spawnSync } from "node:child_process"
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync, rmSync } from "node:fs"
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  writeFileSync,
+  rmSync,
+  symlinkSync,
+} from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 import { DatabaseSync } from "node:sqlite"
 
 import { describe, expect, it, onTestFinished } from "vitest"
 
+import { runsAsRoot } from "../../__tests__/runs-as-root.js"
 import { loadConfig } from "../config.js"
 
 /**
@@ -72,6 +81,16 @@ type SyncRecord = {
   uid: number
   folder?: boolean
   deleted?: boolean
+  hash?: string
+}
+
+/** One row of the engine's local_files table, stored as JSON in `data`.
+ *  `synchash` is the hash of the server version the file last synced from. */
+type LocalRecord = {
+  path: string
+  folder: boolean
+  hash: string
+  synchash: string
 }
 
 /** Stub `sleep`: no-op so retry pauses don't slow the suite down. */
@@ -106,6 +125,12 @@ type GateRunOptions = {
   vaultDirs?: string[]
   /** Vault-relative empty files to create before running (parents created). */
   vaultFiles?: string[]
+  /** Vault-relative symbolic links to create before running, each pointing
+   *  at its target as written (parents created). */
+  vaultSymlinks?: { path: string; target: string }[]
+  /** Vault-relative folders whose permissions are all removed after the files
+   *  above are written, so a non-root stat of anything inside fails (EACCES). */
+  lockedVaultDirs?: string[]
   /** When false, VAULT_PATH points at a directory that doesn't exist. */
   vaultExists?: boolean
   /** Number of files to record in the device's sync state
@@ -131,8 +156,13 @@ type GateRunOptions = {
   serverRecords?: SyncRecord[]
   /** Rows to write to the active store's pending_files table. */
   pendingRecords?: SyncRecord[]
+  /** When true, the active store's pending_files table also holds a row
+   *  whose path column is NULL, which the engine's schema allows. */
+  pathlessPendingRow?: boolean
   /** Paths to write to the active store's local_files table. */
   localPaths?: string[]
+  /** Full records to write to the active store's local_files table. */
+  localRecords?: LocalRecord[]
   /** Server rows to write to a second, inactive store. */
   inactiveStoreServerRecords?: SyncRecord[]
   /** When true, the active store has only a local_files table. */
@@ -153,6 +183,9 @@ const SYNC_STATE_SCHEMA =
   "CREATE TABLE server_files (path TEXT PRIMARY KEY, data TEXT NOT NULL);" +
   "CREATE TABLE pending_files (uid INTEGER PRIMARY KEY, path TEXT, data TEXT NOT NULL);"
 
+/** The row `pathlessPendingRow` writes to pending_files. */
+const PATHLESS_PENDING_ROW = { uid: 99, path: null, data: JSON.stringify({ uid: 99 }) }
+
 /** Mirror of the sync engine's store. local_files gets one row per known
  *  file and one per folder, each row's data carrying the engine's `folder`
  *  flag, plus a row per listed path. */
@@ -161,16 +194,20 @@ const writeSyncState = ({
   knownFiles = 0,
   knownFolders = 0,
   localPaths = [],
+  localRecords = [],
   serverRecords = [],
   pendingRecords = [],
+  pathlessPendingRow = false,
   schema = SYNC_STATE_SCHEMA,
 }: {
   stateDbPath: string
   knownFiles?: number
   knownFolders?: number
   localPaths?: string[]
+  localRecords?: LocalRecord[]
   serverRecords?: SyncRecord[]
   pendingRecords?: SyncRecord[]
+  pathlessPendingRow?: boolean
   schema?: string
 }): void => {
   mkdirSync(dirname(stateDbPath), { recursive: true })
@@ -186,6 +223,9 @@ const writeSyncState = ({
   for (const localPath of localPaths) {
     insertLocal.run(localPath, JSON.stringify({ path: localPath, folder: false }))
   }
+  for (const localRecord of localRecords) {
+    insertLocal.run(localRecord.path, JSON.stringify(localRecord))
+  }
   for (const serverRecord of serverRecords) {
     db.prepare("INSERT INTO server_files VALUES (?, ?)").run(
       serverRecord.path,
@@ -199,17 +239,25 @@ const writeSyncState = ({
       JSON.stringify(pendingRecord),
     )
   }
+  if (pathlessPendingRow) {
+    db.prepare("INSERT INTO pending_files VALUES (?, NULL, ?)").run(
+      PATHLESS_PENDING_ROW.uid,
+      PATHLESS_PENDING_ROW.data,
+    )
+  }
   db.close()
 }
 
 /** The pending_files rows of a store, in the engine's own order (by uid). */
-const readPendingRows = (stateDbPath: string): { uid: number; path: string; data: string }[] => {
+const readPendingRows = (
+  stateDbPath: string,
+): { uid: number; path: string | null; data: string }[] => {
   const db = new DatabaseSync(stateDbPath, { readOnly: true })
   const rows = db.prepare("SELECT uid, path, data FROM pending_files ORDER BY uid").all()
   db.close()
   return rows.map((row) => ({
     uid: Number(row.uid),
-    path: String(row.path),
+    path: row.path === null ? null : String(row.path),
     data: String(row.data),
   }))
 }
@@ -237,12 +285,25 @@ const runGateScript = (options: GateRunOptions): GateRun => {
     mkdirSync(dirname(join(vaultPath, vaultFile)), { recursive: true })
     writeFileSync(join(vaultPath, vaultFile), "")
   }
+  for (const vaultSymlink of options.vaultSymlinks ?? []) {
+    mkdirSync(dirname(join(vaultPath, vaultSymlink.path)), { recursive: true })
+    symlinkSync(vaultSymlink.target, join(vaultPath, vaultSymlink.path))
+  }
+  for (const lockedVaultDir of options.lockedVaultDirs ?? []) {
+    const lockedPath = join(vaultPath, lockedVaultDir)
+    chmodSync(lockedPath, 0o000)
+    // onTestFinished runs its callbacks in reverse order, so the folder is
+    // searchable again before the temp folder's removal descends into it.
+    onTestFinished(() => chmodSync(lockedPath, 0o755))
+  }
   const activeStateDbPath = join(syncStateDir, "state.db")
   // knownSyncFiles: 0 is a real case (a store that records nothing), so it
   // needs the explicit undefined check.
   const activeStoreSeeded =
     options.knownSyncFiles !== undefined ||
-    Boolean(options.serverRecords || options.pendingRecords || options.localPaths) ||
+    Boolean(
+      options.serverRecords || options.pendingRecords || options.localPaths || options.localRecords,
+    ) ||
     Boolean(options.unrecognizedStoreSchema)
 
   if (activeStoreSeeded) {
@@ -251,8 +312,10 @@ const runGateScript = (options: GateRunOptions): GateRun => {
       knownFiles: options.knownSyncFiles ?? 0,
       knownFolders: options.knownSyncFolders ?? 0,
       localPaths: options.localPaths ?? [],
+      localRecords: options.localRecords ?? [],
       serverRecords: options.serverRecords ?? [],
       pendingRecords: options.pendingRecords ?? [],
+      pathlessPendingRow: options.pathlessPendingRow ?? false,
       ...(options.unrecognizedStoreSchema
         ? { schema: "CREATE TABLE local_files (path TEXT PRIMARY KEY, data TEXT NOT NULL);" }
         : {}),
@@ -887,6 +950,22 @@ describe("init-first-sync gate script", () => {
     ])
   })
 
+  it("still queues a never-downloaded file when a queued row has no path", () => {
+    const neverDownloaded = { path: "Archive/old.md", uid: 11 }
+    const run = runGateScript({
+      syncOutcomes: [0],
+      vaultName: "Test",
+      serverRecords: [neverDownloaded],
+      pathlessPendingRow: true,
+    })
+
+    expect(run.status).toBe(0)
+    expect(readPendingRows(run.activeStateDbPath)).toEqual([
+      { uid: 11, path: "Archive/old.md", data: JSON.stringify(neverDownloaded) },
+      PATHLESS_PENDING_ROW,
+    ])
+  })
+
   it("queues before every attempt and once more after the last one, as the Sync user", () => {
     const run = runGateScript({
       syncOutcomes: [1],
@@ -897,10 +976,12 @@ describe("init-first-sync gate script", () => {
     })
 
     expect(run.obCalls).toEqual(["sync-config --json", "sync", "sync", "sync"])
-    // The config read, then a queue step and a sync per attempt, then the
-    // final queue step and the count, all as the Sync user.
+    // The config read, the pull-only drop step, then a queue step and a sync
+    // per attempt, then the final queue step and the count, all as the Sync
+    // user.
     expect(run.setuidgidCalls).toEqual([
       "obsidian ob",
+      "obsidian node",
       "obsidian node",
       "obsidian ob",
       "obsidian node",
@@ -917,6 +998,19 @@ describe("init-first-sync gate script", () => {
 
     expect(run.status).toBe(0)
     expect(run.syncCalls).toBe(1)
+    expect(run.setuidgidCalls).toEqual(["obsidian ob", "obsidian ob"])
+  })
+
+  it("skips the pull-only drop step on a device that has never synced (no store yet)", () => {
+    const run = runGateScript({
+      syncOutcomes: [0],
+      vaultName: "Test",
+      syncConfigJson: JSON.stringify({ vaultId: "vault-id", syncMode: "pull-only" }),
+    })
+
+    expect(run.status).toBe(0)
+    expect(run.syncCalls).toBe(1)
+    // The config read and the sync: no node step reads the missing store.
     expect(run.setuidgidCalls).toEqual(["obsidian ob", "obsidian ob"])
   })
 
@@ -980,6 +1074,277 @@ describe("init-first-sync gate script", () => {
     )
   })
 
+  // -- Local edits in pull-only (queued replays dropped before the attempts) ---
+
+  /** A file edited on this device since it last synced: the queued row carries
+   *  the hash the local record says the file last synced from. */
+  const EDITED_FILE = "Data/table.csv"
+  const syncedVersion = {
+    path: EDITED_FILE,
+    uid: 11,
+    folder: false,
+    deleted: false,
+    hash: "hash-a",
+  }
+  const editedFileRecord = { path: EDITED_FILE, folder: false, hash: "", synchash: "hash-a" }
+
+  const SKIPPED_ONE_DOWNLOAD =
+    "[obsidian-sync] Skipped 1 queued download(s) of the version this device last synced (pull-only).\n"
+
+  /** The pending_files rows a store holds when nothing removed any. */
+  const unchangedPendingRows = (
+    pendingRecords: SyncRecord[],
+  ): { uid: number; path: string; data: string }[] => {
+    return pendingRecords.map((pendingRecord) => ({
+      uid: pendingRecord.uid,
+      path: pendingRecord.path,
+      data: JSON.stringify(pendingRecord),
+    }))
+  }
+
+  /** Runs one successful sync with the edited file on disk and recorded
+   *  locally; `Notes/kept.md` keeps the vault non-empty when a case removes
+   *  the edited file. */
+  const runWithQueuedReplay = ({
+    syncMode,
+    pendingRecords = [syncedVersion],
+    vaultFiles = ["Notes/kept.md", EDITED_FILE],
+    vaultSymlinks = [],
+    lockedVaultDirs = [],
+    localRecords = [editedFileRecord],
+  }: {
+    syncMode: string
+    pendingRecords?: SyncRecord[]
+    vaultFiles?: string[]
+    vaultSymlinks?: { path: string; target: string }[]
+    lockedVaultDirs?: string[]
+    localRecords?: LocalRecord[]
+  }): GateRun => {
+    return runGateScript({
+      syncOutcomes: [0],
+      vaultName: "Test",
+      vaultFiles,
+      vaultSymlinks,
+      lockedVaultDirs,
+      serverRecords: [syncedVersion],
+      pendingRecords,
+      localRecords,
+      syncConfigJson: JSON.stringify({ vaultId: "vault-id", syncMode }),
+    })
+  }
+
+  it("drops a queued replay of the synced version in pull-only, and only that row", () => {
+    // A real update on another path stays queued beside the dropped row.
+    const otherUpdate = { path: "Data/other.csv", uid: 12, hash: "hash-new" }
+    const run = runWithQueuedReplay({
+      syncMode: "pull-only",
+      pendingRecords: [syncedVersion, otherUpdate],
+      vaultFiles: ["Notes/kept.md", EDITED_FILE, "Data/other.csv"],
+      localRecords: [
+        editedFileRecord,
+        { path: "Data/other.csv", folder: false, hash: "", synchash: "hash-old" },
+      ],
+    })
+
+    expect(run.status).toBe(0)
+    expect(readPendingRows(run.activeStateDbPath)).toEqual(unchangedPendingRows([otherUpdate]))
+    expect(run.stderr).toBe("")
+    expect(run.stdout).toBe(
+      SKIPPED_ONE_DOWNLOAD +
+        "[obsidian-sync] First sync (attempt 1/3) — waiting for completion before starting services...\n" +
+        "[obsidian-sync] First sync complete.\n",
+    )
+  })
+
+  it.each([
+    {
+      label: "a queued hash that differs (a real update)",
+      pendingRecords: [{ ...syncedVersion, hash: "hash-b" }],
+    },
+    {
+      label: "a file missing on disk",
+      pendingRecords: [syncedVersion],
+      vaultFiles: ["Notes/kept.md"],
+    },
+    {
+      label: "a folder record",
+      pendingRecords: [{ ...syncedVersion, folder: true }],
+    },
+    {
+      label: "a folder on disk at the file's path",
+      pendingRecords: [syncedVersion],
+      vaultFiles: ["Notes/kept.md", `${EDITED_FILE}/inner.md`],
+    },
+    {
+      label: "a local folder record",
+      pendingRecords: [syncedVersion],
+      localRecords: [{ ...editedFileRecord, folder: true }],
+    },
+    {
+      label: "a deletion record",
+      pendingRecords: [{ ...syncedVersion, deleted: true }],
+    },
+    {
+      label: "an empty queued hash",
+      pendingRecords: [{ ...syncedVersion, hash: "" }],
+      localRecords: [{ ...editedFileRecord, synchash: "" }],
+    },
+    {
+      label: "two queued rows for the path, the synced version then a newer one",
+      pendingRecords: [syncedVersion, { ...syncedVersion, uid: 12, hash: "hash-b" }],
+    },
+    {
+      label: "the synced version queued again after a deletion",
+      pendingRecords: [
+        syncedVersion,
+        { ...syncedVersion, uid: 12, deleted: true },
+        { ...syncedVersion, uid: 13 },
+      ],
+    },
+  ])("keeps every queued row in pull-only for $label", (keptCase) => {
+    const run = runWithQueuedReplay({ syncMode: "pull-only", ...keptCase })
+
+    expect(run.status).toBe(0)
+    expect(readPendingRows(run.activeStateDbPath)).toEqual(
+      unchangedPendingRows(keptCase.pendingRecords),
+    )
+    expect(run.stderr).toBe("")
+  })
+
+  it("drops a queued replay in pull-only when the file's path is a symbolic link to a file", () => {
+    // The Sync client writes through the link, so the edit at its target needs
+    // the same protection as one at the path itself.
+    const run = runWithQueuedReplay({
+      syncMode: "pull-only",
+      vaultFiles: ["Notes/kept.md", "Data/real.csv"],
+      vaultSymlinks: [{ path: EDITED_FILE, target: "real.csv" }],
+    })
+
+    expect(run.status).toBe(0)
+    expect(readPendingRows(run.activeStateDbPath)).toEqual([])
+    expect(run.stderr).toBe("")
+    expect(run.stdout).toBe(
+      SKIPPED_ONE_DOWNLOAD +
+        "[obsidian-sync] First sync (attempt 1/3) — waiting for completion before starting services...\n" +
+        "[obsidian-sync] First sync complete.\n",
+    )
+  })
+
+  it("keeps the queued row and syncs when the file's path can't be checked on disk", () => {
+    // A symbolic link that points at itself makes every stat of the path fail
+    // (ELOOP), for any user, as an unreadable folder (EACCES) does for one
+    // without root.
+    const run = runWithQueuedReplay({
+      syncMode: "pull-only",
+      vaultFiles: ["Notes/kept.md"],
+      vaultSymlinks: [{ path: EDITED_FILE, target: "table.csv" }],
+    })
+
+    expect(run.status).toBe(0)
+    expect(run.syncCalls).toBe(1)
+    expect(readPendingRows(run.activeStateDbPath)).toEqual(unchangedPendingRows([syncedVersion]))
+    expect(run.stderr).toBe(
+      `[obsidian-sync] Could not check ${EDITED_FILE} on disk (ELOOP); keeping its queued download.\n`,
+    )
+  })
+
+  it("keeps the queued row and syncs when the file's name is too long for the filesystem", () => {
+    // A name past the filesystem's 255-byte limit makes the stat fail with
+    // ENAMETOOLONG, for any user. Its folder must exist, or the stat fails
+    // first with ENOENT on the missing folder.
+    const longPath = `Data/${"a".repeat(256)}.csv`
+    const longVersion = { ...syncedVersion, path: longPath }
+    const run = runGateScript({
+      syncOutcomes: [0],
+      vaultName: "Test",
+      vaultDirs: ["Data"],
+      vaultFiles: ["Notes/kept.md"],
+      serverRecords: [longVersion],
+      pendingRecords: [longVersion],
+      localRecords: [{ ...editedFileRecord, path: longPath }],
+      syncConfigJson: JSON.stringify({ vaultId: "vault-id", syncMode: "pull-only" }),
+    })
+
+    expect(run.status).toBe(0)
+    expect(run.syncCalls).toBe(1)
+    expect(readPendingRows(run.activeStateDbPath)).toEqual(unchangedPendingRows([longVersion]))
+    expect(run.stderr).toBe(
+      `[obsidian-sync] Could not check ${longPath} on disk (ENAMETOOLONG); keeping its queued download.\n`,
+    )
+  })
+
+  it.skipIf(runsAsRoot)(
+    "keeps the queued row and syncs when the file's folder can't be searched",
+    () => {
+      const run = runWithQueuedReplay({ syncMode: "pull-only", lockedVaultDirs: ["Data"] })
+
+      expect(run.status).toBe(0)
+      expect(run.syncCalls).toBe(1)
+      expect(readPendingRows(run.activeStateDbPath)).toEqual(unchangedPendingRows([syncedVersion]))
+      // The empty-vault check's `find` also meets the locked folder, and
+      // whether it reports that before its search ends varies by run, so its
+      // lines are left out of the comparison.
+      const scriptStderr = run.stderr
+        .split("\n")
+        .filter((stderrLine) => !stderrLine.startsWith("find: "))
+        .join("\n")
+      expect(scriptStderr).toBe(
+        `[obsidian-sync] Could not check ${EDITED_FILE} on disk (EACCES); keeping its queued download.\n`,
+      )
+    },
+  )
+
+  it("refuses to sync when the file's path fails the disk check for another reason", () => {
+    // A NUL character makes the stat throw ERR_INVALID_ARG_VALUE, which is not
+    // one of the codes that prove no file could be written over.
+    const pathWithNul = `Data/ta${String.fromCodePoint(0)}ble.csv`
+    const run = runWithQueuedReplay({
+      syncMode: "pull-only",
+      pendingRecords: [{ ...syncedVersion, path: pathWithNul }],
+      localRecords: [{ ...editedFileRecord, path: pathWithNul }],
+    })
+
+    expect(run.status).toBe(1)
+    expect(run.syncCalls).toBe(0)
+    expect(readPendingRows(run.activeStateDbPath)).toEqual(
+      unchangedPendingRows([{ ...syncedVersion, path: pathWithNul }]),
+    )
+    // Node prints the thrown error's stack before the script's own lines, and
+    // the stack's file paths vary, so only the script's lines are pinned.
+    expect(run.stderr).toContain(
+      `[obsidian-sync] ERROR: Could not check the queued downloads for edits made on this device (${run.activeStateDbPath}).\n` +
+        "[obsidian-sync] Refusing to sync: without that step, a pull-only sync could overwrite those edits, and Obsidian Sync keeps no copy of them.\n",
+    )
+  })
+
+  it.each([
+    { label: "bidirectional", syncMode: "bidirectional" },
+    { label: "mirror-remote", syncMode: "mirror-remote" },
+  ])("keeps a queued replay of the synced version in $label", ({ syncMode }) => {
+    const run = runWithQueuedReplay({ syncMode })
+
+    expect(run.status).toBe(0)
+    expect(readPendingRows(run.activeStateDbPath)).toEqual(unchangedPendingRows([syncedVersion]))
+    expect(run.stderr).toBe("")
+  })
+
+  it("refuses to sync in pull-only when the store's table layout is not the Sync client's", () => {
+    const run = runGateScript({
+      syncOutcomes: [0],
+      vaultName: "Test",
+      unrecognizedStoreSchema: true,
+      syncConfigJson: JSON.stringify({ vaultId: "vault-id", syncMode: "pull-only" }),
+    })
+
+    expect(run.status).toBe(1)
+    expect(run.syncCalls).toBe(0)
+    expect(run.stderr).toBe(
+      "pending_files has no uid, path, data column\n" +
+        `[obsidian-sync] ERROR: Could not check the queued downloads for edits made on this device (${run.activeStateDbPath}).\n` +
+        "[obsidian-sync] Refusing to sync: without that step, a pull-only sync could overwrite those edits, and Obsidian Sync keeps no copy of them.\n",
+    )
+  })
+
   // -- Refusal before two-way continuous sync ---------------------------------
 
   const QUEUED_DOWNLOADS_REFUSAL =
@@ -987,7 +1352,7 @@ describe("init-first-sync gate script", () => {
     "[obsidian-sync] Refusing to start two-way sync: it could delete those files from Obsidian Sync and your other devices.\n" +
     "[obsidian-sync] The count may include files excluded by SYNC_FILE_TYPES, SYNC_EXCLUDED_FOLDERS, or SYNC_CONFIGS — those are dropped from the queue during a successful sync.\n" +
     "[obsidian-sync] Check the network, your Obsidian Sync login, and the log above for a file that keeps failing to download — the container's restart policy retries.\n" +
-    "[obsidian-sync] To start the server while the downloads retry, set SYNC_MODE=pull-only — it never deletes anything from Obsidian Sync.\n"
+    "[obsidian-sync] To start the MCP server while the downloads retry, set SYNC_MODE=pull-only — it never deletes anything from Obsidian Sync.\n"
 
   it("refuses two-way sync when every attempt failed with downloads still queued", () => {
     const run = runGateScript({

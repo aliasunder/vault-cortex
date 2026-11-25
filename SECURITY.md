@@ -111,6 +111,9 @@ mechanism-level detail.
   folder (a `deploy.env` or `secrets.txt`) is readable by any signed-in client.
   A file named as an image or a PDF goes to the image or PDF reader instead.
   Hidden files such as `.env` stay refused by the hidden-path check above.
+- On the `:remote` image, the default `SYNC_FILE_TYPES` downloads the text
+  files of every device that has **Sync all other types** turned on.
+  `SYNC_FILE_TYPES=image,audio,video,pdf` keeps new ones off the server.
 - `vault_write_file` lets any signed-in client create or replace a visible
   non-markdown text file, whatever its extension — the same reach
   `vault_write_note` has over notes. That includes a script a community
