@@ -155,10 +155,15 @@ jobs:
           fi
 
       # Refuses a release whose notes would list nothing, before anything is
-      # built, tagged or published:
+      # built, tagged or published. The notes script prints nothing exactly
+      # when it lists no commit.
       # - beta and none are not checked: a beta tests a branch, and none
       #   publishes a stranded version as-is.
-      # - No GH_TOKEN is set, so the notes script makes no PR lookups.
+      # - The notes for HEAD list the same commits as the release step's notes
+      #   for the new tag. That range adds only the bump commit, and the
+      #   script skips its "version" line.
+      # - No GH_TOKEN is set, so the notes script makes no PR lookups. Those
+      #   lookups change only the ⚠ section, never which commits are listed.
       # - A script error stops the step under bash -e, so it never reads as
       #   empty notes.
       - name: Refuse a release with nothing to announce
@@ -168,6 +173,8 @@ jobs:
         run: |
           NOTES=$(bash .github/scripts/generate-cli-notes.sh HEAD)
           if [ -z "$NOTES" ]; then
+            # This finds the tag the notes script starts from, because the
+            # script's --exclude drops no tag for HEAD.
             LAST_TAG=$(git describe --tags --abbrev=0 --match "cli-v*" HEAD 2> /dev/null || echo "")
             if [ "$FORCE" = true ]; then
               echo "::warning::The release notes would list no commit since ${LAST_TAG:-the first commit}; releasing anyway (force)."

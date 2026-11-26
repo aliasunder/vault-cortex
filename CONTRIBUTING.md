@@ -176,7 +176,7 @@ it. The npm package is deliberately absent from `server.json` — it's a
 scaffolder, not a way to run the server.
 
 **Releases with nothing to list:** A `patch`, `minor` or `major` release whose
-notes would list no commit since the last CLI release stops before anything is
+[notes](#release-process) would list no commit since the last CLI release stops before anything is
 tagged or published. The maintainer can dispatch it again with `force` to
 release anyway.
 
