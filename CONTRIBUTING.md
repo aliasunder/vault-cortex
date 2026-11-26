@@ -246,11 +246,12 @@ updating each doc or generated file the change affects.
 
 ## Breaking changes
 
-Release notes (`.github/scripts/generate-notes.sh`) lead with a **⚠ BREAKING
-CHANGES** section. Breaking changes are detected from the **merged PR**, read
-via the API at release time — the reliable source: a squash commit's body is
-often dropped at merge (e.g. the GitHub mobile app), but the PR body and labels
-always survive.
+Server and CLI release notes (`.github/scripts/generate-notes.sh` and
+`.github/scripts/generate-cli-notes.sh`) lead with a **⚠ BREAKING CHANGES**
+section when a change they list is breaking. Breaking changes are detected
+from the **merged PR**, read via the API at release time — the reliable
+source: a squash commit's body is often dropped at merge (e.g. the GitHub
+mobile app), but the PR body and labels always survive.
 
 To mark a PR as breaking, add a **`BREAKING CHANGE:` footer** (its own
 paragraph) at the **end of the PR description**. Its text becomes the
@@ -266,10 +267,6 @@ create it once under repo Settings → Labels if you want a clickable flag) and 
 merge even when the body is dropped. The `BREAKING CHANGE:` footer is preferred
 because it carries the descriptive line; the label and `!` only flag that a change
 is breaking.
-
-CLI release notes (`.github/scripts/generate-cli-notes.sh`) list commit
-subjects only, with no ⚠ section, so a breaking change to `cli/` carries the
-`!` marker in its PR title, which becomes the squash subject.
 
 The committed tool-surface baseline
 (`src/vault-mcp/mcp-core/__tests__/__snapshots__/tool-surface/`) is the
