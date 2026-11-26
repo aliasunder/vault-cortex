@@ -1,5 +1,5 @@
 import { execFileSync, spawnSync } from "node:child_process"
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 
@@ -78,6 +78,8 @@ type ReleaseRepo = {
   /** Deletes the commit's root tree object, so git still lists the commit but
    *  cannot diff it. */
   deleteRootTree: (commitHash: string) => void
+  /** The folder the stub commands are written to. */
+  stubDir: string
   /** Tags HEAD as the release under test and runs the script for it. */
   generateNotes: (options?: NotesRunOptions) => NotesRun
 }
@@ -159,7 +161,7 @@ const createReleaseRepo = (): ReleaseRepo => {
     return { status: result.status, stdout: result.stdout, stderr: result.stderr }
   }
 
-  return { commit, deleteRootTree, generateNotes }
+  return { commit, deleteRootTree, stubDir, generateNotes }
 }
 
 /** A commit the notes always list, so a run that leaves out every commit
@@ -386,6 +388,88 @@ describe("generate-notes.sh", () => {
         status: 0,
         stdout: "### Features\n\n- Rename the search tool (#12)\n",
         stderr: "",
+      })
+    })
+
+    it("warns about a failed PR lookup and keeps the commit's own marks", () => {
+      const repo = createReleaseRepo()
+      repo.commit("feat: rename the search tool (#12)\n\nBREAKING CHANGE: search is now find.", {
+        "src/search.ts": "export const find = 1\n",
+      })
+      const failingGh = "#!/bin/sh\necho 'HTTP 502: Bad Gateway' >&2\nexit 1\n"
+
+      expect(
+        repo.generateNotes({ stubCommands: { gh: failingGh }, extraEnv: WITH_GH_TOKEN }),
+      ).toEqual({
+        status: 0,
+        stdout:
+          "### ⚠ BREAKING CHANGES\n\n- search is now find.\n\n" +
+          "### Features\n\n- Rename the search tool (#12)\n",
+        stderr:
+          "generate-notes: gh pr view #12 failed (exit 1): HTTP 502: Bad Gateway" +
+          " — falling back to commit-only signals\n",
+      })
+    })
+
+    it("never calls gh without GH_TOKEN, and uses the commit's own marks", () => {
+      const repo = createReleaseRepo()
+      repo.commit("feat: rename the search tool (#12)\n\nBREAKING CHANGE: search is now find.", {
+        "src/search.ts": "export const find = 1\n",
+      })
+      const markerPath = join(repo.stubDir, "gh-was-called")
+      const trapGh = `#!/bin/sh\ntouch '${markerPath}'\nexit 1\n`
+
+      expect(repo.generateNotes({ stubCommands: { gh: trapGh } })).toEqual({
+        status: 0,
+        stdout:
+          "### ⚠ BREAKING CHANGES\n\n- search is now find.\n\n" +
+          "### Features\n\n- Rename the search tool (#12)\n",
+        stderr: "",
+      })
+      expect(existsSync(markerPath)).toBe(false)
+    })
+
+    it("looks the PR up in the GITHUB_REPOSITORY repository", () => {
+      const repo = createReleaseRepo()
+      repo.commit("feat: rename the search tool (#12)", {
+        "src/search.ts": "export const find = 1\n",
+      })
+      const gh = ghAnsweringPullRequests(
+        { 12: { labels: ["breaking-change"], body: "Renames the tool." } },
+        { repo: "fixture-owner/fixture-repo" },
+      )
+
+      expect(
+        repo.generateNotes({
+          stubCommands: { gh },
+          extraEnv: { ...WITH_GH_TOKEN, GITHUB_REPOSITORY: "fixture-owner/fixture-repo" },
+        }),
+      ).toEqual({
+        status: 0,
+        stdout:
+          "### ⚠ BREAKING CHANGES\n\n- Rename the search tool (#12)\n\n" +
+          "### Features\n\n- Rename the search tool (#12)\n",
+        stderr: "",
+      })
+    })
+
+    it("warns about a PR lookup that prints no JSON and keeps the commit's own marks", () => {
+      const repo = createReleaseRepo()
+      repo.commit("feat: rename the search tool (#12)\n\nBREAKING CHANGE: search is now find.", {
+        "src/search.ts": "export const find = 1\n",
+      })
+      const garbledGh = "#!/bin/sh\necho 'Bad Gateway'\n"
+
+      expect(
+        repo.generateNotes({ stubCommands: { gh: garbledGh }, extraEnv: WITH_GH_TOKEN }),
+      ).toEqual({
+        status: 0,
+        stdout:
+          "### ⚠ BREAKING CHANGES\n\n- search is now find.\n\n" +
+          "### Features\n\n- Rename the search tool (#12)\n",
+        stderr:
+          "generate-notes: gh pr view #12 errored: Expecting value: line 1 column 1 (char 0)" +
+          " — falling back to commit-only signals\n",
       })
     })
 
