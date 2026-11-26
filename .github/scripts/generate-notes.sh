@@ -20,6 +20,8 @@
 # need both the `gh` binary and GH_TOKEN; when either is missing (local runs
 # without auth) the commit-only signals are used. A lookup that fails despite
 # being enabled warns on stderr rather than silently dropping the signal.
+# generate-cli-notes.sh applies the same rule to the CLI notes, so change both
+# scripts together.
 
 set -euo pipefail
 

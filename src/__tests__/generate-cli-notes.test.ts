@@ -1,5 +1,5 @@
 import { execFileSync, spawnSync } from "node:child_process"
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 
@@ -8,8 +8,9 @@ import { describe, expect, it, onTestFinished } from "vitest"
 /**
  * Behavioral spec for the CLI release-notes generator
  * (.github/scripts/generate-cli-notes.sh): which commits between two CLI tags
- * the notes list. The real script runs under `bash` with real git, in a fresh
- * repository per test.
+ * the notes list, and which of them lead the notes as breaking changes. The
+ * real script runs under `bash` with real git, in a fresh repository per test.
+ * Stub commands on PATH stand in for `gh` and `awk`.
  */
 
 const SCRIPT_PATH = resolve(import.meta.dirname, "../../.github/scripts/generate-cli-notes.sh")
@@ -41,11 +42,15 @@ type NotesRunOptions = {
   /** Shell scripts by command name, placed ahead of the runner's PATH for the
    *  script run only. */
   stubCommands?: Record<string, string>
+  /** Added to the script run's environment only. */
+  extraEnv?: Record<string, string>
 }
 
 type CliReleaseRepo = {
   commit: (message: string, changes: FileChanges) => void
   headHash: () => string
+  /** The folder the stub commands are written to. */
+  stubDir: string
   /** Tags HEAD as cli-v0.2.0 and runs the script for it. */
   generateNotes: (options?: NotesRunOptions) => NotesRun
 }
@@ -110,9 +115,9 @@ const createCliReleaseRepo = ({
 
   const headHash = (): string => git("rev-parse", "HEAD").trim()
 
-  const pathWithStubs = (stubCommands: Record<string, string>): string => {
-    const stubDir = join(tempDir, "stub-bin")
+  const stubDir = join(tempDir, "stub-bin")
 
+  const pathWithStubs = (stubCommands: Record<string, string>): string => {
     mkdirSync(stubDir, { recursive: true })
     for (const [commandName, script] of Object.entries(stubCommands)) {
       writeFileSync(join(stubDir, commandName), script, { mode: EXECUTABLE_MODE })
@@ -120,17 +125,17 @@ const createCliReleaseRepo = ({
     return `${stubDir}:${runnerPath()}`
   }
 
-  const generateNotes = ({ stubCommands = {} }: NotesRunOptions = {}): NotesRun => {
+  const generateNotes = ({ stubCommands = {}, extraEnv = {} }: NotesRunOptions = {}): NotesRun => {
     git("tag", "cli-v0.2.0")
     const result = spawnSync("bash", [SCRIPT_PATH, "cli-v0.2.0"], {
       cwd: repoDir,
-      env: { ...env, PATH: pathWithStubs(stubCommands) },
+      env: { ...env, ...extraEnv, PATH: pathWithStubs(stubCommands) },
       encoding: "utf8",
     })
     return { status: result.status, stdout: result.stdout, stderr: result.stderr }
   }
 
-  return { commit, headHash, generateNotes }
+  return { commit, headHash, stubDir, generateNotes }
 }
 
 /** A commit the notes always list, so a run that lists nothing cannot pass a
@@ -140,6 +145,43 @@ const commitListedCodeChange = (repo: CliReleaseRepo): void => {
 }
 
 const LISTED_CODE_CHANGE_ONLY = { status: 0, stdout: "- feat: add a flag\n", stderr: "" }
+
+/** A commit the notes list, changing cli/src/start.ts to hold startValue. */
+const commitStartChange = (repo: CliReleaseRepo, message: string, startValue = 1): void => {
+  repo.commit(message, { "cli/src/start.ts": `export const start = ${startValue}\n` })
+}
+
+type PullRequestStub = { labels?: string[]; body: string }
+
+/** A gh stand-in that answers `gh pr view <number> --json labels,body` for the
+ *  given PRs and fails any other call, so a lookup of the wrong PR shows up on
+ *  stderr. */
+const ghAnsweringPullRequests = (pullRequests: Record<number, PullRequestStub>): string => {
+  const caseArms = Object.entries(pullRequests).flatMap(([prNumber, { labels = [], body }]) => {
+    const prJson = JSON.stringify({ labels: labels.map((name) => ({ name })), body })
+    return [
+      `  "pr view ${prNumber} --json labels,body")`,
+      "    cat <<'JSON'",
+      prJson,
+      "JSON",
+      "    ;;",
+    ]
+  })
+  return [
+    "#!/bin/sh",
+    'case "$*" in',
+    ...caseArms,
+    "  *)",
+    '    echo "unexpected gh call: $*" >&2',
+    "    exit 64",
+    "    ;;",
+    "esac",
+    "",
+  ].join("\n")
+}
+
+/** GH_TOKEN turns PR lookups on; the stub gh never reads its value. */
+const WITH_GH_TOKEN = { GH_TOKEN: "fixture-token" }
 
 describe("generate-cli-notes.sh", () => {
   describe("listed commits", () => {
@@ -317,6 +359,176 @@ describe("generate-cli-notes.sh", () => {
       const repo = createCliReleaseRepo()
       commitListedCodeChange(repo)
       repo.commit("feat: add a server tool", { "src/server.ts": "export const server = 2\n" })
+
+      expect(repo.generateNotes()).toEqual(LISTED_CODE_CHANGE_ONLY)
+    })
+  })
+
+  describe("breaking changes", () => {
+    it("leads with a breaking section for a listed commit whose subject has !", () => {
+      const repo = createCliReleaseRepo()
+      commitListedCodeChange(repo)
+      commitStartChange(repo, "feat(cli)!: rename the start command")
+
+      expect(repo.generateNotes()).toEqual({
+        status: 0,
+        stdout:
+          "### ⚠ BREAKING CHANGES\n\n" +
+          "- feat(cli)!: rename the start command\n\n" +
+          "### Changes\n\n" +
+          "- feat(cli)!: rename the start command\n" +
+          "- feat: add a flag\n",
+        stderr: "",
+      })
+    })
+
+    it.each([
+      { label: "BREAKING CHANGE:", footer: "BREAKING CHANGE: run `up` instead of `start`." },
+      { label: "BREAKING-CHANGE:", footer: "BREAKING-CHANGE: run `up` instead of `start`." },
+    ])("takes the line from a $label footer in the commit body", ({ footer }) => {
+      const repo = createCliReleaseRepo()
+      commitStartChange(repo, `feat(cli): rename the start command\n\n${footer}`)
+
+      expect(repo.generateNotes()).toEqual({
+        status: 0,
+        stdout:
+          "### ⚠ BREAKING CHANGES\n\n" +
+          "- run `up` instead of `start`.\n\n" +
+          "### Changes\n\n" +
+          "- feat(cli): rename the start command\n",
+        stderr: "",
+      })
+    })
+
+    it("takes the line from a footer in the PR body when the commit has no mark", () => {
+      const repo = createCliReleaseRepo()
+      commitStartChange(repo, "feat(cli): rename the start command (#12)")
+      const gh = ghAnsweringPullRequests({
+        12: { body: "Renames the command.\n\nBREAKING CHANGE: run `up` instead of `start`." },
+      })
+
+      expect(repo.generateNotes({ stubCommands: { gh }, extraEnv: WITH_GH_TOKEN })).toEqual({
+        status: 0,
+        stdout:
+          "### ⚠ BREAKING CHANGES\n\n" +
+          "- run `up` instead of `start`.\n\n" +
+          "### Changes\n\n" +
+          "- feat(cli): rename the start command (#12)\n",
+        stderr: "",
+      })
+    })
+
+    it("prefers the PR body's footer to the commit body's", () => {
+      const repo = createCliReleaseRepo()
+      commitStartChange(
+        repo,
+        "feat(cli): rename the start command (#12)\n\nBREAKING CHANGE: start is renamed.",
+      )
+      const gh = ghAnsweringPullRequests({
+        12: { body: "BREAKING CHANGE: run `up` instead of `start`." },
+      })
+
+      expect(repo.generateNotes({ stubCommands: { gh }, extraEnv: WITH_GH_TOKEN })).toEqual({
+        status: 0,
+        stdout:
+          "### ⚠ BREAKING CHANGES\n\n" +
+          "- run `up` instead of `start`.\n\n" +
+          "### Changes\n\n" +
+          "- feat(cli): rename the start command (#12)\n",
+        stderr: "",
+      })
+    })
+
+    it("takes the subject for a PR labeled breaking-change with no footer", () => {
+      const repo = createCliReleaseRepo()
+      commitStartChange(repo, "feat(cli): rename the start command (#12)")
+      const gh = ghAnsweringPullRequests({
+        12: { labels: ["enhancement", "breaking-change"], body: "Renames the command." },
+      })
+
+      expect(repo.generateNotes({ stubCommands: { gh }, extraEnv: WITH_GH_TOKEN })).toEqual({
+        status: 0,
+        stdout:
+          "### ⚠ BREAKING CHANGES\n\n" +
+          "- feat(cli): rename the start command (#12)\n\n" +
+          "### Changes\n\n" +
+          "- feat(cli): rename the start command (#12)\n",
+        stderr: "",
+      })
+    })
+
+    it("warns about a failed PR lookup and keeps the commit's own marks", () => {
+      const repo = createCliReleaseRepo()
+      commitStartChange(
+        repo,
+        "feat(cli): rename the start command (#12)\n\nBREAKING CHANGE: start is renamed.",
+      )
+      const failingGh = "#!/bin/sh\necho 'HTTP 502: Bad Gateway' >&2\nexit 1\n"
+
+      expect(
+        repo.generateNotes({ stubCommands: { gh: failingGh }, extraEnv: WITH_GH_TOKEN }),
+      ).toEqual({
+        status: 0,
+        stdout:
+          "### ⚠ BREAKING CHANGES\n\n" +
+          "- start is renamed.\n\n" +
+          "### Changes\n\n" +
+          "- feat(cli): rename the start command (#12)\n",
+        stderr:
+          "generate-cli-notes: gh pr view #12 failed (exit 1): HTTP 502: Bad Gateway" +
+          " — falling back to commit-only signals\n",
+      })
+    })
+
+    it("never calls gh without GH_TOKEN, and uses the commit's own marks", () => {
+      const repo = createCliReleaseRepo()
+      commitStartChange(
+        repo,
+        "feat(cli): rename the start command (#12)\n\nBREAKING CHANGE: start is renamed.",
+      )
+      const markerPath = join(repo.stubDir, "gh-was-called")
+      const trapGh = `#!/bin/sh\ntouch '${markerPath}'\nexit 1\n`
+
+      expect(repo.generateNotes({ stubCommands: { gh: trapGh } })).toEqual({
+        status: 0,
+        stdout:
+          "### ⚠ BREAKING CHANGES\n\n" +
+          "- start is renamed.\n\n" +
+          "### Changes\n\n" +
+          "- feat(cli): rename the start command (#12)\n",
+        stderr: "",
+      })
+      expect(existsSync(markerPath)).toBe(false)
+    })
+
+    it("lists a breaking line once when two PRs carry the same footer", () => {
+      const repo = createCliReleaseRepo()
+      commitStartChange(repo, "feat(cli): rename the start command (#12)")
+      commitStartChange(repo, "docs(cli): describe the up command (#13)", 2)
+      const sharedFooter = "BREAKING CHANGE: run `up` instead of `start`."
+      const gh = ghAnsweringPullRequests({
+        12: { body: sharedFooter },
+        13: { body: `Documents the rename.\n\n${sharedFooter}` },
+      })
+
+      expect(repo.generateNotes({ stubCommands: { gh }, extraEnv: WITH_GH_TOKEN })).toEqual({
+        status: 0,
+        stdout:
+          "### ⚠ BREAKING CHANGES\n\n" +
+          "- run `up` instead of `start`.\n\n" +
+          "### Changes\n\n" +
+          "- docs(cli): describe the up command (#13)\n" +
+          "- feat(cli): rename the start command (#12)\n",
+        stderr: "",
+      })
+    })
+
+    it("leaves out a breaking commit that changes only CLI tests", () => {
+      const repo = createCliReleaseRepo()
+      commitListedCodeChange(repo)
+      repo.commit("test(cli)!: replace the init fixtures", {
+        "cli/src/commands/__tests__/init.test.ts": "export const checks = 1\n",
+      })
 
       expect(repo.generateNotes()).toEqual(LISTED_CODE_CHANGE_ONLY)
     })

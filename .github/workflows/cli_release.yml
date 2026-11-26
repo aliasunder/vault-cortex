@@ -43,8 +43,11 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
+    # generate-cli-notes.sh reads merged PRs (labels/body) for breaking-change
+    # detection, so the token also needs pull-requests: read.
     permissions:
       contents: write # gh release create (git pushes use the App token)
+      pull-requests: read
       id-token: write # npm provenance
     steps:
       # A versioned release dispatched off main would publish that branch's
