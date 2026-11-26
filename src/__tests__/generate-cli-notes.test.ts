@@ -388,6 +388,33 @@ describe("generate-cli-notes.sh", () => {
 
       expect(repo.generateNotesFor("cli-v0.2.0")).toEqual(LISTED_CODE_CHANGE_ONLY)
     })
+
+    it("lists for HEAD every commit from the first when no CLI tag exists, ignoring server tags", () => {
+      const repo = createCliReleaseRepo({ firstCommitTag: "v0.1.0" })
+      commitListedCodeChange(repo)
+
+      expect(repo.generateNotesFor("HEAD")).toEqual({
+        status: 0,
+        stdout: "- feat: add a flag\n- feat: first release\n",
+        stderr: "",
+      })
+    })
+
+    // The release workflow checks the notes for HEAD before it commits the
+    // version bump, and publishes the notes for the tag it puts on that commit.
+    it("lists for HEAD the same commits as for the tag later put on its version bump", () => {
+      const repo = createCliReleaseRepo()
+      commitListedCodeChange(repo)
+      const headNotes = repo.generateNotesFor("HEAD")
+      repo.commit("release(cli): v0.2.0", {
+        "cli/package.json": cliManifest({ version: "0.2.0", zod: "^1.0.0" }),
+      })
+
+      expect({ headNotes, tagNotes: repo.generateNotes() }).toEqual({
+        headNotes: LISTED_CODE_CHANGE_ONLY,
+        tagNotes: LISTED_CODE_CHANGE_ONLY,
+      })
+    })
   })
 
   describe("breaking changes", () => {
@@ -795,6 +822,18 @@ describe("generate-cli-notes.sh", () => {
   })
 
   describe("failures", () => {
+    // The release workflow reads an exit status of 0 with empty output as a
+    // release with nothing to list.
+    it("stops with git's error for a ref that names no commit", () => {
+      const repo = createCliReleaseRepo()
+
+      expect(repo.generateNotesFor("cli-v9.9.9")).toEqual({
+        status: 128,
+        stdout: "",
+        stderr: "fatal: bad revision 'cli-v9.9.9'\n",
+      })
+    })
+
     it("stops with git's exit status when reading the listed commits fails", () => {
       const repo = createCliReleaseRepo()
       commitListedCodeChange(repo)
