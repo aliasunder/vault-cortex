@@ -182,7 +182,9 @@ A module's folder is decided by **what it depends on**, not just its topic:
   state word for word, and the `describe*` builders for text that depends on
   the config or the enabled tool set, live in `tool-description-text.ts`.
   `describe*` names description text built at registration and `format*`
-  names result text built per call. Group modules take `safeHandler` and
+  names result text built per call. A `*-helpers` module takes no new
+  category of code: name the category and give it its own module.
+  Group modules take `safeHandler` and
   `safeHandlerContent` from the registration context; `createSafeHandlers`
   builds them per server from the enabled tools and the vault path.
   **Tool handlers stay thin**: schema, wire mapping (snake_case ↔ camelCase),
@@ -575,7 +577,9 @@ The rest are the author's responsibility at write time.
   even for one literal; always above two args or for adjacent same-typed
   args. Keep a clear one- or two-arg call positional.
 - A boolean mode param means the function does two things: split it;
-  the caller owns the gating.
+  the caller owns the gating. A discriminant param (`pathKind: "note" |
+"file"`) carries every rule that differs by it, in one helper with an
+  exhaustive `switch`; a wrapper that picks the value does nothing else.
 - A function marked `eslint-disable-next-line complexity` takes no new
   branch, and a function that a new branch pushes over the limit gets no
   new disable. Split out the part being changed first, in its own commit.
@@ -817,6 +821,10 @@ the description and each parameter's Zod `.describe()` text.
   `tool_error`. A Zod failure surfaces as a protocol-level invalid-params
   error that bypasses both, and `.refine` does not serialize into the
   JSON schema clients see; `.min(1)` does (`minLength`).
+- **Shared description text is a constant only when it is identical
+  across its tools** (`tool-description-text.ts`). Prose that differs by
+  a noun between two tools is written in each tool; a template that swaps
+  words into shared sentences hides what each tool says.
 - **Edit only the tools a change is meant for.** A grader re-scores
   every definition whose text changes, so apply a shared wording change
   tool by tool and leave every other tool's text as it is.
@@ -1419,7 +1427,9 @@ terms the end user thinks in — "complete a task," "move between lanes,"
 "atomic write cycle," "composable mutations"). Internal docs (AGENTS.md,
 ARCHITECTURE.md, code comments) use precise engineering language. The
 test: would an Obsidian user with no programming background understand
-the sentence? If not, rewrite it.
+the sentence? If not, rewrite it. A condition is stated in the reader's
+terms ("with Obsidian Sync"), never by an image tag or an env var; the
+variable's name belongs in the guide that documents it.
 
 **Write-time format decision** — before committing any prose (code
 comments, JSDoc, README sections, PR descriptions, env-file comments):
