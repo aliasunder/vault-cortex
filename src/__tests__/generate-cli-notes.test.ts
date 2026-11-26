@@ -511,6 +511,36 @@ describe("generate-cli-notes.sh", () => {
       })
     })
 
+    it("lists a commit with no breaking section when its PR has no footer and no breaking-change label", () => {
+      const repo = createCliReleaseRepo()
+      commitStartChange(repo, "feat(cli): rename the start command (#12)")
+      const gh = ghAnsweringPullRequests({
+        12: { labels: ["enhancement"], body: "Renames the command." },
+      })
+
+      expect(repo.generateNotes({ stubCommands: { gh }, extraEnv: WITH_GH_TOKEN })).toEqual({
+        status: 0,
+        stdout: "- feat(cli): rename the start command (#12)\n",
+        stderr: "",
+      })
+    })
+
+    it("warns about a failed PR lookup and lists a commit with no mark of its own as not breaking", () => {
+      const repo = createCliReleaseRepo()
+      commitStartChange(repo, "feat(cli): rename the start command (#12)")
+      const failingGh = "#!/bin/sh\necho 'HTTP 502: Bad Gateway' >&2\nexit 1\n"
+
+      expect(
+        repo.generateNotes({ stubCommands: { gh: failingGh }, extraEnv: WITH_GH_TOKEN }),
+      ).toEqual({
+        status: 0,
+        stdout: "- feat(cli): rename the start command (#12)\n",
+        stderr:
+          "generate-cli-notes: gh pr view #12 failed (exit 1): HTTP 502: Bad Gateway" +
+          " — falling back to commit-only signals\n",
+      })
+    })
+
     it("warns about a failed PR lookup and keeps the commit's own marks", () => {
       const repo = createCliReleaseRepo()
       commitStartChange(

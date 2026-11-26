@@ -372,6 +372,40 @@ describe("generate-notes.sh", () => {
         stderr: "",
       })
     })
+
+    it("lists a commit with no breaking section when its PR has no footer and no breaking-change label", () => {
+      const repo = createReleaseRepo()
+      repo.commit("feat: rename the search tool (#12)", {
+        "src/search.ts": "export const find = 1\n",
+      })
+      const gh = ghAnsweringPullRequests({
+        12: { labels: ["enhancement"], body: "Renames the tool." },
+      })
+
+      expect(repo.generateNotes({ stubCommands: { gh }, extraEnv: WITH_GH_TOKEN })).toEqual({
+        status: 0,
+        stdout: "### Features\n\n- Rename the search tool (#12)\n",
+        stderr: "",
+      })
+    })
+
+    it("warns about a failed PR lookup and lists a commit with no mark of its own as not breaking", () => {
+      const repo = createReleaseRepo()
+      repo.commit("feat: rename the search tool (#12)", {
+        "src/search.ts": "export const find = 1\n",
+      })
+      const failingGh = "#!/bin/sh\necho 'HTTP 502: Bad Gateway' >&2\nexit 1\n"
+
+      expect(
+        repo.generateNotes({ stubCommands: { gh: failingGh }, extraEnv: WITH_GH_TOKEN }),
+      ).toEqual({
+        status: 0,
+        stdout: "### Features\n\n- Rename the search tool (#12)\n",
+        stderr:
+          "generate-notes: gh pr view #12 failed (exit 1): HTTP 502: Bad Gateway" +
+          " — falling back to commit-only signals\n",
+      })
+    })
   })
 
   describe("contributor-only scopes", () => {
