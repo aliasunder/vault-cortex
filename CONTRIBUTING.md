@@ -321,8 +321,9 @@ What each release's notes list:
   - in files under any `__tests__/` folder in `cli/src/`
   - the `"version"` line of `cli/package.json` (the release bump)
   - lines in `.ts` files that start, after any indent, with `#`, `//`, `/*`
-    or `*`: comments, and the comment text of the `.env` templates in
-    `cli/src/rules/env-templates.ts`. A `#` line shaped like a setting (`# KEY=value`) still
+    or `*`, taken as comments (a code line that starts the same way, such as
+    a `#private` field, is skipped too). The `#` case covers the comment text
+    of the `.env` templates in `cli/src/rules/env-templates.ts`. A `#` line shaped like a setting (`# KEY=value`) still
     counts: the templates ship optional settings commented out, for the user
     to uncomment.
 

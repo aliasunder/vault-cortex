@@ -98,8 +98,9 @@ for commit_hash in $COMMIT_HASHES; do
   esac
 done
 
-# With no listed commit the notes are empty. The check comes before python3,
-# because bash before 4.4 treats an empty array as unset under set -u.
+# With no listed commit the notes are empty. The check comes before python3:
+# git log --no-walk with no commits reads HEAD instead, and bash before 4.4
+# treats an empty array as unset under set -u.
 if [ "${#LISTED_HASHES[@]}" -eq 0 ]; then
   exit 0
 fi
