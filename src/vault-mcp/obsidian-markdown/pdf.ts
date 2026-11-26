@@ -555,7 +555,7 @@ export const extractPdfIndexText = async (pdfData: Uint8Array): Promise<PdfTextR
     const totalPages = proxy.numPages
     const pageLimit = Math.min(totalPages, MAX_INDEXED_PDF_PAGES)
     const itemsByPage: StructuredTextItem[][] = []
-    const pdfLinks: string[] = []
+    const linksByPage: ReadonlyArray<string>[] = []
     // Both are reassigned each page: the loop can end on either cap, and a prefix with no visible
     // text never ends it on the byte cap, however large its links footer, because the result
     // would be empty.
@@ -568,7 +568,7 @@ export const extractPdfIndexText = async (pdfData: Uint8Array): Promise<PdfTextR
         itemsByPage.push(pageItems)
         hasContent ||= pageItems.some(hasVisibleText)
 
-        pdfLinks.push(...webLinkUrls(await page.getAnnotations()))
+        linksByPage.push(webLinkUrls(await page.getAnnotations()))
       } finally {
         page.cleanup()
       }
@@ -579,7 +579,7 @@ export const extractPdfIndexText = async (pdfData: Uint8Array): Promise<PdfTextR
         title: meta.info.Title,
         totalPages,
         itemsByPage,
-        pdfLinks,
+        pdfLinks: linksByPage.flat(),
       })
       const reachedByteBudget =
         hasContent && Buffer.byteLength(rendition, "utf8") >= MAX_INDEXED_PDF_BYTES
