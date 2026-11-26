@@ -4906,13 +4906,17 @@ describe("rebuildFromVault deferred PDF content", () => {
           },
           logger,
         )
-        await fixture.search.embedFileContent({ filePath: fixture.path, sourceVersion }, logger)
+        // Embedding jobs take turns, so the newer job waits behind the held PDF
+        // pass job and finishes after the release below
+        pendingPasses.push(
+          fixture.search.embedFileContent({ filePath: fixture.path, sourceVersion }, logger),
+        )
       } else {
         await rm(join(fixture.vaultPath, fixture.path))
         fixture.search.removeNonMdFile(fixture.path)
       }
       model.resolve(fixture.vectorFor("newcobalt"))
-      await pass
+      await Promise.all(pendingPasses)
       expect(fixture.keywordPaths("oldquartz")).toEqual([])
       expect(fixture.keywordPaths("delayedamber")).toEqual([])
       expect(fixture.targetChunks()).toEqual(
@@ -12843,6 +12847,10 @@ describe("committed embedding source versions", () => {
       const replacementContent =
         sourceKind === "note" ? "---\ntitle: New\n---\nNew newcobalt" : "New newcobalt"
       const replacementTitle = sourceKind === "note" ? "New" : "reuse"
+      onTestFinished(() => {
+        oldModel.resolve(new Float32Array(384).fill(0.1))
+        replacementModel.resolve(new Float32Array(384).fill(0.1))
+      })
       const originalVersion = fixture.upsert(originalContent)
       const oldJob = fixture.embed(originalContent, originalVersion)
       await letQueuedWorkRun()
@@ -12850,10 +12858,13 @@ describe("committed embedding source versions", () => {
       const replacementVersion = fixture.upsert(replacementContent)
       const replacementJob = fixture.embed(replacementContent, replacementVersion)
       await letQueuedWorkRun()
-      expect(fixture.embedder.embedText).toHaveBeenCalledTimes(2)
+      // Embedding jobs take turns, so the replacement waits behind the held old job
+      expect(fixture.embedder.embedText).toHaveBeenCalledTimes(1)
 
       oldModel.resolve(new Float32Array(384).fill(0.1))
       await oldJob
+      await letQueuedWorkRun()
+      expect(fixture.embedder.embedText).toHaveBeenCalledTimes(2)
       expect(
         fixture.inspect.prepare(`SELECT title, content FROM ${fixture.sourceTable}`).all(),
       ).toEqual([{ title: replacementTitle, content: "New newcobalt" }])
@@ -12891,18 +12902,23 @@ describe("committed embedding source versions", () => {
     async (sourceKind) => {
       const fixture = await createEmbeddingRaceIndex(sourceKind)
       const staleModel = Promise.withResolvers<Float32Array>()
+      onTestFinished(() => staleModel.resolve(new Float32Array(384).fill(0.1)))
+      const longContent = Array.from({ length: 8 }, (_, paragraphIndex) => {
+        return `## Section ${String(paragraphIndex)}\n\n${"Current content about cobalt systems. ".repeat(25)}`
+      }).join("\n\n")
+      await fixture.embed(longContent, fixture.upsert(longContent))
+      const currentChunks = fixture.chunks()
+      expect(currentChunks.length).toBeGreaterThan(1)
+      expect(fixture.vectorCount()).toBe(currentChunks.length)
+
+      // Embedding jobs take turns, so the stale job's model call is held while
+      // the long content is committed again and its own job has not run: a
+      // stale prune would remove the long source's stored tail
       const shortVersion = fixture.upsert("Short obsolete body.")
       fixture.embedder.embedText.mockImplementationOnce(() => staleModel.promise)
       const staleJob = fixture.embed("Short obsolete body.", shortVersion)
       await letQueuedWorkRun()
-      const longContent = Array.from({ length: 8 }, (_, paragraphIndex) => {
-        return `## Section ${String(paragraphIndex)}\n\n${"Current content about cobalt systems. ".repeat(25)}`
-      }).join("\n\n")
-      const currentVersion = fixture.upsert(longContent)
-      await fixture.embed(longContent, currentVersion)
-      const currentChunks = fixture.chunks()
-      expect(currentChunks.length).toBeGreaterThan(1)
-      expect(fixture.vectorCount()).toBe(currentChunks.length)
+      fixture.upsert(longContent)
 
       staleModel.resolve(new Float32Array(384).fill(0.1))
       await staleJob
@@ -13001,6 +13017,7 @@ describe("committed embedding source versions", () => {
       },
       logger,
     )
+    await letQueuedWorkRun()
     expect(fixture.embedder.embedText).toHaveBeenCalledTimes(1)
     const secondMtime = fixture.inspect
       .prepare<[], { mtime: number }>("SELECT mtime FROM notes WHERE path = 'b.md'")
@@ -13025,16 +13042,21 @@ describe("committed embedding source versions", () => {
       { filePath: "queued.txt", rawContent: "New current file.", fileStat: testStat(fileMtime) },
       logger,
     )
-    await fixture.searchIndex.embedNote(
-      { notePath: "b.md", rawContent: "New current note.", sourceVersion: noteVersion },
-      logger,
-    )
-    await fixture.searchIndex.embedFileContent(
-      { filePath: "queued.txt", sourceVersion: fileVersion },
-      logger,
-    )
+    // Embedding jobs take turns, so these two wait behind the rebuild's held
+    // job and finish after the release below
+    const watcherJobs = Promise.all([
+      fixture.searchIndex.embedNote(
+        { notePath: "b.md", rawContent: "New current note.", sourceVersion: noteVersion },
+        logger,
+      ),
+      fixture.searchIndex.embedFileContent(
+        { filePath: "queued.txt", sourceVersion: fileVersion },
+        logger,
+      ),
+    ])
     model.resolve(new Float32Array(384).fill(0.1))
     await embedding
+    await watcherJobs
 
     expect(fixture.embedder.embedText).toHaveBeenCalledTimes(3)
     expect(

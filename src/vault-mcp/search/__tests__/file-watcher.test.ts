@@ -1884,13 +1884,16 @@ describe("file watcher — obsolete events and embedding queues", () => {
       await writeFile(filePath, "finalamber")
       const finalChange = fire("change", fileName)
       await finalSourceWritten.promise
-      // A different path completes while the replacement stays held, giving
+      // A different path is indexed while the replacement stays held, giving
       // any incorrectly unqueued final job time to reach its model call.
+      // Embedding jobs take turns, so the other path's job waits too.
       await writeFile(join(testVault, independentFileName), "independentjade")
       await fire("change", independentFileName)
-      await independentEmbedFinished.promise
-      expect(embedder.embedText).toHaveBeenCalledTimes(3)
+      await new Promise((resolve) => setImmediate(resolve))
+      await new Promise((resolve) => setImmediate(resolve))
+      expect(embedder.embedText).toHaveBeenCalledTimes(2)
       releaseReplacement.resolve(vector)
+      await independentEmbedFinished.promise
       await replacementChange
       await finalEntered.promise
       expect(
@@ -2192,7 +2195,7 @@ describe("file watcher — obsolete events and embedding queues", () => {
     expect(embedder.embedText).toHaveBeenCalledTimes(2)
   })
 
-  it("recovers after a rejected job while another path embeds independently", async () => {
+  it("recovers after a rejected job, and another path's job runs once it settles", async () => {
     const failingEntered = Promise.withResolvers<undefined>()
     const releaseFailure = Promise.withResolvers<Float32Array>()
     const recoveredEntered = Promise.withResolvers<undefined>()
@@ -2247,12 +2250,15 @@ describe("file watcher — obsolete events and embedding queues", () => {
     await sourceWritten.promise
     await writeFile(join(testVault, "other.md"), "independentjade")
     await fire("change", "other.md")
+    await new Promise((resolve) => setImmediate(resolve))
+    // Embedding jobs take turns, so the other path's job waits behind the held one
+    expect(embedder.embedText).toHaveBeenCalledTimes(1)
+    releaseFailure.reject(new Error("controlled model failure"))
+    await failureLogged.promise
     await independentEmbedFinished.promise
     expect(database.prepare("SELECT note_path, chunk_text FROM note_chunks").all()).toEqual([
       { note_path: "other.md", chunk_text: "other\n\nindependentjade" },
     ])
-    releaseFailure.reject(new Error("controlled model failure"))
-    await failureLogged.promise
     await recoveredEntered.promise
     expect(errorSpy).toHaveBeenCalledExactlyOnceWith("failed to process file change", {
       path: "note.md",
