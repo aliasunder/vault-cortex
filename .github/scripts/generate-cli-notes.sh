@@ -33,14 +33,15 @@ set -euo pipefail
 
 REF="${1:?Usage: generate-cli-notes.sh <ref>}"
 # The previous tag is the nearest CLI tag reachable from the ref, other than
-# a tag whose name is the ref itself. No tag is named HEAD, so:
+# a tag whose name is the ref itself, written short or as refs/tags/<name>.
+# No tag is named HEAD, so:
 # - for a release tag, it is the CLI tag before it
 # - for HEAD, it is a CLI tag on HEAD itself when there is one, because that
 #   release already shipped everything up to HEAD
 # --match keeps server tags (v0.55.0) out. With no earlier CLI tag, the range
 # is every commit reachable from the ref. A bad ref fails git describe too,
 # and then stops the script at git log below.
-PREV_TAG=$(git describe --tags --abbrev=0 --match "cli-v*" --exclude "$REF" "$REF" 2> /dev/null || echo "")
+PREV_TAG=$(git describe --tags --abbrev=0 --match "cli-v*" --exclude "${REF#refs/tags/}" "$REF" 2> /dev/null || echo "")
 
 if [ -n "$PREV_TAG" ]; then
   RANGE="${PREV_TAG}..${REF}"

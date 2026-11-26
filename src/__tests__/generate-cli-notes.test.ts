@@ -389,6 +389,15 @@ describe("generate-cli-notes.sh", () => {
       expect(repo.generateNotesFor("cli-v0.2.0")).toEqual(LISTED_CODE_CHANGE_ONLY)
     })
 
+    it("lists the same commits for a release tag written as refs/tags/<name>", () => {
+      const repo = createCliReleaseRepo()
+      commitListedCodeChange(repo)
+      repo.tagHead("cli-v0.2.0")
+      commitStartChange(repo, "feat(cli): add a start command")
+
+      expect(repo.generateNotesFor("refs/tags/cli-v0.2.0")).toEqual(LISTED_CODE_CHANGE_ONLY)
+    })
+
     it("lists for HEAD every commit from the first when no CLI tag exists, ignoring server tags", () => {
       const repo = createCliReleaseRepo({ firstCommitTag: "v0.1.0" })
       commitListedCodeChange(repo)
