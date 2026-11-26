@@ -151,7 +151,6 @@ const scanWikilinks = (text: string, visit: (span: LinkSpan) => void): void => {
  *  whitespace ends the attempt. Skipped targets:
  *  - a heading alone (`[a](#Heading)`), which points into the same note;
  *  - one that opens with a URI scheme (`https:`, `mailto:`), an external link. */
-// eslint-disable-next-line complexity -- this function is over the limit; split it before adding a branch
 const scanMarkdownLinks = (text: string, visit: (span: LinkSpan) => void): void => {
   // Each cursor outlives a failed opener and only moves forward, which keeps
   // the scan linear on a line where many `[` never close:
@@ -164,20 +163,25 @@ const scanMarkdownLinks = (text: string, visit: (span: LinkSpan) => void): void 
   let fragmentEnd = 0
   let schemeEnd = 0
 
-  for (let start = 0; start < text.length; start++) {
-    if (text[start] !== "[") continue
+  const findLinkTextEnd = (start: number): number => {
     textEnd = Math.max(textEnd, start + 1)
     while (textEnd < text.length && text[textEnd] !== "]") textEnd++
-    if (text[textEnd + 1] !== "(") continue
-    const targetStart = textEnd + 2
+    return textEnd
+  }
 
-    if (text[targetStart] === "#") continue
-    // A URI scheme is a letter, then letters, digits, `+`, `.` or `-`, then `:` (RFC 3986).
-    if (SCHEME_START.test(text.charAt(targetStart))) {
-      schemeEnd = Math.max(schemeEnd, targetStart + 1)
-      while (schemeEnd < text.length && SCHEME_CHARACTER.test(text.charAt(schemeEnd))) schemeEnd++
-      if (text[schemeEnd] === ":") continue
-    }
+  // A URI scheme is a letter, then letters, digits, `+`, `.` or `-`, then `:` (RFC 3986).
+  const opensWithUriScheme = (targetStart: number): boolean => {
+    if (!SCHEME_START.test(text.charAt(targetStart))) return false
+    schemeEnd = Math.max(schemeEnd, targetStart + 1)
+    while (schemeEnd < text.length && SCHEME_CHARACTER.test(text.charAt(schemeEnd))) schemeEnd++
+    return text[schemeEnd] === ":"
+  }
+
+  const isSkippedTarget = (targetStart: number): boolean => {
+    return text[targetStart] === "#" || opensWithUriScheme(targetStart)
+  }
+
+  const findTargetEnd = (targetStart: number): number => {
     targetEnd = Math.max(targetEnd, targetStart)
     while (
       targetEnd < text.length &&
@@ -187,22 +191,38 @@ const scanMarkdownLinks = (text: string, visit: (span: LinkSpan) => void): void 
     ) {
       targetEnd++
     }
-    if (targetEnd === targetStart) continue
-    let end = targetEnd
+    return targetEnd
+  }
 
-    if (text[end] === "#") {
-      fragmentEnd = Math.max(fragmentEnd, end + 1)
-      while (
-        fragmentEnd < text.length &&
-        text[fragmentEnd] !== ")" &&
-        !WHITESPACE.test(text.charAt(fragmentEnd))
-      ) {
-        fragmentEnd++
-      }
-      end = fragmentEnd
+  /** Where the `#heading` after a target ends, or the target's end without one. */
+  const findHeadingEnd = (headingStart: number): number => {
+    if (text[headingStart] !== "#") return headingStart
+    fragmentEnd = Math.max(fragmentEnd, headingStart + 1)
+    while (
+      fragmentEnd < text.length &&
+      text[fragmentEnd] !== ")" &&
+      !WHITESPACE.test(text.charAt(fragmentEnd))
+    ) {
+      fragmentEnd++
     }
+    return fragmentEnd
+  }
+
+  for (let start = 0; start < text.length; start++) {
+    if (text[start] !== "[") continue
+    const linkTextEnd = findLinkTextEnd(start)
+
+    if (text[linkTextEnd + 1] !== "(") continue
+    const targetStart = linkTextEnd + 2
+
+    if (isSkippedTarget(targetStart)) continue
+    const foundTargetEnd = findTargetEnd(targetStart)
+
+    if (foundTargetEnd === targetStart) continue
+    const end = findHeadingEnd(foundTargetEnd)
+
     if (text[end] !== ")") continue
-    visit({ start, end: end + 1, targetStart, targetEnd })
+    visit({ start, end: end + 1, targetStart, targetEnd: foundTargetEnd })
     start = end
   }
 }
