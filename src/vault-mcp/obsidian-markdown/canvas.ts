@@ -212,7 +212,7 @@ const smallestContainingGroup = (
 
   if (containing.length === 0) return undefined
   // Equal-area ties break on the lower id so ownership is a property of the
-  // canvas content, not of JSON array order.
+  // canvas content, not of JSON array order, whenever the ids differ.
   return containing.reduce((smallest, candidate) => {
     const candidateArea = candidate.width * candidate.height
     const smallestArea = smallest.width * smallest.height
