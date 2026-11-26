@@ -577,9 +577,10 @@ The rest are the author's responsibility at write time.
   even for one literal; always above two args or for adjacent same-typed
   args. Keep a clear one- or two-arg call positional.
 - A boolean mode param means the function does two things: split it;
-  the caller owns the gating. A discriminant param (`pathKind: "note" |
-"file"`) carries every rule that differs by it, in one helper with an
-  exhaustive `switch`; a wrapper that picks the value does nothing else.
+  the caller owns the gating. Before adding a helper, a type or a
+  `switch` for two call sites, write the inline form at both sites and
+  keep the helper only when it reads better side by side; a rule is one
+  input to that comparison, never a substitute for it.
 - A function marked `eslint-disable-next-line complexity` takes no new
   branch, and a function that a new branch pushes over the limit gets no
   new disable. Split out the part being changed first, in its own commit.

@@ -636,7 +636,7 @@ type DeleteResult = {
   trashLocation?: string
 }
 
-/** Ties moveToTrash's collision-exhaustion throw to deleteNoteOrFile's
+/** Ties moveToTrash's collision-exhaustion throw to deleteCanonicalPath's
  *  rethrow guard — both use this lead-in, so a message edit can't silently
  *  break the guard's prefix match. */
 const TRASH_COLLISION_ERROR_PREFIX = "cannot move to trash"
@@ -859,51 +859,17 @@ type DeleteOptions = {
   clearStaleTrashEntry?: ((trashRelativePath: string) => void) | undefined
 }
 
-/** Checks that a delete's path names its kind: a "note" path ends in ".md",
- *  and a "file" path is not a markdown note. The two rules read different
- *  forms of the path.
- *  - The note rule reads the path as sent. Canonicalizing never drops a last
- *    name that ends in ".md", so a path that passes is still a ".md" path,
- *    and a spelling such as "owned.md\" is refused rather than let through.
- *  - The file rule reads the canonical path, the one the delete acts on. On
- *    the path as sent, "owned.md\" would pass: canonicalizing turns the
- *    backslash into a trailing separator and drops it, leaving "owned.md".
- *    Letter case is ignored, as in assetOperations.writeAssetContent, because
- *    a case-insensitive mount opens "Plan.MD" as the note "Plan.md". */
-const assertPathMatchesKind = (params: {
-  pathKind: PathKind
-  path: string
-  canonicalPath: string
-}): void => {
-  switch (params.pathKind) {
-    case "note":
-      assertPathHasExtension(params.path, ".md")
-      return
-    case "file":
-      assertNotMarkdownNote({ resolvedPath: params.canonicalPath.toLowerCase(), path: params.path })
-      return
-  }
-}
-
-/** Deletes or trashes a note or a file depending on the vault's Deleted files
- *  setting. `pathKind` is the one thing the two sides decide differently: the
- *  rule the path must satisfy (assertPathMatchesKind), and the word in the
+/** Deletes or trashes an entry at its canonical path (resolveVaultRelativePath)
+ *  depending on the vault's Deleted files setting; deleteNote and deleteAsset
+ *  each check their own kind before calling it. `pathKind` is the word in the
  *  not-found error and the completion log. Rejects paths under the configured
  *  protected paths. When pruneEmptyFolders is set, removes any parent folders
  *  the operation empties. */
-const deleteNoteOrFile = async (
-  params: DeleteOptions & { pathKind: PathKind },
+const deleteCanonicalPath = async (
+  params: DeleteOptions & { canonicalPath: string; pathKind: PathKind },
   logger: Logger,
 ): Promise<DeleteResult> => {
-  // Canonicalize before every check so an aliased spelling — traversal
-  // ("X/../About Me/x.md") or separator variant — can't evade the prefix test
-  // yet still resolve into a protected folder. Absolute input throws here.
-  const canonicalPath = resolveVaultRelativePath({
-    vaultPath: params.vaultPath,
-    notePath: params.path,
-  })
-
-  assertPathMatchesKind({ pathKind: params.pathKind, path: params.path, canonicalPath })
+  const { canonicalPath } = params
 
   if (isProtectedPath({ path: canonicalPath, protectedPaths: params.protectedPaths })) {
     throw new Error(`cannot delete protected path "${canonicalPath}"`)
@@ -992,12 +958,37 @@ const deleteNoteOrFile = async (
 
 /** Deletes or trashes a markdown note; the path must end in ".md". */
 const deleteNote = async (params: DeleteOptions, logger: Logger): Promise<DeleteResult> => {
-  return deleteNoteOrFile({ ...params, pathKind: "note" }, logger)
+  // Checked on the path as sent: canonicalizing never drops a last name that
+  // ends in ".md", so a path that passes is still a ".md" path, and a spelling
+  // such as "owned.md\" is refused rather than let through.
+  assertPathHasExtension(params.path, ".md")
+  // Canonicalized before the protected-path check so an aliased spelling —
+  // traversal ("X/../About Me/x.md") or a separator variant — can't evade the
+  // prefix test yet still resolve into a protected folder. Absolute input
+  // throws here.
+  const canonicalPath = resolveVaultRelativePath({
+    vaultPath: params.vaultPath,
+    notePath: params.path,
+  })
+
+  return deleteCanonicalPath({ ...params, canonicalPath, pathKind: "note" }, logger)
 }
 
 /** Deletes or trashes a non-markdown file; a path naming a note is refused. */
 const deleteAsset = async (params: DeleteOptions, logger: Logger): Promise<DeleteResult> => {
-  return deleteNoteOrFile({ ...params, pathKind: "file" }, logger)
+  // Canonicalized first, as in deleteNote, and the markdown check reads the
+  // canonical path, the one the delete acts on. On the path as sent,
+  // "owned.md\" would pass: canonicalizing turns the backslash into a trailing
+  // separator and drops it, leaving "owned.md". Letter case is ignored, as in
+  // assetOperations.writeAssetContent, because a case-insensitive mount opens
+  // "Plan.MD" as the note "Plan.md".
+  const canonicalPath = resolveVaultRelativePath({
+    vaultPath: params.vaultPath,
+    notePath: params.path,
+  })
+  assertNotMarkdownNote({ resolvedPath: canonicalPath.toLowerCase(), path: params.path })
+
+  return deleteCanonicalPath({ ...params, canonicalPath, pathKind: "file" }, logger)
 }
 
 /** Recursively walks the vault (or a folder within it) and returns the sorted

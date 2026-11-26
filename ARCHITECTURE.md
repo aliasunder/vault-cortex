@@ -424,7 +424,7 @@ The extension-to-representation routing above is implemented by the `vault-opera
 3. **Inside the fail-fast write lock,** it creates missing parent folders, then refuses an existing file without `overwrite` and a folder or a broken symlink at the path. With `overwrite`, it also refuses an existing file that the read side's item 5 treats as binary.
 4. **The save** is atomic. A path that was missing at the existence check is created exclusively (`atomicWriteFileExclusive`), even with `overwrite`, so outside `WINDOWS_MODE` a file Obsidian Sync delivers between the check and the save is never replaced unchecked. An existing file is overwritten by a rename over the path, so the last writer wins against writers outside the server, as for notes.
 
-`vault_delete_file` deletes any non-markdown file, images and PDFs included, through `vaultFs.deleteAsset`. It and `vault_delete_note` wrap one core, `deleteNoteOrFile` in `vault-filesystem.ts`, so the two tools share one canonical-path pass, one protected-path rule, one fail-fast lock, one trash move with its retention bookkeeping, and one pruning step; they differ only in the `.md` boundary and their nouns. The `.md` refusal runs on the canonical path the delete acts on, in any letter case: `owned.md\` ends in a backslash as sent but canonicalizes to the note, so a check on the input as sent would let it through. Past that boundary, a folder or a broken symlink at the path is reported as not found, as the readers report them.
+`vault_delete_file` deletes any non-markdown file, images and PDFs included, through `vaultFs.deleteAsset`. It and `vault_delete_note` wrap one core, `deleteCanonicalPath` in `vault-filesystem.ts`, so the two tools share one protected-path rule, one fail-fast lock, one trash move with its retention bookkeeping, and one pruning step. Each wrapper checks its own side of the `.md` boundary and canonicalizes the path before calling the core. The file side's refusal runs on the canonical path the delete acts on, in any letter case: `owned.md\` ends in a backslash as sent but canonicalizes to the note, so a check on the input as sent would let it through. Past that boundary, a folder or a broken symlink at the path is reported as not found, as the readers report them.
 
 The file tools stay a bounded set: at most one tool per action Obsidian's file explorer offers on any file, plus at most one in-place edit tool. The partial-edit note tools, the properties tools and the search variants have no file twin, because their mechanisms are markdown. A file tool is a separate tool from its note counterpart (`vault_delete_file` beside `vault_delete_note`) because `FILE_TOOLS_ENABLED` is a registry-group switch (see the tool gating paragraph under [MCP Tools](#mcp-tools)): a single tool serving notes and files would need a branch on that flag inside its handler.
 
@@ -1611,7 +1611,7 @@ Docker hardening, and durability seatbelts above.
   vault-relative path and no Node error code, so the tool boundary adds no
   coded remedy. A read of a file name longer than the filesystem allows
   surfaces under this message, not as `ENAMETOOLONG`.
-- **In-lock existence checks**: `deleteNoteOrFile` (behind `deleteNote` and
+- **In-lock existence checks**: `deleteCanonicalPath` (behind `deleteNote` and
   `deleteAsset`) and `moveNote` check existence inside the lock, so a missing
   note or file returns the "not found" error the tools document instead of
   Node's ENOENT text.
