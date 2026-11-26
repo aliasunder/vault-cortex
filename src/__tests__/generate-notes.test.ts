@@ -473,6 +473,28 @@ describe("generate-notes.sh", () => {
       })
     })
 
+    it("lists a breaking line once when two PRs carry the same footer", () => {
+      const repo = createReleaseRepo()
+      repo.commit("feat: rename the search tool (#12)", {
+        "src/search.ts": "export const find = 1\n",
+      })
+      repo.commit("docs: describe the find tool (#13)", { "README.md": "find\n" })
+      const sharedFooter = "BREAKING CHANGE: search is now find."
+      const gh = ghAnsweringPullRequests({
+        12: { body: sharedFooter },
+        13: { body: `Documents the rename.\n\n${sharedFooter}` },
+      })
+
+      expect(repo.generateNotes({ stubCommands: { gh }, extraEnv: WITH_GH_TOKEN })).toEqual({
+        status: 0,
+        stdout:
+          "### ⚠ BREAKING CHANGES\n\n- search is now find.\n\n" +
+          "### Features\n\n- Rename the search tool (#12)\n\n" +
+          "### Documentation\n\n- Describe the find tool (#13)\n",
+        stderr: "",
+      })
+    })
+
     it("warns about a failed PR lookup and lists a commit with no mark of its own as not breaking", () => {
       const repo = createReleaseRepo()
       repo.commit("feat: rename the search tool (#12)", {
