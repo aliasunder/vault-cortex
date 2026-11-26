@@ -369,8 +369,8 @@ export const fullTextSearch = (
     LIMIT ?
   `
 
-  // sanitizeFtsQuery leaves no query that FTS5 rejects, so an error from this
-  // query means a damaged index or a bug in it. The error propagates through
+  // sanitizeFtsQuery leaves no search text that FTS5 rejects, so an error from
+  // this query comes from the index or the filters. The error propagates through
   // hybridSearch to the tool's response, because an empty page would report
   // it as "no match".
   const rows = context.db
