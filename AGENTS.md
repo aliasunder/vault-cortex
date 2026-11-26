@@ -478,6 +478,8 @@ while writing, not after. `eslint.config.ts` enforces this subset:
 - No single-character identifiers (lint allows `i`, `a`/`b`, `k`, `_`).
 - No empty `catch {}` blocks (lint does not flag `.catch(() => {})`).
 - A blank line between a declaration and the guard that consumes it.
+- Function complexity at most 20, and control statements (`if`, loops,
+  `switch`, `try`) nested at most 4 deep within one function.
 - In `src/` only: no `console`; Luxon over `Date` and no `process.env`
   member access outside `config.ts` (tests exempt). The rule misses a
   destructured `import { env } from "node:process"`, which `logger.ts` uses
@@ -570,6 +572,9 @@ The rest are the author's responsibility at write time.
   args. Keep a clear one- or two-arg call positional.
 - A boolean mode param means the function does two things: split it;
   the caller owns the gating.
+- A function marked `eslint-disable-next-line complexity` takes no new
+  branch, and a function that a new branch pushes over the limit gets no
+  new disable. Split out the part being changed first, in its own commit.
 - Decomposition must earn its seams; DRY targets shared decisions, not
   repeated text. A one-expression SDK or Zod wrapper stays inline; a
   parameter a function only forwards is a wrong seam (compile config into
@@ -1265,8 +1270,7 @@ decision, not a drift fix.
 Obsidian's syntax as tokenizers in `obsidian-remark-parser.ts`. The pin is
 excluded from Dependabot, and 8.0.3 is the last 8.x release, so an advisory
 anywhere in its dependency tree is answered with an `overrides` entry, as
-`trim` is. `knip.json` lists remark-parse under `ignoreDependencies`, because
-the parser loads it through `createRequire`, which knip does not trace.
+`trim` is.
 
 NEVER open, read or copy Obsidian's app code (`worker.js`, `app.js`) when
 editing `obsidian-remark-parser.ts`, `body-tags.ts` or `remark-ports/`.

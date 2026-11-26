@@ -25,6 +25,8 @@ const structuredPageItems = (content: PageTextContent): StructuredTextItem[] => 
   const toStructuredItem = (
     textItem: Extract<PageTextContent["items"][number], { str: string }>,
   ): StructuredTextItem => {
+    // A PDF transform is the matrix [a b c d e f]: (c, d) is the transformed
+    // vertical unit vector, and (e, f) is the text's origin.
     const [, , verticalBasisX, verticalBasisY, xCoordinate, yCoordinate] = textItem.transform
     const direction = textItem.dir
     const isKnownDirection = direction === "ltr" || direction === "rtl" || direction === "ttb"
@@ -531,6 +533,18 @@ export type PdfTextResult = Readonly<{
   totalPages: number
 }>
 
+/** pdfjs types a page's annotations as `any`, so each field is checked before use. */
+const webLinkUrls = (
+  annotations: ReadonlyArray<{ subtype?: unknown; url?: unknown }>,
+): ReadonlyArray<string> => {
+  return annotations.flatMap((annotation) => {
+    const { subtype, url } = annotation
+    const isWebLink = subtype === "Link" && typeof url === "string" && url.length > 0
+
+    return isWebLink ? [url] : []
+  })
+}
+
 /** Reads pages in order until the markdown rendition reaches MAX_INDEXED_PDF_BYTES or the page
  *  count reaches MAX_INDEXED_PDF_PAGES. The returned text can run past the byte cap by the last
  *  page read; the caller cuts it. Every page read so far is rendered again after each page, so
@@ -543,10 +557,11 @@ export const extractPdfIndexText = async (pdfData: Uint8Array): Promise<PdfTextR
     const totalPages = proxy.numPages
     const pageLimit = Math.min(totalPages, MAX_INDEXED_PDF_PAGES)
     const itemsByPage: StructuredTextItem[][] = []
-    const pdfLinks: string[] = []
-    // Both are reassigned each page: the loop can end on either cap, and a prefix with no visible
-    // text never ends it on the byte cap, however large its links footer, because the result
-    // would be empty.
+    const linksByPage: ReadonlyArray<string>[] = []
+    // Both are reassigned on each page:
+    // - the loop can end after any page;
+    // - the byte cap ends it only once a page has visible text, because until then the result
+    //   is empty, however large the links footer grows.
     let rendition = ""
     let hasContent = false
     for (let pageNumber = 1; pageNumber <= pageLimit; pageNumber += 1) {
@@ -556,17 +571,7 @@ export const extractPdfIndexText = async (pdfData: Uint8Array): Promise<PdfTextR
         itemsByPage.push(pageItems)
         hasContent ||= pageItems.some(hasVisibleText)
 
-        const annotations = await page.getAnnotations()
-        for (const annotation of annotations) {
-          const isWebLink =
-            annotation.subtype === "Link" &&
-            typeof annotation.url === "string" &&
-            annotation.url.length > 0
-
-          if (isWebLink) {
-            pdfLinks.push(annotation.url)
-          }
-        }
+        linksByPage.push(webLinkUrls(await page.getAnnotations()))
       } finally {
         page.cleanup()
       }
@@ -577,7 +582,7 @@ export const extractPdfIndexText = async (pdfData: Uint8Array): Promise<PdfTextR
         title: meta.info.Title,
         totalPages,
         itemsByPage,
-        pdfLinks,
+        pdfLinks: linksByPage.flat(),
       })
       const reachedByteBudget =
         hasContent && Buffer.byteLength(rendition, "utf8") >= MAX_INDEXED_PDF_BYTES

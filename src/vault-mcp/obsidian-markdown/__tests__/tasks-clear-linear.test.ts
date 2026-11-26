@@ -120,6 +120,8 @@ describe("task metadata clear compatibility", () => {
     const exposed = [
       "\uD83D⏫\uDD3A",
       "\uD83D📅2026-01-02\uDCC52026-01-02",
+      // A lone low surrogate right before a pair must not take the pair's high half.
+      "\uDC00🔺",
       "📅20📅2026-01-0226-01-02",
       "[due::[due::2026-01-02]2026-01-02]",
       "[priority::[priority::high]high]",

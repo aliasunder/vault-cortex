@@ -10,6 +10,5 @@
     "src/__tests__/integration/helpers/kill-first-pdf-replacement.ts"
   ],
   "project": ["src/**/*.ts", "cli/src/**/*.ts", "scripts/**/*.ts"],
-  "ignoreBinaries": ["optipng", "perl", "setpriv"],
-  "ignoreDependencies": ["remark-parse"]
+  "ignoreBinaries": ["optipng", "perl", "setpriv"]
 }

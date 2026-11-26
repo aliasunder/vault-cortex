@@ -151,11 +151,14 @@ const scanWikilinks = (text: string, visit: (span: LinkSpan) => void): void => {
  *  whitespace ends the attempt. Skipped targets:
  *  - a heading alone (`[a](#Heading)`), which points into the same note;
  *  - one that opens with a URI scheme (`https:`, `mailto:`), an external link. */
+// eslint-disable-next-line complexity -- this function is over the limit; split it before adding a branch
 const scanMarkdownLinks = (text: string, visit: (span: LinkSpan) => void): void => {
-  // Each cursor outlives a failed opener and only moves forward: a later
-  // opener reaches the same `]` or a later one, so its target never starts
-  // further left, and a scheme end found earlier still holds, because no
-  // scheme run crosses a `]`.
+  // Each cursor outlives a failed opener and only moves forward, which keeps
+  // the scan linear on a line where many `[` never close:
+  // - a later opener reaches the same `]` or a later one, so its target never
+  //   starts further left;
+  // - a scheme run holds no `]`, so after the same `]` the earlier run is the
+  //   one to reuse, and after a later `]` it ended before the new target.
   let textEnd = 0
   let targetEnd = 0
   let fragmentEnd = 0

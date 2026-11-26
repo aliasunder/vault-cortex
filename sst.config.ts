@@ -22,6 +22,7 @@ export default $config({
     }
   },
 
+  // eslint-disable-next-line complexity -- this function is over the limit; split it before adding a branch
   async run() {
     const { readFileSync, existsSync } = await import("node:fs")
     const { homedir } = await import("node:os")
@@ -35,8 +36,8 @@ export default $config({
     // shell plus any repo-root `.env` / `.env.<stage>` (SST loads those itself),
     // so a setting found in neither falls back to its default.
     //
-    // SSH key fallback chain: SSH_PUBKEY (CI) → SSH_PUBKEY_PATH → ~/.ssh/vault-cortex.pub
-    // Neither is individually required — readSshPublicKey errors if all three miss.
+    // SSH key: SSH_PUBKEY (CI), else the file at SSH_PUBKEY_PATH, else ~/.ssh/vault-cortex.pub.
+    // None is individually required — readSshPublicKey errors when the file it picks is missing.
     const sshPubkey = env("SSH_PUBKEY").asString()
     const sshPubkeyPath = env("SSH_PUBKEY_PATH").asString()
 
@@ -155,15 +156,12 @@ export default $config({
      */
     const readSshPublicKey = (): string => {
       if (sshPubkey) return sshPubkey
-      const candidates = sshPubkeyPath
-        ? [expandHome(sshPubkeyPath)]
-        : [expandHome("~/.ssh/vault-cortex.pub")]
-      for (const path of candidates) {
-        if (existsSync(path)) return readFileSync(path, "utf8").trim()
-      }
+      const keyPath = expandHome(sshPubkeyPath || "~/.ssh/vault-cortex.pub")
+
+      if (existsSync(keyPath)) return readFileSync(keyPath, "utf8").trim()
       throw new Error(
-        `No SSH public key found. Tried env SSH_PUBKEY, then paths: ` +
-          `${candidates.join(", ")}. Generate a dedicated deploy key:\n` +
+        `No SSH public key found. Tried env SSH_PUBKEY, then ${keyPath}. ` +
+          `Generate a dedicated deploy key:\n` +
           `  ssh-keygen -t ed25519 -f ~/.ssh/vault-cortex -C vault-cortex-deploy\n` +
           `Or set SSH_PUBKEY_PATH / SSH_PUBKEY to override.`,
       )
@@ -349,14 +347,15 @@ export default $config({
       // external DNS provider) and requires the pre-issued cert instead of
       // provisioning one. The default execute-api endpoint stays active
       // unless DISABLE_EXECUTE_API_ENDPOINT closes it.
-      ...(customDomain &&
-        customDomainCertArn && {
-          domain: {
-            name: customDomain,
-            dns: false,
-            cert: customDomainCertArn,
-          },
-        }),
+      ...(customDomain && customDomainCertArn
+        ? {
+            domain: {
+              name: customDomain,
+              dns: false,
+              cert: customDomainCertArn,
+            },
+          }
+        : {}),
       // CloudWatch retention for the gateway access log (the authorizer's
       // log group below matches). SST defaults to 1 month, which caps how
       // far back an auth audit can look; a year of them is about 100 MB.
