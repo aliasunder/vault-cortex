@@ -81,7 +81,8 @@ const comboFromFlippedAxes = (flippedAxes: readonly SurfaceAxis[]): SurfaceCombo
  *    those references disappear and their fallback text renders when the
  *    tools are disabled.
  *  - obsidian-sync: OBSIDIAN_SYNC changes only the two delete tools' text
- *    (describeDeleteOutcomes in tool-helpers.ts), so one combo pins it; crossing it with the axes would double the
+ *    (each tool's inline Sync-conditional text in vault-crud-tools.ts and
+ *    asset-tools.ts), so one combo pins it; crossing it with the axes would double the
  *    baseline without adding a rendered state. */
 export const SURFACE_COMBOS: readonly SurfaceCombo[] = [
   ...axisSubsets.map(comboFromFlippedAxes),

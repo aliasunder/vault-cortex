@@ -840,7 +840,7 @@ const moveToTrash = async (
 }
 
 /** The two sides of the .md boundary: a markdown note, or any other file. */
-export type PathKind = "note" | "file"
+type PathKind = "note" | "file"
 
 /** The options both delete operations share. The trash hooks are the
  *  retention sweep's bookkeeping, forwarded to moveToTrash. */
@@ -976,8 +976,9 @@ const deleteNote = async (params: DeleteOptions, logger: Logger): Promise<Delete
 
 /** Deletes or trashes a non-markdown file; a path naming a note is refused. */
 const deleteAsset = async (params: DeleteOptions, logger: Logger): Promise<DeleteResult> => {
-  // Canonicalized first, as in deleteNote, and the markdown check reads the
-  // canonical path, the one the delete acts on. On the path as sent,
+  // The markdown check reads the canonical path, the one the delete acts on,
+  // so canonicalizing comes first here (deleteNote checks its suffix on the
+  // path as sent, then canonicalizes). On the path as sent,
   // "owned.md\" would pass: canonicalizing turns the backslash into a trailing
   // separator and drops it, leaving "owned.md". Letter case is ignored, as in
   // assetOperations.writeAssetContent, because a case-insensitive mount opens
