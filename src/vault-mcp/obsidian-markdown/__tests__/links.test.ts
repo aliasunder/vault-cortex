@@ -225,10 +225,12 @@ describe("splitMarkdownLink", () => {
       input: "[t](a/b.md)",
       expected: {
         prefix: "[t](",
+        rawTarget: "a/b.md",
         path: "a/b",
         extension: ".md",
         heading: "",
-        closeParen: ")",
+        suffix: ")",
+        form: "bare",
       },
     },
     {
@@ -236,32 +238,25 @@ describe("splitMarkdownLink", () => {
       input: "[t](a/b.md#sec)",
       expected: {
         prefix: "[t](",
+        rawTarget: "a/b.md",
         path: "a/b",
         extension: ".md",
         heading: "#sec",
-        closeParen: ")",
+        suffix: ")",
+        form: "bare",
       },
     },
     {
-      name: "decodes a percent-encoded path",
+      name: "decodes a percent-encoded path and keeps the raw target",
       input: "[t](My%20Note.md)",
       expected: {
         prefix: "[t](",
+        rawTarget: "My%20Note.md",
         path: "My Note",
         extension: ".md",
         heading: "",
-        closeParen: ")",
-      },
-    },
-    {
-      name: "falls back to the raw path when percent-encoding is malformed",
-      input: "[t](100%zzcomplete.md)",
-      expected: {
-        prefix: "[t](",
-        path: "100%zzcomplete",
-        extension: ".md",
-        heading: "",
-        closeParen: ")",
+        suffix: ")",
+        form: "bare",
       },
     },
     {
@@ -269,10 +264,12 @@ describe("splitMarkdownLink", () => {
       input: "[alt](assets/photo.png)",
       expected: {
         prefix: "[alt](",
+        rawTarget: "assets/photo.png",
         path: "assets/photo",
         extension: ".png",
         heading: "",
-        closeParen: ")",
+        suffix: ")",
+        form: "bare",
       },
     },
     {
@@ -280,10 +277,12 @@ describe("splitMarkdownLink", () => {
       input: "[t](Extensionless%20Note)",
       expected: {
         prefix: "[t](",
+        rawTarget: "Extensionless%20Note",
         path: "Extensionless Note",
         extension: "",
         heading: "",
-        closeParen: ")",
+        suffix: ")",
+        form: "bare",
       },
     },
     {
@@ -291,10 +290,12 @@ describe("splitMarkdownLink", () => {
       input: "[t](dir.v2/note)",
       expected: {
         prefix: "[t](",
+        rawTarget: "dir.v2/note",
         path: "dir.v2/note",
         extension: "",
         heading: "",
-        closeParen: ")",
+        suffix: ")",
+        form: "bare",
       },
     },
     {
@@ -302,10 +303,12 @@ describe("splitMarkdownLink", () => {
       input: "[t](archive.tar.gz)",
       expected: {
         prefix: "[t](",
+        rawTarget: "archive.tar.gz",
         path: "archive.tar",
         extension: ".gz",
         heading: "",
-        closeParen: ")",
+        suffix: ")",
+        form: "bare",
       },
     },
     {
@@ -313,10 +316,12 @@ describe("splitMarkdownLink", () => {
       input: "[alt](photo%2Epng)",
       expected: {
         prefix: "[alt](",
+        rawTarget: "photo%2Epng",
         path: "photo",
         extension: ".png",
         heading: "",
-        closeParen: ")",
+        suffix: ")",
+        form: "bare",
       },
     },
     {
@@ -324,10 +329,77 @@ describe("splitMarkdownLink", () => {
       input: "[alt](photo.p%6Eg)",
       expected: {
         prefix: "[alt](",
+        rawTarget: "photo.p%6Eg",
         path: "photo",
         extension: ".png",
         heading: "",
-        closeParen: ")",
+        suffix: ")",
+        form: "bare",
+      },
+    },
+    {
+      name: "keeps an angle destination's brackets, spaces and title outside the target",
+      input: '[t]( < My Note.md > "tip" )',
+      expected: {
+        prefix: "[t]( < ",
+        rawTarget: "My Note.md",
+        path: "My Note",
+        extension: ".md",
+        heading: "",
+        suffix: ' > "tip" )',
+        form: "angle",
+      },
+    },
+    {
+      name: "keeps an angle destination's heading as written",
+      input: "[t](<My Note.md#Head ing>)",
+      expected: {
+        prefix: "[t](<",
+        rawTarget: "My Note.md",
+        path: "My Note",
+        extension: ".md",
+        heading: "#Head ing",
+        suffix: ">)",
+        form: "angle",
+      },
+    },
+    {
+      name: "keeps parentheses and escapes in a bare target as written",
+      input: "[t](a\\(b\\)c.md 'tip')",
+      expected: {
+        prefix: "[t](",
+        rawTarget: "a\\(b\\)c.md",
+        path: "a(b)c",
+        extension: ".md",
+        heading: "",
+        suffix: " 'tip')",
+        form: "bare",
+      },
+    },
+    {
+      name: "starts the heading at the character reference that makes its #",
+      input: "[t](Old&num;Heading)",
+      expected: {
+        prefix: "[t](",
+        rawTarget: "Old",
+        path: "Old",
+        extension: "",
+        heading: "&num;Heading",
+        suffix: ")",
+        form: "bare",
+      },
+    },
+    {
+      name: "starts the heading at the escape pair that makes its #",
+      input: "[t](Old\\#Heading)",
+      expected: {
+        prefix: "[t](",
+        rawTarget: "Old",
+        path: "Old",
+        extension: "",
+        heading: "\\#Heading",
+        suffix: ")",
+        form: "bare",
       },
     },
   ]
@@ -338,6 +410,18 @@ describe("splitMarkdownLink", () => {
 
   it("returns null for malformed link text (missing closing paren)", () => {
     expect(links.splitMarkdownLink("[t](path.md")).toBeNull()
+  })
+
+  it("returns null for a link that does not cover the whole text", () => {
+    expect(links.splitMarkdownLink("[t](a.md) tail")).toBeNull()
+  })
+
+  it("returns null for a link whose destination names no note or file", () => {
+    expect(links.splitMarkdownLink("[t](https://example.com/a.md)")).toBeNull()
+  })
+
+  it("returns null for a destination with a malformed percent escape", () => {
+    expect(links.splitMarkdownLink("[t](100%zzcomplete.md)")).toBeNull()
   })
 })
 
@@ -752,6 +836,30 @@ describe("extractFromBody against Obsidian 1.15.1", () => {
   it.each(obsidianCases)("extracts $expected from $input", ({ input, expected }) => {
     expect(links.extractFromBody(input)).toEqual(expected)
   })
+
+  // Each accepted link's parts rebuild its text, and its path and extension
+  // spell the target Obsidian stores.
+  it.each(obsidianCases.filter(({ expected }) => expected.length > 0))(
+    "splits each link in $input into parts that rebuild it",
+    ({ input, expected }) => {
+      const markdownMatches = links
+        .matchLinksInLine(input)
+        .filter((linkMatch) => linkMatch.kind === "markdown")
+      const splits = markdownMatches.map(({ text }) => {
+        const parts = links.splitMarkdownLink(text)
+        return {
+          rebuilt: parts && `${parts.prefix}${parts.rawTarget}${parts.heading}${parts.suffix}`,
+          storedTarget: parts && `${parts.path}${parts.extension}`,
+        }
+      })
+      expect(splits).toEqual(
+        markdownMatches.map(({ text }, index) => ({
+          rebuilt: text,
+          storedTarget: expected[index],
+        })),
+      )
+    },
+  )
 })
 
 // ── Markdown links against the remark oracle ─────────────────────

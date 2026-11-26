@@ -52,27 +52,6 @@ const INLINE_CODE_RE = /`+[^`\n]*`+/g
  *  grammar. */
 const WIKILINK_PARTS = /^(!?)\[\[([^\]#|]+)(#[^\]|]*)?(\|[^\]]+)?\]\]$/
 
-/** Splits a matched markdown link into capture groups 1–5: `[text](`,
- *  path-without-ext, extension-with-dot, `#heading`, `)`. Any extension is captured
- *  ([text](Note.md), ![alt](image.png), [doc](file.pdf)); an extensionless
- *  target ([text](Extensionless%20Note)) parses with extension "". The
- *  extension group excludes "/" so a dot in a folder name is never misread
- *  as the extension. Anchored and non-global — safe for .exec().
- *  scanMarkdownLinks finds the links this parses: the two must agree on the
- *  target and `#heading` grammar. The scanner alone skips URLs; neither
- *  accepts a heading-only target (`[a](#Heading)`). */
-const MD_LINK_PARTS = /^(\[[^\]]*\]\()([^)#\s]+?)(\.[^/.#\s]+)?(#[^)\s]*)?(\))$/
-
-/** Safely decodes a URI component, falling back to the raw string if the
- *  percent-encoding is malformed (e.g. "100%complete"). */
-const safeDecodeURIComponent = (encoded: string): string => {
-  try {
-    return decodeURIComponent(encoded)
-  } catch {
-    return encoded
-  }
-}
-
 /** Treats a trailing backslash as Obsidian's table-pipe escape (`[[path\|alias]]`), even
  *  outside a table, because Obsidian does not allow a backslash in a file name. */
 const stripEscapedPipe = (target: string): string => target.replace(/\\$/, "")
@@ -120,17 +99,23 @@ type WikilinkParts = {
   alias: string
 }
 
-/** The structural parts of a markdown link [text](path.ext#heading). path and
- *  extension are both DECODED — path is the target without its extension;
- *  extension keeps its leading dot ("" for an extensionless target);
- *  prefix/closeParen/heading are verbatim literals for lossless
- *  reconstruction. */
+/** The parts of a markdown link `[text](<path.ext#heading> "title")`.
+ *  prefix + rawTarget + heading + suffix is the link's text:
+ *  - prefix: everything before the target (`[text](`, spaces, `<`);
+ *  - rawTarget: the target as written;
+ *  - path and extension: the target as Obsidian stores it, split at the
+ *    extension's dot, which extension keeps ("" for an extensionless target);
+ *  - heading: the raw `#heading`, "" without one;
+ *  - suffix: everything after (spaces, `>`, the title, `)`);
+ *  - form: how the destination is written. */
 type MarkdownLinkParts = {
   prefix: string
+  rawTarget: string
   path: string
   extension: string
   heading: string
-  closeParen: string
+  suffix: string
+  form: DestinationForm
 }
 
 // ── Line scanning ───────────────────────────────────────────────
@@ -770,34 +755,29 @@ const splitWikilink = (linkText: string): WikilinkParts | null => {
   return { embed, target, heading, alias }
 }
 
-/** Splits a matched markdown link into its parts (target decoded, extension
- *  captured separately), or null when the text is not a well-formed markdown
- *  link. Any vault target parses — notes, assets, and extensionless targets —
- *  so moveNote can rewrite all of them. The full target is decoded before the
- *  path/extension split: percent-encoding can hide the dot (photo%2Epng) or
- *  span the extension (photo.p%6Eg), so a split on the raw text would disagree
- *  with how extraction and Obsidian read the same link. */
+/** Splits a markdown link's text into its parts with the scanner's grammar,
+ *  or returns null when the text is not one whole link that names a note or
+ *  file. Any vault target parses (notes, assets and extensionless targets),
+ *  so moveNote can rewrite all of them. path and extension come from the
+ *  stored target, because percent-encoding can hide the dot (photo%2Epng) or
+ *  span the extension (photo.p%6Eg). */
 const splitMarkdownLink = (linkText: string): MarkdownLinkParts | null => {
-  const parts = MD_LINK_PARTS.exec(linkText)
+  const spans: MarkdownLinkSpan[] = []
+  scanMarkdownLinks(linkText, (span) => spans.push(span))
+  const wholeSpan = spans.find(({ start, end }) => start === 0 && end === linkText.length)
 
-  if (!parts) return null
-  const prefix = parts[1]
-  const encodedPath = parts[2]
-  const encodedExtension = parts[3] ?? ""
-  const heading = parts[4] ?? ""
-  const closeParen = parts[5]
-  const hasRequiredGroups =
-    prefix !== undefined && encodedPath !== undefined && closeParen !== undefined
+  if (!wholeSpan) return null
 
-  if (!hasRequiredGroups) return null
-  const decodedTarget = safeDecodeURIComponent(`${encodedPath}${encodedExtension}`)
-  const path = stripExtension(decodedTarget)
+  const { targetStart, targetEnd, headingEnd, storedTarget, destinationForm } = wholeSpan
+  const path = stripExtension(storedTarget)
   return {
-    prefix,
+    prefix: linkText.slice(0, targetStart),
+    rawTarget: linkText.slice(targetStart, targetEnd),
     path,
-    extension: decodedTarget.slice(path.length),
-    heading,
-    closeParen,
+    extension: storedTarget.slice(path.length),
+    heading: linkText.slice(targetEnd, headingEnd),
+    suffix: linkText.slice(headingEnd),
+    form: destinationForm,
   }
 }
 

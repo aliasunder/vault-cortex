@@ -335,9 +335,9 @@ const rewriteMarkdownLinkText = (linkText: string, rewriteLink: RewriteLink): st
   })
 
   if (newTarget === null) return null
-  // prefix is the verbatim "[text](" opener and closeParen the ")" that ends
-  // the link, so only the path between them changes.
-  return `${parts.prefix}${encodeMarkdownLinkPath(newTarget)}${parts.heading}${parts.closeParen}`
+  // prefix runs from the "[" to the target and suffix from the heading's end
+  // to the ")", both verbatim, so only the path between them changes.
+  return `${parts.prefix}${encodeMarkdownLinkPath(newTarget)}${parts.heading}${parts.suffix}`
 }
 
 /** Gathers wikilink and markdown-link edits for one line, excluding code spans. */
