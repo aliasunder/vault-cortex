@@ -118,6 +118,7 @@ jobs:
             NEXT="${CURRENT}-beta.${GITHUB_RUN_NUMBER}"
           elif [ "$BUMP" = "none" ]; then
             NEXT="$CURRENT"
+
           # The checked-out version being tagged yet absent from npm is the
           # signature of a release that failed at npm publish. Don't bump
           # past it (silently skips a version) and don't ignore the

@@ -125,11 +125,14 @@ records = [record.lstrip("\n") for record in log_result.stdout.split("\x00")[:-1
 subject_pat = re.compile(
     r'^(?P<type>[a-z]+)(?:\((?P<scope>[^)]+)\))?(?P<breaking>!)?:\s+(?P<description>.+)$'
 )
+# A footer line starts with its token and separator, `Token: ` or `Token #`
+# (https://www.conventionalcommits.org/en/v1.0.0/#specification).
+FOOTER_START = r'(?:[\w-]+|BREAKING CHANGE)(?:: | #)'
 # A BREAKING CHANGE footer — conventional commits allows a space or hyphen. Its
-# text runs to a blank line or to the next `Token: value` footer, so a wrapped
-# footer is read whole.
+# text runs to a blank line or to the next footer, so a wrapped footer is read
+# whole.
 breaking_pat = re.compile(
-    r'^BREAKING[ -]CHANGE:\s*(.+(?:\n(?![ \t\r]*$|(?:[\w-]+|BREAKING CHANGE): ).+)*)',
+    rf'^BREAKING[ -]CHANGE:\s*(.+(?:\n(?![ \t\r]*$|{FOOTER_START}).+)*)',
     re.MULTILINE,
 )
 # Squash subjects end with the PR number, e.g. "… (#142)".

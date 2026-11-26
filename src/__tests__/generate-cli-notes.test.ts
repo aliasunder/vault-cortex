@@ -5,6 +5,8 @@ import { dirname, join, resolve } from "node:path"
 
 import { describe, expect, it, onTestFinished } from "vitest"
 
+import { ghAnsweringPullRequests, WITH_GH_TOKEN } from "./helpers/gh-pull-request-stub.js"
+
 /**
  * Behavioral spec for the CLI release-notes generator
  * (.github/scripts/generate-cli-notes.sh): which commits between two CLI tags
@@ -151,42 +153,6 @@ const LISTED_CODE_CHANGE_ONLY = { status: 0, stdout: "- feat: add a flag\n", std
 const commitStartChange = (repo: CliReleaseRepo, message: string, startValue = 1): void => {
   repo.commit(message, { "cli/src/start.ts": `export const start = ${startValue}\n` })
 }
-
-type PullRequestStub = { labels?: string[]; body: string }
-
-/** A gh stand-in that answers `gh pr view <number> --json labels,body` for the
- *  given PRs, with `-R <repo>` after the number when repo is given, and fails
- *  any other call, so a lookup of the wrong PR shows up on stderr. */
-const ghAnsweringPullRequests = (
-  pullRequests: Record<number, PullRequestStub>,
-  { repo }: { repo?: string } = {},
-): string => {
-  const repoArgs = repo ? ` -R ${repo}` : ""
-  const caseArms = Object.entries(pullRequests).flatMap(([prNumber, { labels = [], body }]) => {
-    const prJson = JSON.stringify({ labels: labels.map((name) => ({ name })), body })
-    return [
-      `  "pr view ${prNumber}${repoArgs} --json labels,body")`,
-      "    cat <<'JSON'",
-      prJson,
-      "JSON",
-      "    ;;",
-    ]
-  })
-  return [
-    "#!/bin/sh",
-    'case "$*" in',
-    ...caseArms,
-    "  *)",
-    '    echo "unexpected gh call: $*" >&2',
-    "    exit 64",
-    "    ;;",
-    "esac",
-    "",
-  ].join("\n")
-}
-
-/** GH_TOKEN turns PR lookups on; the stub gh never reads its value. */
-const WITH_GH_TOKEN = { GH_TOKEN: "fixture-token" }
 
 describe("generate-cli-notes.sh", () => {
   describe("listed commits", () => {
@@ -478,6 +444,24 @@ describe("generate-cli-notes.sh", () => {
         "feat(cli): rename the start command\n\n" +
           "BREAKING CHANGE: run `up` instead of\n`start`.\n" +
           "Co-Authored-By: Fixture <fixture@example.com>",
+      )
+
+      expect(repo.generateNotes()).toEqual({
+        status: 0,
+        stdout:
+          "### ⚠ BREAKING CHANGES\n\n" +
+          "- run `up` instead of `start`.\n\n" +
+          "### Changes\n\n" +
+          "- feat(cli): rename the start command\n",
+        stderr: "",
+      })
+    })
+
+    it("ends a commit footer at a Token #value trailer", () => {
+      const repo = createCliReleaseRepo()
+      commitStartChange(
+        repo,
+        "feat(cli): rename the start command\n\nBREAKING CHANGE: run `up` instead of `start`.\nRefs #42",
       )
 
       expect(repo.generateNotes()).toEqual({
