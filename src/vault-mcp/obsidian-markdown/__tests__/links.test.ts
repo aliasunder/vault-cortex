@@ -14,11 +14,13 @@ import {
   TIMING_FLOOR_MS,
 } from "./helpers/linear-timing.js"
 import {
+  createLinkTokenDocuments,
   createScannerDocuments,
+  findExcludedConstruct,
+  maskLikeExtraction,
+  referenceMarkdownLinks,
   scannerCorpora,
   legacyWiki,
-  legacyMarkdown,
-  legacyTemplater,
 } from "./helpers/link-scanner-corpus.js"
 import { linkResolverOracle } from "./helpers/link-resolver-oracle.js"
 
@@ -56,47 +58,26 @@ describe("matchLinksInLine", () => {
     35_000,
   )
 
-  it.each(scannerCorpora.slice(0, 3))(
-    "preserves every legacy match, capture and UTF-16 offset in 10,000 $label documents",
+  // Neither alphabet holds a `(`, so no markdown link forms in these documents.
+  it.each(scannerCorpora.slice(0, 2))(
+    "preserves every legacy wikilink match, capture and UTF-16 offset in 10,000 $label documents",
     ({ alphabet }) => {
       for (const document of createScannerDocuments(alphabet, 10_000)) {
-        const expected = [
-          ...[...document.matchAll(legacyWiki)].map((match) => ({
-            text: match[0],
-            start: match.index,
-            end: match.index + match[0].length,
-            kind: "wikilink",
-          })),
-          ...[...document.matchAll(legacyMarkdown)].map((match) => ({
-            text: match[0],
-            start: match.index,
-            end: match.index + match[0].length,
-            kind: "markdown",
-          })),
-        ]
+        const expected = [...document.matchAll(legacyWiki)].map((match) => ({
+          text: match[0],
+          start: match.index,
+          end: match.index + match[0].length,
+          kind: "wikilink",
+        }))
         expect(links.matchLinksInLine(document)).toEqual(expected)
         const expectedTargets = new Set<string>()
 
         for (const { text, inCode } of classifyLines(document)) {
           if (inCode) continue
-          const masked = text
-            .replace(/`+[^`\n]*`+/g, (match) => " ".repeat(match.length))
-            .replace(legacyTemplater, (match) => " ".repeat(match.length))
-
-          for (const match of masked.matchAll(legacyWiki)) {
+          for (const match of maskLikeExtraction(text).matchAll(legacyWiki)) {
             const target = (match[1] ?? "").trim().replace(/\\$/, "")
 
             if (target) expectedTargets.add(target)
-          }
-          for (const match of masked.matchAll(legacyMarkdown)) {
-            const target = (match[1] ?? "").trim()
-
-            if (!target) continue
-            try {
-              expectedTargets.add(decodeURIComponent(target))
-            } catch {
-              expectedTargets.add(target)
-            }
           }
         }
         expect(links.extractFromBody(document)).toEqual([...expectedTargets])
@@ -529,9 +510,9 @@ describe("extractFromBody", () => {
     expect(targets).toEqual(["papers/report.pdf"])
   })
 
-  it("falls back to raw target when percent-encoding is malformed", () => {
-    const targets = links.extractFromBody("[done](100%zzcomplete.md)")
-    expect(targets).toEqual(["100%zzcomplete.md"])
+  it("drops a markdown link with a malformed percent escape, as Obsidian does", () => {
+    const targets = links.extractFromBody("[done](100%zzcomplete.md) and [[Control]]")
+    expect(targets).toEqual(["Control"])
   })
 
   it("strips the escaped pipe backslash from wikilink targets in table cells", () => {
@@ -575,6 +556,282 @@ describe("extractFromBody", () => {
   it("keeps wikilinks with explicit .md extension", () => {
     const targets = links.extractFromBody("[[Projects/plan.md]]")
     expect(targets).toEqual(["Projects/plan.md"])
+  })
+})
+
+// ── extractFromBody against Obsidian ─────────────────────────────
+
+describe("extractFromBody against Obsidian 1.15.1", () => {
+  // Each case holds the links Obsidian 1.15.1's metadata cache stored for its
+  // input, recorded by running the app's worker as a black box, and the
+  // targets extraction returns: each link with its heading removed and
+  // trimmed, without the heading-only ones.
+  const obsidianCases = [
+    // The plan's vector table.
+    { input: "[x](<My Note.md>)", obsidian: ["My Note.md"], expected: ["My Note.md"] },
+    { input: "[x](<New (Draft).md>)", obsidian: ["New (Draft).md"], expected: ["New (Draft).md"] },
+    {
+      input: "[x](<Folder/Sub Note>)",
+      obsidian: ["Folder/Sub Note"],
+      expected: ["Folder/Sub Note"],
+    },
+    { input: "[x](<MyNote.md>)", obsidian: ["MyNote.md"], expected: ["MyNote.md"] },
+    { input: "[x](<My%20Note.md>)", obsidian: ["My Note.md"], expected: ["My Note.md"] },
+    { input: "[x](New%20(Draft).md)", obsidian: ["New (Draft).md"], expected: ["New (Draft).md"] },
+    { input: "[x](a(b)c.md)", obsidian: ["a(b)c.md"], expected: ["a(b)c.md"] },
+    { input: "[x](a((b)).md)", obsidian: ["a((b)).md"], expected: ["a((b)).md"] },
+    { input: "[x](a(b.md)", obsidian: [], expected: [] },
+    { input: "[x](a)b).md)", obsidian: ["a"], expected: ["a"] },
+    { input: "[x](a\\)b.md)", obsidian: ["a)b.md"], expected: ["a)b.md"] },
+    { input: "[x](a\\(b.md)", obsidian: ["a(b.md"], expected: ["a(b.md"] },
+    { input: '[x](My%20Note.md "title")', obsidian: ["My Note.md"], expected: ["My Note.md"] },
+    { input: "[x](My%20Note.md 'title')", obsidian: ["My Note.md"], expected: ["My Note.md"] },
+    { input: "[x](My%20Note.md (title))", obsidian: ["My Note.md"], expected: ["My Note.md"] },
+    { input: "[x](<a.md> 't')", obsidian: ["a.md"], expected: ["a.md"] },
+    { input: '[x](a.md "ti)tle")', obsidian: ["a.md"], expected: ["a.md"] },
+    { input: '[x](a(b)c.md "t(1)")', obsidian: ["a(b)c.md"], expected: ["a(b)c.md"] },
+    { input: "[x]( <My Note.md> )", obsidian: ["My Note.md"], expected: ["My Note.md"] },
+    { input: "[x]( My%20Note.md )", obsidian: ["My Note.md"], expected: ["My Note.md"] },
+    { input: "[x](< My Note.md >)", obsidian: ["My Note.md"], expected: ["My Note.md"] },
+    { input: "[x](\t<My Note.md>\t)", obsidian: ["My Note.md"], expected: ["My Note.md"] },
+    { input: "[x](a.md\t)", obsidian: ["a.md"], expected: ["a.md"] },
+    { input: "[x](<a.md>  )", obsidian: ["a.md"], expected: ["a.md"] },
+    {
+      input: "[x](<My Note.md#Head ing>)",
+      obsidian: ["My Note.md#Head ing"],
+      expected: ["My Note.md"],
+    },
+    { input: "[x](a(b)c.md#h(1))", obsidian: ["a(b)c.md#h(1)"], expected: ["a(b)c.md"] },
+    {
+      input: "[a](<x y.md>) and [b](z(1).md)",
+      obsidian: ["x y.md", "z(1).md"],
+      expected: ["x y.md", "z(1).md"],
+    },
+    { input: '[x](a.md"title")', obsidian: ['a.md"title"'], expected: ['a.md"title"'] },
+    { input: '[x](<a.md>"t")', obsidian: [], expected: [] },
+    { input: "[x](<a.md>x)", obsidian: [], expected: [] },
+    { input: "[x](a.md x)", obsidian: [], expected: [] },
+    { input: '[x](a.md "t" x)', obsidian: [], expected: [] },
+    { input: '[x](a.md "title)', obsidian: [], expected: [] },
+    { input: "[x](<a>b.md>)", obsidian: [], expected: [] },
+    { input: "[x](<a\\>b.md>)", obsidian: [], expected: [] },
+    { input: "[x](<a\\>.md>)", obsidian: [], expected: [] },
+    { input: "[x](<>)", obsidian: [], expected: [] },
+    { input: "[x](<a.md>", obsidian: [], expected: [] },
+    { input: "[x](<a.md\\>)", obsidian: ["a.md\\"], expected: ["a.md\\"] },
+    { input: "[x](<a<b.md>)", obsidian: ["a<b.md"], expected: ["a<b.md"] },
+    { input: "[x](<a(b.md>)", obsidian: ["a(b.md"], expected: ["a(b.md"] },
+    { input: "[x](<a\tb.md>)", obsidian: ["a\tb.md"], expected: ["a\tb.md"] },
+    { input: "[x](a\\ b.md)", obsidian: ["a\\ b.md"], expected: ["a\\ b.md"] },
+    { input: "[x](a\\(b c.md)", obsidian: [], expected: [] },
+    { input: "[x](a\\#b.md)", obsidian: ["a#b.md"], expected: ["a"] },
+    { input: "[x](a\\_b.md)", obsidian: ["a_b.md"], expected: ["a_b.md"] },
+    { input: "[x](a\\&b.md)", obsidian: ["a&b.md"], expected: ["a&b.md"] },
+    { input: "[x](a\\\\b.md)", obsidian: ["a\\b.md"], expected: ["a\\b.md"] },
+    { input: "[x](a\\b.md)", obsidian: ["a\\b.md"], expected: ["a\\b.md"] },
+    { input: "[x](\\<a.md\\>)", obsidian: ["<a.md>"], expected: ["<a.md>"] },
+    { input: "[x](<https://example.com>)", obsidian: [], expected: [] },
+    { input: "[x](<mailto:a@b.c>)", obsidian: [], expected: [] },
+    { input: "[x](<C:/x.md>)", obsidian: [], expected: [] },
+    { input: "[x](https\\://example.com)", obsidian: [], expected: [] },
+    { input: "[x](#Heading)", obsidian: ["#Heading"], expected: [] },
+    { input: "[x](<#Heading>)", obsidian: ["#Heading"], expected: [] },
+    { input: "[x](a.md#)", obsidian: ["a.md#"], expected: ["a.md"] },
+    { input: "[x](<a.md#>)", obsidian: ["a.md#"], expected: ["a.md"] },
+    { input: "[x](%20a.md)", obsidian: ["a.md"], expected: ["a.md"] },
+    { input: "[x](a.md%20)", obsidian: ["a.md"], expected: ["a.md"] },
+    { input: "[x](<%20a.md>)", obsidian: ["a.md"], expected: ["a.md"] },
+    { input: "[x](a%2Fb.md)", obsidian: ["a%2Fb.md"], expected: ["a%2Fb.md"] },
+    { input: "[x](a%3Fb.md)", obsidian: ["a%3Fb.md"], expected: ["a%3Fb.md"] },
+    { input: "[x](a%26b.md)", obsidian: ["a%26b.md"], expected: ["a%26b.md"] },
+    { input: "[x](a%23b.md)", obsidian: ["a%23b.md"], expected: ["a%23b.md"] },
+    { input: "[x](a%5Cb.md)", obsidian: ["a\\b.md"], expected: ["a\\b.md"] },
+    { input: "[x](<a%3Eb.md>)", obsidian: ["a>b.md"], expected: ["a>b.md"] },
+    { input: "[x](<a%3Cb.md>)", obsidian: ["a<b.md"], expected: ["a<b.md"] },
+    { input: "[x](a%2)", obsidian: [], expected: [] },
+    { input: "[x](<a%2.md>)", obsidian: [], expected: [] },
+    { input: "[x](a&amp;b.md)", obsidian: ["a&b.md"], expected: ["a&b.md"] },
+    { input: "[x](a&#38;b.md)", obsidian: ["a&b.md"], expected: ["a&b.md"] },
+    { input: "[x](<A &amp; B.md>)", obsidian: ["A & B.md"], expected: ["A & B.md"] },
+    { input: "[x](<A & B.md>)", obsidian: ["A & B.md"], expected: ["A & B.md"] },
+    { input: "[x](<A %26 B.md>)", obsidian: ["A %26 B.md"], expected: ["A %26 B.md"] },
+    // Whitespace, URI, balance, used-up destination and escaped opener rows from review.
+    { input: '[x](a(b "t")', obsidian: ["a(b"], expected: ["a(b"] },
+    { input: "[x](a.md\u00a0)", obsidian: ["a.md"], expected: ["a.md"] },
+    { input: "[x](\u00a0a.md)", obsidian: ["a.md"], expected: ["a.md"] },
+    { input: "[x](<a\u00a0b.md>)", obsidian: ["a b.md"], expected: ["a b.md"] },
+    { input: "[x](a.md\u3000)", obsidian: ["a.md"], expected: ["a.md"] },
+    { input: "[x](<a\u2028b.md>)", obsidian: ["a\u2028b.md"], expected: ["a\u2028b.md"] },
+    { input: "[x](%68ttps://example.com)", obsidian: [], expected: [] },
+    { input: "[x](< https://example.com >)", obsidian: [], expected: [] },
+    { input: "[x](a/b:c.md)", obsidian: [], expected: [] },
+    { input: "[x](ab%3Ac.md)", obsidian: ["ab%3Ac.md"], expected: ["ab%3Ac.md"] },
+    { input: "[a](https://x.com/[b](c.md))", obsidian: [], expected: [] },
+    { input: "\\[x](a.md)", obsidian: [], expected: [] },
+    { input: "\\\\[x](a.md)", obsidian: ["a.md"], expected: ["a.md"] },
+    { input: "![x](img.png)", obsidian: ["img.png"], expected: ["img.png"] },
+    // Character references, entity-made headings and headings that drop the link.
+    { input: "[x](a&notit;b.md)", obsidian: ["a\u00acit;b.md"], expected: ["a\u00acit;b.md"] },
+    { input: "[x](a&amplt;b.md)", obsidian: ["a&lt;b.md"], expected: ["a&lt;b.md"] },
+    { input: "[x](a&amp;amp;b.md)", obsidian: ["a&amp;b.md"], expected: ["a&amp;b.md"] },
+    { input: "[x](a&amp;#35;b.md)", obsidian: ["a&#35;b.md"], expected: ["a&"] },
+    { input: "[x](a&num;Heading)", obsidian: ["a#Heading"], expected: ["a"] },
+    { input: "[x](a&#35;Heading)", obsidian: ["a#Heading"], expected: ["a"] },
+    { input: "[x](a&#x23;Heading)", obsidian: ["a#Heading"], expected: ["a"] },
+    { input: "[x](a.md#h:1)", obsidian: [], expected: [] },
+    { input: "[x](<Note.md#Step 1: Setup>)", obsidian: [], expected: [] },
+    { input: "[x](a.md#h\\:x)", obsidian: [], expected: [] },
+    { input: "[x](a.md#h&colon;x)", obsidian: [], expected: [] },
+    { input: "![x](img.png#h:1)", obsidian: [], expected: [] },
+    { input: "[x](a.md#%2)", obsidian: [], expected: [] },
+    { input: "[x](a.md#%zz)", obsidian: [], expected: [] },
+    { input: "[x](Budget.md#100%)", obsidian: [], expected: [] },
+    { input: "[x](a.md#h%3A1)", obsidian: ["a.md#h%3A1"], expected: ["a.md"] },
+    { input: "[x](Budget.md#100%25)", obsidian: ["Budget.md#100%"], expected: ["Budget.md"] },
+    { input: "[x](a&notes.md)", obsidian: ["a&notes.md"], expected: ["a&notes.md"] },
+    { input: "[x](a&amp b.md)", obsidian: [], expected: [] },
+    // Comments, long reference names, escapes and the rewriter's spellings.
+    { input: "[x](<a.md #h>)", obsidian: ["a.md #h"], expected: ["a.md"] },
+    { input: "%% [x](a.md) %%", obsidian: ["a.md"], expected: ["a.md"] },
+    { input: "x %%[x](a.md)%% y", obsidian: ["a.md"], expected: ["a.md"] },
+    {
+      input: "[x](a&bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb;c.md)",
+      obsidian: ["a&bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb;c.md"],
+      expected: ["a&bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb;c.md"],
+    },
+    {
+      input: "[x](a&notbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb;c.md)",
+      obsidian: ["a\u00acbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb;c.md"],
+      expected: ["a\u00acbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb;c.md"],
+    },
+    { input: "[x](a&#;b.md)", obsidian: ["a&#;b.md"], expected: ["a&"] },
+    { input: "[x](a&\\#35;b.md)", obsidian: ["a#b.md"], expected: ["a"] },
+    { input: "[x]()", obsidian: [], expected: [] },
+    { input: "[x]( )", obsidian: [], expected: [] },
+    { input: "[x](a.md 'ti\\'tle')", obsidian: ["a.md"], expected: ["a.md"] },
+    { input: '[x](a.md "t" )', obsidian: ["a.md"], expected: ["a.md"] },
+    { input: "[x](a.md\u000b)", obsidian: ["a.md"], expected: ["a.md"] },
+    { input: "[x](a\u00a0b.md)", obsidian: [], expected: [] },
+    { input: "[x](a\\ b.md#h)", obsidian: ["a\\ b.md#h"], expected: ["a\\ b.md"] },
+    { input: "[x](a%20b.md#Head%20ing)", obsidian: ["a b.md#Head ing"], expected: ["a b.md"] },
+    { input: "[x](%41.md)", obsidian: ["A.md"], expected: ["A.md"] },
+    { input: "[x](a.md#h&num;2)", obsidian: ["a.md#h#2"], expected: ["a.md"] },
+    { input: "[x](\\[a\\].md)", obsidian: ["[a].md"], expected: ["[a].md"] },
+    { input: "[x](a\\*b.md)", obsidian: ["a*b.md"], expected: ["a*b.md"] },
+    { input: "[x](a\\$b.md)", obsidian: ["a$b.md"], expected: ["a$b.md"] },
+    { input: "[x](a_b.md)", obsidian: ["a_b.md"], expected: ["a_b.md"] },
+    { input: "[x](a\\_\\_b.md)", obsidian: ["a__b.md"], expected: ["a__b.md"] },
+    { input: "[x](a%60b%60c.md)", obsidian: ["a`b`c.md"], expected: ["a`b`c.md"] },
+    { input: "[x](<a%60b%60c.md>)", obsidian: ["a`b`c.md"], expected: ["a`b`c.md"] },
+    { input: "[x](a\\<b\\>c.md)", obsidian: ["a<b>c.md"], expected: ["a<b>c.md"] },
+    { input: "[x](R+D%20@%20Home.md)", obsidian: ["R+D @ Home.md"], expected: ["R+D @ Home.md"] },
+    { input: "[x](A%20&%61mp;%20B.md)", obsidian: ["A &amp; B.md"], expected: ["A &amp; B.md"] },
+    {
+      input: "[x](A%20&%61mplt;%20B.md)",
+      obsidian: ["A &amplt; B.md"],
+      expected: ["A &amplt; B.md"],
+    },
+    { input: "[x](a&#%335;b.md)", obsidian: ["a&#35;b.md"], expected: ["a&"] },
+    { input: "[x](<A &%61mp; B.md>)", obsidian: ["A &amp; B.md"], expected: ["A &amp; B.md"] },
+    { input: "[x](Q%26A.md)", obsidian: ["Q%26A.md"], expected: ["Q%26A.md"] },
+    { input: "[x](x$y.md)", obsidian: ["x$y.md"], expected: ["x$y.md"] },
+    { input: "[x](x\\$y.md)", obsidian: ["x$y.md"], expected: ["x$y.md"] },
+    { input: "[x](a\\~\\~b.md)", obsidian: ["a~~b.md"], expected: ["a~~b.md"] },
+    { input: "[x](a~b.md)", obsidian: ["a~b.md"], expected: ["a~b.md"] },
+    { input: "[x](a\\=\\=b.md)", obsidian: ["a==b.md"], expected: ["a==b.md"] },
+    // A reference that decodes nothing after one that does.
+    { input: "[x](&amp;&Note.md)", obsidian: ["&&Note.md"], expected: ["&&Note.md"] },
+    { input: "[x](a&amp;&b.md)", obsidian: ["a&&b.md"], expected: ["a&&b.md"] },
+    { input: "[x](&lt;&gt.md)", obsidian: ["<&gt.md"], expected: ["<&gt.md"] },
+    { input: "[x](&amp;&amp.md)", obsidian: ["&&amp.md"], expected: ["&&amp.md"] },
+    { input: "[x](<&amp;&Note.md>)", obsidian: ["&&Note.md"], expected: ["&&Note.md"] },
+    { input: "x &amp;&Note y", obsidian: [], expected: [] },
+    { input: "[x](&#38;&Note.md)", obsidian: ["&&Note.md"], expected: ["&&Note.md"] },
+  ]
+
+  it.each(obsidianCases)("extracts $expected from $input", ({ input, expected }) => {
+    expect(links.extractFromBody(input)).toEqual(expected)
+  })
+})
+
+// ── Markdown links against the remark oracle ─────────────────────
+
+/** Whether a markdown link's bare destination ends at whitespace while a `(`
+ *  in it is still open, which CommonMark's balance rule rejects and Obsidian
+ *  accepts (`[x](a(b "t")` stores `a(b`). */
+const endsAtWhitespaceUnbalanced = (linkText: string): boolean => {
+  const destination = linkText.slice(linkText.indexOf("](") + "](".length).trimStart()
+
+  if (destination.startsWith("<")) return false
+  // The walk threads the open-parenthesis depth and skips each escaped character.
+  let depth = 0
+
+  for (let index = 0; index < destination.length; index++) {
+    const character = destination.charAt(index)
+
+    if (character === "\\") {
+      index++
+      continue
+    }
+    if (/\s/.test(character)) return depth > 0
+    if (character === ")" && depth === 0) return false
+    if (character === "(") depth++
+    if (character === ")") depth--
+  }
+  return false
+}
+
+describe("markdown links against the remark oracle", () => {
+  const tokenDocuments = createLinkTokenDocuments(10_000)
+  const keptDocuments = tokenDocuments.filter((document) => !findExcludedConstruct(document))
+  const keptWithLinks = keptDocuments.filter((document) => {
+    return referenceMarkdownLinks(document).length > 0
+  })
+
+  const sortedUnique = (targets: readonly string[]): string[] => [...new Set(targets)].toSorted()
+
+  it("leaves at most 15% of the 10,000 token documents out of the comparison", () => {
+    expect(tokenDocuments.length - keptDocuments.length).toBeLessThanOrEqual(1_500)
+  })
+
+  it("keeps at least 1,000 token documents that hold a link", () => {
+    expect(keptWithLinks.length).toBeGreaterThanOrEqual(1_000)
+  })
+
+  it("holds at least 100 kept documents that CommonMark's balance rule would read wrongly", () => {
+    const unbalancedDocuments = keptWithLinks.filter((document) => {
+      const masked = maskLikeExtraction(document)
+      return referenceMarkdownLinks(document).some(({ start, end }) => {
+        return endsAtWhitespaceUnbalanced(masked.slice(start, end))
+      })
+    })
+    expect(unbalancedDocuments.length).toBeGreaterThanOrEqual(100)
+  })
+
+  it("extracts the oracle's targets from every kept token document", () => {
+    const disagreements = keptDocuments.flatMap((document) => {
+      const extracted = sortedUnique(links.extractFromBody(document))
+      const oracle = sortedUnique(referenceMarkdownLinks(document).map(({ target }) => target))
+      return JSON.stringify(extracted) === JSON.stringify(oracle)
+        ? []
+        : [{ document, extracted, oracle }]
+    })
+    expect(disagreements).toEqual([])
+  })
+
+  it("matches the oracle's span for every link in every kept token document", () => {
+    const disagreements = keptDocuments.flatMap((document) => {
+      const masked = maskLikeExtraction(document)
+      const matched = links
+        .matchLinksInLine(masked)
+        .filter((linkMatch) => linkMatch.kind === "markdown")
+        .map(({ start, end }) => ({ start, end }))
+      const oracle = referenceMarkdownLinks(document).map(({ start, end }) => ({ start, end }))
+      return JSON.stringify(matched) === JSON.stringify(oracle)
+        ? []
+        : [{ document, matched, oracle }]
+    })
+    expect(disagreements).toEqual([])
   })
 })
 

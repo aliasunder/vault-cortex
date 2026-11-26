@@ -43,7 +43,7 @@ describe("stripMarkdownSyntax", () => {
     35_000,
   )
 
-  it.each(scannerCorpora.slice(3))(
+  it.each(scannerCorpora.slice(2))(
     "preserves the complete legacy text for 10,000 $label documents",
     ({ alphabet }) => {
       for (const document of createScannerDocuments(alphabet, 10_000)) {

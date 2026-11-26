@@ -8,6 +8,7 @@
  *  position-safe matches through the methods on `links`. */
 
 import { posix } from "node:path"
+import parseEntities from "parse-entities"
 import { classifyLines } from "./lines.js"
 
 // ── Grammar (private) ───────────────────────────────────────────
@@ -15,11 +16,27 @@ import { classifyLines } from "./lines.js"
 /** JavaScript whitespace also includes non-ASCII spaces and line terminators. */
 const WHITESPACE = /\s/
 
-/** A URI scheme begins with an ASCII letter. */
-const SCHEME_START = /[a-zA-Z]/
+/** A backslash before one of CommonMark's ASCII punctuation characters
+ *  (https://spec.commonmark.org/0.31.2/#ascii-punctuation-character), which
+ *  Obsidian drops from a stored markdown link. Global — use only with replace. */
+const ESCAPED_PUNCTUATION = /\\([!-/:-@[-`{-~])/g
 
-/** RFC 3986 permits these characters after a URI scheme's first letter. */
-const SCHEME_CHARACTER = /[a-zA-Z0-9+.-]/
+/** One of CommonMark's ASCII punctuation characters. */
+const ASCII_PUNCTUATION = /[!-/:-@[-`{-~]/
+
+/** An ASCII letter or digit, the characters parse-entities reads as part of a
+ *  character reference's name. */
+const REFERENCE_NAME_CHARACTER = /[0-9A-Za-z]/
+
+/** The longest named character reference, `CounterClockwiseContourIntegral`,
+ *  has 31 characters. */
+const LONGEST_REFERENCE_NAME = 31
+
+/** remark-parse 8 decodes a link destination's character references with
+ *  these options: a reference counts only when a `;` ends it. */
+const REFERENCE_OPTIONS = { nonTerminated: false }
+
+const NO_BREAK_SPACE = "\u00a0"
 
 /** JavaScript's line terminators: LF, CR, the line separator (U+2028) and
  *  the paragraph separator (U+2029). */
@@ -77,6 +94,20 @@ type CodeSpan = { start: number; end: number }
 /** A link a scanner found: [start, end) covers the whole link, and
  *  [targetStart, targetEnd) its target alone, without any `#heading` or `|alias`. */
 type LinkSpan = { start: number; end: number; targetStart: number; targetEnd: number }
+
+/** How a markdown link writes its destination: in angle brackets
+ *  (`[x](<My Note.md>)`) or bare (`[x](My%20Note.md)`). */
+type DestinationForm = "angle" | "bare"
+
+/** A markdown link a scanner found:
+ *  - [targetEnd, headingEnd) holds the raw `#heading`, empty without one;
+ *  - storedTarget is the target as Obsidian stores it, decoded and without
+ *    the heading. */
+type MarkdownLinkSpan = LinkSpan & {
+  destinationForm: DestinationForm
+  headingEnd: number
+  storedTarget: string
+}
 
 /** The structural parts of a wikilink ![[target#heading|alias]]. heading/alias
  *  keep their leading `#` / `|` (or `\|` for table-escaped pipes) so
@@ -146,22 +177,480 @@ const scanWikilinks = (text: string, visit: (span: LinkSpan) => void): void => {
   }
 }
 
-/** Calls `visit` for each markdown link `[text](target#heading)` in `text`,
- *  left to right and never overlapping. The heading may be empty, and
- *  whitespace ends the attempt. Skipped targets:
- *  - a heading alone (`[a](#Heading)`), which points into the same note;
- *  - one that opens with a URI scheme (`https:`, `mailto:`), an external link. */
-const scanMarkdownLinks = (text: string, visit: (span: LinkSpan) => void): void => {
-  // Each cursor outlives a failed opener and only moves forward, which keeps
-  // the scan linear on a line where many `[` never close:
-  // - a later opener reaches the same `]` or a later one, so its target never
-  //   starts further left;
-  // - a scheme run holds no `]`, so after the same `]` the earlier run is the
-  //   one to reuse, and after a later `]` it ended before the new target.
+// ── Markdown link destinations ──────────────────────────────────
+
+/** Decodes the character references in one piece of text that holds no `&`
+ *  after its first character. parse-entities checks every prefix of a
+ *  reference name against its legacy table, which costs quadratic time on a
+ *  long run of letters. A run longer than any reference name can only decode
+ *  through a legacy prefix, and only when a `;` ends it, so its head alone
+ *  decides the output. */
+const decodeReferencePiece = (piece: string): string => {
+  if (!piece.startsWith("&")) return piece
+
+  // The name's length is counted with a forward walk, so a long run is read once.
+  let nameEnd = 1
+  while (nameEnd < piece.length && REFERENCE_NAME_CHARACTER.test(piece.charAt(nameEnd))) nameEnd++
+  const nameLength = nameEnd - 1
+
+  if (nameLength <= LONGEST_REFERENCE_NAME) return parseEntities(piece, REFERENCE_OPTIONS)
+  if (piece[nameEnd] !== ";") return piece
+
+  const headEnd = LONGEST_REFERENCE_NAME + 2
+  const decodedHead = parseEntities(`${piece.slice(0, headEnd)};`, REFERENCE_OPTIONS)
+  return `${decodedHead.slice(0, -";".length)}${piece.slice(headEnd)}`
+}
+
+/** The offset in `piece` of the source of the first `#` in `decodedPiece`, or
+ *  -1 without one. A piece that opens with `&` decodes its reference first and
+ *  keeps the rest as written, so a `#` at the start came from the reference
+ *  (`&num;`) and any later `#` keeps its distance from the piece's end. */
+const findHashSource = (piece: string, decodedPiece: string): number => {
+  const hashIndex = decodedPiece.indexOf("#")
+
+  if (hashIndex === -1) return -1
+  if (hashIndex === 0) return 0
+  return piece.length - (decodedPiece.length - hashIndex)
+}
+
+/** Decodes character references as Obsidian does in a link destination, and
+ *  finds where the first `#` of the output came from.
+ *  - A reference never holds an `&` after its first character, so the text
+ *    decodes piece by piece, each piece starting at an `&`. One parse-entities
+ *    call over the whole text would repeat its last reference for a later `&`
+ *    that decodes to nothing (`&lt;&gt.md` as `<<.md`), which Obsidian does not.
+ *  - hashSource is the offset in `text` of that `#`, or of the reference that
+ *    produced it, or -1 without one. */
+const decodeCharacterReferences = (text: string): { decoded: string; hashSource: number } => {
+  if (!text.includes("&")) return { decoded: text, hashSource: text.indexOf("#") }
+
+  const decodedPieces: string[] = []
+  // The walk threads each piece's offset, and keeps the first `#` it finds.
+  let pieceStart = 0
+  let hashSource = -1
+
+  for (const piece of text.split(/(?=&)/)) {
+    const decodedPiece = decodeReferencePiece(piece)
+    const hashInPiece = hashSource === -1 ? findHashSource(piece, decodedPiece) : -1
+
+    if (hashInPiece !== -1) hashSource = pieceStart + hashInPiece
+    decodedPieces.push(decodedPiece)
+    pieceStart += piece.length
+  }
+  return { decoded: decodedPieces.join(""), hashSource }
+}
+
+const isEscapePairAt = (text: string, position: number): boolean => {
+  return text[position] === "\\" && ASCII_PUNCTUATION.test(text.charAt(position + 1))
+}
+
+/** The offset in `content` of the character that dropping escape backslashes
+ *  moved to `unescapedOffset`, counting an escape pair from its backslash. */
+const findRawOffset = (content: string, unescapedOffset: number): number => {
+  // Each step reads one character of the unescaped text: an escape pair or a
+  // single character.
+  let rawOffset = 0
+
+  for (let unescapedIndex = 0; unescapedIndex < unescapedOffset; unescapedIndex++) {
+    rawOffset += isEscapePairAt(content, rawOffset) ? 2 : 1
+  }
+  return rawOffset
+}
+
+const decodeUriOrNull = (encoded: string): string | null => {
+  try {
+    return decodeURI(encoded)
+  } catch {
+    // A malformed escape anywhere in the link drops it, as in Obsidian.
+    return null
+  }
+}
+
+/** A destination's target as Obsidian stores it. headingOffset is where the
+ *  raw `#heading` starts in the destination's content, or null without one. */
+type StoredTarget = { target: string; headingOffset: number | null }
+
+/** Reads a markdown link destination's content the way Obsidian stores the
+ *  link, or returns null for a destination that names no other note or file:
+ *  1. drop each backslash before ASCII punctuation;
+ *  2. decode character references (`&amp;`, `&#35;`);
+ *  3. percent-decode like `decodeURI`, which keeps reserved escapes such as
+ *     `%26` and `%23`; a malformed escape drops the link;
+ *  4. replace each no-break space with a space, and trim;
+ *  5. drop a link holding a `:`, which Obsidian reads as a URL;
+ *  6. split at the first `#`, and drop a link with no target before it (a
+ *     heading in the same note). */
+const readStoredTarget = (content: string): StoredTarget | null => {
+  const unescaped = content.replace(ESCAPED_PUNCTUATION, "$1")
+  const { decoded, hashSource } = decodeCharacterReferences(unescaped)
+  const decodedLink = decodeUriOrNull(decoded)
+
+  if (decodedLink === null) return null
+
+  const storedLink = decodedLink.replaceAll(NO_BREAK_SPACE, " ").trim()
+
+  if (storedLink.includes(":")) return null
+
+  const hashIndex = storedLink.indexOf("#")
+  const linkpath = hashIndex === -1 ? storedLink : storedLink.slice(0, hashIndex)
+  const target = linkpath.trim()
+
+  if (!target) return null
+
+  // The stored link's first `#` is the first one references produced:
+  // percent-decoding keeps `%23` encoded, and trimming removes only spaces.
+  const headingOffset = hashSource === -1 ? null : findRawOffset(content, hashSource)
+  return { target, headingOffset }
+}
+
+/** Each unescaped parenthesis of a line, in order. matches holds the record
+ *  index of each `(`'s matching `)`, or -1 for a `)` and for a `(` without
+ *  one. The two arrays take 8 bytes per parenthesis and nothing per other
+ *  character. */
+type ParenRecords = { positions: Int32Array; matches: Int32Array }
+
+const forEachUnescapedParenthesis = (text: string, visit: (position: number) => void): void => {
+  // Whether a character is escaped depends on the backslash run before it,
+  // so the walk threads that run's length.
+  let backslashRun = 0
+
+  for (let position = 0; position < text.length; position++) {
+    const character = text[position]
+    const isUnescapedParenthesis =
+      (character === "(" || character === ")") && backslashRun % 2 === 0
+
+    if (isUnescapedParenthesis) visit(position)
+    backslashRun = character === "\\" ? backslashRun + 1 : 0
+  }
+}
+
+const readRecord = (records: Int32Array, recordIndex: number): number => {
+  return records[recordIndex] ?? -1
+}
+
+const buildParenRecords = (text: string): ParenRecords => {
+  // A first pass counts the parentheses, so the arrays are sized to them.
+  let parenthesisCount = 0
+  forEachUnescapedParenthesis(text, () => {
+    parenthesisCount++
+  })
+
+  const positions = new Int32Array(parenthesisCount)
+  const matches = new Int32Array(parenthesisCount)
+  // While a `(` is open, its slot in matches holds the record of the open `(`
+  // below it, so the stack of open parentheses needs no array of its own.
+  let openRecord = -1
+  let recordIndex = 0
+
+  forEachUnescapedParenthesis(text, (position) => {
+    positions[recordIndex] = position
+    matches[recordIndex] = -1
+
+    if (text[position] === "(") {
+      matches[recordIndex] = openRecord
+      openRecord = recordIndex
+    } else if (openRecord !== -1) {
+      const recordBelow = readRecord(matches, openRecord)
+      matches[openRecord] = recordIndex
+      openRecord = recordBelow
+    }
+    recordIndex++
+  })
+
+  while (openRecord !== -1) {
+    const recordBelow = readRecord(matches, openRecord)
+    matches[openRecord] = -1
+    openRecord = recordBelow
+  }
+  return { positions, matches }
+}
+
+/** The first position at or after `from` whose character `accepts` takes
+ *  with an even run of backslashes before it, or text.length. The character
+ *  before `from` must not be a backslash. */
+const findUnescaped = (params: {
+  text: string
+  from: number
+  accepts: (character: string) => boolean
+}): number => {
+  const { text, from, accepts } = params
+  // The backslash run before each character decides whether it is escaped.
+  let backslashRun = 0
+
+  for (let position = from; position < text.length; position++) {
+    const character = text.charAt(position)
+
+    if (backslashRun % 2 === 0 && accepts(character)) return position
+    backslashRun = character === "\\" ? backslashRun + 1 : 0
+  }
+  return text.length
+}
+
+const findNonWhitespace = (text: string, from: number): number => {
+  // A plain walk: the caller's cursor keeps a run from being walked twice.
+  let position = from
+
+  while (position < text.length && WHITESPACE.test(text.charAt(position))) position++
+  return position
+}
+
+/** Wraps a search for the first match at or after a position as a cursor:
+ *  while a search starts at or before the last match, that match is still
+ *  the first one, so the cursor returns it without scanning. The caller's
+ *  search starts must never move backward, which keeps each stretch of the
+ *  line scanned at most once. */
+const createForwardCursor = (search: (from: number) => number): ((from: number) => number) => {
+  // The last match found, reused while later searches start at or before it.
+  let lastMatch = -1
+
+  return (from) => {
+    if (lastMatch < from) lastMatch = search(from)
+    return lastMatch
+  }
+}
+
+/** The characters that close a link title opened by `"`, `'` or `(`. */
+type TitleCloser = '"' | "'" | ")"
+
+const TITLE_CLOSERS: ReadonlyMap<string, TitleCloser> = new Map([
+  ['"', '"'],
+  ["'", "'"],
+  ["(", ")"],
+])
+
+/** One destination form's cursors after the destination:
+ *  - the end of the whitespace run that follows it;
+ *  - per title closer, the closer and the end of the whitespace run after it. */
+type FormCursors = {
+  skipAfterDestination: (from: number) => number
+  findTitleCloser: Record<TitleCloser, (from: number) => number>
+  skipAfterTitle: Record<TitleCloser, (from: number) => number>
+}
+
+const createFormCursors = (text: string): FormCursors => {
+  const createTitleCloserCursor = (closer: TitleCloser): ((from: number) => number) => {
+    return createForwardCursor((from) => {
+      return findUnescaped({ text, from, accepts: (character) => character === closer })
+    })
+  }
+  const createWhitespaceSkip = (): ((from: number) => number) => {
+    return createForwardCursor((from) => findNonWhitespace(text, from))
+  }
+
+  return {
+    skipAfterDestination: createWhitespaceSkip(),
+    findTitleCloser: {
+      '"': createTitleCloserCursor('"'),
+      "'": createTitleCloserCursor("'"),
+      ")": createTitleCloserCursor(")"),
+    },
+    skipAfterTitle: {
+      '"': createWhitespaceSkip(),
+      "'": createWhitespaceSkip(),
+      ")": createWhitespaceSkip(),
+    },
+  }
+}
+
+/** A destination's content [contentStart, contentEnd), and where the scan
+ *  reads on after it. */
+type ScannedDestination = {
+  form: DestinationForm
+  contentStart: number
+  contentEnd: number
+  after: number
+}
+
+/** A complete markdown link destination, from its `(` to the `)` at `end - 1`. */
+type ScannedLink = ScannedDestination & { end: number }
+
+/** Builds the reader that scans the destination after one `](`, for every
+ *  `](` of a line in left-to-right order. It holds the line's parenthesis
+ *  records and one cursor per search, and each cursor only moves forward,
+ *  so the line costs linear time:
+ *  - the bare whitespace and angle cursors serve destination starts, which
+ *    only move forward;
+ *  - each form's cursors after the destination serve positions that only
+ *    move forward within that form. A bare destination that starts inside
+ *    an earlier one either closes at its own `)` or shares that one's first
+ *    whitespace. The forms keep separate cursors because a bare title can
+ *    start before a failed angle title: `[a](< [b](x.md "t") > "x`.
+ *
+ *  Openers whose link text ends at the same `]` read one destination, so the
+ *  last result, a rejection included, is cached by its `(`. */
+const createDestinationReader = (text: string): ((openParen: number) => ScannedLink | null) => {
+  const parens = buildParenRecords(text)
+  const findBareWhitespace = createForwardCursor((from) => {
+    return findUnescaped({ text, from, accepts: (character) => WHITESPACE.test(character) })
+  })
+  const findAngleCloser = createForwardCursor((from) => {
+    const closer = text.indexOf(">", from)
+    return closer === -1 ? text.length : closer
+  })
+  const findLineBreak = createForwardCursor((from) => {
+    // A plain walk: the cursor keeps each stretch from being walked twice.
+    let position = from
+
+    while (position < text.length && text[position] !== "\n" && text[position] !== "\r") position++
+    return position
+  })
+  const formCursors: Record<DestinationForm, FormCursors> = {
+    angle: createFormCursors(text),
+    bare: createFormCursors(text),
+  }
+  // The paren record index serves `(` positions, which only move forward.
+  let parenOrdinal = 0
+  // The last `(` read and its result, reused by the openers that share it.
+  let cachedOpenParen = -1
+  let cachedLink: ScannedLink | null = null
+
+  /** The position of the `)` that matches the `(` at openParen, or -1. The
+   *  `(` of `](` follows a `]`, so it is unescaped and has a record. */
+  const findMatchingParen = (openParen: number): number => {
+    while ((parens.positions[parenOrdinal] ?? text.length) < openParen) parenOrdinal++
+    const matchRecord = readRecord(parens.matches, parenOrdinal)
+    return matchRecord === -1 ? -1 : readRecord(parens.positions, matchRecord)
+  }
+
+  /** `<…>`: the first `>` closes it, and a line break before that `>` fails it. */
+  const scanAngleDestination = (openBracket: number): ScannedDestination | null => {
+    const contentStart = openBracket + 1
+    const closeBracket = findAngleCloser(contentStart)
+
+    if (closeBracket === text.length || findLineBreak(contentStart) < closeBracket) return null
+    return { form: "angle", contentStart, contentEnd: closeBracket, after: closeBracket + 1 }
+  }
+
+  /** A bare destination runs to its first unescaped whitespace, or to the `)`
+   *  that matches the link's own `(`, whichever comes first. Without either,
+   *  it fails. */
+  const scanBareDestination = (
+    contentStart: number,
+    openParen: number,
+  ): ScannedDestination | null => {
+    const whitespace = findBareWhitespace(contentStart)
+    const matchingParen = findMatchingParen(openParen)
+    const endsAtParen = matchingParen !== -1 && matchingParen < whitespace
+    const contentEnd = endsAtParen ? matchingParen : whitespace
+
+    if (contentEnd === text.length) return null
+    return { form: "bare", contentStart, contentEnd, after: contentEnd }
+  }
+
+  /** The end of the link after its destination, or -1: whitespace, then an
+   *  optional title in `"…"`, `'…'` or `(…)` after at least one whitespace
+   *  character, then whitespace and `)`. */
+  const scanTitleAndClose = (destination: ScannedDestination): number => {
+    // A bare destination that ends at its `)` closes there. Checking first
+    // keeps its position, which can move backward, out of the cursors.
+    if (text[destination.after] === ")") return destination.after + 1
+
+    const cursors = formCursors[destination.form]
+    const titleStart = cursors.skipAfterDestination(destination.after)
+
+    if (text[titleStart] === ")") return titleStart + 1
+
+    const closer = TITLE_CLOSERS.get(text.charAt(titleStart))
+    const followsWhitespace = titleStart > destination.after
+
+    if (!closer || !followsWhitespace) return -1
+
+    const titleEnd = cursors.findTitleCloser[closer](titleStart + 1)
+
+    if (titleEnd === text.length) return -1
+
+    const closeParen = cursors.skipAfterTitle[closer](titleEnd + 1)
+    return text[closeParen] === ")" ? closeParen + 1 : -1
+  }
+
+  const scanLink = (openParen: number): ScannedLink | null => {
+    // Each `(` is read once, and its leading whitespace ends before the next
+    // `](`, so this walk needs no cursor.
+    const destinationStart = findNonWhitespace(text, openParen + 1)
+    const destination =
+      text[destinationStart] === "<"
+        ? scanAngleDestination(destinationStart)
+        : scanBareDestination(destinationStart, openParen)
+
+    if (!destination) return null
+
+    const end = scanTitleAndClose(destination)
+    return end === -1 ? null : { ...destination, end }
+  }
+
+  return (openParen) => {
+    if (openParen !== cachedOpenParen) {
+      cachedLink = scanLink(openParen)
+      cachedOpenParen = openParen
+    }
+    return cachedLink
+  }
+}
+
+/** Whether the `[` at `position` is escaped by an odd run of backslashes.
+ *  Each backslash run sits before one `[` at most, so a line's walks add up
+ *  to its length. */
+const isEscapedAt = (text: string, position: number): boolean => {
+  // The walk counts the backslashes directly before the bracket.
+  let backslashStart = position
+
+  while (backslashStart > 0 && text[backslashStart - 1] === "\\") backslashStart--
+  return (position - backslashStart) % 2 === 1
+}
+
+/** The span of a scanned link with a stored target, or null for one without. */
+const toMarkdownLinkSpan = (
+  text: string,
+  start: number,
+  link: ScannedLink,
+): MarkdownLinkSpan | null => {
+  const { form, contentStart, contentEnd, end } = link
+  const content = text.slice(contentStart, contentEnd)
+  const storedTarget = readStoredTarget(content)
+
+  if (!storedTarget) return null
+
+  // Spaces around the target stay outside it, so a rewrite keeps them.
+  const targetStart = contentStart + (content.length - content.trimStart().length)
+  const { headingOffset } = storedTarget
+
+  if (headingOffset === null) {
+    const targetEnd = contentStart + content.trimEnd().length
+    return {
+      start,
+      end,
+      targetStart,
+      targetEnd,
+      destinationForm: form,
+      headingEnd: targetEnd,
+      storedTarget: storedTarget.target,
+    }
+  }
+  return {
+    start,
+    end,
+    targetStart,
+    targetEnd: contentStart + headingOffset,
+    destinationForm: form,
+    headingEnd: contentEnd,
+    storedTarget: storedTarget.target,
+  }
+}
+
+/** Calls `visit` for each markdown link `[text](destination "title")` in
+ *  `text` that names another note or file, left to right and never
+ *  overlapping. The grammar follows Obsidian's:
+ *  - a `[` after an odd run of backslashes opens no link;
+ *  - the destination is `<…>` or bare, after optional whitespace;
+ *  - a title in `"…"`, `'…'` or `(…)` may follow after whitespace;
+ *  - a complete link is used up even when it names nothing (a URL, a heading
+ *    in the same note), so the scan resumes after its `)`. */
+const scanMarkdownLinks = (text: string, visit: (span: MarkdownLinkSpan) => void): void => {
+  // The link text cursor outlives a failed opener and only moves forward: a
+  // later opener reaches the same `]` or a later one.
   let textEnd = 0
-  let targetEnd = 0
-  let fragmentEnd = 0
-  let schemeEnd = 0
+  // Built at the line's first `](`, so a line without one allocates nothing.
+  let readLink: ((openParen: number) => ScannedLink | null) | undefined
 
   const findLinkTextEnd = (start: number): number => {
     textEnd = Math.max(textEnd, start + 1)
@@ -169,61 +658,23 @@ const scanMarkdownLinks = (text: string, visit: (span: LinkSpan) => void): void 
     return textEnd
   }
 
-  // A URI scheme is a letter, then letters, digits, `+`, `.` or `-`, then `:` (RFC 3986).
-  const opensWithUriScheme = (targetStart: number): boolean => {
-    if (!SCHEME_START.test(text.charAt(targetStart))) return false
-    schemeEnd = Math.max(schemeEnd, targetStart + 1)
-    while (schemeEnd < text.length && SCHEME_CHARACTER.test(text.charAt(schemeEnd))) schemeEnd++
-    return text[schemeEnd] === ":"
-  }
-
-  const isSkippedTarget = (targetStart: number): boolean => {
-    return text[targetStart] === "#" || opensWithUriScheme(targetStart)
-  }
-
-  const findTargetEnd = (targetStart: number): number => {
-    targetEnd = Math.max(targetEnd, targetStart)
-    while (
-      targetEnd < text.length &&
-      text[targetEnd] !== ")" &&
-      text[targetEnd] !== "#" &&
-      !WHITESPACE.test(text.charAt(targetEnd))
-    ) {
-      targetEnd++
-    }
-    return targetEnd
-  }
-
-  /** Where the `#heading` after a target ends, or the target's end without one. */
-  const findHeadingEnd = (headingStart: number): number => {
-    if (text[headingStart] !== "#") return headingStart
-    fragmentEnd = Math.max(fragmentEnd, headingStart + 1)
-    while (
-      fragmentEnd < text.length &&
-      text[fragmentEnd] !== ")" &&
-      !WHITESPACE.test(text.charAt(fragmentEnd))
-    ) {
-      fragmentEnd++
-    }
-    return fragmentEnd
-  }
-
   for (let start = 0; start < text.length; start++) {
-    if (text[start] !== "[") continue
-    const linkTextEnd = findLinkTextEnd(start)
+    if (text[start] !== "[" || isEscapedAt(text, start)) continue
 
-    if (text[linkTextEnd + 1] !== "(") continue
-    const targetStart = linkTextEnd + 2
+    const openParen = findLinkTextEnd(start) + 1
 
-    if (isSkippedTarget(targetStart)) continue
-    const foundTargetEnd = findTargetEnd(targetStart)
+    if (text[openParen] !== "(") continue
 
-    if (foundTargetEnd === targetStart) continue
-    const end = findHeadingEnd(foundTargetEnd)
+    readLink ??= createDestinationReader(text)
+    const link = readLink(openParen)
 
-    if (text[end] !== ")") continue
-    visit({ start, end: end + 1, targetStart, targetEnd: foundTargetEnd })
-    start = end
+    if (!link) continue
+
+    const span = toMarkdownLinkSpan(text, start, link)
+
+    if (span) visit(span)
+    // end - 1 is the link's `)`, and the loop's start++ moves past it.
+    start = link.end - 1
   }
 }
 
@@ -438,11 +889,8 @@ const extractFromBody = (content: string): string[] => {
 
       if (isExtractableTarget(target)) targets.add(target)
     })
-    scanMarkdownLinks(linkExtractableLine, ({ targetStart, targetEnd }) => {
-      const rawTarget = linkExtractableLine.slice(targetStart, targetEnd)
-      const target = safeDecodeURIComponent(rawTarget.trim())
-
-      if (isExtractableTarget(target)) targets.add(target)
+    scanMarkdownLinks(linkExtractableLine, ({ storedTarget }) => {
+      if (isExtractableTarget(storedTarget)) targets.add(storedTarget)
     })
   }
   return [...targets]
