@@ -20,6 +20,7 @@ import {
   legacyMarkdown,
   legacyTemplater,
 } from "./helpers/link-scanner-corpus.js"
+import { linkResolverOracle } from "./helpers/link-resolver-oracle.js"
 
 // ── matchLinksInLine ─────────────────────────────────────────────
 
@@ -1100,6 +1101,152 @@ describe("resolveAsset", () => {
   it("cannot resolve a relative target without a source path", () => {
     expect(links.resolveAsset({ target: "../assets/photo.png", allAssetPaths })).toBeNull()
   })
+})
+
+// ── Resolver oracle ──────────────────────────────────────────────
+
+/** Mulberry32, a small seeded generator, so every run draws the same corpus. */
+const createSeededRandom = (seed: number): (() => number) => {
+  // The generator's state, advanced on every draw.
+  let state = seed
+
+  return () => {
+    state = (state + 0x6d2b79f5) | 0
+    const mixed = Math.imul(state ^ (state >>> 15), 1 | state)
+    const remixed = mixed ^ (mixed + Math.imul(mixed ^ (mixed >>> 7), 61 | mixed))
+    return ((remixed ^ (remixed >>> 14)) >>> 0) / 4294967296
+  }
+}
+
+/** A small pool, so paths that differ only in letter case or depth, and
+ *  targets that hit them, come up often. */
+const SEGMENT_TOKENS = [
+  "a",
+  "A",
+  "b",
+  "É",
+  "é",
+  "ß",
+  "SS",
+  "ss",
+  "x.y",
+  "sub dir",
+  "Photo",
+  "photo",
+]
+const TARGET_ONLY_TOKENS = ["..", ".", ""]
+const ASSET_EXTENSIONS = [".png", ".PNG", ".gif", ".canvas", ".md.png", ""]
+
+const createCorpus = (seed: number) => {
+  const random = createSeededRandom(seed)
+  const pick = <Item>(items: readonly Item[]): Item => {
+    const pickedItem = items[Math.floor(random() * items.length)]
+
+    if (pickedItem === undefined) throw new Error("picked from an empty list")
+    return pickedItem
+  }
+  const drawSegments = (tokens: readonly string[]): string[] => {
+    return Array.from({ length: 1 + Math.floor(random() * 4) }, () => pick(tokens))
+  }
+
+  const notePaths = [
+    ...new Set(Array.from({ length: 300 }, () => `${drawSegments(SEGMENT_TOKENS).join("/")}.md`)),
+  ]
+  const assetPaths = [
+    ...new Set(
+      Array.from({ length: 300 }, () => {
+        return `${drawSegments(SEGMENT_TOKENS).join("/")}${pick(ASSET_EXTENSIONS)}`
+      }),
+    ),
+  ]
+  const targetTokens = [...SEGMENT_TOKENS, ...TARGET_ONLY_TOKENS]
+  const sources: ReadonlyArray<{ sourcePath?: string }> = [
+    {},
+    { sourcePath: "note.md" },
+    { sourcePath: "a/note.md" },
+    { sourcePath: "A/b/note.md" },
+    { sourcePath: "sub dir/x.y/note.md" },
+  ]
+  const lookups = Array.from({ length: 10_000 }, () => {
+    const extension = random() < 0.5 ? pick(ASSET_EXTENSIONS) : pick(["", ".md", ".MD"])
+    return { target: `${drawSegments(targetTokens).join("/")}${extension}`, ...pick(sources) }
+  })
+  return { notePaths, assetPaths, lookups }
+}
+
+describe("resolver oracle", () => {
+  it("resolve, resolveInExactCase and resolveAsset match the scanning resolvers on 10,000 seeded targets", () => {
+    const { notePaths, assetPaths, lookups } = createCorpus(20261126)
+
+    const disagreements = lookups.flatMap((lookup) => {
+      const answers = {
+        resolve: [
+          links.resolve({ ...lookup, allPaths: notePaths }),
+          linkResolverOracle.resolve({ ...lookup, allPaths: notePaths }),
+        ],
+        resolveInExactCase: [
+          links.resolveInExactCase({ ...lookup, allPaths: notePaths }),
+          linkResolverOracle.resolveInExactCase({ ...lookup, allPaths: notePaths }),
+        ],
+        resolveAsset: [
+          links.resolveAsset({ ...lookup, allAssetPaths: assetPaths }),
+          linkResolverOracle.resolveAsset({ ...lookup, allAssetPaths: assetPaths }),
+        ],
+      }
+      return Object.entries(answers)
+        .filter(([, [answer, oracleAnswer]]) => answer !== oracleAnswer)
+        .map(([resolver, [answer, oracleAnswer]]) => {
+          return { resolver, ...lookup, answer, oracleAnswer }
+        })
+    })
+
+    expect(disagreements).toEqual([])
+  })
+
+  it("the seeded corpus resolves 1,000 to 9,000 of its targets in both note and asset modes", () => {
+    const { notePaths, assetPaths, lookups } = createCorpus(20261126)
+
+    const resolvedNoteCount = lookups.filter((lookup) => {
+      return links.resolve({ ...lookup, allPaths: notePaths }) !== null
+    }).length
+    const resolvedAssetCount = lookups.filter((lookup) => {
+      return links.resolveAsset({ ...lookup, allAssetPaths: assetPaths }) !== null
+    }).length
+
+    // Both resolved and unresolved targets are common, so the comparison
+    // above checks hits and misses alike.
+    expect(resolvedNoteCount).toBeGreaterThan(1_000)
+    expect(resolvedNoteCount).toBeLessThan(9_000)
+    expect(resolvedAssetCount).toBeGreaterThan(1_000)
+    expect(resolvedAssetCount).toBeLessThan(9_000)
+  })
+
+  it.each([
+    {
+      label: "a full-name suffix skips a path equal to the target in another letter case",
+      target: "photo.png",
+      allAssetPaths: ["Photo.PNG", "a/photo.png"],
+      expected: "a/photo.png",
+    },
+    {
+      label: "a full-name suffix skips a shorter path equal to the target",
+      target: "photo.png",
+      allAssetPaths: ["Photo.png", "x/photo.png"],
+      expected: "x/photo.png",
+    },
+    {
+      label: "a stem suffix skips a path whose stem equals the target",
+      target: "a/photo",
+      allAssetPaths: ["A/Photo.png", "z/a/photo.gif"],
+      expected: "z/a/photo.gif",
+    },
+  ])(
+    "resolveAsset: $label, as the scanning resolver does",
+    ({ target, allAssetPaths, expected }) => {
+      expect(links.resolveAsset({ target, allAssetPaths })).toBe(expected)
+      expect(linkResolverOracle.resolveAsset({ target, allAssetPaths })).toBe(expected)
+    },
+  )
 })
 
 // ── Link-target limits ───────────────────────────────────────────
