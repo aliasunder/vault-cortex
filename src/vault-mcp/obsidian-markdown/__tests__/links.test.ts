@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, onTestFinished } from "vitest"
 import { execFileSync } from "node:child_process"
 import { posix } from "node:path"
+import { Worker } from "node:worker_threads"
 import { links } from "../links.js"
 import { classifyLines } from "../lines.js"
 import {
@@ -56,6 +57,51 @@ describe("matchLinksInLine", () => {
       }
     },
     35_000,
+  )
+
+  // The child builds each family at 20,000, 40,000 and 80,000 characters and
+  // checks its exact output.
+  it.each([
+    { family: "unclosed bare parentheses" },
+    { family: "unclosed angle brackets" },
+    { family: "unclosed double-quoted titles" },
+    { family: "unclosed single-quoted titles" },
+    { family: "unclosed parenthesized titles" },
+    { family: "whitespace and no-break spaces after one shared `](`" },
+    { family: "bare destinations sharing one whitespace run" },
+    { family: "parenthesized titles sharing one closer and whitespace run" },
+    { family: "angle destinations sharing one closer and whitespace run" },
+    { family: "backslash runs before parentheses" },
+    { family: "nested URL openers" },
+    { family: "nested heading openers" },
+    { family: "openers before one long rejected destination" },
+    { family: "outer angle links failing after an inner link's title" },
+  ])(
+    "scans markdown destinations with $family in linear time in an externally killed child",
+    ({ family }) => {
+      const fixturePath = new URL("./helpers/link-scanner-adversary.ts", import.meta.url)
+      const output = execFileSync(
+        process.execPath,
+        ["--import", "tsx", fixturePath.pathname, family],
+        {
+          encoding: "utf8",
+          timeout: CHILD_DEADLINE_MS,
+          killSignal: "SIGKILL",
+        },
+      )
+      const result = JSON.parse(output)
+
+      expect(result.variant).toBe(family)
+      for (const [index, measurement] of result.measurements.entries()) {
+        expect(measurement.median).toBeLessThan(1_000)
+        const previous = result.measurements[index - 1]
+
+        if (previous?.median > TIMING_FLOOR_MS) {
+          expect(measurement.median / previous.median).toBeLessThan(3)
+        }
+      }
+    },
+    CHILD_TEST_TIMEOUT_MS,
   )
 
   // Neither alphabet holds a `(`, so no markdown link forms in these documents.
@@ -831,6 +877,10 @@ describe("extractFromBody against Obsidian 1.15.1", () => {
     { input: "[x](<&amp;&Note.md>)", obsidian: ["&&Note.md"], expected: ["&&Note.md"] },
     { input: "x &amp;&Note y", obsidian: [], expected: [] },
     { input: "[x](&#38;&Note.md)", obsidian: ["&&Note.md"], expected: ["&&Note.md"] },
+    // Nested openers, and a bare title that starts before a failed angle title.
+    { input: '[a](< [b](x.md "t") > "x', obsidian: ["x.md"], expected: ["x.md"] },
+    { input: "[a](h:[a](h:a))", obsidian: [], expected: [] },
+    { input: "[a](#[b](c.md))", obsidian: ["#[b](c.md)"], expected: [] },
   ]
 
   it.each(obsidianCases)("extracts $expected from $input", ({ input, expected }) => {
@@ -860,6 +910,91 @@ describe("extractFromBody against Obsidian 1.15.1", () => {
       )
     },
   )
+})
+
+// ── Markdown link scan memory ────────────────────────────────────
+
+/** What the memory worker reports: the line it built, then the scan's result. */
+type MemoryWorkerMessage =
+  { status: "ready"; parenthesisCount: number } | { status: "done"; matchCount: number }
+
+const isMemoryWorkerMessage = (message: unknown): message is MemoryWorkerMessage => {
+  return typeof message === "object" && message !== null && "status" in message
+}
+
+/** The worker's peak heap growth while it scans its 10,000,000-character
+ *  line, over the heap it holds before the scan. getHeapStatistics reads a
+ *  worker's heap while it runs one synchronous call, and its external memory
+ *  counts typed arrays. */
+const measureScanHeapGrowth = async (
+  shape: "sparse" | "dense",
+): Promise<{ peakGrowth: number; parenthesisCount: number; matchCount: number }> => {
+  const workerUrl = new URL("./helpers/link-scanner-memory-worker.ts", import.meta.url)
+  const worker = new Worker(workerUrl, { workerData: shape, execArgv: ["--import", "tsx"] })
+  onTestFinished(async () => {
+    await worker.terminate()
+  })
+
+  const nextMessage = (): Promise<MemoryWorkerMessage> => {
+    return new Promise((resolve, reject) => {
+      worker.once("error", reject)
+      worker.once("message", (message: unknown) => {
+        if (isMemoryWorkerMessage(message)) resolve(message)
+        else reject(new Error(`unexpected worker message: ${JSON.stringify(message)}`))
+      })
+    })
+  }
+  const sampleHeap = async (): Promise<number> => {
+    const { used_heap_size, external_memory } = await worker.getHeapStatistics()
+    return used_heap_size + external_memory
+  }
+
+  const ready = await nextMessage()
+
+  if (ready.status !== "ready") throw new Error("the worker scanned before it was ready")
+
+  const baseline = await sampleHeap()
+  const scanned = nextMessage()
+  // The sampling loop stops once the worker reports the scan's result.
+  let scanFinished = false
+  const finishedScan = scanned.finally(() => {
+    scanFinished = true
+  })
+  const samples: number[] = []
+
+  worker.postMessage("go")
+  while (!scanFinished) samples.push(await sampleHeap())
+
+  const done = await finishedScan
+
+  if (done.status !== "done") throw new Error("the worker reported ready twice")
+  return {
+    peakGrowth: Math.max(baseline, ...samples) - baseline,
+    parenthesisCount: ready.parenthesisCount,
+    matchCount: done.matchCount,
+  }
+}
+
+describe("markdown link scan memory", () => {
+  /** Heap growth any scan may show, from V8's own bookkeeping. */
+  const ONE_MEGABYTE = 1_000_000
+
+  /** The record set keeps two 4-byte integers per parenthesis. */
+  const BYTES_PER_PARENTHESIS = 8
+
+  it("grows the heap less than 1 MB on a 10,000,000-character line with one parenthesis", async () => {
+    const { peakGrowth, parenthesisCount, matchCount } = await measureScanHeapGrowth("sparse")
+
+    expect({ parenthesisCount, matchCount }).toEqual({ parenthesisCount: 1, matchCount: 0 })
+    expect(peakGrowth).toBeLessThan(ONE_MEGABYTE)
+  }, 60_000)
+
+  it("grows the heap at most 8 bytes per parenthesis and 1 MB on a parenthesis-dense line", async () => {
+    const { peakGrowth, parenthesisCount, matchCount } = await measureScanHeapGrowth("dense")
+
+    expect({ parenthesisCount, matchCount }).toEqual({ parenthesisCount: 9_999_997, matchCount: 0 })
+    expect(peakGrowth).toBeLessThan(BYTES_PER_PARENTHESIS * parenthesisCount + ONE_MEGABYTE)
+  }, 60_000)
 })
 
 // ── Markdown links against the remark oracle ─────────────────────
