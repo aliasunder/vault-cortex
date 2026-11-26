@@ -2809,12 +2809,11 @@ describe("listAllTags", () => {
   })
 
   it("returns tags with counts ordered by count desc", () => {
-    const tags = index.listAllTags({}, logger)
-    expect(tags[0]).toEqual({ tag: "principles", count: 2 })
-    expect(tags.find((tagEntry) => tagEntry.tag === "self")).toEqual({
-      tag: "self",
-      count: 1,
-    })
+    expect(index.listAllTags({}, logger)).toEqual([
+      { tag: "principles", count: 2 },
+      { tag: "self", count: 1 },
+      { tag: "work", count: 1 },
+    ])
   })
 
   it("merges spellings that differ in letter case under the most-used spelling, counting notes", () => {
@@ -9756,8 +9755,11 @@ describe("vaultStats", () => {
       }),
       logger,
     )
-    const stats = index.vaultStats({}, logger)
-    expect(stats.totalNotes).toBe(2)
+    expect(index.vaultStats({}, logger)).toEqual({
+      totalNotes: 2,
+      untaggedNotes: 0,
+      noPropertiesNotes: 0,
+    })
   })
 
   it("counts untagged notes", () => {
@@ -9777,8 +9779,11 @@ describe("vaultStats", () => {
       }),
       logger,
     )
-    const stats = index.vaultStats({}, logger)
-    expect(stats.untaggedNotes).toBe(1)
+    expect(index.vaultStats({}, logger)).toEqual({
+      totalNotes: 2,
+      untaggedNotes: 1,
+      noPropertiesNotes: 1,
+    })
   })
 
   it("counts notes without frontmatter properties", () => {
@@ -9798,8 +9803,11 @@ describe("vaultStats", () => {
       }),
       logger,
     )
-    const stats = index.vaultStats({}, logger)
-    expect(stats.noPropertiesNotes).toBe(1)
+    expect(index.vaultStats({}, logger)).toEqual({
+      totalNotes: 2,
+      untaggedNotes: 2,
+      noPropertiesNotes: 1,
+    })
   })
 
   it("returns all zeros on an empty index", () => {
