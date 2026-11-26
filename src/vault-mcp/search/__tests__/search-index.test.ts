@@ -13451,6 +13451,41 @@ describe("embedding job queue", () => {
       { note_path: "next.md", chunk_text: "next\n\nNext cobalt note." },
     ])
   })
+})
+
+describe("embedding a source stored past the chunk count cap", () => {
+  /** Writes a chunk row and a vector for each text, as an index written before
+   *  the count cap holds them. */
+  const storeChunksWithVectors = (params: {
+    inspect: Database.Database
+    sourceKind: "note" | "file"
+    sourcePath: string
+    chunkTexts: readonly string[]
+  }): void => {
+    const chunkTable = params.sourceKind === "note" ? "note_chunks" : "file_content_chunks"
+    const pathColumn = params.sourceKind === "note" ? "note_path" : "file_path"
+    const vectorTable = params.sourceKind === "note" ? "note_vectors" : "file_content_vectors"
+    const insertChunk = params.inspect.prepare(
+      `INSERT INTO ${chunkTable} (${pathColumn}, chunk_index, chunk_text, content_hash) VALUES (?, ?, ?, ?)`,
+    )
+    const insertVector = params.inspect.prepare(
+      `INSERT INTO ${vectorTable} (chunk_id, embedding) VALUES (?, ?)`,
+    )
+    const storedVectorBytes = Buffer.from(new Float32Array(384).fill(0.1).buffer)
+
+    params.inspect.transaction(() => {
+      for (const [chunkIndex, chunkText] of params.chunkTexts.entries()) {
+        const chunkHash = createHash("sha256").update(chunkText).digest("hex")
+        const { lastInsertRowid } = insertChunk.run(
+          params.sourcePath,
+          chunkIndex,
+          chunkText,
+          chunkHash,
+        )
+        insertVector.run(BigInt(lastInsertRowid), storedVectorBytes)
+      }
+    })()
+  }
 
   it("trims a note stored with 20,000 chunks to 16,385 in one embedding", async () => {
     const fixture = await createEmbeddingRaceIndex("note")
@@ -13468,23 +13503,12 @@ describe("embedding job queue", () => {
       notePath: "big.md",
       rawContent,
     })
-
-    // An index written before the count cap holds a chunk and a vector per section
-    const insertChunk = fixture.inspect.prepare(
-      "INSERT INTO note_chunks (note_path, chunk_index, chunk_text, content_hash) VALUES (?, ?, ?, ?)",
-    )
-    const insertVector = fixture.inspect.prepare(
-      "INSERT INTO note_vectors (chunk_id, embedding) VALUES (?, ?)",
-    )
-    const storedVectorBytes = Buffer.from(modelVector().buffer)
-    fixture.inspect.transaction(() => {
-      for (const sectionIndex of sectionIndices) {
-        const chunkText = sectionChunkText(sectionIndex)
-        const chunkHash = createHash("sha256").update(chunkText).digest("hex")
-        const { lastInsertRowid } = insertChunk.run("big.md", sectionIndex, chunkText, chunkHash)
-        insertVector.run(BigInt(lastInsertRowid), storedVectorBytes)
-      }
-    })()
+    storeChunksWithVectors({
+      inspect: fixture.inspect,
+      sourceKind: "note",
+      sourcePath: "big.md",
+      chunkTexts: sectionIndices.map(sectionChunkText),
+    })
     expect(fixture.chunks()).toHaveLength(20_000)
 
     await fixture.searchIndex.embedNote({ notePath: "big.md", rawContent, sourceVersion }, logger)
@@ -13496,6 +13520,39 @@ describe("embedding job queue", () => {
       ...sectionIndices.slice(0, 16_384).map((sectionIndex) => ({
         chunk_index: sectionIndex,
         chunk_text: sectionChunkText(sectionIndex),
+      })),
+      { chunk_index: 16_384, chunk_text: tableOfContentsText },
+    ])
+    expect(fixture.vectorCount()).toBe(16_385)
+  })
+
+  it("trims a file stored with 17,000 chunks to 16,385 in one embedding", async () => {
+    const fixture = await createEmbeddingRaceIndex("file")
+    // 17,000 six-byte sections fit in the 102,400 bytes of a file's text that
+    // search keeps, so every section reaches the chunker
+    const rawContent = Array.from({ length: 17_000 }, () => "# a\nb").join("\n")
+    const sectionChunkText = "reuse\nSection: a\n\nb"
+    // A file's table-of-contents chunk opens with its path, then holds the
+    // first 449 one-token section names
+    const tableOfContentsText = `reuse.txt\n\n${Array.from({ length: 449 }, () => "a").join("\n")}`
+    const sourceVersion = fixture.upsert(rawContent)
+    storeChunksWithVectors({
+      inspect: fixture.inspect,
+      sourceKind: "file",
+      sourcePath: fixture.path,
+      chunkTexts: Array.from({ length: 17_000 }, () => sectionChunkText),
+    })
+    expect(fixture.chunks()).toHaveLength(17_000)
+
+    await fixture.embed(rawContent, sourceVersion)
+
+    // Only index 16,384 changed, from a section to the table of contents
+    expect(fixture.embedder.embedText).toHaveBeenCalledTimes(1)
+    expect(fixture.embedder.embedText).toHaveBeenCalledWith(tableOfContentsText)
+    expect(fixture.chunks()).toEqual([
+      ...Array.from({ length: 16_384 }, (_, chunkIndex) => ({
+        chunk_index: chunkIndex,
+        chunk_text: sectionChunkText,
       })),
       { chunk_index: 16_384, chunk_text: tableOfContentsText },
     ])
