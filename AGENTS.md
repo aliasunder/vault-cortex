@@ -182,9 +182,7 @@ A module's folder is decided by **what it depends on**, not just its topic:
   state word for word, and the `describe*` builders for text that depends on
   the config or the enabled tool set, live in `tool-description-text.ts`.
   `describe*` names description text built at registration and `format*`
-  names result text built per call. A `*-helpers` module takes no new
-  category of code: name the category and give it its own module.
-  Group modules take `safeHandler` and
+  names result text built per call. Group modules take `safeHandler` and
   `safeHandlerContent` from the registration context; `createSafeHandlers`
   builds them per server from the enabled tools and the vault path.
   **Tool handlers stay thin**: schema, wire mapping (snake_case ↔ camelCase),
@@ -475,7 +473,25 @@ Before integrating agent command setup, read [Agent command setup](./CONTRIBUTIN
 <!-- distilled from vault Reference/code-standards-* on 2026-11-03; refresh (merges, keeps hand edits): run the sync-code-standards skill -->
 
 These rules are authoring guidance, not a review checklist. Apply them
-while writing, not after. `eslint.config.ts` enforces this subset:
+while writing, not after, and only after the design step they cannot
+replace: before adding to or splitting a function, a module or a doc
+section, read what that unit is responsible for and who it serves (its
+docstring, its header comment, the section's lead), write that sentence
+when it is missing or says only "helpers" or "shared", and judge the
+change against it. A change that does not fit goes to the unit that owns
+it, or the sentence changes and the change says so. The rules below
+constrain a unit's shape once its responsibility is known; none of them,
+DRY included, can say what a unit is for, and a rule or a reviewer's
+finding applied without that answer produces units that exist only to
+satisfy it.
+
+- Wrong: a delete core that switches on which wrapper called it so the
+  two wrappers can share one kind check, and a word table that templates
+  two tools' descriptions because their sentences differ by a noun.
+- Right: each wrapper checks its own kind and the core's docstring says it
+  deletes a canonical path, and each tool states its own description.
+
+`eslint.config.ts` enforces this subset:
 
 - No `function` declarations, and `type` over `interface`.
 - No `any`, `as` casts other than `as const`, or `!` non-null assertions
@@ -577,10 +593,7 @@ The rest are the author's responsibility at write time.
   even for one literal; always above two args or for adjacent same-typed
   args. Keep a clear one- or two-arg call positional.
 - A boolean mode param means the function does two things: split it;
-  the caller owns the gating. Before adding a helper, a type or a
-  `switch` for two call sites, write the inline form at both sites and
-  keep the helper only when it reads better side by side; a rule is one
-  input to that comparison, never a substitute for it.
+  the caller owns the gating.
 - A function marked `eslint-disable-next-line complexity` takes no new
   branch, and a function that a new branch pushes over the limit gets no
   new disable. Split out the part being changed first, in its own commit.
@@ -822,10 +835,6 @@ the description and each parameter's Zod `.describe()` text.
   `tool_error`. A Zod failure surfaces as a protocol-level invalid-params
   error that bypasses both, and `.refine` does not serialize into the
   JSON schema clients see; `.min(1)` does (`minLength`).
-- **Shared description text is a constant only when it is identical
-  across its tools** (`tool-description-text.ts`). Prose that differs by
-  a noun between two tools is written in each tool; a template that swaps
-  words into shared sentences hides what each tool says.
 - **Edit only the tools a change is meant for.** A grader re-scores
   every definition whose text changes, so apply a shared wording change
   tool by tool and leave every other tool's text as it is.
@@ -1428,9 +1437,7 @@ terms the end user thinks in — "complete a task," "move between lanes,"
 "atomic write cycle," "composable mutations"). Internal docs (AGENTS.md,
 ARCHITECTURE.md, code comments) use precise engineering language. The
 test: would an Obsidian user with no programming background understand
-the sentence? If not, rewrite it. A condition is stated in the reader's
-terms ("with Obsidian Sync"), never by an image tag or an env var; the
-variable's name belongs in the guide that documents it.
+the sentence? If not, rewrite it.
 
 **Write-time format decision** — before committing any prose (code
 comments, JSDoc, README sections, PR descriptions, env-file comments):
