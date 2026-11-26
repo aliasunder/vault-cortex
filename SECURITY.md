@@ -104,8 +104,8 @@ mechanism-level detail.
   so a copy of it holds no usable credential.
   Hidden-path blocking does not cover a database relocated into a
   _visible_ vault folder — there `vault_list_files` lists it like any
-  other vault file, and `vault_read_file` refuses it only because a
-  SQLite file holds binary data.
+  other vault file, `vault_read_file` refuses it only because a SQLite
+  file holds binary data, and `vault_delete_file` can delete it.
 - `vault_read_file` returns any visible non-markdown file whose bytes are
   UTF-8 text, whatever its extension, so a credential kept in a visible vault
   folder (a `deploy.env` or `secrets.txt`) is readable by any signed-in client.
@@ -120,8 +120,13 @@ mechanism-level detail.
   plugin runs from a visible folder (Templater's user scripts, Dataview's
   `dv.view()`), just as `vault_write_note` can write a `dataviewjs` block
   that Dataview runs.
+- `vault_delete_file` lets any signed-in client delete a visible
+  non-markdown file of any kind, images and PDFs included, through the
+  vault's "Deleted files" setting; under Obsidian Sync the delete is
+  permanent. Files in the protected folders are refused, as notes are.
+  `DISABLED_TOOLS=vault_delete_file` removes the tool.
 - The path checks are lexical: reads follow a visible symlink, and writes
-  follow a visible folder symlink, even into `.obsidian/` or outside the
+  and deletes follow a visible folder symlink, even into `.obsidian/` or outside the
   vault. Creating a symlink requires direct filesystem access — no tool can
   create one, and anyone with that access can already read and write those
   files.
@@ -151,8 +156,9 @@ mechanism-level detail.
 - `moveNote` reads and plans every rewrite before writing anything;
   existence checks run inside the lock so the vault state is stable
   during the entire read-plan-write span
-- `deleteNote` checks existence inside the lock — prevents racing with a
-  concurrent patch that could recreate the file after unlink
+- `deleteNoteOrFile` (behind `deleteNote` and `deleteAsset`) checks
+  existence inside the lock — prevents racing with a concurrent patch that
+  could recreate the file after unlink
 
 ### Injection
 

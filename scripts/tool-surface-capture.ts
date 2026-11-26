@@ -80,7 +80,7 @@ const comboFromFlippedAxes = (flippedAxes: readonly SurfaceAxis[]): SurfaceCombo
  *    cross-referenced from other tools' descriptions, so the combo verifies
  *    those references disappear and their fallback text renders when the
  *    tools are disabled.
- *  - obsidian-sync: OBSIDIAN_SYNC changes only vault_delete_note's text,
+ *  - obsidian-sync: OBSIDIAN_SYNC changes only the two delete tools' text,
  *    so one combo pins it; crossing it with the axes would double the
  *    baseline without adding a rendered state. */
 export const SURFACE_COMBOS: readonly SurfaceCombo[] = [

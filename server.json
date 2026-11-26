@@ -98,7 +98,7 @@
         },
         {
           "name": "FILE_TOOLS_ENABLED",
-          "description": "Enable or disable file tools (vault_read_file, vault_write_file, vault_list_files). When false, file tools are hidden and server metadata omits file tool references.",
+          "description": "Enable or disable file tools (vault_read_file, vault_write_file, vault_delete_file, vault_list_files). When false, file tools are hidden and server metadata omits file tool references.",
           "default": "true"
         },
         {
@@ -165,7 +165,7 @@
         },
         {
           "name": "PROTECTED_PATHS",
-          "description": "Comma-separated vault folder names blocked from vault_delete_note and vault_move_note. Default: MEMORY_DIR plus the daily notes folder, read from DAILY_NOTES_FOLDER or .obsidian/daily-notes.json (default Daily Notes; none when that setting is the vault root or empty). When set, overrides the default entirely."
+          "description": "Comma-separated vault folder names blocked from vault_delete_note, vault_delete_file and vault_move_note. Default: MEMORY_DIR plus the daily notes folder, read from DAILY_NOTES_FOLDER or .obsidian/daily-notes.json (default Daily Notes; none when that setting is the vault root or empty). When set, overrides the default entirely."
         },
         {
           "name": "ORPHAN_EXCLUDE_FOLDERS",

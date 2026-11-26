@@ -74,7 +74,7 @@
     },
     {
       "title": "Tool Reference",
-      "purpose": "The MCP tools by domain group module under mcp-core/tools/: vault-crud-tools.ts, search-tools.ts, task-tools.ts, memory-tools.ts (registered when MEMORY_ENABLED is true), daily-note-tools.ts, and asset-tools.ts (vault_read_file, vault_write_file and vault_list_files, registered when FILE_TOOLS_ENABLED is true). Derive each tool's inputs and behavior from its registration in the source — descriptions follow an Example / When to use / Returns / Errors structure.",
+      "purpose": "The MCP tools by domain group module under mcp-core/tools/: vault-crud-tools.ts, search-tools.ts, task-tools.ts, memory-tools.ts (registered when MEMORY_ENABLED is true), daily-note-tools.ts, and asset-tools.ts (vault_read_file, vault_write_file, vault_delete_file and vault_list_files, registered when FILE_TOOLS_ENABLED is true). Derive each tool's inputs and behavior from its registration in the source — descriptions follow an Example / When to use / Returns / Errors structure.",
       "parent": "MCP Interface"
     },
     {

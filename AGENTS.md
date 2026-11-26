@@ -925,10 +925,11 @@ Two naming layers — MCP (JSON wire format) and TypeScript (internal):
   handler runs a backlinks lookup before the data-layer `.md`-only check.
 - **`vault_read_file` is the deliberate inverse.** Its `path` names any
   non-markdown file and **must not** end in `.md` (matched exactly, so a
-  `.MD` file reads as text; `vault_write_file` refuses `.md` in any letter
-  case); `vaultFs.readAsset` rejects notes so the `.md` boundary stays one
-  rule with two sides (notes → `vault_read_note`, everything else →
-  `vault_read_file`). Error
+  `.MD` file reads as text; `vault_write_file` and `vault_delete_file` refuse
+  `.md` in any letter case, the delete on the canonical path it acts on);
+  `vaultFs.readAsset` rejects notes so the `.md` boundary stays one rule with
+  two sides (notes → `vault_read_note`, everything else → `vault_read_file`,
+  and the same split for the write and delete tools). Error
   messages never name tools; routing guidance lives in each tool's
   description.
 
