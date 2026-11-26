@@ -1522,8 +1522,8 @@ describe("upsertNote atomicity", () => {
     const taskInsertPoison = installStatementPoison("INSERT INTO tasks")
     const atomicIndex = createSearchIndex(":memory:")
     // The control note's positive assertions below prove the query path works,
-    // so the target note's empty results can't pass vacuously (fullTextSearch
-    // catches SQL errors and returns []).
+    // so the target note's empty results show the rollback, not a query that
+    // matches nothing.
     atomicIndex.upsertNote(
       withBodyTags({
         filePath: "atomic/control.md",
