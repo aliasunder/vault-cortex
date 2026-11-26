@@ -2271,7 +2271,6 @@ export const createSearchIndex = (
       !selectChunkHashesStmt ||
       !selectChunkIdStmt ||
       !deleteStaleChunksStmt ||
-      !deleteStaleVectorsStmt ||
       !insertVectorStmt ||
       !deleteVectorByChunkIdStmt ||
       !selectNoteVectorsStmt
@@ -2385,7 +2384,7 @@ export const createSearchIndex = (
     // note) start at chunks.length; remove their vectors before their parent rows,
     // in one transaction so a crash cannot leave a chunk row whose vector is gone.
     db.transaction(() => {
-      deleteStaleVectorsStmt.run(notePath, chunks.length)
+      if (deleteStaleVectorsStmt) deleteStaleVectorsStmt.run(notePath, chunks.length)
       deleteStaleChunksStmt.run(notePath, chunks.length)
     })()
 
@@ -2519,7 +2518,6 @@ export const createSearchIndex = (
       !selectFileChunkHashesStmt ||
       !selectFileChunkIdStmt ||
       !deleteStaleFileChunksStmt ||
-      !deleteStaleFileVectorsStmt ||
       !insertFileVectorStmt ||
       !deleteFileVectorByChunkIdStmt ||
       !selectFileVectorsStmt
@@ -2621,7 +2619,7 @@ export const createSearchIndex = (
     // file) start at chunks.length; remove their vectors before their parent rows,
     // in one transaction so a crash cannot leave a chunk row whose vector is gone.
     db.transaction(() => {
-      deleteStaleFileVectorsStmt.run(filePath, chunks.length)
+      if (deleteStaleFileVectorsStmt) deleteStaleFileVectorsStmt.run(filePath, chunks.length)
       deleteStaleFileChunksStmt.run(filePath, chunks.length)
     })()
 
