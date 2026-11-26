@@ -41,6 +41,7 @@ export const TOOL_NAMES = {
   VAULT_UPDATE_TASK: "vault_update_task",
   VAULT_READ_FILE: "vault_read_file",
   VAULT_WRITE_FILE: "vault_write_file",
+  VAULT_DELETE_FILE: "vault_delete_file",
   VAULT_LIST_FILES: "vault_list_files",
 } as const
 
@@ -284,6 +285,11 @@ export const TOOL_REGISTRY: readonly RegistryEntry[] = [
   },
   {
     name: TOOL_NAMES.VAULT_WRITE_FILE,
+    group: "asset",
+    annotations: DESTRUCTIVE_WRITE_ANNOTATIONS,
+  },
+  {
+    name: TOOL_NAMES.VAULT_DELETE_FILE,
     group: "asset",
     annotations: DESTRUCTIVE_WRITE_ANNOTATIONS,
   },

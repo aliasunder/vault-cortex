@@ -112,6 +112,43 @@ describe("protected path refusals", () => {
     })
     expectToolError(result, 'cannot move protected path "About Me/Preferences.md"')
   })
+
+  it("vault_delete_file refuses a file under a protected folder", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_delete_file",
+      args: { path: "About Me/avatar.png" },
+    })
+    expect(result).toEqual({
+      content: [
+        { type: "text", text: '[Error]: cannot delete protected path "About Me/avatar.png"' },
+      ],
+      isError: true,
+    })
+  })
+})
+
+// ── Markdown notes refused by the file tools ─────────────────
+
+describe("vault_delete_file refuses a markdown note", () => {
+  it.each([
+    { label: "as written", path: "Projects/alpha.md" },
+    { label: "with a trailing backslash", path: "Projects/alpha.md\\" },
+    { label: "in upper case", path: "Projects/Alpha.MD" },
+  ])("spelled $label, and leaves the note readable", async ({ path }) => {
+    const result = await callTool({ client, name: "vault_delete_file", args: { path } })
+    const readback = await callTool({
+      client,
+      name: "vault_read_note",
+      args: { path: "Projects/alpha.md" },
+    })
+
+    expect(result).toEqual({
+      content: [{ type: "text", text: `[Error]: not a file: "${path}" is a markdown note` }],
+      isError: true,
+    })
+    expect(readback.isError).not.toBe(true)
+  })
 })
 
 // ── Absolute paths ───────────────────────────────────────────
@@ -180,6 +217,17 @@ describe("absolute path blocked", () => {
       result,
       `absolute path blocked: "${serverVaultPath}/About Me/Preferences.md" must be vault-relative`,
     )
+  })
+
+  it("vault_delete_file rejects an absolute container path", async () => {
+    const path = `${serverVaultPath}/test-data.txt`
+    const result = await callTool({ client, name: "vault_delete_file", args: { path } })
+    expect(result).toEqual({
+      content: [
+        { type: "text", text: `[Error]: absolute path blocked: "${path}" must be vault-relative` },
+      ],
+      isError: true,
+    })
   })
 
   it("vault_replace_in_note rejects an absolute container path", async () => {
@@ -359,6 +407,23 @@ describe("path traversal blocked", () => {
     expectToolError(result, "path traversal blocked")
   })
 
+  it("vault_delete_file rejects path traversal", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_delete_file",
+      args: { path: "../escape.png" },
+    })
+    expect(result).toEqual({
+      content: [
+        {
+          type: "text",
+          text: '[Error]: path traversal blocked: "../escape.png" escapes vault root',
+        },
+      ],
+      isError: true,
+    })
+  })
+
   it("vault_replace_in_note rejects path traversal", async () => {
     const result = await callTool({
       client,
@@ -518,6 +583,23 @@ describe("hidden path blocked", () => {
       args: { path: ".obsidian/config.md" },
     })
     expectToolError(result, "hidden path blocked")
+  })
+
+  it("vault_delete_file rejects hidden paths, so the trash setting itself cannot be deleted", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_delete_file",
+      args: { path: ".obsidian/app.json" },
+    })
+    expect(result).toEqual({
+      content: [
+        {
+          type: "text",
+          text: '[Error]: hidden path blocked: ".obsidian/app.json" targets a hidden file or folder',
+        },
+      ],
+      isError: true,
+    })
   })
 
   it("vault_delete_span rejects hidden paths", async () => {
@@ -692,6 +774,21 @@ describe("note not found", () => {
       },
     })
     expectToolError(result, 'note not found: "nowhere.md"')
+  })
+})
+
+// ── File not found ───────────────────────────────────────────
+
+describe("file not found", () => {
+  it.each([
+    { label: "a missing path", path: "media/ghost.png" },
+    { label: "a folder", path: "Boards" },
+  ])("vault_delete_file for $label", async ({ path }) => {
+    const result = await callTool({ client, name: "vault_delete_file", args: { path } })
+    expect(result).toEqual({
+      content: [{ type: "text", text: `[Error]: file not found: "${path}"` }],
+      isError: true,
+    })
   })
 })
 
@@ -1066,6 +1163,25 @@ describe("filesystem errors name the path vault-relative and carry their remedy"
         {
           type: "text",
           text: `[Error]: ENAMETOOLONG: name too long, '${pathOverLimit}'. ${PATH_TOO_LONG_REMEDY}`,
+        },
+      ],
+      isError: true,
+    })
+  })
+
+  it("vault_delete_file on a file name too long for the filesystem", async () => {
+    const longFileName = `${"a".repeat(300)}.png`
+
+    const result = await callTool({
+      client,
+      name: "vault_delete_file",
+      args: { path: longFileName },
+    })
+    expect(result).toEqual({
+      content: [
+        {
+          type: "text",
+          text: `[Error]: ENAMETOOLONG: name too long, stat '${longFileName}'. ${PATH_TOO_LONG_REMEDY}`,
         },
       ],
       isError: true,
@@ -2417,6 +2533,91 @@ describe("trash collisions", () => {
     )
     await expect(readFile(join(serverVaultPath, "Crowded.md"), "utf8")).resolves.toBe("to trash\n")
   })
+
+  it("vault_delete_file when .trash/ already holds the name and 100 numbered copies", async () => {
+    const trashFolder = join(serverVaultPath, ".trash")
+    await mkdir(trashFolder, { recursive: true })
+    const crowdedNames = [
+      "crowded.png",
+      ...Array.from({ length: 100 }, (_, index) => `crowded ${index + 1}.png`),
+    ]
+    await Promise.all(crowdedNames.map((name) => writeFile(join(trashFolder, name), "trashed\n")))
+    await writeFile(join(serverVaultPath, "crowded.png"), "to trash\n")
+    onTestFinished(async () => {
+      await rm(join(serverVaultPath, "crowded.png"), { force: true })
+      await Promise.all(crowdedNames.map((name) => rm(join(trashFolder, name), { force: true })))
+    })
+
+    const result = await callTool({
+      client,
+      name: "vault_delete_file",
+      args: { path: "crowded.png" },
+    })
+    expect(result).toEqual({
+      content: [
+        {
+          type: "text",
+          text: '[Error]: cannot move to trash "crowded.png" — 100 collisions in .trash/',
+        },
+      ],
+      isError: true,
+    })
+    await expect(readFile(join(serverVaultPath, "crowded.png"), "utf8")).resolves.toBe("to trash\n")
+  })
+
+  it("vault_delete_file when a plain file blocks the .trash/ folder", async () => {
+    // Its own server: the shared vault's .trash/ folder serves the other tests
+    const server = await startServer(await freePort())
+    onTestFinished(() => server.cleanup())
+    await writeFile(join(server.vaultPath, ".trash"), "a file where the trash folder goes", "utf8")
+    await writeFile(join(server.vaultPath, "blocked.png"), "stays\n")
+    const ownClient = await createTestClient(server.port)
+    onTestFinished(() => ownClient.close())
+
+    const result = await callTool({
+      client: ownClient,
+      name: "vault_delete_file",
+      args: { path: "blocked.png" },
+    })
+    expect(result).toEqual({
+      content: [{ type: "text", text: '[Error]: cannot move to trash "blocked.png"' }],
+      isError: true,
+    })
+    await expect(readFile(join(server.vaultPath, "blocked.png"), "utf8")).resolves.toBe("stays\n")
+  }, 30_000)
+
+  it.skipIf(runsAsRoot)(
+    "vault_delete_file under Permanently delete when the folder forbids the unlink",
+    async () => {
+      // Its own server: the vault's trash setting is read per call from app.json
+      const server = await startServer(await freePort())
+      onTestFinished(() => server.cleanup())
+      await writeFile(
+        join(server.vaultPath, ".obsidian", "app.json"),
+        JSON.stringify({ trashOption: "none" }),
+        "utf8",
+      )
+      const sealedFolder = join(server.vaultPath, "Sealed")
+      await mkdir(sealedFolder)
+      await writeFile(join(sealedFolder, "kept.png"), "stays\n")
+      await chmod(sealedFolder, 0o555)
+      onTestFinished(() => chmod(sealedFolder, 0o755))
+      const ownClient = await createTestClient(server.port)
+      onTestFinished(() => ownClient.close())
+
+      const result = await callTool({
+        client: ownClient,
+        name: "vault_delete_file",
+        args: { path: "Sealed/kept.png" },
+      })
+      expect(result).toEqual({
+        content: [{ type: "text", text: '[Error]: cannot delete "Sealed/kept.png"' }],
+        isError: true,
+      })
+      await expect(readFile(join(sealedFolder, "kept.png"), "utf8")).resolves.toBe("stays\n")
+    },
+    30_000,
+  )
 })
 
 // ── Control characters in body edits ─────────────────────────
@@ -4323,10 +4524,20 @@ describe("cannot read trash config", () => {
       name: "vault_write_note",
       args: { path: "Scratch/malformed-config.md", body: "still here" },
     })
+    await callTool({
+      client: ownClient,
+      name: "vault_write_file",
+      args: { path: "Scratch/malformed-config.canvas", content: "{}" },
+    })
     const deleteResult = await callTool({
       client: ownClient,
       name: "vault_delete_note",
       args: { path: "Scratch/malformed-config.md" },
+    })
+    const deleteFileResult = await callTool({
+      client: ownClient,
+      name: "vault_delete_file",
+      args: { path: "Scratch/malformed-config.canvas" },
     })
 
     // Asserting the whole result keeps the cause out of every part of it: the
@@ -4337,9 +4548,13 @@ describe("cannot read trash config", () => {
       ],
       isError: true,
     })
+    expect(deleteFileResult).toEqual(deleteResult)
     await expect(
       readFile(join(server.vaultPath, "Scratch", "malformed-config.md"), "utf8"),
     ).resolves.toBe("still here\n")
+    await expect(
+      readFile(join(server.vaultPath, "Scratch", "malformed-config.canvas"), "utf8"),
+    ).resolves.toBe("{}")
 
     // The server's stdout arrives through a pipe, so the log line can land
     // after the tool result; a half-received line fails to parse and retries.
@@ -4390,6 +4605,11 @@ describe("cannot read daily notes config", () => {
     for (const path of ["Journal/entry.md", "Scratch/keep.md"]) {
       await callTool({ client: ownClient, name: "vault_write_note", args: { path, body: "kept" } })
     }
+    await callTool({
+      client: ownClient,
+      name: "vault_write_file",
+      args: { path: "Scratch/keep.canvas", content: "{}" },
+    })
 
     // A refused delete while the file is valid: the folder has been read once.
     const refusedWhileValid = await callTool({
@@ -4413,6 +4633,11 @@ describe("cannot read daily notes config", () => {
       name: "vault_move_note",
       args: { old_path: "Scratch/keep.md", new_path: "Scratch/moved.md" },
     })
+    const deleteFileWhileUnreadable = await callTool({
+      client: ownClient,
+      name: "vault_delete_file",
+      args: { path: "Scratch/keep.canvas" },
+    })
 
     // Asserting the whole result keeps the cause out of every part of it.
     expect(deleteWhileUnreadable).toEqual({
@@ -4424,15 +4649,8 @@ describe("cannot read daily notes config", () => {
       ],
       isError: true,
     })
-    expect(moveWhileUnreadable).toEqual({
-      content: [
-        {
-          type: "text",
-          text: "[Error]: cannot read daily notes config from .obsidian/daily-notes.json",
-        },
-      ],
-      isError: true,
-    })
+    expect(moveWhileUnreadable).toEqual(deleteWhileUnreadable)
+    expect(deleteFileWhileUnreadable).toEqual(deleteWhileUnreadable)
     await expect(readFile(join(server.vaultPath, "Scratch", "keep.md"), "utf8")).resolves.toBe(
       "kept\n",
     )

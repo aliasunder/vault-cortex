@@ -17,6 +17,7 @@ import { createSearchIndex } from "../../search/search-index.js"
 import type { SearchIndex } from "../../search/search-index.js"
 import { stubSearchIndex } from "./helpers/stub-search-index.js"
 import { assetOperations } from "../../vault-operations/asset-operations.js"
+import { vaultFs } from "../../vault-operations/vault-filesystem.js"
 import { logger, type Logger } from "../../../logger.js"
 import { withBodyTags } from "../../search/__tests__/body-tag-test-helpers.js"
 
@@ -1836,6 +1837,7 @@ describe("FILE_TOOLS_ENABLED=false", () => {
   const FILE_TOOLS = [
     TOOL_NAMES.VAULT_READ_FILE,
     TOOL_NAMES.VAULT_WRITE_FILE,
+    TOOL_NAMES.VAULT_DELETE_FILE,
     TOOL_NAMES.VAULT_LIST_FILES,
   ] as const
 
@@ -3282,6 +3284,131 @@ describe("file tool handlers", () => {
       )
     },
   )
+
+  it.each([
+    {
+      label: "the trash setting and the sweep hooks when the server does not sync",
+      env: {},
+      trashOption: "system",
+      recordsTrashEntry: true,
+    },
+    {
+      label: "a permanent delete and no record hook under OBSIDIAN_SYNC=true",
+      env: { OBSIDIAN_SYNC: "true" },
+      trashOption: "none",
+      recordsTrashEntry: false,
+    },
+  ])(
+    "vault_delete_file hands the delete $label",
+    async ({ env, trashOption, recordsTrashEntry }) => {
+      const tempVault = await mkdtemp(join(tmpdir(), "tool-definitions-delete-file-"))
+      onTestFinished(() => rm(tempVault, { recursive: true, force: true }))
+      // The delete is stubbed, so the test sees the options the handler resolves
+      const deleteSpy = vi
+        .spyOn(vaultFs, "deleteAsset")
+        .mockResolvedValueOnce({ prunedFolderCount: 1, trashLocation: ".trash/old.png" })
+      onTestFinished(() => deleteSpy.mockRestore())
+      const recordTrashEntry = vi.fn()
+      const deleteTrashEntry = vi.fn()
+      const search = stubSearchIndex({ recordTrashEntry, deleteTrashEntry })
+      const deleteCall = registerWithConfig(env, { vaultPath: tempVault, search }).find(
+        ([toolName]) => toolName === TOOL_NAMES.VAULT_DELETE_FILE,
+      )
+
+      if (!deleteCall) throw new Error("vault_delete_file was not registered")
+      const [, , deleteHandler] = deleteCall
+
+      const result = await deleteHandler(
+        { path: "media/old.png", prune_empty_folders: true },
+        mockExtra,
+      )
+
+      expect(result).toEqual({
+        content: [
+          {
+            type: "text",
+            text: "Moved media/old.png to trash (.trash/old.png) (removed 1 empty folder)",
+          },
+        ],
+      })
+      expect(deleteSpy).toHaveBeenCalledTimes(1)
+      expect(deleteSpy).toHaveBeenCalledWith(
+        {
+          vaultPath: tempVault,
+          path: "media/old.png",
+          pruneEmptyFolders: true,
+          protectedPaths: ["About Me", "Daily Notes"],
+          trashOption,
+          recordTrashEntry: recordsTrashEntry ? recordTrashEntry : undefined,
+          clearStaleTrashEntry: deleteTrashEntry,
+        },
+        // The handler builds its request logger inside the call, so the test
+        // cannot hold that object to compare
+        expect.anything(),
+      )
+    },
+  )
+})
+
+describe("vault_delete_file description reflects OBSIDIAN_SYNC", () => {
+  const deleteFileOpener = (env: Record<string, string>): string | undefined => {
+    const deleteFileCall = registerWithConfig(env).find(
+      ([toolName]) => toolName === TOOL_NAMES.VAULT_DELETE_FILE,
+    )
+    return deleteFileCall?.[1].description?.split("\n")[0]
+  }
+  const deleteFileErrors = (env: Record<string, string>): string => {
+    return extractDescriptionSection({
+      registeredCalls: registerWithConfig(env),
+      toolName: TOOL_NAMES.VAULT_DELETE_FILE,
+      startMarker: "Errors:",
+      endMarker: "\n\nReturns:",
+    })
+  }
+  const PATH_AND_LOOKUP_ERROR_ENTRIES = [
+    '- "cannot delete protected path" — the path sits under a protected folder; ask the vault\'s owner to delete the file in Obsidian',
+    '- "not a file: … is a markdown note" — the path ends in .md in any letter case; delete a note with vault_delete_note, and a file named .MD in Obsidian',
+    '- "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — pass a vault-relative path with no dot-prefixed part',
+    '- "concurrent write in progress" — a write to this file is in flight; retry',
+    '- "file not found: …" — no file exists at that path (a folder is not a file); verify the path with vault_list_files',
+  ]
+  const DELETE_FAILURE_ENTRIES = [
+    '- "cannot delete …" (other than a protected path) — the file stays put; ask the vault\'s owner to fix the cause (e.g. permissions), then retry',
+    '- "ENAMETOOLONG: …" or another filesystem error — the message says what to do; the file stays put',
+  ]
+  const DAILY_NOTES_CONFIG_ERROR_ENTRY =
+    "- \"cannot read daily notes config from .obsidian/daily-notes.json\" — the file that names the protected daily notes folder can't be parsed; ask the vault's owner to repair it, or the server's operator to set DAILY_NOTES_FOLDER or PROTECTED_PATHS, then retry"
+
+  it("describes the Deleted files outcomes and the trash errors when the server does not sync", () => {
+    expect(deleteFileOpener({})).toBe(
+      "Delete a non-markdown file, moving it to the vault's .trash/ folder or removing it for good as the vault's Obsidian \"Deleted files\" setting directs.",
+    )
+    expect(deleteFileErrors({})).toBe(
+      [
+        "Errors:",
+        ...PATH_AND_LOOKUP_ERROR_ENTRIES,
+        '- "cannot move to trash … — 100 collisions in .trash/" — .trash/ holds this name and 100 numbered copies; ask the vault\'s owner to clear old copies, then retry',
+        '- "cannot move to trash …" without "100 collisions" — the file stays put; ask the vault\'s owner to fix .trash/ (e.g. a plain file blocks a needed folder), then retry',
+        ...DELETE_FAILURE_ENTRIES,
+        '- "cannot read trash config from .obsidian/app.json" — ask the vault\'s owner to repair it, then retry',
+        DAILY_NOTES_CONFIG_ERROR_ENTRY,
+      ].join("\n"),
+    )
+  })
+
+  it("names the two-week attachment history, not the note history, under OBSIDIAN_SYNC=true", () => {
+    expect(deleteFileOpener({ OBSIDIAN_SYNC: "true" })).toBe(
+      "Delete a non-markdown file for good. The vault's owner may recover it from Obsidian Sync's version history, which keeps attachment versions for two weeks.",
+    )
+    expect(deleteFileErrors({ OBSIDIAN_SYNC: "true" })).toBe(
+      [
+        "Errors:",
+        ...PATH_AND_LOOKUP_ERROR_ENTRIES,
+        ...DELETE_FAILURE_ENTRIES,
+        DAILY_NOTES_CONFIG_ERROR_ENTRY,
+      ].join("\n"),
+    )
+  })
 })
 
 describe("DISABLED_TOOLS", () => {
@@ -3619,22 +3746,34 @@ describe("DISABLED_TOOLS", () => {
   const DELETE_NOTE_MOVE_LINE = "To relocate a note, use vault_move_note instead."
   const DELETE_NOTE_WRITE_LINE =
     "To replace a note's content, use vault_write_note with overwrite: true instead."
+  const DELETE_NOTE_FILE_LINE =
+    "For a non-markdown file (a canvas, an image, a PDF), use vault_delete_file."
 
   it.each([
     {
-      label: "names vault_move_note and vault_write_note while both are served",
+      label: "names vault_move_note, vault_write_note and vault_delete_file while all are served",
       disabledTools: "",
-      expectedLines: [DELETE_NOTE_MEMORY_LINE, DELETE_NOTE_MOVE_LINE, DELETE_NOTE_WRITE_LINE],
+      expectedLines: [
+        DELETE_NOTE_MEMORY_LINE,
+        DELETE_NOTE_MOVE_LINE,
+        DELETE_NOTE_WRITE_LINE,
+        DELETE_NOTE_FILE_LINE,
+      ],
     },
     {
       label: "drops only the vault_move_note line when that tool is disabled",
       disabledTools: "vault_move_note",
-      expectedLines: [DELETE_NOTE_MEMORY_LINE, DELETE_NOTE_WRITE_LINE],
+      expectedLines: [DELETE_NOTE_MEMORY_LINE, DELETE_NOTE_WRITE_LINE, DELETE_NOTE_FILE_LINE],
     },
     {
       label: "drops only the vault_write_note line when that tool is disabled",
       disabledTools: "vault_write_note",
-      expectedLines: [DELETE_NOTE_MEMORY_LINE, DELETE_NOTE_MOVE_LINE],
+      expectedLines: [DELETE_NOTE_MEMORY_LINE, DELETE_NOTE_MOVE_LINE, DELETE_NOTE_FILE_LINE],
+    },
+    {
+      label: "drops only the vault_delete_file line when that tool is disabled",
+      disabledTools: "vault_delete_file",
+      expectedLines: [DELETE_NOTE_MEMORY_LINE, DELETE_NOTE_MOVE_LINE, DELETE_NOTE_WRITE_LINE],
     },
   ])("vault_delete_note's when-to-use $label", ({ disabledTools, expectedLines }) => {
     const whenToUse = extractDescriptionSection({

@@ -160,10 +160,11 @@ describe("default config", () => {
   })
 
   describe("surface", () => {
-    it("lists 34 tools", async () => {
+    it("lists 35 tools", async () => {
       const names = await toolNames(client)
       expect(names).toEqual([
         "vault_create_task",
+        "vault_delete_file",
         "vault_delete_memory",
         "vault_delete_note",
         "vault_delete_span",
@@ -1482,6 +1483,41 @@ describe("default config", () => {
       expect(textContent(readback)).toBe(secondCanvas)
     })
 
+    it("vault_delete_file — moves a written canvas to .trash/ and prunes its emptied folder", async () => {
+      // The fixture vault has no app.json trash setting, so Obsidian's default
+      // "Move to system trash" applies and the file lands in .trash/
+      const canvasPath = "Disposable/scratch.canvas"
+      onTestFinished(() => rm(join(vaultPath, ".trash", canvasPath), { force: true }))
+      await callTool({
+        client,
+        name: "vault_write_file",
+        args: { path: canvasPath, content: '{"nodes":[],"edges":[]}' },
+      })
+
+      const deleted = await callTool({
+        client,
+        name: "vault_delete_file",
+        args: { path: canvasPath, prune_empty_folders: true },
+      })
+      const readback = await callTool({
+        client,
+        name: "vault_read_file",
+        args: { path: canvasPath },
+      })
+
+      expect(textContent(deleted)).toBe(
+        `Moved ${canvasPath} to trash (.trash/${canvasPath}) (removed 1 empty folder)`,
+      )
+      expect(readback).toEqual({
+        content: [{ type: "text", text: `[Error]: file not found: "${canvasPath}"` }],
+        isError: true,
+      })
+      await expect(readFile(join(vaultPath, ".trash", canvasPath), "utf8")).resolves.toBe(
+        '{"nodes":[],"edges":[]}',
+      )
+      await expect(fileExists(join(vaultPath, "Disposable"))).resolves.toBe(false)
+    })
+
     it("vault_read_file — text with line paging", async () => {
       const result = await callTool({
         client,
@@ -1935,6 +1971,7 @@ describe("READONLY_MODE=true", () => {
     expect(names).not.toContain("vault_delete_memory")
     expect(names).not.toContain("vault_update_task")
     expect(names).not.toContain("vault_write_file")
+    expect(names).not.toContain("vault_delete_file")
     expect(names).toContain("vault_search")
   })
 
@@ -1982,7 +2019,7 @@ describe("READONLY_MODE=true", () => {
   })
 })
 
-// ── DISABLED_TOOLS (selective, 31 tools) ──────────────────────
+// ── DISABLED_TOOLS (selective, 32 tools) ──────────────────────
 
 describe("DISABLED_TOOLS=vault_delete_note,vault_move_note,vault_delete_memory", () => {
   let client: Client
@@ -2004,9 +2041,9 @@ describe("DISABLED_TOOLS=vault_delete_note,vault_move_note,vault_delete_memory",
     }
   })
 
-  it("lists 31 tools with expected survivors", async () => {
+  it("lists 32 tools with expected survivors", async () => {
     const names = await toolNames(client)
-    expect(names).toHaveLength(31)
+    expect(names).toHaveLength(32)
     expect(names).not.toContain("vault_delete_note")
     expect(names).not.toContain("vault_move_note")
     expect(names).not.toContain("vault_delete_memory")
@@ -2064,9 +2101,9 @@ describe("DISABLED_TOOLS=vault_update_memory", () => {
     }
   })
 
-  it("lists 33 tools", async () => {
+  it("lists 34 tools", async () => {
     const names = await toolNames(client)
-    expect(names).toHaveLength(33)
+    expect(names).toHaveLength(34)
     expect(names).not.toContain("vault_update_memory")
     expect(names).toContain("vault_get_memory")
   })
@@ -2100,9 +2137,9 @@ describe("MEMORY_ENABLED=false", () => {
     }
   })
 
-  it("lists 29 tools — no memory group", async () => {
+  it("lists 30 tools — no memory group", async () => {
     const names = await toolNames(client)
-    expect(names).toHaveLength(29)
+    expect(names).toHaveLength(30)
     expect(names).not.toContain("vault_get_memory")
     expect(names).not.toContain("vault_list_memory_files")
     expect(names).not.toContain("vault_memory_recall")
@@ -2145,6 +2182,7 @@ describe("FILE_TOOLS_ENABLED=false", () => {
     expect(names).not.toContain("vault_read_file")
     expect(names).not.toContain("vault_list_files")
     expect(names).not.toContain("vault_write_file")
+    expect(names).not.toContain("vault_delete_file")
     expect(names).toContain("vault_read_note")
   })
 

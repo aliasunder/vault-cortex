@@ -2,12 +2,9 @@
 
 import { z } from "zod"
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js"
-import type { VaultConfig } from "../../config.js"
 import { vaultFs, resolveVaultRelativePath } from "../../vault-operations/vault-filesystem.js"
-import { DEFAULT_DAILY_NOTES_FOLDER } from "../../vault-operations/daily-notes.js"
 import { noteMover } from "../../vault-operations/note-mover.js"
 import { resolveEffectiveProtectedPaths } from "../../vault-operations/vault-folder-config.js"
-import { readTrashConfig } from "../../vault-operations/trash-config.js"
 import { vaultPatcher } from "../../vault-operations/vault-patcher.js"
 import type { DisplacedLeadingContent } from "../../vault-operations/vault-patcher.js"
 import { pageTextByLines } from "../../obsidian-markdown/lines.js"
@@ -24,9 +21,14 @@ import {
   NOTE_END_BLANK_LINES_SENTENCE,
   RETRY_REREAD_CLAUSE,
   WHITESPACE_ONLY_LINE_CLAUSE,
+  describeDailyNotesConfigErrorEntry,
+  describeDeleteOutcomes,
+  describeDeleteResult,
   describePropertiesBlockErrorEntry,
+  describeProtectedPaths,
   describeTextWindow,
   formatServedSentencesLine,
+  resolveDeleteOptions,
   NOTE_EXTENSION_ERROR_ENTRY,
   OPENING_BLOCK_ERROR_ENTRY,
   PATH_SAFETY_ERROR_ENTRY,
@@ -70,23 +72,6 @@ const describeDisplacedLeadingContent = ({
     return `${nestedSentence} The first heading is an empty H${firstHeading.level}, which operation "insert_before" cannot target. To add a section below existing content instead, use operation "append".`
   }
   return `${nestedSentence} To add a section above the first heading without pulling existing content into it, use operation "insert_before" with heading "${firstHeading.text}" (H${firstHeading.level}).`
-}
-
-/** Protected-path list for tool descriptions. Descriptions are built once at
- *  registration and the daily notes folder is resolved per call, so the text
- *  names that folder's default and the tool whose result shows the folder in
- *  use, not its resolved value. */
-const describeProtectedPaths = (params: {
-  config: VaultConfig
-  dailyNotePathClause: string
-}): string => {
-  const { config, dailyNotePathClause } = params
-
-  if (config.protectedPathsOverride) {
-    // loadConfig strips trailing slashes from override entries.
-    return config.protectedPathsOverride.map((protectedPath) => protectedPath + "/").join(", ")
-  }
-  return `${config.memoryDir}/ and the daily notes folder (${DEFAULT_DAILY_NOTES_FOLDER}/ by default${dailyNotePathClause}; not protected when Obsidian's Daily Notes folder setting is the vault root or blank)`
 }
 
 export const registerVaultCrudTools = ({
@@ -135,12 +120,7 @@ export const registerVaultCrudTools = ({
       "; vault_get_daily_note's path shows the folder in use",
     ),
   })
-  // DAILY_NOTES_FOLDER and PROTECTED_PATHS both bypass daily-notes.json, so
-  // the entry is listed only when the file is read.
-  const readsDailyNotesConfig = !config.protectedPathsOverride && !config.dailyNotesFolder
-  const dailyNotesConfigErrorEntry = readsDailyNotesConfig
-    ? `\n- "cannot read daily notes config from .obsidian/daily-notes.json" — the file that names the protected daily notes folder can't be parsed; ask the vault's owner to repair it, or the server's operator to set DAILY_NOTES_FOLDER or PROTECTED_PATHS, then retry`
-    : ""
+  const dailyNotesConfigErrorEntry = describeDailyNotesConfigErrorEntry(config)
 
   // Incoming and outgoing links are separate tools, so the sentence names
   // whichever of the pair is served.
@@ -1143,32 +1123,10 @@ Returns: Confirmation message "Inserted <N> line(s) <before|after> anchor in <pa
     },
   )
 
-  // Under Obsidian Sync a delete never reads the "Deleted files" setting or
-  // touches .trash/, so the text about that setting, the trash outcomes, and
-  // the errors they produce is left out. Each entry text starts with a line
-  // break because it joins a list mid-way, and is "" when left out.
-  const deleteNoteText = config.obsidianSyncEnabled
-    ? {
-        opener: `Delete a markdown note for good. The vault's owner can recover it from Obsidian Sync's version history (1 month on Standard, 12 months on Plus).`,
-        trashOutcomeEntries: "",
-        trashMoveErrorEntries: "",
-        trashConfigErrorEntry: "",
-        returns: `Confirmation message — "Deleted <path>".`,
-      }
-    : {
-        opener: `Delete a markdown note, moving it to the vault's .trash/ folder or removing it for good as the vault's Obsidian "Deleted files" setting directs.`,
-        trashOutcomeEntries: `
-- The "Deleted files" setting decides the outcome, which the caller can't choose or see in advance:
-  - "Move to system trash" moves the note to \`.trash/\`. Notes this server moved there are deleted after its retention period (TRASH_RETENTION_DAYS: 30 days by default, never when set to none).
-  - "Move to Obsidian trash" moves the note to \`.trash/\` and keeps it forever.
-  - "Permanently delete" removes the note for good.`,
-        trashMoveErrorEntries: `
-- "cannot move to trash … — 100 collisions in .trash/" — .trash/ holds this name and 100 numbered copies; ask the vault's owner to clear old copies, then retry
-- "cannot move to trash …" without "100 collisions" — the note stays put; ask the vault's owner to fix .trash/ (e.g. a plain file blocks a needed folder), then retry`,
-        trashConfigErrorEntry: `
-- "cannot read trash config from .obsidian/app.json" — ask the vault's owner to repair it, then retry`,
-        returns: `Confirmation message naming the outcome — "Deleted <path>" for permanent removal, "Moved <path> to trash (<.trash/ path>)" when the note landed in .trash/.`,
-      }
+  const deleteNoteText = describeDeleteOutcomes({
+    obsidianSyncEnabled: config.obsidianSyncEnabled,
+    pathKind: "note",
+  })
 
   // A memory entry has a tool of its own; a daily note has none, so its remedy
   // is always Obsidian.
@@ -1185,7 +1143,7 @@ Returns: Confirmation message "Inserted <N> line(s) <before|after> anchor in <pa
 Example: vault_delete_note({ path: "Scratch/temp.md" })
 Example: vault_delete_note({ path: "Archive/2024/old.md", prune_empty_folders: true }) — also remove "Archive/2024" (and "Archive") if deleting the note empties them.
 
-When to use: Removing a note you no longer need.${whenToolEnabledText("vault_delete_memory", `\nPrefer vault_delete_memory for removing individual dated entries from ${config.memoryDir}/ memory files.`)}${whenToolEnabledText("vault_move_note", "\nTo relocate a note, use vault_move_note instead.")}${whenToolEnabledText("vault_write_note", "\nTo replace a note's content, use vault_write_note with overwrite: true instead.")}
+When to use: Removing a note you no longer need.${whenToolEnabledText("vault_delete_memory", `\nPrefer vault_delete_memory for removing individual dated entries from ${config.memoryDir}/ memory files.`)}${whenToolEnabledText("vault_move_note", "\nTo relocate a note, use vault_move_note instead.")}${whenToolEnabledText("vault_write_note", "\nTo replace a note's content, use vault_write_note with overwrite: true instead.")}${whenToolEnabledText("vault_delete_file", "\nFor a non-markdown file (a canvas, an image, a PDF), use vault_delete_file.")}
 
 Behavior:${deleteNoteText.trashOutcomeEntries}
 - Links to the note from other notes become broken${whenToolEnabledText("vault_get_backlinks", "; list them first with vault_get_backlinks")}. Protected paths are refused: ${protectedPathsText}.
@@ -1228,55 +1186,20 @@ Returns: ${deleteNoteText.returns} Notes how many empty folders were pruned when
       return safeHandler(
         reqLogger,
         async () => {
-          const protectedPaths = await resolveEffectiveProtectedPaths(
-            { config, vaultPath },
-            reqLogger,
-          )
-
-          // Under Obsidian Sync the setting is skipped and the note is deleted
-          // for good ("none", since "system" would land in .trash/): a
-          // server-side .trash/ never syncs back, and Sync's version history
-          // is the recovery path.
-          const trashOption = config.obsidianSyncEnabled
-            ? "none"
-            : await readTrashConfig(vaultPath, reqLogger)
+          const deleteOptions = await resolveDeleteOptions({ config, vaultPath, search }, reqLogger)
 
           return vaultFs.deleteNote(
-            {
-              vaultPath,
-              path,
-              protectedPaths,
-              pruneEmptyFolders,
-              trashOption,
-              // Only "system" moves are swept later, so only they are recorded;
-              // "local" is Obsidian's keep-forever trash.
-              recordTrashEntry: trashOption === "system" ? search.recordTrashEntry : undefined,
-              // Passed for every option, not only "system":
-              // - Emptying .trash/ by hand leaves trash records behind, so a
-              //   stale record can sit at the path this delete lands on.
-              // - A move the server does not record ("local", or a "system"
-              //   move whose record failed) drops that stale record, so the
-              //   retention sweep never deletes the note just trashed.
-              // - A "none" delete lands nothing in .trash/ and never calls it.
-              clearStaleTrashEntry: search.deleteTrashEntry,
-            },
+            { vaultPath, path, pruneEmptyFolders, ...deleteOptions },
             reqLogger,
           )
         },
         ({ prunedFolderCount, trashLocation }) => {
-          const outcome = trashLocation ? "trashed" : "deleted"
           reqLogger.info("tool_result", {
-            outcome,
+            outcome: trashLocation ? "trashed" : "deleted",
             prunedFolderCount,
             ...(trashLocation ? { trashLocation } : {}),
           })
-
-          const folderLabel = prunedFolderCount > 1 ? "folders" : "folder"
-          const pruneSuffix =
-            prunedFolderCount > 0 ? ` (removed ${prunedFolderCount} empty ${folderLabel})` : ""
-          return trashLocation
-            ? `Moved ${path} to trash (${trashLocation})${pruneSuffix}`
-            : `Deleted ${path}${pruneSuffix}`
+          return describeDeleteResult({ path, prunedFolderCount, trashLocation })
         },
       )
     },

@@ -1,20 +1,26 @@
-/** Asset tool registration — reading, writing and discovering non-markdown vault files. */
+/** Asset tool registration — reading, writing, deleting and discovering non-markdown vault files. */
 
 import { z } from "zod"
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js"
 import { MAX_TEXT_OUTPUT_BYTES } from "../../vault-operations/asset-text.js"
 import { assetOperations } from "../../vault-operations/asset-operations.js"
 import type { AssetReadResult } from "../../vault-operations/asset-operations.js"
+import { vaultFs } from "../../vault-operations/vault-filesystem.js"
 import type { FittedImage } from "../../../utils/fit-image-to-byte-budget.js"
 import { TOOL_NAMES } from "../tool-registry.js"
 import type { ToolRegistrationContext } from "./tool-helpers.js"
 import {
   CONTENT_CONTROL_CHARACTER_ERROR_ENTRY,
+  describeDailyNotesConfigErrorEntry,
+  describeDeleteOutcomes,
+  describeDeleteResult,
+  describeProtectedPaths,
   describeTextWindow,
   FILESYSTEM_ERROR_ENTRY,
   formatExtensionsOfKind,
   LISTING_FILESYSTEM_ERROR_ENTRY,
   PATH_SAFETY_ERROR_ENTRY,
+  resolveDeleteOptions,
   SEARCHED_FILE_KINDS_TEXT,
 } from "./tool-helpers.js"
 
@@ -88,6 +94,7 @@ export const registerAssetTools = ({
   isToolEnabled,
   whenToolEnabledText,
   vaultPath,
+  search,
   logger: sessionLogger,
   config,
   pdfExtractor,
@@ -296,6 +303,89 @@ Returns: "Wrote <path>".`,
         () => {
           reqLogger.info("tool_result", { outcome: "written" })
           return `Wrote ${path}`
+        },
+      )
+    },
+  )
+
+  const deleteFileText = describeDeleteOutcomes({
+    obsidianSyncEnabled: config.obsidianSyncEnabled,
+    pathKind: "file",
+  })
+  const protectedPathsText = describeProtectedPaths({
+    config,
+    dailyNotePathClause: whenToolEnabledText(
+      "vault_get_daily_note",
+      "; vault_get_daily_note's path shows the folder in use",
+    ),
+  })
+
+  registerTool(
+    TOOL_NAMES.VAULT_DELETE_FILE,
+    {
+      title: "Delete File",
+      description: `${deleteFileText.opener}
+
+Example: vault_delete_file({ path: "Scratch/draft.canvas" })
+Example: vault_delete_file({ path: "attachments/old-screenshot.png", prune_empty_folders: true }) — also remove "attachments" if deleting the file empties it.
+
+When to use: Removing a canvas, a Base, an image, a PDF or any other non-markdown file you no longer need.${whenToolEnabledText("vault_delete_note", "\nFor .md notes use vault_delete_note.")}${whenToolEnabledText("vault_write_file", "\nTo replace a file's content, use vault_write_file with overwrite: true instead.")}
+
+Behavior:${deleteFileText.trashOutcomeEntries}
+- Links and embeds to the file from notes and canvases become broken, images most often${whenToolEnabledText("vault_get_backlinks", "; for a canvas, list them first with vault_get_backlinks")}. Protected paths are refused: ${protectedPathsText}.
+
+Parameters:
+- prune_empty_folders keeps a folder that holds any file, even a hidden .DS_Store. Pruning is best-effort: a folder that can't be removed never fails the call.
+
+Errors:
+- "cannot delete protected path" — the path sits under a protected folder; ask the vault's owner to delete the file in Obsidian
+- "not a file: … is a markdown note" — the path ends in .md in any letter case${whenToolEnabledText("vault_delete_note", "; delete a note with vault_delete_note")}, and a file named .MD in Obsidian
+${PATH_SAFETY_ERROR_ENTRY}
+- "concurrent write in progress" — a write to this file is in flight; retry
+- "file not found: …" — no file exists at that path (a folder is not a file)${whenToolEnabledText("vault_list_files", "; verify the path with vault_list_files")}${deleteFileText.trashMoveErrorEntries}
+- "cannot delete …" (other than a protected path) — the file stays put; ask the vault's owner to fix the cause (e.g. permissions), then retry
+${FILESYSTEM_ERROR_ENTRY}; the file stays put${deleteFileText.trashConfigErrorEntry}${describeDailyNotesConfigErrorEntry(config)}
+
+Returns: ${deleteFileText.returns} Notes how many empty folders were pruned when any were.`,
+      inputSchema: {
+        path: z
+          .string()
+          .min(1)
+          .describe(
+            'Vault-relative path of the file to delete, including its extension (e.g. "Boards/old.canvas"). Must NOT end in ".md". Use the exact letter case.',
+          ),
+        prune_empty_folders: z
+          .boolean()
+          .optional()
+          .default(false)
+          .describe(
+            "When true, also remove parent folders the delete leaves empty. Default false.",
+          ),
+      },
+    },
+    async ({ path, prune_empty_folders: pruneEmptyFolders }, extra) => {
+      const reqLogger = sessionLogger.child({
+        requestId: extra.requestId,
+        tool: TOOL_NAMES.VAULT_DELETE_FILE,
+      })
+      reqLogger.info("tool_call", { path, pruneEmptyFolders })
+      return safeHandler(
+        reqLogger,
+        async () => {
+          const deleteOptions = await resolveDeleteOptions({ config, vaultPath, search }, reqLogger)
+
+          return vaultFs.deleteAsset(
+            { vaultPath, path, pruneEmptyFolders, ...deleteOptions },
+            reqLogger,
+          )
+        },
+        ({ prunedFolderCount, trashLocation }) => {
+          reqLogger.info("tool_result", {
+            outcome: trashLocation ? "trashed" : "deleted",
+            prunedFolderCount,
+            ...(trashLocation ? { trashLocation } : {}),
+          })
+          return describeDeleteResult({ path, prunedFolderCount, trashLocation })
         },
       )
     },
