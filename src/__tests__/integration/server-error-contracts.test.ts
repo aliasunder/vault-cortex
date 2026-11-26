@@ -4602,12 +4602,11 @@ describe("date filter values", () => {
 const INDEX_REMEDY =
   "The server's search index could not be read; the call was not at fault. Retry once; if it fails again, tell the server's owner."
 
-// Which layer reports a damaged tags column depends on who parses it:
-// - SQLite's JSON functions reject '{' (not JSON) themselves, so a tool
-//   reading the column in SQL, as vault_list_tags does, gets a SqliteError;
-// - '{}' or '[42]' parses but is not a string array, so the JavaScript row
-//   parsers, and vault_list_tags's check of the stored columns, give an
-//   IndexIntegrityError.
+// Which layer reports a damaged tags column depends on who reads it first:
+// - a tags filter reads the column in SQL, whose JSON functions reject '{'
+//   (not JSON) themselves, so vault_search with that filter gets a SqliteError;
+// - the JavaScript row parsers, which vault_list_tags also runs over every
+//   stored tags column, reject '{', '{}' and '[42]' with an IndexIntegrityError.
 describe("a damaged index row carries the index remedy", () => {
   /** A server of this block's own, so corrupting its index never reaches the
    *  shared server; the index file is opened from the test through a second
@@ -4629,7 +4628,7 @@ describe("a damaged index row carries the index remedy", () => {
     return { ownClient, index }
   }
 
-  it("vault_list_tags on a tags column that is not JSON returns the SQLite error with the remedy", async () => {
+  it("vault_list_tags on a tags column that is not JSON returns the integrity error with the remedy", async () => {
     const { ownClient, index } = await startServerWithOpenIndex()
     // The same call works before the row is damaged, so the failure below
     // comes from the damage and not from the call
@@ -4640,7 +4639,12 @@ describe("a damaged index row carries the index remedy", () => {
 
     const result = await callTool({ client: ownClient, name: "vault_list_tags", args: {} })
     expect(result).toEqual({
-      content: [{ type: "text", text: `[SqliteError]: malformed JSON. ${INDEX_REMEDY}` }],
+      content: [
+        {
+          type: "text",
+          text: `[IndexIntegrityError]: JSON column is not JSON: {. ${INDEX_REMEDY}`,
+        },
+      ],
       isError: true,
     })
   }, 30_000)

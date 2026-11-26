@@ -2952,21 +2952,50 @@ describe("damaged stored tag columns", () => {
       label: "a tags list holding a number",
       column: "tags" as const,
       storedValue: '["work",42]',
+      expectedMessage: 'expected string[] from JSON column, got: ["work",42]',
     },
-    { label: "a tags list holding null", column: "tags" as const, storedValue: "[null]" },
-    { label: "a tags column that is NULL", column: "tags" as const, storedValue: null },
+    {
+      label: "a tags list holding null",
+      column: "tags" as const,
+      storedValue: "[null]",
+      expectedMessage: "expected string[] from JSON column, got: [null]",
+    },
+    {
+      label: "a tags column that is NULL",
+      column: "tags" as const,
+      storedValue: null,
+      expectedMessage: "expected string[] from JSON column, got: null",
+    },
     {
       label: "a body_tags column that is an object",
       column: "body_tags" as const,
       storedValue: '{"tag":"stored"}',
+      expectedMessage: 'expected string[] from JSON column, got: {"tag":"stored"}',
     },
-  ])("listAllTags throws the index damage error for $label", async ({ column, storedValue }) => {
-    const damagedIndex = await createIndexWithDamagedNote({ column, storedValue })
+    {
+      label: "a tags column that is not JSON",
+      column: "tags" as const,
+      storedValue: "{",
+      expectedMessage: "JSON column is not JSON: {",
+    },
+    // SQLite's JSON functions read this JSON5 list as an array of strings,
+    // while the row parsers reject it
+    {
+      label: "a tags column written as JSON5",
+      column: "tags" as const,
+      storedValue: "['work']",
+      expectedMessage: "JSON column is not JSON: ['work']",
+    },
+  ])(
+    "listAllTags throws the index damage error for $label",
+    async ({ column, storedValue, expectedMessage }) => {
+      const damagedIndex = await createIndexWithDamagedNote({ column, storedValue })
 
-    expect(() => damagedIndex.listAllTags({}, logger)).toThrow(
-      new IndexIntegrityError(`expected string[] from JSON column, got: ${storedValue}`),
-    )
-  })
+      expect(() => damagedIndex.listAllTags({}, logger)).toThrow(
+        new IndexIntegrityError(expectedMessage),
+      )
+    },
+  )
 })
 
 describe("recentNotes", () => {

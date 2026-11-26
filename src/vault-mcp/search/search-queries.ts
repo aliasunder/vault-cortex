@@ -1220,32 +1220,17 @@ export const listAllTags = (
   _params: Record<string, never>,
   logger: Logger,
 ): TagCount[] => {
-  // json_each reads any JSON value, so a damaged tags or body_tags column
-  // would list numbers, nulls or an object's values as tags.
-  // - This query finds the first column that is not an array of strings. A
-  //   NULL tags column reads as JSON null, as the row parsers read it, and
-  //   body_tags is NOT NULL.
-  // - A column that is not JSON at all makes json_type raise SQLite's
-  //   "malformed JSON" error instead.
-  const damagedTagColumn = context.db
-    .prepare<[], { tags_json: string }>(
-      `
-      SELECT tags_json FROM (
-        SELECT IFNULL(tags, 'null') AS tags_json FROM notes
-        UNION ALL
-        SELECT body_tags AS tags_json FROM notes
-      )
-      WHERE json_type(tags_json) != 'array'
-         OR EXISTS (SELECT 1 FROM json_each(tags_json) WHERE type != 'text')
-      LIMIT 1
-    `,
-    )
-    .get()
-
-  // parseStringArray rejects every column the query returns, so this call
-  // always throws, with the IndexIntegrityError the row parsers throw for the
-  // same column.
-  if (damagedTagColumn) parseStringArray(damagedTagColumn.tags_json)
+  // json_each below reads any JSON value, so a damaged tags or body_tags
+  // column would list numbers, nulls or an object's values as tags. Each
+  // column goes through the row parser first, which throws the
+  // IndexIntegrityError every tool that reads tags back throws for it.
+  const tagColumnsStmt = context.db.prepare<[], Pick<NoteRow, "tags" | "body_tags">>(
+    "SELECT tags, body_tags FROM notes",
+  )
+  for (const tagColumns of tagColumnsStmt.iterate()) {
+    parseStringArray(tagColumns.tags)
+    parseStringArray(tagColumns.body_tags)
+  }
 
   // Every tag occurrence, property and body alike, is one row. Spellings that
   // fold to the same lowercase tag form one group:
