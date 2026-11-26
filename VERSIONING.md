@@ -108,16 +108,14 @@ convention) has to go:
 
 ## How breaking changes are announced
 
-Every breaking server change is listed first in its release's notes, under
-⚠ BREAKING CHANGES, with a line saying what to change. Release notes are
-published on [GitHub Releases](https://github.com/aliasunder/vault-cortex/releases)
-and mirrored in [CHANGELOG.md](./CHANGELOG.md). Contributors mark the pull
-request so the notes pick the change up; the marks are in
+Every breaking change, to the server or to the CLI, is listed first in its
+release's notes, under ⚠ BREAKING CHANGES, with a line saying what to
+change. Both products' release notes are published on
+[GitHub Releases](https://github.com/aliasunder/vault-cortex/releases), and
+server release notes are also mirrored in [CHANGELOG.md](./CHANGELOG.md).
+Contributors mark the pull request so the notes pick the change up; the
+marks are in
 [CONTRIBUTING.md → Breaking changes](./CONTRIBUTING.md#breaking-changes).
-
-A CLI release's notes list each change by its commit subject, with no
-separate section, so a breaking CLI change carries `!` in its subject
-(`feat(cli)!: …`) and the list shows it.
 
 ## Server and CLI versions
 

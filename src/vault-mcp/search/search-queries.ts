@@ -181,6 +181,7 @@ export type NoteFilterSql = {
 
 /** Each condition refers to the notes table as `n`, so the caller's query must alias it that
  *  way. `parameters` lists the bound values in placeholder order. */
+// eslint-disable-next-line complexity -- this function is over the limit; split it before adding a branch
 export const buildNoteFilterSql = (filters: Readonly<SearchFilters> | undefined): NoteFilterSql => {
   const conditions: string[] = []
   const parameters: unknown[] = []
@@ -580,6 +581,8 @@ const tryRerankMemoryCandidates = async (
     // between 0.001 (block noise) and 0.05 (don't exceed what already
     // works for strong queries).
     const vectorOnlyCandidates = candidates.filter((candidate) => !candidate.ftsHit)
+    // memoryRecall keeps at most MEMORY_RERANK_CANDIDATE_LIMIT vector-only
+    // candidates, so spreading them into Math.max stays far below the stack limit.
     const bestProbability =
       vectorOnlyCandidates.length > 0
         ? Math.max(...vectorOnlyCandidates.map(getRerankProbability))
@@ -635,13 +638,19 @@ const memoryEntryRowToWireEntry = (row: MemoryEntryRow): MemoryRecallEntry => ({
  *  output is chronological — truncation must drop the LEAST-RELEVANT
  *  entries, never a date end: cutting oldest silently destroys arc origins,
  *  cutting newest destroys current state, and both do it invisibly. */
-const buildMemoryRecallResult = (
-  keptCandidates: readonly MemoryRecallCandidate[],
-  relevance: (candidate: MemoryRecallCandidate) => number,
-  limit: number,
-  searchMode: "hybrid" | "fts",
-  reranked: boolean,
-): MemoryRecallResult => {
+const buildMemoryRecallResult = ({
+  keptCandidates,
+  relevance,
+  limit,
+  searchMode,
+  reranked,
+}: {
+  keptCandidates: readonly MemoryRecallCandidate[]
+  relevance: (candidate: MemoryRecallCandidate) => number
+  limit: number
+  searchMode: "hybrid" | "fts"
+  reranked: boolean
+}): MemoryRecallResult => {
   const byRelevanceDescending = [...keptCandidates].sort((a, b) => relevance(b) - relevance(a))
   const survivors = byRelevanceDescending.slice(0, limit)
   const entries = survivors
@@ -698,6 +707,22 @@ export const memoryRecall = async (
   // fusion keys (its entry_index shifts) and it would be returned twice.
   const ftsRows = memory.ftsSearchStmt.all(sanitizeFtsQuery(params.query)).filter(matchesFileFilter)
 
+  const logRecallResult = (
+    result: MemoryRecallResult,
+    { anyTermRescue }: { anyTermRescue: boolean },
+  ): void => {
+    logger.info("memory recall", {
+      query: params.query,
+      searchMode: result.search_mode,
+      reranked: result.reranked,
+      ftsHits: ftsRows.length,
+      vectorHits: vectorRows.length,
+      matched: result.total,
+      returned: result.entries.length,
+      ...(anyTermRescue ? { anyTermRescue: true } : {}),
+    })
+  }
+
   // No vectors available — keep every lexical match, FTS-rank ordered. When
   // the all-terms leg is empty, degrade to any-term matching before returning
   // empty. (A single-token query re-runs identically and still finds nothing
@@ -714,23 +739,14 @@ export const memoryRecall = async (
         ? allTermsCandidates
         : anyTermLexicalCandidates(memory, params.query, matchesFileFilter)
     const anyTermRescueUsed = allTermsCandidates.length === 0 && lexicalCandidates.length > 0
-    const result = buildMemoryRecallResult(
-      lexicalCandidates,
-      (candidate) => candidate.fusedScore,
+    const result = buildMemoryRecallResult({
+      keptCandidates: lexicalCandidates,
+      relevance: (candidate) => candidate.fusedScore,
       limit,
-      "fts",
-      false,
-    )
-    logger.info("memory recall", {
-      query: params.query,
       searchMode: "fts",
       reranked: false,
-      ftsHits: ftsRows.length,
-      vectorHits: 0,
-      matched: result.total,
-      returned: result.entries.length,
-      ...(anyTermRescueUsed ? { anyTermRescue: true } : {}),
     })
+    logRecallResult(result, { anyTermRescue: anyTermRescueUsed })
     return result
   }
 
@@ -778,19 +794,6 @@ export const memoryRecall = async (
     })
   }
 
-  const logHybridResult = (result: MemoryRecallResult, anyTermRescue = false) => {
-    logger.info("memory recall", {
-      query: params.query,
-      searchMode: result.search_mode,
-      reranked: result.reranked,
-      ftsHits: ftsRows.length,
-      vectorHits: vectorRows.length,
-      matched: result.total,
-      returned: result.entries.length,
-      ...(anyTermRescue ? { anyTermRescue: true } : {}),
-    })
-  }
-
   // Primary cut: cross-encoder relevance floor (keeps drifted-vocabulary
   // arc origins that cosine distance would lose).
   const rerankOutcome = context.reranker
@@ -809,42 +812,44 @@ export const memoryRecall = async (
         : []
 
     if (rescueCandidates.length > 0) {
-      const result = buildMemoryRecallResult(
-        rescueCandidates,
-        (candidate) => candidate.fusedScore,
+      const result = buildMemoryRecallResult({
+        keptCandidates: rescueCandidates,
+        relevance: (candidate) => candidate.fusedScore,
         limit,
-        "fts",
-        false,
-      )
-      logHybridResult(result, true)
+        searchMode: "fts",
+        reranked: false,
+      })
+      logRecallResult(result, { anyTermRescue: true })
       return result
     }
-    const result = buildMemoryRecallResult(
-      rerankOutcome.kept,
-      rerankOutcome.relevance,
+    const result = buildMemoryRecallResult({
+      keptCandidates: rerankOutcome.kept,
+      relevance: rerankOutcome.relevance,
       limit,
-      "hybrid",
-      true,
-    )
-    logHybridResult(result)
+      searchMode: "hybrid",
+      reranked: true,
+    })
+    logRecallResult(result, { anyTermRescue: false })
     return result
   }
 
-  // Fallback: distance margin off the best vector hit.
+  // Without a rerank outcome, the cut keeps lexical hits and vector hits within the distance
+  // margin. At most MEMORY_VECTOR_CANDIDATE_LIMIT distances exist, so the Math.min spread is safe.
   const keepableDistance = Math.min(...distancesByKey.values()) + MEMORY_RECALL_DISTANCE_MARGIN
-  const marginCutCandidates = candidates.filter(
-    (candidate) =>
+  const marginCutCandidates = candidates.filter((candidate) => {
+    return (
       candidate.ftsHit ||
-      (candidate.distance !== undefined && candidate.distance <= keepableDistance),
-  )
-  const result = buildMemoryRecallResult(
-    marginCutCandidates,
-    (candidate) => candidate.fusedScore,
+      (candidate.distance !== undefined && candidate.distance <= keepableDistance)
+    )
+  })
+  const result = buildMemoryRecallResult({
+    keptCandidates: marginCutCandidates,
+    relevance: (candidate) => candidate.fusedScore,
     limit,
-    "hybrid",
-    false,
-  )
-  logHybridResult(result)
+    searchMode: "hybrid",
+    reranked: false,
+  })
+  logRecallResult(result, { anyTermRescue: false })
   return result
 }
 
@@ -1036,6 +1041,7 @@ export const listTasks = (
     sortDirection?: "asc" | "desc" | undefined
   },
   logger: Logger,
+  // eslint-disable-next-line complexity -- this function is over the limit; split it before adding a branch
 ): ListTasksResult => {
   const conditions: string[] = []
   const queryParams: unknown[] = []
@@ -1673,7 +1679,7 @@ export const findOrphans = (
     LIMIT ?
   `
 
-  const rows = (() => {
+  const selectOrphanRows = (): NoteRow[] => {
     try {
       return context.db.prepare<unknown[], NoteRow>(sql).all(...escapedExcludeFolders, limit)
     } catch (error) {
@@ -1692,8 +1698,8 @@ export const findOrphans = (
       })
       throw new Error("too many excluded folders", { cause: error })
     }
-  })()
-  const results = rows.map(rowToMetadata)
+  }
+  const results = selectOrphanRows().map(rowToMetadata)
   logger.info("find orphans", { count: results.length })
   return results
 }

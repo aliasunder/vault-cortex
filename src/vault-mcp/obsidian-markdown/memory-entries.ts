@@ -125,6 +125,7 @@ const closeEntry = (params: {
  * entry, but code and comment lines inside an entry are absorbed verbatim —
  * entries legitimately contain code examples, and text is raw markdown.
  */
+// eslint-disable-next-line complexity -- this function is over the limit; split it before adding a branch
 export const parseMemoryEntries = (lines: readonly string[]): MemoryEntry[] => {
   const h2Sections = parseHeadings(lines).filter((heading) => heading.level === 2)
 
@@ -162,14 +163,14 @@ export const parseMemoryEntries = (lines: readonly string[]): MemoryEntry[] => {
         (fenceResult?.lineIsCode ?? false) || (commentResult?.lineIsComment ?? false)
 
       if (lineCannotStartEntry) {
-        if (openEntry !== null) openEntry.textLines.push(line)
+        if (openEntry) openEntry.textLines.push(line)
         continue
       }
 
       const entryDate = memoryEntryLineDate(line)
 
       if (entryDate) {
-        if (openEntry !== null) {
+        if (openEntry) {
           entries.push(closeEntry({ openEntry, section, entryIndex: entries.length }))
         }
         openEntry = { date: entryDate, startLine: lineIndex, textLines: [line] }
@@ -179,7 +180,7 @@ export const parseMemoryEntries = (lines: readonly string[]): MemoryEntry[] => {
       // A deeper heading (H3+) closes the open entry — it starts new content
       // within the section, not continuation text — and belongs to no entry.
       if (HEADING_LINE_PATTERN.test(line)) {
-        if (openEntry !== null) {
+        if (openEntry) {
           entries.push(closeEntry({ openEntry, section, entryIndex: entries.length }))
           openEntry = null
         }
@@ -187,10 +188,10 @@ export const parseMemoryEntries = (lines: readonly string[]): MemoryEntry[] => {
       }
 
       // Continuation of the open entry, or pre-entry prose (ignored).
-      if (openEntry !== null) openEntry.textLines.push(line)
+      if (openEntry) openEntry.textLines.push(line)
     }
 
-    if (openEntry !== null) {
+    if (openEntry) {
       entries.push(closeEntry({ openEntry, section, entryIndex: entries.length }))
     }
   }

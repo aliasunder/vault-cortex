@@ -123,14 +123,20 @@ const createCountingLogger = (): {
 
 // ── Scoring ────────────────────────────────────────────────────
 
+/** How many top results the file pollution metric counts. */
+const POLLUTION_WINDOW_TARGET = 5
+/** A query passes when its first expected result ranks at or above this. */
+const PASSING_RANK = 3
+const TOP_PATHS_RECORDED = 5
+
 type QueryScore = {
   id: string
   class: JudgmentQuery["class"]
   query: string
   limit: number
   expectedRank: number | null
-  // The pollution metric targets the top 5, but results are truncated to the
-  // query's limit first — the window records how deep the count actually saw.
+  // Results are truncated to the query's limit before the pollution count,
+  // so the window records how deep the count actually saw.
   pollutionWindow: number
   filesInWindow: number
   latencyMs: number
@@ -144,6 +150,7 @@ const formatMissedIds = (misses: readonly QueryScore[]): string => {
 
 // ── Main ───────────────────────────────────────────────────────
 
+// eslint-disable-next-line complexity -- this function is over the limit; split it before adding a branch
 const main = async (): Promise<void> => {
   const { values: cliArgs } = parseArgs({
     options: {
@@ -309,7 +316,7 @@ const main = async (): Promise<void> => {
         problems: problems.slice(problemsBeforeQuery),
       })
 
-      const pollutionWindow = Math.min(5, limit)
+      const pollutionWindow = Math.min(POLLUTION_WINDOW_TARGET, limit)
       scores.push({
         id: judgmentQuery.id,
         class: judgmentQuery.class,
@@ -323,7 +330,7 @@ const main = async (): Promise<void> => {
           pollutionWindow,
         ),
         latencyMs,
-        topPaths: searchResult.results.slice(0, 5).map((result) => result.path),
+        topPaths: searchResult.results.slice(0, TOP_PATHS_RECORDED).map((result) => result.path),
       })
     }
   }
@@ -341,11 +348,11 @@ const main = async (): Promise<void> => {
   console.log(`per-query results at limit ${primaryLimit}:`)
   for (const score of scores.filter((entry) => entry.limit === primaryLimit)) {
     const rankText = score.expectedRank === null ? "MISS" : `#${score.expectedRank}`
-    const gate = score.expectedRank !== null && score.expectedRank <= 3 ? "pass" : "FAIL"
+    const gate = score.expectedRank !== null && score.expectedRank <= PASSING_RANK ? "pass" : "FAIL"
     const pollutionText =
       score.class === "precision" ? ` files@${score.pollutionWindow}=${score.filesInWindow}` : ""
     console.log(
-      `  [${score.class}] ${score.id}: expected ${rankText} (top-3 ${gate})${pollutionText} ${score.latencyMs}ms`,
+      `  [${score.class}] ${score.id}: expected ${rankText} (top-${PASSING_RANK} ${gate})${pollutionText} ${score.latencyMs}ms`,
     )
   }
 

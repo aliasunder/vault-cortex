@@ -274,6 +274,8 @@ const DATE_PATTERN = "\\d{4}-\\d{2}-\\d{2}"
 /** DATE_PATTERN as capture group 1, for the parser's date fields. */
 const CAPTURED_DATE_PATTERN = `(${DATE_PATTERN})`
 
+type DateFieldKey = "created" | "start" | "scheduled" | "due" | "done" | "cancelled"
+
 /** One date field's grammar in both formats, in the plugin's per-pass
  *  extraction order (done, cancelled, due, scheduled, start, created).
  *  DATE_FIELDS_IN_LINE_ORDER holds the write side. */
@@ -1047,6 +1049,9 @@ const METADATA_REMOVAL_GRAMMARS: ReadonlyArray<MetadataRemovalGrammar> = [
   },
 ]
 
+const isHighSurrogate = (codeUnit: number): boolean => codeUnit >= 0xd800 && codeUnit <= 0xdbff
+const isLowSurrogate = (codeUnit: number): boolean => codeUnit >= 0xdc00 && codeUnit <= 0xdfff
+
 /** Removes every occurrence of one field from a metadata tail, with the same
  *  result as repeating removeLastMetadataMatch until nothing changes:
  *  - an occurrence that forms only once a removal joins the text around it
@@ -1168,11 +1173,7 @@ const removeAllMetadataMatches = (metadata: string, regex: RegExp): string => {
     // before it is one character.
     const codeUnit = metadata.charCodeAt(index)
     const precedingCodeUnit = metadata.charCodeAt(index - 1)
-    const hasSurrogatePair =
-      codeUnit >= 0xdc00 &&
-      codeUnit <= 0xdfff &&
-      precedingCodeUnit >= 0xd800 &&
-      precedingCodeUnit <= 0xdbff
+    const hasSurrogatePair = isLowSurrogate(codeUnit) && isHighSurrogate(precedingCodeUnit)
     const character = metadata.slice(index - Number(hasSurrogatePair), index + 1)
 
     index -= Number(hasSurrogatePair)
@@ -1184,11 +1185,9 @@ const removeAllMetadataMatches = (metadata: string, regex: RegExp): string => {
     // A removal can bring a lone high surrogate next to a lone low surrogate,
     // and the two then form one emoji: in `\uD83D⏫\uDD3A`, removing the ⏫
     // forms 🔺. The pair is kept as one character.
-    const isLoneHighSurrogate = character.length === 1 && codeUnit >= 0xd800 && codeUnit <= 0xdbff
+    const isLoneHighSurrogate = character.length === 1 && isHighSurrogate(codeUnit)
     const nextCharacter = keptCodePointAt(0)
-    const nextCodeUnit = nextCharacter.charCodeAt(0)
-    const formsSurrogatePair =
-      isLoneHighSurrogate && nextCodeUnit >= 0xdc00 && nextCodeUnit <= 0xdfff
+    const formsSurrogatePair = isLoneHighSurrogate && isLowSurrogate(nextCharacter.charCodeAt(0))
     const fieldCharacter = formsSurrogatePair ? character + nextCharacter : character
 
     if (formsSurrogatePair) keptCodePoints.pop()
@@ -1241,15 +1240,13 @@ const formatDependsOn = (dependsOn: readonly string[], format: "emoji" | "datavi
   return format === "dataview" ? `[dependsOn:: ${idList}]` : `⛔ ${idList}`
 }
 
-// ── Date field keys and their format/strip data ──────────────────
+// ── Date fields' format/strip data ──────────────────────────────
 //
 // Each settable date field has an emoji signifier, a Dataview key, and a
 // non-anchored inline regex for stripping. DATE_FIELDS_IN_LINE_ORDER lists
 // the dates in the order buildTaskLine writes them (created → start →
 // scheduled → due), then done and cancelled; updateTaskLineDate reads that
 // order to find where a date goes.
-
-type DateFieldKey = "created" | "start" | "scheduled" | "due" | "done" | "cancelled"
 
 /** The write side of the date fields, in line order. DATE_FIELD_PARSERS holds
  *  the read side: its `$`-anchored regexes, in the plugin's extraction order. */
@@ -1632,8 +1629,9 @@ const joinTaskLine = ({
 }: TaskLineParts): string => {
   const body = [description.trim(), metadata.trim()].filter(Boolean).join(" ")
 
-  // A line left with no text drops the spaces after its checkbox, so they
-  // cannot turn into a hard break on the next edit.
+  // A line left with no text drops the spaces after its checkbox, including
+  // the one splitTaskLine gives an empty task for new text, so they cannot
+  // turn into a hard break on the next edit.
   const linePrefix = body ? prefix : prefix.trimEnd()
   return `${linePrefix}${body}${blockLink}${trailingWhitespace}`
 }
@@ -1983,6 +1981,7 @@ const extractTrailingTags = (text: string): readonly string[] => {
   let end = text.length
 
   while (end > 0) {
+    // `start` moves left past the tag's characters, to where its '#' must be.
     let start = end - 1
 
     while (start >= 0 && HASHTAG_CHARACTER_RE.test(text.charAt(start))) start -= 1
@@ -2049,6 +2048,8 @@ const deduplicateDescriptionTags = (
     })
 
     if (tagStart === undefined) continue
+    // A tag past the start takes the whitespace before it, so the removal
+    // leaves no double space behind.
     const removalStart = tagStart === 0 ? 0 : tagStart - 1
     dedupedMetadata = (
       dedupedMetadata.slice(0, removalStart) + dedupedMetadata.slice(tagStart + tag.length)

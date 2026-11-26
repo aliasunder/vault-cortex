@@ -1,7 +1,7 @@
 import * as clack from "@clack/prompts"
 
-export type SelectOption = {
-  value: string
+export type SelectOption<Value extends string = string> = {
+  value: Value
   label: string
   hint?: string
 }
@@ -30,7 +30,12 @@ export type Prompts = {
   log: (message: string) => void
   warn: (message: string) => void
   error: (message: string) => void
-  select: (message: string, options: SelectOption[], initialValue: string) => Promise<string>
+  /** Resolves to one of the options' values, typed as their union. */
+  select: <Value extends string>(
+    message: string,
+    options: SelectOption<Value>[],
+    initialValue: Value,
+  ) => Promise<Value>
   /**
    * Zero-or-more chooser (space toggles, enter submits). Always optional —
    * submitting with nothing selected resolves to an empty array, so callers
@@ -74,8 +79,16 @@ export const createPrompts = (): Prompts => ({
   log: (message) => clack.log.info(message),
   warn: (message) => clack.log.warn(message),
   error: (message) => clack.log.error(message),
-  select: async (message, options, initialValue) =>
-    exitOnCancel(await clack.select({ message, options, initialValue })),
+  // clack types an option by a conditional type a generic value cannot pass,
+  // so its answer is matched back to the option that carries the typed value.
+  select: async (message, options, initialValue) => {
+    const choices: SelectOption[] = options
+    const answer = exitOnCancel(await clack.select({ message, options: choices, initialValue }))
+    const pickedOption = options.find((option) => option.value === answer)
+
+    if (!pickedOption) throw new Error(`select returned a value that is not an option: ${answer}`)
+    return pickedOption.value
+  },
   // required: false makes an empty submission legal — the Prompts contract
   // promises "no picks" resolves to [] instead of a re-prompt loop.
   multiselect: async (message, options) =>

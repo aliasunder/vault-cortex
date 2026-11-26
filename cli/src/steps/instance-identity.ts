@@ -185,7 +185,7 @@ const chooseInUseNameAction = async (
     otherAppImage: string | undefined
   },
   prompts: Prompts,
-): Promise<string> => {
+): Promise<"reuse" | "own-name"> => {
   const { requestedName, instanceNameFlagged, otherAppImage } = params
 
   if (instanceNameFlagged) {
@@ -229,6 +229,7 @@ const chooseInUseNameAction = async (
 export const resolveInstanceIdentity = async (
   params: { mode: Mode; targetDir: string; flags: InstanceIdentityFlags },
   deps: { prompts: Prompts; docker: DockerRunner },
+  // eslint-disable-next-line complexity -- this function is over the limit; split it before adding a branch
 ): Promise<InstanceIdentityResult> => {
   const { mode, targetDir, flags } = params
   const { prompts, docker } = deps
@@ -285,9 +286,10 @@ export const resolveInstanceIdentity = async (
       prompts.error(describeEnvFix({ problem: carriedBindAddressRead.message, targetDir }))
       return { kind: "exit" }
     }
-    // The same holds for a kept local PUBLIC_URL, because the server refuses
-    // to boot on a malformed one. --port replaces a localhost one, even
-    // http://localhost:80a beside PORT=80a, so that one is not checked.
+    // The same holds for a kept local PUBLIC_URL that --port does not rewrite,
+    // because the server refuses to boot on a malformed one. withPublicUrlOverride
+    // rewrites a localhost URL that names the kept port, even
+    // http://localhost:80a beside PORT=80a.
     const publicUrlFollowsFlagPort = Boolean(
       withPublicUrlOverride({ overrides: flagOverrides, envContent: existingEnvContent })
         .PUBLIC_URL,
@@ -339,6 +341,7 @@ export const resolveInstanceIdentity = async (
     (Boolean(requestedNameImage) ||
       hasInstanceVolumes({ mode, instanceName: requestedName }, docker))
   const publishedPorts = daemonRunning ? docker.publishedHostPorts() : []
+  // A new install has no container yet, so every published port is taken.
   const portsInUse = buildPortsInUse(publishedPorts)
   // A new folder's .env starts from the template's device name, so a name
   // given by --instance-name sets it too, whether the name is new or reused.
