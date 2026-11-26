@@ -389,7 +389,7 @@ describe("generate-cli-notes.sh", () => {
       expect(repo.generateNotesFor("cli-v0.2.0")).toEqual(LISTED_CODE_CHANGE_ONLY)
     })
 
-    it("lists the same commits for a release tag written as refs/tags/<name>", () => {
+    it("lists for a release tag written as refs/tags/<name> the commits since the CLI tag before it", () => {
       const repo = createCliReleaseRepo()
       commitListedCodeChange(repo)
       repo.tagHead("cli-v0.2.0")

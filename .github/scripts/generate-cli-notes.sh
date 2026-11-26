@@ -33,8 +33,8 @@ set -euo pipefail
 
 REF="${1:?Usage: generate-cli-notes.sh <ref>}"
 # The previous tag is the nearest CLI tag reachable from the ref, other than
-# a tag whose name is the ref itself, written short or as refs/tags/<name>.
-# No tag is named HEAD, so:
+# a tag whose name is the ref itself. The ref may name that tag short
+# (cli-v0.2.0) or in full (refs/tags/cli-v0.2.0). No tag is named HEAD, so:
 # - for a release tag, it is the CLI tag before it
 # - for HEAD, it is a CLI tag on HEAD itself when there is one, because that
 #   release already shipped everything up to HEAD
