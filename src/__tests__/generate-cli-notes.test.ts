@@ -475,6 +475,24 @@ describe("generate-cli-notes.sh", () => {
       })
     })
 
+    it("keeps a wrapped line that starts with a hyphen and # in a commit footer", () => {
+      const repo = createCliReleaseRepo()
+      commitStartChange(
+        repo,
+        "feat(cli): rename the start command\n\nBREAKING CHANGE: run `up` instead of\n- #12 `start`.",
+      )
+
+      expect(repo.generateNotes()).toEqual({
+        status: 0,
+        stdout:
+          "### ⚠ BREAKING CHANGES\n\n" +
+          "- run `up` instead of - #12 `start`.\n\n" +
+          "### Changes\n\n" +
+          "- feat(cli): rename the start command\n",
+        stderr: "",
+      })
+    })
+
     it("takes the subject for a PR labeled breaking-change with no footer", () => {
       const repo = createCliReleaseRepo()
       commitStartChange(repo, "feat(cli): rename the start command (#12)")

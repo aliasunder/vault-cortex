@@ -251,7 +251,7 @@ describe("generate-notes.sh", () => {
     it("ends a wrapped BREAKING CHANGE footer at a Token #value trailer", () => {
       const repo = createReleaseRepo()
       repo.commit(
-        "feat!: rename the search tool\n\nBREAKING CHANGE: search is now find.\nRefs #42",
+        "feat!: rename the search tool\n\nBREAKING CHANGE: search is now\nfind.\nRefs #42",
         {
           "src/search.ts": "export const find = 1\n",
         },
@@ -266,16 +266,35 @@ describe("generate-notes.sh", () => {
       })
     })
 
+    it("keeps a wrapped line that starts with a hyphen and # in the BREAKING CHANGE footer", () => {
+      const repo = createReleaseRepo()
+      repo.commit(
+        "feat!: rename the search tool\n\nBREAKING CHANGE: search is now find, and\n- #12 is gone.",
+        { "src/search.ts": "export const find = 1\n" },
+      )
+
+      expect(repo.generateNotes()).toEqual({
+        status: 0,
+        stdout:
+          "### ⚠ BREAKING CHANGES\n\n- search is now find, and - #12 is gone.\n\n" +
+          "### Features\n\n- Rename the search tool\n",
+        stderr: "",
+      })
+    })
+
     it("reads a BREAKING-CHANGE footer spelled with a hyphen", () => {
       const repo = createReleaseRepo()
       repo.commit("feat: rename the search tool\n\nBREAKING-CHANGE: search is now find", {
         "src/search.ts": "export const find = 1\n",
       })
 
-      expect(repo.generateNotes().stdout).toBe(
-        "### ⚠ BREAKING CHANGES\n\n- search is now find\n\n" +
+      expect(repo.generateNotes()).toEqual({
+        status: 0,
+        stdout:
+          "### ⚠ BREAKING CHANGES\n\n- search is now find\n\n" +
           "### Features\n\n- Rename the search tool\n",
-      )
+        stderr: "",
+      })
     })
 
     it("leaves out release bump commits", () => {

@@ -75,9 +75,10 @@ subject_pat = re.compile(
 )
 # Release bump commits (server "release:" and CLI "release(cli):") are noise.
 release_pat = re.compile(r'^release(\(cli\))?:')
-# A footer line starts with its token and separator, `Token: ` or `Token #`
+# A footer line starts with its token, a word with hyphens in place of spaces,
+# and its separator, `Token: ` or `Token #`
 # (https://www.conventionalcommits.org/en/v1.0.0/#specification).
-FOOTER_START = r'(?:[\w-]+|BREAKING CHANGE)(?:: | #)'
+FOOTER_START = r'(?:\w[\w-]*|BREAKING CHANGE)(?:: | #)'
 # A BREAKING CHANGE footer — conventional commits allows a space or hyphen. Its
 # text runs to a blank line or to the next footer, so a wrapped footer is read
 # whole.
