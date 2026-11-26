@@ -172,9 +172,10 @@ const vectorSearch = (
     })
     return [...bestChunkPerNote.values()]
   } catch (error) {
-    // A tags filter folds every in-scope note's stored tags here, so a damaged
-    // one throws the index's own error, which the keyword leg reports too.
-    // Falling back would hide it as a missing semantic leg on every filtered search.
+    // A tag filter also folds the stored tags of notes the keyword query missed,
+    // so this leg may be the only one to read a tag stored as a number or null.
+    // The resulting IndexIntegrityError propagates, as it does from the keyword
+    // leg, because falling back to FTS-only would hide the damage.
     if (error instanceof IndexIntegrityError) throw error
     logger.warn("vector search failed, falling back to FTS-only", {
       error: describeError(error),

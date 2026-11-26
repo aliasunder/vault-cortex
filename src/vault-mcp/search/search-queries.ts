@@ -1224,11 +1224,11 @@ export const listAllTags = (
   _params: Record<string, never>,
   logger: Logger,
 ): TagCount[] => {
-  // fold_tag below rejects a stored tag SQLite passes as a number or null, but
-  // json_each hands it a damaged column's other values as text (an object's
-  // values, a nested list's JSON), which would be listed as tags. Each column
-  // goes through the row parser first, which throws the IndexIntegrityError
-  // every tool that reads tags back throws for it.
+  // fold_tag below rejects a stored tag that reaches it as a number or null,
+  // but json_each hands it text from a damaged column too, such as an object's
+  // string values or a nested list's JSON, and those would be listed as tags.
+  // Each column goes through the row parser first, which throws the
+  // IndexIntegrityError every tool that reads tags back throws for it.
   const tagColumnsStmt = context.db.prepare<[], Pick<NoteRow, "tags" | "body_tags">>(
     "SELECT tags, body_tags FROM notes",
   )

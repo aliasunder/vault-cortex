@@ -552,7 +552,7 @@ export const createSearchIndex = (
 
   // SQL tag predicates and query inputs use the same Obsidian case-folding rule.
   // A stored tag SQLite passes as a number or null is index damage, so it
-  // throws the row parsers' error instead of folding into a tag no note carries.
+  // throws the row parsers' error instead of folding into a tag the note was never given.
   db.function("fold_tag", { deterministic: true }, (value: unknown): string => {
     if (!isString(value)) {
       throw new IndexIntegrityError(`expected a string tag, got: ${JSON.stringify(value)}`)
