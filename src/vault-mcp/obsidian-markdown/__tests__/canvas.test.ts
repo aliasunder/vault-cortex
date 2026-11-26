@@ -1057,3 +1057,97 @@ describe("canvas ownership work and rendering depth", () => {
     )
   })
 })
+
+describe("linearizeCanvas with long node ids", () => {
+  type IdGrowthMeasurement = { label: string; rendersExpected: boolean; leastMs: number }
+
+  const readIdGrowth = (variant: "text-cards" | "identical-groups"): IdGrowthMeasurement[] => {
+    const helperPath = new URL("./helpers/canvas-id-growth.ts", import.meta.url)
+    const output = execFileSync(
+      process.execPath,
+      ["--import", "tsx", helperPath.pathname, variant],
+      {
+        encoding: "utf8",
+        timeout: CHILD_DEADLINE_MS,
+        killSignal: "SIGKILL",
+      },
+    )
+    return JSON.parse(output).measurements
+  }
+
+  it(
+    "renders text cards with long shared-prefix ids in time that grows linearly with the card count",
+    () => {
+      const measurements = readIdGrowth("text-cards")
+      const [small, large] = measurements
+
+      expect(
+        measurements.map(({ label, rendersExpected }) => ({ label, rendersExpected })),
+      ).toEqual([
+        { label: "250", rendersExpected: true },
+        { label: "2000", rendersExpected: true },
+      ])
+      expect(large?.leastMs).toBeLessThanOrEqual(
+        Math.max(TIMING_FLOOR_MS, small?.leastMs ?? 0) * 8 * LINEAR_GROWTH_ALLOWANCE,
+      )
+    },
+    CHILD_TEST_TIMEOUT_MS,
+  )
+
+  it(
+    "nests identical groups with 4,096-character ids in about the time 16-character ids take",
+    () => {
+      const measurements = readIdGrowth("identical-groups")
+      const [shortIds, longIds] = measurements
+
+      expect(
+        measurements.map(({ label, rendersExpected }) => ({ label, rendersExpected })),
+      ).toEqual([
+        { label: "16", rendersExpected: true },
+        { label: "4096", rendersExpected: true },
+      ])
+      // Nesting tests every pair of groups whatever the id length, so the
+      // check compares id lengths at one size instead of two sizes.
+      expect(longIds?.leastMs).toBeLessThanOrEqual(
+        Math.max(TIMING_FLOOR_MS, shortIds?.leastMs ?? 0) * 2 * LINEAR_GROWTH_ALLOWANCE,
+      )
+    },
+    CHILD_TEST_TIMEOUT_MS,
+  )
+
+  it("orders repeated, long and non-ASCII ids by string order, as the group tie-breaks always have", () => {
+    const longId = "b".repeat(20_000)
+    const json = canvasJson(
+      [
+        { id: "z", type: "group", label: "Zed", x: 0, y: 0, width: 100, height: 100 },
+        // "é" sorts after "z" by UTF-16 code unit, though localeCompare puts it first.
+        { id: "é", type: "group", label: "Acute", x: 0, y: 0, width: 100, height: 100 },
+        textNode({ id: "dup", x: 10, y: 10, width: 10, height: 10, text: "first dup" }),
+        textNode({ id: "dup", x: 500, y: 500, width: 10, height: 10, text: "second dup" }),
+        textNode({ id: longId, x: 500, y: 600, width: 10, height: 10, text: "long card" }),
+        { id: "p", type: "group", label: "Pea", x: 1000, y: 0, width: 100, height: 100 },
+        { id: "q", type: "group", label: "Queue", x: 1010, y: 0, width: 100, height: 100 },
+        textNode({ id: "member", x: 1020, y: 10, width: 10, height: 10, text: "shared" }),
+      ],
+      [
+        { fromNode: longId, toNode: "dup" },
+        { fromNode: longId, toNode: "gone" },
+      ],
+    )
+
+    expect(linearizeCanvas(json)).toBe(
+      [
+        "# Canvas: 8 nodes, 2 edges",
+        "[text]\nsecond dup",
+        "[text]\nlong card",
+        "## Group: Acute",
+        "### Group: Zed",
+        "[text]\nfirst dup",
+        "## Group: Pea",
+        "[text]\nshared",
+        "## Group: Queue",
+        '## Connections\n\nlong card → second dup\n\nlong card → (missing node "gone")',
+      ].join("\n\n"),
+    )
+  })
+})
