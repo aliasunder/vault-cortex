@@ -148,9 +148,13 @@ export const resolveVaultRelativePath = (params: {
 }
 
 /** Refuses a markdown note where a non-markdown file is expected, the one
- *  boundary between the note tools and the file tools. */
-export const assertNotMarkdownNote = (params: { fullPath: string; path: string }): void => {
-  if (!params.fullPath.endsWith(".md")) return
+ *  boundary between the note tools and the file tools.
+ *  - `resolvedPath` is the path the operation acts on; `path` is quoted in
+ *    the error.
+ *  - The caller sets the letter case: a read passes `resolvedPath` as is, so
+ *    a `.MD` file reads as text, and a write or a delete passes it lowercased. */
+export const assertNotMarkdownNote = (params: { resolvedPath: string; path: string }): void => {
+  if (!params.resolvedPath.endsWith(".md")) return
   throw new Error(`not a file: "${params.path}" is a markdown note`)
 }
 
@@ -637,6 +641,11 @@ type DeleteResult = {
  *  break the guard's prefix match. */
 const TRASH_COLLISION_ERROR_PREFIX = "cannot move to trash"
 
+/** The trash move stops after 100 numbered names, so a .trash/ crowded with
+ *  copies of one name fails the delete with an error the vault owner can act
+ *  on (clear old copies) instead of trying names without end. */
+export const TRASH_NAME_SUFFIX_LIMIT = 100
+
 /** The serializing-lock key that every trash move and each retention-sweep
  *  row (trash-sweeper.ts) MUST share.
  *  - It is an in-memory key for file-write-lock's map, not a lock file on disk.
@@ -730,10 +739,6 @@ const moveToTrash = async (
   },
   logger: Logger,
 ): Promise<string> => {
-  // The claim loop stops after 100 numbered names, so a .trash/ crowded with
-  // copies of one name fails the delete with an error the vault owner can act
-  // on (clear old copies) instead of trying names without end.
-  const TRASH_NAME_SUFFIX_LIMIT = 100
   const { dir, base, name, ext } = parse(params.relativePath)
   const trashFolder = join(".trash", dir)
   // Obsidian appends " 1", " 2", etc. for name collisions in .trash/.
@@ -776,20 +781,20 @@ const moveToTrash = async (
       }
 
       // The exclusive claim proved nothing occupied the landed path, so any
-      // existing row for it belongs to an earlier occupant that has since
-      // left .trash/, or, on a case-sensitive mount, to a sibling whose name
-      // differs only in case (rows are keyed by the case-folded path):
-      // - A recorded move replaces that row.
-      // - An unrecorded move ("local", Obsidian's keep-forever trash) must
-      //   clear it. A rename keeps a file's identity, so a trash entry
-      //   restored by hand and trashed again matches its old row. The sweep
-      //   keeps it only when the rename moved its change time more than a
-      //   minute past the old row's trashedAt. That misses a quick restore,
-      //   and every restore on a file system that leaves the change time
-      //   alone on rename, which POSIX permits.
-      // - Both writes are fail-open because the trash entry has already
-      //   moved, so a failed identity read or row write is logged, not
-      //   reported as a failed move.
+      // sweep row for it belongs to an earlier occupant that has since left
+      // .trash/, or, on a case-sensitive mount, to a sibling whose name
+      // differs only in case (rows are keyed by the case-folded path). The
+      // move replaces that row or clears it:
+      // - A recorded move replaces it.
+      // - An unrecorded move ("local", Obsidian's keep-forever trash) clears
+      //   it. A rename keeps a file's identity, so a trash entry restored by
+      //   hand and trashed again matches its old row. The sweep keeps it only
+      //   when the rename moved its change time more than a minute past the
+      //   time the old row was recorded. That misses a quick restore, and
+      //   every restore on a file system that leaves the change time alone on
+      //   rename, which POSIX permits.
+      // - The trash entry has already moved, so a failed identity read or
+      //   row write is logged, not reported as a failed move.
       const tryClearStaleTrashEntry = (): void => {
         if (!params.clearStaleTrashEntry) return
         try {
@@ -834,6 +839,9 @@ const moveToTrash = async (
   })
 }
 
+/** The two sides of the .md boundary: a markdown note, or any other file. */
+export type PathKind = "note" | "file"
+
 /** The options both delete operations share. The trash hooks are the
  *  retention sweep's bookkeeping, forwarded to moveToTrash. */
 type DeleteOptions = {
@@ -857,31 +865,32 @@ type DeleteOptions = {
  *  pruneEmptyFolders is set, removes any parent folders the operation
  *  empties. */
 const deleteNoteOrFile = async (
-  params: DeleteOptions & { pathKind: "note" | "file" },
+  params: DeleteOptions & { pathKind: PathKind },
   logger: Logger,
 ): Promise<DeleteResult> => {
   // Canonicalize before every check so an aliased spelling — traversal
   // ("X/../About Me/x.md") or separator variant — can't evade the prefix test
   // yet still resolve into a protected folder. Absolute input throws here.
-  const path = resolveVaultRelativePath({
+  const canonicalPath = resolveVaultRelativePath({
     vaultPath: params.vaultPath,
     notePath: params.path,
   })
 
-  // The markdown check reads the canonical path, the one the delete acts on:
-  // "owned.md\" ends in a backslash as sent, but canonicalizes to "owned.md",
-  // so a check on the input as sent would let a note through. Letter case is
-  // ignored as on the write side, because a case-insensitive mount opens
+  // The markdown check reads the canonical path, the one the delete acts on.
+  // A check on the input as sent would let a note through: "owned.md\" ends
+  // in a backslash, but canonicalizing turns the backslash into a trailing
+  // separator and drops it, leaving "owned.md". Letter case is ignored, as in
+  // assetOperations.writeAssetContent, because a case-insensitive mount opens
   // "Plan.MD" as the note "Plan.md".
   if (params.pathKind === "file") {
-    assertNotMarkdownNote({ fullPath: path.toLowerCase(), path: params.path })
+    assertNotMarkdownNote({ resolvedPath: canonicalPath.toLowerCase(), path: params.path })
   }
 
-  if (isProtectedPath({ path, protectedPaths: params.protectedPaths })) {
-    throw new Error(`cannot delete protected path "${path}"`)
+  if (isProtectedPath({ path: canonicalPath, protectedPaths: params.protectedPaths })) {
+    throw new Error(`cannot delete protected path "${canonicalPath}"`)
   }
 
-  const fullPath = resolveSafePath(params.vaultPath, path)
+  const fullPath = resolveSafePath(params.vaultPath, canonicalPath)
   // Locked so a concurrent read-modify-write (patch/replace) can't recreate
   // the note via its atomic-rename write after the unlink, and so a delete
   // throws while a note move holds this path — the lock fails fast, it never
@@ -895,23 +904,26 @@ const deleteNoteOrFile = async (
     const pathStats = await statOrNull(fullPath)
 
     if (!pathStats?.isFile()) {
-      throw new Error(`${params.pathKind} not found: "${path}"`)
+      throw new Error(`${params.pathKind} not found: "${canonicalPath}"`)
     }
+
+    // "local" and "system" both land in .trash/ — a container has no host
+    // trash, and Obsidian's own fallback for an unavailable system trash is
+    // .trash/. Only "none" means permanent delete.
+    const movesToTrash = params.trashOption !== "none"
 
     // Assigned inside the try, read after it — pruning and the completion
     // log below need the value, so const can't span the catch boundary
     let trashLocation: string | undefined
     try {
-      // "local" and "system" both land in .trash/ — a container has no host
-      // trash, and Obsidian's own fallback for an unavailable system trash
-      // is .trash/. Only "none" means permanent delete.
-      if (params.trashOption !== "none") {
+      if (movesToTrash) {
         // The trash path bypasses resolveSafePath because .trash/ is a hidden
-        // path the guard rejects. Safe: `path` was already validated above.
+        // path the guard rejects. Safe: `canonicalPath` was already validated
+        // above.
         trashLocation = await moveToTrash(
           {
             vaultPath: params.vaultPath,
-            relativePath: path,
+            relativePath: canonicalPath,
             fullPath,
             recordTrashEntry: params.recordTrashEntry,
             clearStaleTrashEntry: params.clearStaleTrashEntry,
@@ -931,23 +943,23 @@ const deleteNoteOrFile = async (
       }
       // Log the raw fs detail (errno, absolute path) for the operator;
       // surface only a vault-relative message to the client.
-      const action = params.trashOption !== "none" ? "move to trash" : "delete"
+      const action = movesToTrash ? "move to trash" : "delete"
       logger.warn(`failed to ${action}`, {
-        path,
+        path: canonicalPath,
         error: describeError(error),
       })
-      throw new Error(`cannot ${action} "${path}"`, { cause: error })
+      throw new Error(`cannot ${action} "${canonicalPath}"`, { cause: error })
     }
 
     const prunedFolderCount = params.pruneEmptyFolders
-      ? await pruneEmptyParents({ vaultPath: params.vaultPath, path }, logger)
+      ? await pruneEmptyParents({ vaultPath: params.vaultPath, path: canonicalPath }, logger)
       : 0
 
     // In the logs, trashOption is the only record of whether a trashed entry
     // is swept later ("system") or kept forever ("local") — the result text
     // and the tool_result log say "trashed" for both.
     logger.info(`deleted ${params.pathKind}`, {
-      path,
+      path: canonicalPath,
       trashOption: params.trashOption,
       ...(trashLocation ? { trashLocation } : {}),
       prunedFolderCount,
@@ -961,6 +973,10 @@ const deleteNoteOrFile = async (
 
 /** Deletes or trashes a markdown note; the path must end in ".md". */
 const deleteNote = async (params: DeleteOptions, logger: Logger): Promise<DeleteResult> => {
+  // Unlike the file side's markdown check, this one can read the path as
+  // sent: canonicalizing never drops a last name that ends in ".md", so a
+  // path that passes is still a ".md" path, and a spelling such as
+  // "owned.md\" is refused rather than let through.
   assertPathHasExtension(params.path, ".md")
   return deleteNoteOrFile({ ...params, pathKind: "note" }, logger)
 }
@@ -979,7 +995,7 @@ const listVaultFilePaths = async (
   params: {
     vaultPath: string
     folder?: string | undefined
-    fileKind: "note" | "file"
+    fileKind: PathKind
   },
   logger: Logger,
 ): Promise<string[]> => {
@@ -1108,7 +1124,7 @@ const readAsset = async (
   const fullPath = resolveSafePath(params.vaultPath, params.path)
 
   // Checked on the resolved path, so a trailing "/" or "/." cannot hide a note
-  assertNotMarkdownNote({ fullPath, path: params.path })
+  assertNotMarkdownNote({ resolvedPath: fullPath, path: params.path })
 
   const fileStats = await statOrNull(fullPath)
 

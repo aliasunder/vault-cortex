@@ -14,6 +14,8 @@ import { DEFAULT_DAILY_NOTES_FOLDER } from "../../vault-operations/daily-notes.j
 import { resolveEffectiveProtectedPaths } from "../../vault-operations/vault-folder-config.js"
 import { readTrashConfig } from "../../vault-operations/trash-config.js"
 import type { TrashOption } from "../../vault-operations/trash-config.js"
+import { TRASH_NAME_SUFFIX_LIMIT } from "../../vault-operations/vault-filesystem.js"
+import type { PathKind } from "../../vault-operations/vault-filesystem.js"
 import { describeErrorForLog, describeErrorRelativeTo } from "../../../utils/describe-error.js"
 import { appendRemedy, remedyForCodedError } from "../coded-error-remedy.js"
 import { isTagsKey } from "../../obsidian-markdown/tags.js"
@@ -318,14 +320,19 @@ export const LIMIT_TRUNCATION_CLAUSE =
  *  use, not its resolved value. */
 export const describeProtectedPaths = (params: {
   config: VaultConfig
-  dailyNotePathClause: string
+  whenToolEnabledText: ToolAvailability["whenToolEnabledText"]
 }): string => {
-  const { config, dailyNotePathClause } = params
+  const { config, whenToolEnabledText } = params
 
   if (config.protectedPathsOverride) {
     // loadConfig strips trailing slashes from override entries.
     return config.protectedPathsOverride.map((protectedPath) => protectedPath + "/").join(", ")
   }
+
+  const dailyNotePathClause = whenToolEnabledText(
+    "vault_get_daily_note",
+    "; vault_get_daily_note's path shows the folder in use",
+  )
   return `${config.memoryDir}/ and the daily notes folder (${DEFAULT_DAILY_NOTES_FOLDER}/ by default${dailyNotePathClause}; not protected when Obsidian's Daily Notes folder setting is the vault root or blank)`
 }
 
@@ -339,14 +346,11 @@ export const describeDailyNotesConfigErrorEntry = (config: VaultConfig): string 
   return `\n- "cannot read daily notes config from .obsidian/daily-notes.json" — the file that names the protected daily notes folder can't be parsed; ask the vault's owner to repair it, or the server's operator to set DAILY_NOTES_FOLDER or PROTECTED_PATHS, then retry`
 }
 
-/** Which of the two delete tools the text or the options serve. */
-export type DeletePathKind = "note" | "file"
-
 /** The words that differ between the two tools' text. The recovery sentence
  *  differs in substance, not only in noun: Obsidian Sync keeps note history for
  *  a month or a year by plan, and attachment versions for two weeks. */
 const DELETE_WORDS: Record<
-  DeletePathKind,
+  PathKind,
   { singular: string; pluralCapital: string; opener: string; syncRecovery: string }
 > = {
   note: {
@@ -372,7 +376,7 @@ const DELETE_WORDS: Record<
  *  because it joins a list mid-way, and is "" when left out. */
 export const describeDeleteOutcomes = (params: {
   obsidianSyncEnabled: boolean
-  pathKind: DeletePathKind
+  pathKind: PathKind
 }): {
   opener: string
   trashOutcomeEntries: string
@@ -399,8 +403,8 @@ export const describeDeleteOutcomes = (params: {
   - "Move to Obsidian trash" moves the ${singular} to \`.trash/\` and keeps it forever.
   - "Permanently delete" removes the ${singular} for good.`,
     trashMoveErrorEntries: `
-- "cannot move to trash … — 100 collisions in .trash/" — .trash/ holds this name and 100 numbered copies; ask the vault's owner to clear old copies, then retry
-- "cannot move to trash …" without "100 collisions" — the ${singular} stays put; ask the vault's owner to fix .trash/ (e.g. a plain file blocks a needed folder), then retry`,
+- "cannot move to trash … — ${TRASH_NAME_SUFFIX_LIMIT} collisions in .trash/" — .trash/ holds this name and ${TRASH_NAME_SUFFIX_LIMIT} numbered copies; ask the vault's owner to clear old copies, then retry
+- "cannot move to trash …" without "${TRASH_NAME_SUFFIX_LIMIT} collisions" — the ${singular} stays put; ask the vault's owner to fix .trash/ (e.g. a plain file blocks a needed folder), then retry`,
     trashConfigErrorEntry: `
 - "cannot read trash config from .obsidian/app.json" — ask the vault's owner to repair it, then retry`,
     returns: `Confirmation message naming the outcome — "Deleted <path>" for permanent removal, "Moved <path> to trash (<.trash/ path>)" when the ${singular} landed in .trash/.`,

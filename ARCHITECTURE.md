@@ -219,7 +219,7 @@ Every tool handles a note's properties block by the same rules, so a write never
 
 Unlike a read that parses the block, such as `vault_read_note` with `properties_only`, the search index accepts a block that is not valid YAML: it reads the note as its body with no properties, as Obsidian's metadata cache does. The note stays in search, tasks and the link graph, titled by its file name; the tags and links in its properties are not indexed, and a warning in the server log names the note as needing repair.
 
-`vault_delete_note` and `vault_move_note` refuse paths under protected folders as a server-side guardrail:
+`vault_delete_note`, `vault_delete_file` and `vault_move_note` refuse paths under protected folders as a server-side guardrail:
 
 - **Default set:** the memory dir plus the daily notes folder, resolved on every delete and move as [Daily notes](#property-discovery--daily-notes) describes; a vault-root or blank folder setting adds no folder
 - **Unreadable `daily-notes.json`:** a file that exists but cannot be read or parsed refuses the delete or move, because the folder to protect is unknown; setting `DAILY_NOTES_FOLDER` skips the file
@@ -234,7 +234,7 @@ To remove a single entry from a memory file, use `vault_delete_memory`.
 - **Minimal rewrites:** a link is rewritten only when leaving it unchanged would break it, or would keep the old letter case after the note's file name changes
 - **Guardrails:** refuses to overwrite an existing destination, and blocks moves out of or into protected folders
 
-Both `vault_delete_note` and `vault_move_note` support `prune_empty_folders` to clean up parent directories left empty by the operation.
+`vault_delete_note`, `vault_delete_file` and `vault_move_note` support `prune_empty_folders` to clean up parent directories left empty by the operation.
 
 ### Search
 
@@ -426,7 +426,7 @@ The extension-to-representation routing above is implemented by the `vault-opera
 
 `vault_delete_file` deletes any non-markdown file, images and PDFs included, through `vaultFs.deleteAsset`. It and `vault_delete_note` wrap one core, `deleteNoteOrFile` in `vault-filesystem.ts`, so the two tools share one canonical-path pass, one protected-path rule, one fail-fast lock, one trash move with its retention bookkeeping, and one pruning step; they differ only in the `.md` boundary and their nouns. The `.md` refusal runs on the canonical path the delete acts on, in any letter case: `owned.md\` ends in a backslash as sent but canonicalizes to the note, so a check on the input as sent would let it through. A folder or a broken symlink at the path is reported as not found, as the readers report them.
 
-The file tools stay a bounded set: at most one tool per action Obsidian's file explorer offers on any file, plus at most one in-place edit tool. The partial-edit note tools, the properties tools and the search variants have no file twin, because their mechanisms are markdown. The pairs exist because `FILE_TOOLS_ENABLED` is a registry-group switch (see the tool gating paragraph under [MCP Tools](#mcp-tools)): a single tool serving notes and files would need a branch on that flag inside its handler.
+The file tools stay a bounded set: at most one tool per action Obsidian's file explorer offers on any file, plus at most one in-place edit tool. The partial-edit note tools, the properties tools and the search variants have no file twin, because their mechanisms are markdown. A file tool is a separate tool from its note counterpart (`vault_delete_file` beside `vault_delete_note`) because `FILE_TOOLS_ENABLED` is a registry-group switch (see the tool gating paragraph under [MCP Tools](#mcp-tools)): a single tool serving notes and files would need a branch on that flag inside its handler.
 
 `vault_list_files` is the discovery surface (also `vault-operations/asset-operations.ts`): a filesystem walk (`vaultFs.listAssets` — filesystem truth, deliberately not the index), folder and case-insensitive extension filters, per-extension counts computed over the full filtered set, and byte sizes statted only for the returned slice.
 

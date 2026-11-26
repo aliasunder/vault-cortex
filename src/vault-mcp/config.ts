@@ -297,6 +297,8 @@ export const loadConfig = (env: Record<string, string | undefined> = process.env
     )
   }
 
+  const obsidianSyncEnabled = envVar.from(env).get("OBSIDIAN_SYNC").default("false").asBool()
+
   return Object.freeze({
     memoryEnabled,
     fileToolsEnabled,
@@ -317,6 +319,6 @@ export const loadConfig = (env: Record<string, string | undefined> = process.env
     maxImageOutputBytes,
     maxPdfRenderPages,
     trashRetentionDays,
-    obsidianSyncEnabled: envVar.from(env).get("OBSIDIAN_SYNC").default("false").asBool(),
+    obsidianSyncEnabled,
   })
 }

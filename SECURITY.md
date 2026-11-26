@@ -24,9 +24,10 @@ notes below describe what the maintainer uses.
 - **File system access** — vault reads and writes. Path traversal is blocked by
   `resolveSafePath()` (resolve + prefix check), and hidden paths (any
   dot-prefixed segment, e.g. `.obsidian/`) are rejected for every read and
-  write. Notes in protected folders (`PROTECTED_PATHS`) can't be deleted or
-  moved, no note can be moved into one, and `READONLY_MODE=true` removes
-  every vault-writing tool from the server entirely
+  write. Notes and files in protected folders (`PROTECTED_PATHS`) can't be
+  deleted, notes there can't be moved, no note can be moved into one, and
+  `READONLY_MODE=true` removes every vault-writing tool from the server
+  entirely
 - **Docker image** — two targets from one Dockerfile: `local` (`:latest`,
   tini + MCP server) and `remote` (`:remote`, s6-overlay supervising
   obsidian-sync + MCP server in a single container, sharing a `/vault`

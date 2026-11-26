@@ -312,13 +312,7 @@ Returns: "Wrote <path>".`,
     obsidianSyncEnabled: config.obsidianSyncEnabled,
     pathKind: "file",
   })
-  const protectedPathsText = describeProtectedPaths({
-    config,
-    dailyNotePathClause: whenToolEnabledText(
-      "vault_get_daily_note",
-      "; vault_get_daily_note's path shows the folder in use",
-    ),
-  })
+  const protectedPathsText = describeProtectedPaths({ config, whenToolEnabledText })
 
   registerTool(
     TOOL_NAMES.VAULT_DELETE_FILE,

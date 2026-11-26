@@ -113,13 +113,7 @@ export const registerVaultCrudTools = ({
   const noteNotFoundVerifyErrorEntry = `- "note not found" — ${noteNotFoundVerifyRemedy}`
   const spanAnchorNotFoundErrorEntry = `- "start anchor not found" / "end anchor not found" — no body line holds the fragment; ${anchorNotFoundRemedy}`
 
-  const protectedPathsText = describeProtectedPaths({
-    config,
-    dailyNotePathClause: whenToolEnabledText(
-      "vault_get_daily_note",
-      "; vault_get_daily_note's path shows the folder in use",
-    ),
-  })
+  const protectedPathsText = describeProtectedPaths({ config, whenToolEnabledText })
   const dailyNotesConfigErrorEntry = describeDailyNotesConfigErrorEntry(config)
 
   // Incoming and outgoing links are separate tools, so the sentence names

@@ -43,7 +43,7 @@
 - **[Structured memory](#memory)** — dated, append-only entries accumulate into a personal knowledge layer, auto-initialized for AI personalization. Topic recall answers "what do I think about X?" with the current take and the dated history behind it — evolution included.
 - **[Tasks](#tasks)** — Kanban-aware task queries and updates: triage by status, dates, or priority, then complete, reprioritize, or move tasks between lanes in one call. Completing a recurring task spawns its next occurrence. Parses both [Tasks plugin](https://publish.obsidian.md/tasks/) emoji and [Dataview](https://blacksmithgu.github.io/obsidian-dataview/) inline-field formats.
 - **[Link graph](#tools)** — backlinks, outgoing links, and orphan detection across the vault
-- **[Files](#files)** — read the vault's non-markdown files too: images arrive as actual images (shrunk to fit when needed), PDFs as structured text or rendered pages, canvases as readable outlines, data files, HTML pages, and scripts as text. Canvases, Bases, and other text files can be written back, and any file can be deleted
+- **[Files](#files)** — read the vault's non-markdown files too: images arrive as actual images (shrunk to fit when needed), PDFs as structured text or rendered pages, canvases as readable outlines, data files, HTML pages, and scripts as text. Canvases, Bases, and other text files can be written back, and any non-markdown file can be deleted
 - **[Obsidian-native](#properties)** — understands frontmatter, wikilinks, tags, headings, and daily notes
 - **[Guided workflows](#prompts)** — built-in prompts for vault health, memory review, and daily reconciliation — assembled from live vault data each time
 
@@ -289,7 +289,11 @@ Your notes embed screenshots, reference architecture diagrams, and link out to c
 - **Other text files** — a file of any other type, such as a `.js` file, a `.toml` config or a file with no extension, reads back the way a text file does when its content is UTF-8. Search doesn't index these, so browse a folder to find them
 - **Browse** — list any visible folder's files with per-extension counts and file sizes; files a note links to report their size in the link graph too
 - **Write** — create or replace a canvas, a Base, or any other text file from any client, so a board or a Bases view can change from your phone. A canvas or `.json` file must be valid JSON and a Base valid YAML before it is saved. PDFs, images other than SVG, and any existing file that holds binary data can't be written. An overwrite keeps no copy on the server; on an Obsidian Sync vault, Sync's [version history](https://obsidian.md/help/sync/version-history) keeps earlier versions of the files it syncs (attachments for two weeks)
-- **Delete** — remove a canvas, an image, a PDF, or any other file from any client. Obsidian's "Deleted files" setting decides what happens, as it does for notes: under the default "Move to system trash" the file waits in `.trash/` for `TRASH_RETENTION_DAYS` (30 days by default), "Move to Obsidian trash" keeps it there until you empty the folder, and "Permanently delete" removes it for good. On an Obsidian Sync vault the delete is permanent, and Sync's version history keeps attachment versions for two weeks. Files in the protected folders are refused
+- **Delete** — remove a canvas, an image, a PDF, or any other file from any client. Links and embeds to it in your notes break, as they do when you delete a file in Obsidian, and files in the protected folders (`PROTECTED_PATHS`) are refused. What happens to the file follows Obsidian's "Deleted files" setting (Settings → Files and links), as it does for notes:
+  - "Move to system trash", the default, moves it to `.trash/` for `TRASH_RETENTION_DAYS` (30 days by default)
+  - "Move to Obsidian trash" moves it to `.trash/` and keeps it there until you empty the folder
+  - "Permanently delete" removes it for good
+  - On an Obsidian Sync vault the server skips the setting: the delete is permanent, and Sync's version history keeps a deleted attachment for two weeks
 
 Set `FILE_TOOLS_ENABLED=false` to hide the file tools, or `DISABLED_TOOLS=vault_write_file,vault_delete_file` to keep reading files but turn off writing and deleting them.
 

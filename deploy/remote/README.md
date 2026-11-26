@@ -15,7 +15,7 @@ configuration. Both produce an identical container — restart policy, log
 rotation, and health check included — and Podman or any OCI-compatible
 container runtime works in place of Docker.
 
-**Contents** — [Prerequisites](#prerequisites) · [Setup](#setup) · [HTTPS access](#https-access) · [Sign in](#sign-in-to-obsidian-sync) · [Connect](#connect-your-mcp-client) · [Verify](#verify) · [Monitoring](#monitoring) · [Updating](#updating) · [Restart](#restart) · [Stop](#stop) · [More than one vault](#run-more-than-one-vault) · [Memory](#memory) · [File Tools](#file-tools) · [Read-only](#read-only-mode) · [Deleting notes](#deleting-notes) · [Daily Notes](#daily-notes) · [Config](#configuration) · [Hardening](#hardening-recommended) · [Troubleshooting](#troubleshooting)
+**Contents** — [Prerequisites](#prerequisites) · [Setup](#setup) · [HTTPS access](#https-access) · [Sign in](#sign-in-to-obsidian-sync) · [Connect](#connect-your-mcp-client) · [Verify](#verify) · [Monitoring](#monitoring) · [Updating](#updating) · [Restart](#restart) · [Stop](#stop) · [More than one vault](#run-more-than-one-vault) · [Memory](#memory) · [File Tools](#file-tools) · [Read-only](#read-only-mode) · [Deleting](#deleting-notes-and-files) · [Daily Notes](#daily-notes) · [Config](#configuration) · [Hardening](#hardening-recommended) · [Troubleshooting](#troubleshooting)
 
 ## Prerequisites
 
@@ -688,12 +688,13 @@ in the [README tools table](https://github.com/aliasunder/vault-cortex#tools).
 It only ever takes tools away: it can't bring back one that read-only mode
 or another setting has already hidden.
 
-## Deleting notes
+## Deleting notes and files
 
 Deletes are permanent, and they sync to your other devices like a delete
-made in Obsidian. To recover a deleted note, use Obsidian Sync's version
-history (Settings → Sync → Deleted files) — kept for 1 month on Sync
-Standard and 12 months on Sync Plus.
+made in Obsidian. To recover a deleted note or file, use Obsidian Sync's
+version history (Settings → Sync → Deleted files). It keeps a deleted note
+for 1 month on Sync Standard and 12 months on Sync Plus, and a deleted
+attachment for two weeks on either plan.
 
 ## Daily notes
 
