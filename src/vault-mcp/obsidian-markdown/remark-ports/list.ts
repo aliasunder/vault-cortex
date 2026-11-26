@@ -107,6 +107,7 @@ type LineScan = {
   indented: boolean
 }
 
+// eslint-disable-next-line complexity -- over the limit; split it before adding a branch
 export const list = function (
   this: RemarkParserMembers,
   eat: Eat,
@@ -311,6 +312,7 @@ const scanItemLine = (
   lineStart: number,
   item: ListItemLines | null,
   commonmark: boolean,
+  // eslint-disable-next-line complexity -- over the limit; split it before adding a branch
 ): LineScan => {
   const length = value.length
   const lineFeedIndex = value.indexOf(LINE_FEED, lineStart)

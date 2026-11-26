@@ -156,6 +156,7 @@ export const findTrailingCommentBlockStart = (lines: readonly string[]): number 
  * Skips content inside fenced code blocks and `%% %%` comment blocks.
  * Section body = heading line(s)+1 through next same-or-higher heading (or EOF).
  */
+// eslint-disable-next-line complexity -- over the limit; split it before adding a branch
 export const parseHeadings = (lines: readonly string[]): HeadingInfo[] => {
   // Phase 1: collect headings. Setext detection needs two-line lookahead
   // (text line + underline), so the parser uses a for-loop with mutable

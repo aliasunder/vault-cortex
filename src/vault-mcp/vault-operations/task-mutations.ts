@@ -1025,6 +1025,7 @@ const moveTaskBlock = ({
    *  shifted every line between the block's old and new positions. Absent
    *  when the task already sat under the target heading and nothing moved. */
   movedBlockLength?: number
+  // eslint-disable-next-line complexity -- over the limit; split it before adding a branch
 } => {
   const targetLane = targetHeading.text
   const currentHeading = headings.findLast((heading) => heading.startLine < taskLineIndex)
@@ -1683,6 +1684,7 @@ const createTask = async (params: CreateTaskParams, logger: Logger): Promise<Cre
 
   const fullPath = resolveNotePath({ vaultPath, path })
 
+  // eslint-disable-next-line complexity -- over the limit; split it before adding a branch
   return withExclusiveFileLock(fullPath, async () => {
     const fileContent = await readNoteContent({ fullPath, path })
     const parsed = parseNoteForRewrite(fileContent)
@@ -2443,6 +2445,7 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
 
   const fullPath = resolveNotePath({ vaultPath, path })
 
+  // eslint-disable-next-line complexity -- over the limit; split it before adding a branch
   return withExclusiveFileLock(fullPath, async () => {
     const fileContent = await readNoteContent({ fullPath, path })
     const parsed = parseNoteForRewrite(fileContent)

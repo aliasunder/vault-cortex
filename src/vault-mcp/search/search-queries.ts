@@ -181,6 +181,7 @@ export type NoteFilterSql = {
 
 /** Each condition refers to the notes table as `n`, so the caller's query must alias it that
  *  way. `parameters` lists the bound values in placeholder order. */
+// eslint-disable-next-line complexity -- over the limit; split it before adding a branch
 export const buildNoteFilterSql = (filters: Readonly<SearchFilters> | undefined): NoteFilterSql => {
   const conditions: string[] = []
   const parameters: unknown[] = []
@@ -1036,6 +1037,7 @@ export const listTasks = (
     sortDirection?: "asc" | "desc" | undefined
   },
   logger: Logger,
+  // eslint-disable-next-line complexity -- over the limit; split it before adding a branch
 ): ListTasksResult => {
   const conditions: string[] = []
   const queryParams: unknown[] = []

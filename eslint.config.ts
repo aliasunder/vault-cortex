@@ -85,6 +85,12 @@ export default defineConfig(
         "error",
         { min: 2, properties: "never", exceptions: ["i", "a", "b", "k", "_"] },
       ],
+      // AGENTS.md → Structure and control flow: a function stays small enough
+      // for a reviewer to hold. Both limits are ESLint's own defaults. A
+      // function already over one carries an inline disable until a change
+      // splits it.
+      complexity: ["error", { max: 20 }],
+      "max-depth": ["error", 4],
     },
   },
   {

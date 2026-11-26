@@ -296,6 +296,7 @@ const offerDockerRun = async (deployment: Deployment, deps: InitDeps): Promise<S
 // Local flow: resolve vault path → resolve target dir → generate token →
 // write .env → optionally start the container → print connect instructions.
 // Returns a process exit code.
+// eslint-disable-next-line complexity -- over the limit; split it before adding a branch
 const runLocalInit = async (flags: InitFlags, deps: InitDeps): Promise<number> => {
   const { prompts } = deps
 

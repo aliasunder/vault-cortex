@@ -144,6 +144,7 @@ const formatMissedIds = (misses: readonly QueryScore[]): string => {
 
 // ── Main ───────────────────────────────────────────────────────
 
+// eslint-disable-next-line complexity -- over the limit; split it before adding a branch
 const main = async (): Promise<void> => {
   const { values: cliArgs } = parseArgs({
     options: {

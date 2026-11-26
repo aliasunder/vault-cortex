@@ -31,6 +31,7 @@ const judgmentFiltersSchema = z.strictObject({
   modified: judgmentDateFilterSchema.optional(),
 })
 
+// eslint-disable-next-line complexity -- over the limit; split it before adding a branch
 const hasNarrowingFilter = (filters: SearchFilters | undefined): boolean => {
   if (!filters) return false
 

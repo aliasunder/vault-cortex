@@ -478,6 +478,7 @@ while writing, not after. `eslint.config.ts` enforces this subset:
 - No single-character identifiers (lint allows `i`, `a`/`b`, `k`, `_`).
 - No empty `catch {}` blocks (lint does not flag `.catch(() => {})`).
 - A blank line between a declaration and the guard that consumes it.
+- Function complexity at most 20, and blocks nested at most 4 deep.
 - In `src/` only: no `console`; Luxon over `Date` and no `process.env`
   member access outside `config.ts` (tests exempt). The rule misses a
   destructured `import { env } from "node:process"`, which `logger.ts` uses
@@ -570,6 +571,9 @@ The rest are the author's responsibility at write time.
   args. Keep a clear one- or two-arg call positional.
 - A boolean mode param means the function does two things: split it;
   the caller owns the gating.
+- A function at the complexity limit, or marked
+  `eslint-disable-next-line complexity`, takes no new branch. Split out
+  the part being changed first, in its own commit.
 - Decomposition must earn its seams; DRY targets shared decisions, not
   repeated text. A one-expression SDK or Zod wrapper stays inline; a
   parameter a function only forwards is a wrong seam (compile config into

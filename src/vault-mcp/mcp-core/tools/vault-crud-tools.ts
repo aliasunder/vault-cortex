@@ -100,6 +100,7 @@ export const registerVaultCrudTools = ({
   search,
   logger: sessionLogger,
   config,
+  // eslint-disable-next-line complexity -- over the limit; split it before adding a branch
 }: ToolRegistrationContext): void => {
   // The read, edit, and delete tools' not-found remedies name vault_list_notes or
   // vault_read_note only while that tool is served; otherwise they fall back to a

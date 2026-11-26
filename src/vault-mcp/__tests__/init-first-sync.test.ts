@@ -262,6 +262,7 @@ const readPendingRows = (
   }))
 }
 
+// eslint-disable-next-line complexity -- over the limit; split it before adding a branch
 const runGateScript = (options: GateRunOptions): GateRun => {
   const tempDir = mkdtempSync(join(tmpdir(), "init-first-sync-"))
   onTestFinished(() => rmSync(tempDir, { recursive: true, force: true }))

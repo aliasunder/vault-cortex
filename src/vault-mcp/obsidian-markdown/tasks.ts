@@ -1055,6 +1055,7 @@ const METADATA_REMOVAL_GRAMMARS: ReadonlyArray<MetadataRemovalGrammar> = [
  *  - with no match the tail comes back unchanged.
  *  `regex` must be one of METADATA_REMOVAL_GRAMMARS' regexes; it selects the
  *  grammar entry. */
+// eslint-disable-next-line complexity -- over the limit; split it before adding a branch
 const removeAllMetadataMatches = (metadata: string, regex: RegExp): string => {
   const grammar = METADATA_REMOVAL_GRAMMARS.find((entry) => entry.regex === regex)
 

@@ -229,6 +229,7 @@ const chooseInUseNameAction = async (
 export const resolveInstanceIdentity = async (
   params: { mode: Mode; targetDir: string; flags: InstanceIdentityFlags },
   deps: { prompts: Prompts; docker: DockerRunner },
+  // eslint-disable-next-line complexity -- over the limit; split it before adding a branch
 ): Promise<InstanceIdentityResult> => {
   const { mode, targetDir, flags } = params
   const { prompts, docker } = deps

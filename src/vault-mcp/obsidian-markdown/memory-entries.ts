@@ -125,6 +125,7 @@ const closeEntry = (params: {
  * entry, but code and comment lines inside an entry are absorbed verbatim —
  * entries legitimately contain code examples, and text is raw markdown.
  */
+// eslint-disable-next-line complexity -- over the limit; split it before adding a branch
 export const parseMemoryEntries = (lines: readonly string[]): MemoryEntry[] => {
   const h2Sections = parseHeadings(lines).filter((heading) => heading.level === 2)
 

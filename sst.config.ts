@@ -22,6 +22,7 @@ export default $config({
     }
   },
 
+  // eslint-disable-next-line complexity -- over the limit; split it before adding a branch
   async run() {
     const { readFileSync, existsSync } = await import("node:fs")
     const { homedir } = await import("node:os")

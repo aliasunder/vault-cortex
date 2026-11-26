@@ -160,6 +160,7 @@ export const registerDailyReviewPrompt = ({
         max_chars: maxCharsArg,
       },
     },
+    // eslint-disable-next-line complexity -- over the limit; split it before adding a branch
     trackedPromptHandler(search, async (args, extra) => {
       const reqLogger = sessionLogger.child({
         requestId: extra.requestId,

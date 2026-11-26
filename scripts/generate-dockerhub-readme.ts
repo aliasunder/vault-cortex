@@ -122,6 +122,7 @@ const parseHeading = (line: string): { level: number; text: string } | undefined
   return { level: match[1].length, text: match[2] }
 }
 
+// eslint-disable-next-line complexity -- over the limit; split it before adding a branch
 const generate = (): void => {
   const readme = readFileSync(resolvePath("README.md"), "utf-8")
   const lines = readme.split("\n")

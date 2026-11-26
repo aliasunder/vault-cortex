@@ -534,6 +534,7 @@ export const createSearchIndex = (
      *  harness sets these to measure candidate values. */
     ranking?: queries.RankingTuning | undefined
   },
+  // eslint-disable-next-line complexity -- over the limit; split it before adding a branch
 ) => {
   const memoryDir = options?.memoryDir
   const fileToolsEnabled = options?.fileToolsEnabled ?? false
@@ -2233,6 +2234,7 @@ export const createSearchIndex = (
   const embedAndStoreChunks = async (
     params: { notePath: string; rawContent: string; sourceVersion: symbol },
     logger: Logger,
+    // eslint-disable-next-line complexity -- over the limit; split it before adding a branch
   ): Promise<number> => {
     const { notePath, rawContent } = params
 
@@ -2484,6 +2486,7 @@ export const createSearchIndex = (
   const embedAndStoreFileChunks = async (
     params: { filePath: string; sourceVersion: symbol },
     logger: Logger,
+    // eslint-disable-next-line complexity -- over the limit; split it before adding a branch
   ): Promise<number> => {
     if (
       !embedder ||
