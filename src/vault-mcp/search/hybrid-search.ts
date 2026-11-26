@@ -14,6 +14,7 @@ import {
   fileContentRowToSearchResult,
   buildSnippetFromChunkText,
   folderLikePattern,
+  IndexIntegrityError,
 } from "./search-helpers.js"
 import type { FileContentFtsRow } from "./search-helpers.js"
 import type { VectorHit, SearchResult, HybridSearchResult, SearchFilters } from "./search-index.js"
@@ -171,6 +172,10 @@ const vectorSearch = (
     })
     return [...bestChunkPerNote.values()]
   } catch (error) {
+    // A tags filter folds every in-scope note's stored tags here, so a damaged
+    // one throws the index's own error, which the keyword leg reports too.
+    // Falling back would hide it as a missing semantic leg on every filtered search.
+    if (error instanceof IndexIntegrityError) throw error
     logger.warn("vector search failed, falling back to FTS-only", {
       error: describeError(error),
     })

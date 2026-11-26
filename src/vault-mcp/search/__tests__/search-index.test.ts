@@ -2996,6 +2996,67 @@ describe("damaged stored tag columns", () => {
       )
     },
   )
+
+  // A tag filter folds each stored tag in SQL before any row parser reads the
+  // note, so the fold itself rejects a tag that is not a string
+  it.each([
+    {
+      label: "searchByTag",
+      runQuery: (damagedIndex: SearchIndex) => damagedIndex.searchByTag({ tag: "work" }, logger),
+    },
+    {
+      label: "searchByTag with exact",
+      runQuery: (damagedIndex: SearchIndex) => {
+        return damagedIndex.searchByTag({ tag: "work", exact: true }, logger)
+      },
+    },
+    {
+      label: "fullTextSearch with a tags filter",
+      runQuery: (damagedIndex: SearchIndex) => {
+        return damagedIndex.fullTextSearch(
+          { query: "findable", filters: { tags: ["work"] } },
+          logger,
+        )
+      },
+    },
+  ])(
+    "$label throws the index damage error for a stored tag that is a number",
+    async ({ runQuery }) => {
+      const damagedIndex = await createIndexWithDamagedNote({ column: "tags", storedValue: "[42]" })
+
+      expect(() => runQuery(damagedIndex)).toThrow(
+        new IndexIntegrityError("expected a string tag, got: 42"),
+      )
+    },
+  )
+
+  it("listTasks with a tag filter throws the index damage error for a stored task tag that is a number", async () => {
+    const databaseDir = await mkdtemp(join(tmpdir(), "damaged-task-tags-"))
+    onTestFinished(() => rm(databaseDir, { recursive: true }))
+    const databasePath = join(databaseDir, "index.db")
+    const damagedIndex = createSearchIndex(databasePath)
+    damagedIndex.upsertNote(
+      withBodyTags({
+        filePath: "tasks.md",
+        rawContent: "- [ ] file the report #work\n",
+        fileStat: testStat(1000),
+      }),
+      logger,
+    )
+    expect(damagedIndex.listTasks({ tag: "work" }, logger).total).toBe(1)
+    const damagingConnection = new Database(databasePath)
+    onTestFinished(() => {
+      damagingConnection.close()
+    })
+    const damageResult = damagingConnection
+      .prepare("UPDATE tasks SET tags = ? WHERE note_path = ?")
+      .run("[42]", "tasks.md")
+    expect(damageResult.changes).toBe(1)
+
+    expect(() => damagedIndex.listTasks({ tag: "work" }, logger)).toThrow(
+      new IndexIntegrityError("expected a string tag, got: 42"),
+    )
+  })
 })
 
 describe("recentNotes", () => {

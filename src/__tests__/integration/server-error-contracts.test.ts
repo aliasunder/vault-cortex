@@ -4603,8 +4603,10 @@ const INDEX_REMEDY =
   "The server's search index could not be read; the call was not at fault. Retry once; if it fails again, tell the server's owner."
 
 // Which layer reports a damaged tags column depends on who reads it first:
-// - a tags filter reads the column in SQL, whose JSON functions reject '{'
-//   (not JSON) themselves, so vault_search with that filter gets a SqliteError;
+// - a tag filter (vault_search's tags filter, vault_search_by_tag) reads the
+//   column in SQL, where SQLite's JSON functions reject '{' (not JSON) with a
+//   SqliteError and the fold_tag function rejects the 42 in '[42]' with an
+//   IndexIntegrityError;
 // - the JavaScript row parsers, which vault_list_tags also runs over every
 //   stored tags column, reject '{', '{}' and '[42]' with an IndexIntegrityError.
 describe("a damaged index row carries the index remedy", () => {
