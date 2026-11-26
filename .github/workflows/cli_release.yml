@@ -26,6 +26,11 @@ on:
           - major
           - beta
           - none
+      force:
+        description: Release even when the release notes would list no commit since the last CLI release
+        required: false
+        type: boolean
+        default: false
 
 # Shares the server release/deploy group: both release flows push to
 # main, so running them at once can reject one push. A run dispatched
@@ -147,6 +152,36 @@ jobs:
           if npm view "vault-cortex@$NEXT" version > /dev/null 2>&1; then
             echo "::error::vault-cortex@$NEXT is already published to npm"
             exit 1
+          fi
+
+      # Refuses a release whose notes would list nothing, before anything is
+      # built, tagged or published. The notes script prints nothing exactly
+      # when it lists no commit.
+      # - beta and none are not checked: a beta tests a branch, and none
+      #   publishes a stranded version as-is.
+      # - The notes for HEAD list the same commits as the release step's notes
+      #   for the new tag. That range adds only the bump commit, and the
+      #   script skips its "version" line.
+      # - No GH_TOKEN is set, so the notes script makes no PR lookups. Those
+      #   lookups change only the ⚠ section, never which commits are listed.
+      # - A script error stops the step under bash -e, so it never reads as
+      #   empty notes.
+      - name: Refuse a release with nothing to announce
+        if: inputs.bump != 'beta' && inputs.bump != 'none'
+        env:
+          FORCE: ${{ inputs.force }}
+        run: |
+          NOTES=$(bash .github/scripts/generate-cli-notes.sh HEAD)
+          if [ -z "$NOTES" ]; then
+            # This finds the tag the notes script starts from, because the
+            # script's --exclude drops no tag for HEAD.
+            LAST_TAG=$(git describe --tags --abbrev=0 --match "cli-v*" HEAD 2> /dev/null || echo "")
+            if [ "$FORCE" = true ]; then
+              echo "::warning::The release notes would list no commit since ${LAST_TAG:-the first commit}; releasing anyway (force)."
+            else
+              echo "::error::The release notes would list no commit since ${LAST_TAG:-the first commit}. Nothing was tagged or published. Dispatch again with force only if the maintainer wants this release anyway."
+              exit 1
+            fi
           fi
 
       - run: npm ci

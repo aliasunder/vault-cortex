@@ -9,8 +9,8 @@ import { ghAnsweringPullRequests, WITH_GH_TOKEN } from "./helpers/gh-pull-reques
 
 /**
  * Behavioral spec for the CLI release-notes generator
- * (.github/scripts/generate-cli-notes.sh): which commits between two CLI tags
- * the notes list, and which of them lead the notes as breaking changes. The
+ * (.github/scripts/generate-cli-notes.sh): which commits since the previous CLI
+ * tag the notes list, and which of them lead the notes as breaking changes. The
  * real script runs under `bash` with real git, in a fresh repository per test.
  * Stub commands on PATH stand in for `gh`, and for `awk` or `git` in the
  * failure tests.
@@ -54,6 +54,9 @@ type CliReleaseRepo = {
   headHash: () => string
   /** The folder the stub commands are written to. */
   stubDir: string
+  tagHead: (tagName: string) => void
+  /** Runs the script for a ref, such as HEAD, without tagging anything. */
+  generateNotesFor: (ref: string, options?: NotesRunOptions) => NotesRun
   /** Tags HEAD as cli-v0.2.0 and runs the script for it. */
   generateNotes: (options?: NotesRunOptions) => NotesRun
 }
@@ -128,9 +131,15 @@ const createCliReleaseRepo = ({
     return `${stubDir}:${runnerPath()}`
   }
 
-  const generateNotes = ({ stubCommands = {}, extraEnv = {} }: NotesRunOptions = {}): NotesRun => {
-    git("tag", "cli-v0.2.0")
-    const result = spawnSync("bash", [SCRIPT_PATH, "cli-v0.2.0"], {
+  const tagHead = (tagName: string): void => {
+    git("tag", tagName)
+  }
+
+  const generateNotesFor = (
+    ref: string,
+    { stubCommands = {}, extraEnv = {} }: NotesRunOptions = {},
+  ): NotesRun => {
+    const result = spawnSync("bash", [SCRIPT_PATH, ref], {
       cwd: repoDir,
       env: { ...env, ...extraEnv, PATH: pathWithStubs(stubCommands) },
       encoding: "utf8",
@@ -138,7 +147,12 @@ const createCliReleaseRepo = ({
     return { status: result.status, stdout: result.stdout, stderr: result.stderr }
   }
 
-  return { commit, headHash, stubDir, generateNotes }
+  const generateNotes = (options: NotesRunOptions = {}): NotesRun => {
+    tagHead("cli-v0.2.0")
+    return generateNotesFor("cli-v0.2.0", options)
+  }
+
+  return { commit, headHash, stubDir, tagHead, generateNotesFor, generateNotes }
 }
 
 /** A commit the notes always list, so a run that lists nothing cannot pass a
@@ -341,6 +355,74 @@ describe("generate-cli-notes.sh", () => {
       })
 
       expect(repo.generateNotes()).toEqual({ status: 0, stdout: "", stderr: "" })
+    })
+  })
+
+  describe("the previous CLI tag", () => {
+    it("lists nothing for HEAD when HEAD carries the latest CLI tag", () => {
+      const repo = createCliReleaseRepo()
+      commitListedCodeChange(repo)
+      repo.tagHead("cli-v0.2.0")
+
+      expect(repo.generateNotesFor("HEAD")).toEqual({ status: 0, stdout: "", stderr: "" })
+    })
+
+    it("lists for HEAD only the commits after the latest CLI tag", () => {
+      const repo = createCliReleaseRepo()
+      commitListedCodeChange(repo)
+      repo.tagHead("cli-v0.2.0")
+      commitStartChange(repo, "feat(cli): add a start command")
+
+      expect(repo.generateNotesFor("HEAD")).toEqual({
+        status: 0,
+        stdout: "- feat(cli): add a start command\n",
+        stderr: "",
+      })
+    })
+
+    it("lists for a release tag the commits since the CLI tag before it", () => {
+      const repo = createCliReleaseRepo()
+      commitListedCodeChange(repo)
+      repo.tagHead("cli-v0.2.0")
+      commitStartChange(repo, "feat(cli): add a start command")
+
+      expect(repo.generateNotesFor("cli-v0.2.0")).toEqual(LISTED_CODE_CHANGE_ONLY)
+    })
+
+    it("lists for a release tag written as refs/tags/<name> the commits since the CLI tag before it", () => {
+      const repo = createCliReleaseRepo()
+      commitListedCodeChange(repo)
+      repo.tagHead("cli-v0.2.0")
+      commitStartChange(repo, "feat(cli): add a start command")
+
+      expect(repo.generateNotesFor("refs/tags/cli-v0.2.0")).toEqual(LISTED_CODE_CHANGE_ONLY)
+    })
+
+    it("lists for HEAD every commit from the first when no CLI tag exists, ignoring server tags", () => {
+      const repo = createCliReleaseRepo({ firstCommitTag: "v0.1.0" })
+      commitListedCodeChange(repo)
+
+      expect(repo.generateNotesFor("HEAD")).toEqual({
+        status: 0,
+        stdout: "- feat: add a flag\n- feat: first release\n",
+        stderr: "",
+      })
+    })
+
+    // The release workflow checks the notes for HEAD before it commits the
+    // version bump, and publishes the notes for the tag it puts on that commit.
+    it("lists for HEAD the same commits as for the tag later put on its version bump", () => {
+      const repo = createCliReleaseRepo()
+      commitListedCodeChange(repo)
+      const headNotes = repo.generateNotesFor("HEAD")
+      repo.commit("release(cli): v0.2.0", {
+        "cli/package.json": cliManifest({ version: "0.2.0", zod: "^1.0.0" }),
+      })
+
+      expect({ headNotes, tagNotes: repo.generateNotes() }).toEqual({
+        headNotes: LISTED_CODE_CHANGE_ONLY,
+        tagNotes: LISTED_CODE_CHANGE_ONLY,
+      })
     })
   })
 
@@ -749,6 +831,18 @@ describe("generate-cli-notes.sh", () => {
   })
 
   describe("failures", () => {
+    // The release workflow reads an exit status of 0 with empty output as a
+    // release with nothing to list.
+    it("stops with git's error for a ref that names no commit", () => {
+      const repo = createCliReleaseRepo()
+
+      expect(repo.generateNotesFor("cli-v9.9.9")).toEqual({
+        status: 128,
+        stdout: "",
+        stderr: "fatal: bad revision 'cli-v9.9.9'\n",
+      })
+    })
+
     it("stops with git's exit status when reading the listed commits fails", () => {
       const repo = createCliReleaseRepo()
       commitListedCodeChange(repo)
