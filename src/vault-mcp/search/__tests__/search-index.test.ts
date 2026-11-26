@@ -13305,6 +13305,204 @@ describe("committed embedding source versions", () => {
   })
 })
 
+describe("embedding job queue", () => {
+  const modelVector = (): Float32Array => new Float32Array(384).fill(0.1)
+
+  it("starts a second note's model call only after the first note's job has written its chunk", async () => {
+    const fixture = await createEmbeddingRaceIndex("note")
+    const firstModel = Promise.withResolvers<Float32Array>()
+    onTestFinished(() => firstModel.resolve(modelVector()))
+    const firstNoteChunksAtSecondCall: number[] = []
+    fixture.embedder.embedText
+      .mockImplementationOnce(() => firstModel.promise)
+      .mockImplementationOnce(() => {
+        const firstNoteChunks = fixture.inspect
+          .prepare("SELECT COUNT(*) AS count FROM note_chunks WHERE note_path = 'first.md'")
+          .get()
+        firstNoteChunksAtSecondCall.push(countRow(firstNoteChunks).count)
+        return Promise.resolve(modelVector())
+      })
+    const firstVersion = seedEmbeddingSource(fixture.searchIndex, {
+      notePath: "first.md",
+      rawContent: "First quartz note.",
+    })
+    const secondVersion = seedEmbeddingSource(fixture.searchIndex, {
+      notePath: "second.md",
+      rawContent: "Second cobalt note.",
+    })
+
+    const firstJob = fixture.searchIndex.embedNote(
+      { notePath: "first.md", rawContent: "First quartz note.", sourceVersion: firstVersion },
+      logger,
+    )
+    const secondJob = fixture.searchIndex.embedNote(
+      { notePath: "second.md", rawContent: "Second cobalt note.", sourceVersion: secondVersion },
+      logger,
+    )
+    await letQueuedWorkRun()
+    expect(fixture.embedder.embedText).toHaveBeenCalledTimes(1)
+    expect(fixture.embedder.embedText).toHaveBeenLastCalledWith("first\n\nFirst quartz note.")
+
+    firstModel.resolve(modelVector())
+    await Promise.all([firstJob, secondJob])
+    expect(fixture.embedder.embedText).toHaveBeenCalledTimes(2)
+    expect(fixture.embedder.embedText).toHaveBeenLastCalledWith("second\n\nSecond cobalt note.")
+    expect(firstNoteChunksAtSecondCall).toEqual([1])
+  })
+
+  it("runs a watched note's job after the rebuild pass's held job", async () => {
+    const fixture = await createEmbeddingRaceIndex("note")
+    const vaultPath = join(fixture.dir, "vault")
+    await mkdir(vaultPath)
+    await writeFile(join(vaultPath, "rebuilt.md"), "Rebuilt quartz note.")
+    const rebuildModel = Promise.withResolvers<Float32Array>()
+    onTestFinished(() => rebuildModel.resolve(modelVector()))
+    fixture.embedder.embedText.mockImplementationOnce(() => rebuildModel.promise)
+    const { embedding, pdfPass } = await fixture.searchIndex.rebuildFromVault(
+      {
+        vaultPath,
+        bodyTagParser: inProcessBodyTagParser,
+        pdfExtractor: createInProcessPdfExtractor(vaultPath),
+        maxFileBytes: 10_000_000,
+      },
+      logger,
+    )
+    await letQueuedWorkRun()
+    expect(fixture.embedder.embedText).toHaveBeenCalledTimes(1)
+
+    const watchedVersion = seedEmbeddingSource(fixture.searchIndex, {
+      notePath: "watched.md",
+      rawContent: "Watched cobalt note.",
+    })
+    const watchedJob = fixture.searchIndex.embedNote(
+      { notePath: "watched.md", rawContent: "Watched cobalt note.", sourceVersion: watchedVersion },
+      logger,
+    )
+    await letQueuedWorkRun()
+    expect(fixture.embedder.embedText).toHaveBeenCalledTimes(1)
+
+    rebuildModel.resolve(modelVector())
+    await Promise.all([embedding, pdfPass, watchedJob])
+    expect(fixture.embedder.embedText).toHaveBeenCalledTimes(2)
+    expect(fixture.embedder.embedText).toHaveBeenNthCalledWith(1, "rebuilt\n\nRebuilt quartz note.")
+    expect(fixture.embedder.embedText).toHaveBeenNthCalledWith(2, "watched\n\nWatched cobalt note.")
+  })
+
+  it("runs a file's job after a held note job", async () => {
+    const fixture = await createEmbeddingRaceIndex("note")
+    const noteModel = Promise.withResolvers<Float32Array>()
+    onTestFinished(() => noteModel.resolve(modelVector()))
+    fixture.embedder.embedText.mockImplementationOnce(() => noteModel.promise)
+    const noteVersion = seedEmbeddingSource(fixture.searchIndex, {
+      notePath: "held.md",
+      rawContent: "Held quartz note.",
+    })
+    const fileVersion = fixture.searchIndex.upsertFileContent(
+      { filePath: "queued.txt", rawContent: "Queued cobalt file.", fileStat: testStat(1000) },
+      logger,
+    )
+
+    const noteJob = fixture.searchIndex.embedNote(
+      { notePath: "held.md", rawContent: "Held quartz note.", sourceVersion: noteVersion },
+      logger,
+    )
+    const fileJob = fixture.searchIndex.embedFileContent(
+      { filePath: "queued.txt", sourceVersion: fileVersion },
+      logger,
+    )
+    await letQueuedWorkRun()
+    expect(fixture.embedder.embedText).toHaveBeenCalledTimes(1)
+
+    noteModel.resolve(modelVector())
+    await Promise.all([noteJob, fileJob])
+    expect(fixture.embedder.embedText).toHaveBeenCalledTimes(2)
+    expect(fixture.embedder.embedText).toHaveBeenNthCalledWith(1, "held\n\nHeld quartz note.")
+    expect(fixture.embedder.embedText).toHaveBeenNthCalledWith(2, "queued\n\nQueued cobalt file.")
+  })
+
+  it("runs the next note's job after a job whose model call fails", async () => {
+    const fixture = await createEmbeddingRaceIndex("note")
+    fixture.embedder.embedText.mockImplementationOnce(() => {
+      return Promise.reject(new Error("model crashed"))
+    })
+    const failedVersion = seedEmbeddingSource(fixture.searchIndex, {
+      notePath: "failed.md",
+      rawContent: "Failed quartz note.",
+    })
+    const nextVersion = seedEmbeddingSource(fixture.searchIndex, {
+      notePath: "next.md",
+      rawContent: "Next cobalt note.",
+    })
+
+    const failedJob = fixture.searchIndex.embedNote(
+      { notePath: "failed.md", rawContent: "Failed quartz note.", sourceVersion: failedVersion },
+      logger,
+    )
+    const nextJob = fixture.searchIndex.embedNote(
+      { notePath: "next.md", rawContent: "Next cobalt note.", sourceVersion: nextVersion },
+      logger,
+    )
+    await expect(failedJob).rejects.toThrow(new Error("model crashed"))
+    await nextJob
+
+    expect(fixture.embedder.embedText).toHaveBeenCalledTimes(2)
+    expect(fixture.embedder.embedText).toHaveBeenLastCalledWith("next\n\nNext cobalt note.")
+    expect(fixture.inspect.prepare("SELECT note_path, chunk_text FROM note_chunks").all()).toEqual([
+      { note_path: "next.md", chunk_text: "next\n\nNext cobalt note." },
+    ])
+  })
+
+  it("trims a note stored with 20,000 chunks to 16,385 in one embedding", async () => {
+    const fixture = await createEmbeddingRaceIndex("note")
+    const sectionIndices = Array.from({ length: 20_000 }, (_, sectionIndex) => sectionIndex)
+    const rawContent = `---\ntitle: Note\n---\n${sectionIndices.map((sectionIndex) => `## s${sectionIndex}\nw${sectionIndex}`).join("\n")}`
+    const sectionChunkText = (sectionIndex: number): string => {
+      return `Note\nSection: s${sectionIndex}\n\nw${sectionIndex}`
+    }
+    // The table-of-contents chunk holds the first 449 one-token section names
+    const tableOfContentsText = `Note\n\n${sectionIndices
+      .slice(0, 449)
+      .map((sectionIndex) => `s${sectionIndex}`)
+      .join("\n")}`
+    const sourceVersion = seedEmbeddingSource(fixture.searchIndex, {
+      notePath: "big.md",
+      rawContent,
+    })
+
+    // An index written before the count cap holds a chunk and a vector per section
+    const insertChunk = fixture.inspect.prepare(
+      "INSERT INTO note_chunks (note_path, chunk_index, chunk_text, content_hash) VALUES (?, ?, ?, ?)",
+    )
+    const insertVector = fixture.inspect.prepare(
+      "INSERT INTO note_vectors (chunk_id, embedding) VALUES (?, ?)",
+    )
+    const storedVectorBytes = Buffer.from(modelVector().buffer)
+    fixture.inspect.transaction(() => {
+      for (const sectionIndex of sectionIndices) {
+        const chunkText = sectionChunkText(sectionIndex)
+        const chunkHash = createHash("sha256").update(chunkText).digest("hex")
+        const { lastInsertRowid } = insertChunk.run("big.md", sectionIndex, chunkText, chunkHash)
+        insertVector.run(BigInt(lastInsertRowid), storedVectorBytes)
+      }
+    })()
+    expect(fixture.chunks()).toHaveLength(20_000)
+
+    await fixture.searchIndex.embedNote({ notePath: "big.md", rawContent, sourceVersion }, logger)
+
+    // Only index 16,384 changed, from a section to the table of contents
+    expect(fixture.embedder.embedText).toHaveBeenCalledTimes(1)
+    expect(fixture.embedder.embedText).toHaveBeenCalledWith(tableOfContentsText)
+    expect(fixture.chunks()).toEqual([
+      ...sectionIndices.slice(0, 16_384).map((sectionIndex) => ({
+        chunk_index: sectionIndex,
+        chunk_text: sectionChunkText(sectionIndex),
+      })),
+      { chunk_index: 16_384, chunk_text: tableOfContentsText },
+    ])
+    expect(fixture.vectorCount()).toBe(16_385)
+  })
+})
+
 describe("file content vector embeddings", () => {
   const DIMENSIONS = 384
   const createMockEmbedder = () => ({
