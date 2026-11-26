@@ -331,7 +331,7 @@ Behavior: ${INDEX_LAG_LEAD}. A vault with no tagged notes returns an empty array
 - Each hierarchical tag appears as one full entry, not split into segments.
 
 Errors:
-${INDEX_ENGINE_ERROR_ENTRY}
+${INDEX_ERROR_ENTRY}
 
 Returns: JSON array of { tag, count } holding every tag in the vault; tag omits the "#" prefix.`,
       inputSchema: {},

@@ -20,6 +20,7 @@ import {
   rowToMetadata,
   rowToTaskEntry,
   noteRowToSearchResult,
+  parseStringArray,
   escapeLikeWildcards,
   folderLikePattern,
   dayToEpochMsRange,
@@ -366,66 +367,54 @@ export const fullTextSearch = (
     LIMIT ?
   `
 
-  try {
-    const rows = context.db
-      .prepare<
-        unknown[],
-        Pick<
-          NoteRow,
-          | "path"
-          | "title"
-          | "tags"
-          | "body_tags"
-          | "folder"
-          | "type"
-          | "created"
-          | "mtime"
-          | "bytes"
-        > & {
-          snippet: string
-          is_exact_name: number
-          rank_score: number
-          leading_callout?: string | null
-        }
-      >(sql)
-      .all(...queryParams)
+  // sanitizeFtsQuery leaves no query that FTS5 rejects, so an error here means
+  // a damaged index or a bug in this query. It reaches the caller, because an
+  // empty page would hide it as "no match" while every other index-backed
+  // tool reports it.
+  const rows = context.db
+    .prepare<
+      unknown[],
+      Pick<
+        NoteRow,
+        "path" | "title" | "tags" | "body_tags" | "folder" | "type" | "created" | "mtime" | "bytes"
+      > & {
+        snippet: string
+        is_exact_name: number
+        rank_score: number
+        leading_callout?: string | null
+      }
+    >(sql)
+    .all(...queryParams)
 
-    // An exact-name match adds the best negated rank among the returned rows
-    // to its own. FTS5 keeps every rank below zero, so an exact-name match
-    // outscores every other returned row, and the scores descend in the order
-    // the query sorted the rows, so a higher score still means a more relevant
-    // result.
-    const bestRankScore = rows.reduce(
-      // Spreading the rows into Math.max overflows the call stack past about
-      // 100,000 rows.
-      (bestScore, row) => Math.max(bestScore, row.rank_score),
-      -Infinity,
-    )
+  // An exact-name match adds the best negated rank among the returned rows
+  // to its own. FTS5 keeps every rank below zero, so an exact-name match
+  // outscores every other returned row, and the scores descend in the order
+  // the query sorted the rows, so a higher score still means a more relevant
+  // result.
+  const bestRankScore = rows.reduce(
+    // Spreading the rows into Math.max overflows the call stack past about
+    // 100,000 rows.
+    (bestScore, row) => Math.max(bestScore, row.rank_score),
+    -Infinity,
+  )
 
-    const results: SearchResult[] = rows.map((row) => {
-      const score = row.is_exact_name ? row.rank_score + bestRankScore : row.rank_score
+  const results: SearchResult[] = rows.map((row) => {
+    const score = row.is_exact_name ? row.rank_score + bestRankScore : row.rank_score
 
-      return noteRowToSearchResult({
-        row,
-        snippet: row.snippet,
-        // The result contract caps scores at four significant digits; SQL ranks
-        // at full precision, so returned scores can tie without reordering hits
-        score: Number(score.toPrecision(4)),
-        includeLeadingCallout,
-      })
+    return noteRowToSearchResult({
+      row,
+      snippet: row.snippet,
+      // The result contract caps scores at four significant digits; SQL ranks
+      // at full precision, so returned scores can tie without reordering hits
+      score: Number(score.toPrecision(4)),
+      includeLeadingCallout,
     })
-    logger.info("full text search", {
-      query: params.query,
-      resultCount: results.length,
-    })
-    return results
-  } catch (error) {
-    logger.warn("full text search failed", {
-      query: params.query,
-      error: describeError(error),
-    })
-    return []
-  }
+  })
+  logger.info("full text search", {
+    query: params.query,
+    resultCount: results.length,
+  })
+  return results
 }
 
 // ── Memory recall ──────────────────────────────────────────────
@@ -1226,6 +1215,29 @@ export const listAllTags = (
   _params: Record<string, never>,
   logger: Logger,
 ): TagCount[] => {
+  // json_each reads any JSON value, so a damaged tags or body_tags column
+  // would list numbers, nulls or an object's values as tags.
+  // - This query finds the first column that is not an array of strings. A
+  //   NULL tags column reads as JSON null, as the row parsers read it.
+  // - parseStringArray throws the index damage error for that column, the
+  //   same error every tool that reads tags back throws.
+  const damagedTagColumn = context.db
+    .prepare<[], { tags_json: string }>(
+      `
+      SELECT tags_json FROM (
+        SELECT IFNULL(tags, 'null') AS tags_json FROM notes
+        UNION ALL
+        SELECT body_tags FROM notes
+      )
+      WHERE json_type(tags_json) != 'array'
+         OR EXISTS (SELECT 1 FROM json_each(tags_json) WHERE type != 'text')
+      LIMIT 1
+    `,
+    )
+    .get()
+
+  if (damagedTagColumn) parseStringArray(damagedTagColumn.tags_json)
+
   // Every tag occurrence, property and body alike, is one row. Spellings that
   // fold to the same lowercase tag form one group:
   // - the group's count is the number of distinct notes carrying any of its

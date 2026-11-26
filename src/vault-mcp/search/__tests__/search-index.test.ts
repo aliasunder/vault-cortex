@@ -16,6 +16,7 @@ import {
   isHtmlOrScriptTooLargeToRead,
 } from "../search-index.js"
 import type { NoteMetadata, OutgoingLinkEntry, SearchIndex, TaskEntry } from "../search-index.js"
+import { IndexIntegrityError } from "../search-helpers.js"
 import type { StatusClassification } from "../../obsidian-markdown/tasks.js"
 import { links } from "../../obsidian-markdown/links.js"
 import { logger } from "../../../logger.js"
@@ -2906,6 +2907,66 @@ describe("listAllTags", () => {
     ])
     const results = index.fullTextSearch({ query: "no tags" }, logger)
     expect(results.map((result) => result.path)).toEqual(["bare.md"])
+  })
+})
+
+describe("damaged stored tag columns", () => {
+  /** A file-backed index holding one note, whose stored row a second
+   *  connection then damages, the way an outside process would. */
+  const createIndexWithDamagedNote = async (damage: {
+    column: "tags" | "body_tags"
+    storedValue: string | null
+  }): Promise<SearchIndex> => {
+    const databaseDir = await mkdtemp(join(tmpdir(), "damaged-tags-"))
+    onTestFinished(() => rm(databaseDir, { recursive: true }))
+    const databasePath = join(databaseDir, "index.db")
+    const damagedIndex = createSearchIndex(databasePath)
+    damagedIndex.upsertNote(
+      withBodyTags({
+        filePath: "damaged.md",
+        rawContent: "---\ntags: [work]\n---\nfindable #inline\n",
+        fileStat: testStat(1000),
+      }),
+      logger,
+    )
+    const damagingConnection = new Database(databasePath)
+    onTestFinished(() => {
+      damagingConnection.close()
+    })
+    const damageResult = damagingConnection
+      .prepare(`UPDATE notes SET ${damage.column} = ? WHERE path = ?`)
+      .run(damage.storedValue, "damaged.md")
+    expect(damageResult.changes).toBe(1)
+    return damagedIndex
+  }
+
+  it("fullTextSearch throws the index damage error for a matching note whose tags column is not a string array", async () => {
+    const damagedIndex = await createIndexWithDamagedNote({ column: "tags", storedValue: "{}" })
+
+    expect(() => damagedIndex.fullTextSearch({ query: "findable" }, logger)).toThrow(
+      new IndexIntegrityError("expected string[] from JSON column, got: {}"),
+    )
+  })
+
+  it.each([
+    {
+      label: "a tags list holding a number",
+      column: "tags" as const,
+      storedValue: '["work",42]',
+    },
+    { label: "a tags list holding null", column: "tags" as const, storedValue: "[null]" },
+    { label: "a tags column that is NULL", column: "tags" as const, storedValue: null },
+    {
+      label: "a body_tags column that is an object",
+      column: "body_tags" as const,
+      storedValue: '{"tag":"stored"}',
+    },
+  ])("listAllTags throws the index damage error for $label", async ({ column, storedValue }) => {
+    const damagedIndex = await createIndexWithDamagedNote({ column, storedValue })
+
+    expect(() => damagedIndex.listAllTags({}, logger)).toThrow(
+      new IndexIntegrityError(`expected string[] from JSON column, got: ${storedValue}`),
+    )
   })
 })
 
