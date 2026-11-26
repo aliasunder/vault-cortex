@@ -66,6 +66,8 @@ const createIndexProbe = async (params: {
   pageTexts?: readonly string[]
   /** Replaces every text item's reading direction, to feed a value pdfjs never emits. */
   itemDirection?: string
+  /** Replaces each listed page's annotations with one web link per URL. */
+  pageLinkUrls?: ReadonlyArray<ReadonlyArray<string>>
   textFailure?: { page: number; error: Error }
 }) => {
   const proxy = await createPdfDocumentProxy(params.pdfData)
@@ -106,7 +108,11 @@ const createIndexProbe = async (params: {
     })
     vi.spyOn(page, "getAnnotations").mockImplementation(async () => {
       events.push(`links ${pageNumber}`)
-      return getAnnotations()
+      const replacementLinkUrls = params.pageLinkUrls?.[pageNumber - 1]
+
+      if (!replacementLinkUrls) return getAnnotations()
+
+      return replacementLinkUrls.map((url) => ({ subtype: "Link", url }))
     })
     vi.spyOn(page, "cleanup").mockImplementation(() => {
       events.push(`cleanup ${pageNumber}`)
@@ -240,6 +246,22 @@ describe("extractPdfIndexText", () => {
     })
     expect(probe.requestedPages).toEqual([1, 2])
     expect(probe.destroy).toHaveBeenCalledExactlyOnceWith()
+  })
+
+  it("lists more links on one page than a call's argument limit", async () => {
+    const linkUrls = Array.from({ length: 130_000 }, (_, linkIndex) => {
+      return `https://example.com/${linkIndex}`
+    })
+    const pdfData = toPdfData(
+      buildLinkedPdf({ title: "Many Links", pages: [{ text: "Some text", linkUrls: [] }] }),
+    )
+    await createIndexProbe({ pdfData, pageLinkUrls: [linkUrls] })
+    const footer = `\n\nLinks:\n${linkUrls.map((url) => `- ${url}`).join("\n")}`
+
+    expect(await extractPdfIndexText(pdfData)).toEqual({
+      text: `Title: Many Links | Pages: 1 | Links: 130000\n\nSome text${footer}`,
+      totalPages: 1,
+    })
   })
 
   it("measures the stop against the index's own content budget", () => {
