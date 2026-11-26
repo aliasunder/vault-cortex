@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
-# List the commits since the previous CLI tag that change what a CLI user gets,
-# one `- <subject>` line each, newest first. When a listed commit is marked
-# breaking, a ⚠ BREAKING CHANGES section comes first and the list follows
-# under a Changes heading.
-# Usage: generate-cli-notes.sh <new-tag>
+# List the commits up to a ref, since the CLI tag before it, that change what a
+# CLI user gets, one `- <subject>` line each, newest first. When a listed
+# commit is marked breaking, a ⚠ BREAKING CHANGES section comes first and the
+# list follows under a Changes heading.
+# Usage: generate-cli-notes.sh <ref>
+# The ref is a new release's tag, or HEAD for the notes a release cut from
+# HEAD would get.
 #
 # A commit is listed when its diff under cli/ adds or removes a line that none
 # of these rules skips:
@@ -29,15 +31,20 @@
 
 set -euo pipefail
 
-NEW_TAG="${1:?Usage: generate-cli-notes.sh <new-tag>}"
+REF="${1:?Usage: generate-cli-notes.sh <ref>}"
+# The previous tag is the nearest CLI tag reachable from the ref, other than
+# the ref's own name:
+# - for a release tag, the CLI tag before it
+# - for HEAD, a CLI tag on HEAD itself when there is one, because that release
+#   already shipped everything up to HEAD
 # --match keeps server tags (v0.55.0) out. With no earlier CLI tag, the range
-# is every commit reachable from new-tag.
-PREV_TAG=$(git describe --tags --abbrev=0 --match "cli-v*" "$NEW_TAG"^ 2> /dev/null || echo "")
+# is every commit reachable from the ref.
+PREV_TAG=$(git describe --tags --abbrev=0 --match "cli-v*" --exclude "$REF" "$REF" 2> /dev/null || echo "")
 
 if [ -n "$PREV_TAG" ]; then
-  RANGE="${PREV_TAG}..${NEW_TAG}"
+  RANGE="${PREV_TAG}..${REF}"
 else
-  RANGE="$NEW_TAG"
+  RANGE="$REF"
 fi
 
 # Reads a patch on stdin and exits with:
