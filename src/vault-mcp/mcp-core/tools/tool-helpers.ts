@@ -335,8 +335,8 @@ export const describeProtectedPaths = (params: {
 }
 
 /** The Errors entry for an unreadable daily-notes.json, starting with a line
- *  break because it joins a list mid-way. It is "" when the server never reads
- *  the file: DAILY_NOTES_FOLDER and PROTECTED_PATHS both bypass it. */
+ *  break because it joins a list mid-way. It is "" when the delete and move
+ *  guard skips the file: DAILY_NOTES_FOLDER and PROTECTED_PATHS both bypass it. */
 export const describeDailyNotesConfigErrorEntry = (config: VaultConfig): string => {
   // DAILY_NOTES_FOLDER set to the vault root loads as "" and still skips the
   // file, so the delete and move guard reads it only when the folder is unset.
