@@ -1176,9 +1176,6 @@ describe("chunkContent", () => {
     // A long title in short words: 1,000 tokens in 2,000 characters, so each
     // chunk's body budget floors at 50 tokens behind a 2,000-character prefix.
     const longWordyTitle = Array.from({ length: 1_000 }, () => "t").join(" ")
-    // Every chunk of the notes below that use longWordyTitle has this text:
-    // each body budget floors at 50 tokens, and the body is one-letter words.
-    const fiftyWordChunkText = `${longWordyTitle}\n\n${Array.from({ length: 50 }, () => "b").join(" ")}`
 
     it("stops a note of many one-line sections under a long ancestor at 50 times its body", () => {
       const childCount = 2_000
@@ -1224,35 +1221,45 @@ describe("chunkContent", () => {
     })
 
     // Each note below has 1.5 million one-letter words under the long wordy
-    // title. Its chunks would total about 21 times its body, under the 50-times
-    // limit, but over 50 million characters, so the fixed bound applies. The
-    // chunks are compared as a count and their distinct texts, because a
-    // failing toEqual on the whole array would print 50 MB.
+    // title and a metadata line as long, so each chunk is about 4,100
+    // characters. Its chunks would total about 41 times its body, under the
+    // 50-times limit, and reach 50 million characters at about 12,200 chunks,
+    // under the chunk count cap, so the fixed bound applies first. The chunks
+    // are compared as a count and their distinct texts, because a failing
+    // toEqual on the whole array would print 50 MB.
+    const longWordyMetadata = Array.from({ length: 1_000 }, () => "m").join(" ")
     const millionWordBody = Array.from({ length: 1_500_000 }, () => "b").join(" ")
-    const keptAtFixedBound = Math.floor(50_000_000 / fiftyWordChunkText.length)
+    const metadataChunkText = `${longWordyTitle}\n${longWordyMetadata}\n\n${Array.from({ length: 50 }, () => "b").join(" ")}`
+    const keptAtFixedBound = Math.floor(50_000_000 / metadataChunkText.length)
 
     it("stops a note with no headings at 50 million characters of chunk text", () => {
-      const chunks = chunkContent({ noteTitle: longWordyTitle, bodyContent: millionWordBody })
+      const chunks = chunkContent({
+        noteTitle: longWordyTitle,
+        bodyContent: millionWordBody,
+        metadataPrefix: longWordyMetadata,
+      })
 
       expect({
         count: chunks.length,
         distinctTexts: [...new Set(chunks.map((chunk) => chunk.text))],
-      }).toEqual({ count: keptAtFixedBound, distinctTexts: [fiftyWordChunkText] })
+      }).toEqual({ count: keptAtFixedBound, distinctTexts: [metadataChunkText] })
     })
 
     it("stops one heading over a long body at 50 million characters of chunk text", () => {
       const chunks = chunkContent({
         noteTitle: longWordyTitle,
         bodyContent: `## Only\n${millionWordBody}`,
+        metadataPrefix: longWordyMetadata,
       })
 
-      // The 1,000-token title leaves no table-of-contents budget, so every
-      // chunk here is a body chunk counted against the bound one at a time,
-      // inside the one section.
+      // The 1,000-token title leaves no table-of-contents budget and the title
+      // and metadata leave no Section-line budget, so every chunk here is a
+      // body chunk counted against the bound one at a time, inside the one
+      // section.
       expect({
         count: chunks.length,
         distinctTexts: [...new Set(chunks.map((chunk) => chunk.text))],
-      }).toEqual({ count: keptAtFixedBound, distinctTexts: [fiftyWordChunkText] })
+      }).toEqual({ count: keptAtFixedBound, distinctTexts: [metadataChunkText] })
     })
 
     it("keeps a short note's one chunk when its title alone passes 50 times the body", () => {
@@ -1261,6 +1268,99 @@ describe("chunkContent", () => {
       const chunks = chunkContent({ noteTitle: title, bodyContent: "A short body." })
 
       expect(chunks).toEqual([{ index: 0, text: `${title}\n\nA short body.` }])
+    })
+  })
+
+  describe("per-note chunk count", () => {
+    /** A note of one-word top-level sections: each section is one chunk, and
+     *  the table-of-contents chunk holds the first 449 one-token names. */
+    const oneWordSections = (sectionCount: number): string => {
+      return Array.from({ length: sectionCount }, (_, i) => `## s${i}\nw${i}`).join("\n")
+    }
+    const sectionChunk = (sectionIndex: number): { index: number; text: string } => {
+      return { index: sectionIndex, text: `Note\nSection: s${sectionIndex}\n\nw${sectionIndex}` }
+    }
+    const tableOfContentsText = `Note\n\n${Array.from({ length: 449 }, (_, i) => `s${i}`).join("\n")}`
+
+    it("keeps a note's first 16,384 chunks and its table-of-contents chunk", () => {
+      const chunks = chunkContent({ noteTitle: "Note", bodyContent: oneWordSections(20_000) })
+
+      expect(chunks).toEqual([
+        ...Array.from({ length: 16_384 }, (_, i) => sectionChunk(i)),
+        { index: 16_384, text: tableOfContentsText },
+      ])
+    })
+
+    it("keeps every chunk of a note under the count", () => {
+      const chunks = chunkContent({ noteTitle: "Note", bodyContent: oneWordSections(16_000) })
+
+      expect(chunks).toEqual([
+        ...Array.from({ length: 16_000 }, (_, i) => sectionChunk(i)),
+        { index: 16_000, text: tableOfContentsText },
+      ])
+    })
+  })
+
+  describe("chunk length cut", () => {
+    const sixHundredWords = Array.from({ length: 600 }, (_, i) => `w${i}`)
+
+    it("cuts a short note's one chunk to 32,768 code points", () => {
+      const longWord = "x".repeat(100_000)
+
+      const chunks = chunkContent({ noteTitle: "Note", bodyContent: longWord })
+
+      expect(chunks).toEqual([{ index: 0, text: `Note\n\n${longWord}`.slice(0, 32_768) }])
+    })
+
+    it("keeps a chunk of exactly 32,768 code points whole", () => {
+      // The prefix "Note\n\n" is 6 code points.
+      const body = "x".repeat(32_762)
+
+      const chunks = chunkContent({ noteTitle: "Note", bodyContent: body })
+
+      expect(chunks).toEqual([{ index: 0, text: `Note\n\n${body}` }])
+    })
+
+    it("cuts before a grapheme the limit would split", () => {
+      // The thumbs-up emoji is code point 32,768 and its skin-tone modifier
+      // 32,769, one grapheme, so the cut keeps neither.
+      const body = `${"x".repeat(32_761)}👍🏽tail`
+
+      const chunks = chunkContent({ noteTitle: "Note", bodyContent: body })
+
+      expect(chunks).toEqual([{ index: 0, text: `Note\n\n${"x".repeat(32_761)}` }])
+    })
+
+    it("cuts a section chunk to 32,768 code points", () => {
+      const longWord = "y".repeat(100_000)
+
+      const chunks = chunkContent({
+        noteTitle: "Note",
+        bodyContent: `## Big\n${longWord}\n\n${sixHundredWords.join(" ")}`,
+      })
+
+      // The one heading opens the note, so its chunks carry no Section line.
+      expect(chunks).toEqual([
+        { index: 0, text: `Note\n\n${longWord}`.slice(0, 32_768) },
+        { index: 1, text: `Note\n\n${sixHundredWords.slice(0, 449).join(" ")}` },
+        { index: 2, text: `Note\n\n${sixHundredWords.slice(449).join(" ")}` },
+        { index: 3, text: "Note\n\nBig" },
+      ])
+    })
+
+    it("cuts a table-of-contents chunk to 32,768 code points", () => {
+      const longHeading = "h".repeat(100_000)
+
+      const chunks = chunkContent({
+        noteTitle: "Note",
+        bodyContent: `## ${longHeading}\n${sixHundredWords.join(" ")}`,
+      })
+
+      expect(chunks).toEqual([
+        { index: 0, text: `Note\n\n${sixHundredWords.slice(0, 449).join(" ")}` },
+        { index: 1, text: `Note\n\n${sixHundredWords.slice(449).join(" ")}` },
+        { index: 2, text: `Note\n\n${longHeading}`.slice(0, 32_768) },
+      ])
     })
   })
 
@@ -1278,7 +1378,8 @@ describe("chunkContent", () => {
       "splits a note with a million whitespace-only paragraphs within a child deadline",
       () => {
         // The 500 words split 449 + 51. The whitespace-only paragraphs and
-        // "tail" form one 1-word fragment, which merges back into the 51.
+        // "tail" form one 1-word fragment, which merges back into the 51; that
+        // chunk is cut to its first 32,768 characters, all ASCII.
         const output = runChunkerInChild(`
           const words = Array.from({ length: 500 }, (_, i) => "w" + i);
           const bodyContent = words.join(" ") + " \\n\\n".repeat(${LONG_RUN_LENGTH}) + "tail";
@@ -1287,7 +1388,7 @@ describe("chunkContent", () => {
             { index: 0, text: "Note\\n\\n" + words.slice(0, 449).join(" ") },
             {
               index: 1,
-              text: "Note\\n\\n" + words.slice(449).join(" ") + "\\n\\n" + " \\n\\n".repeat(${LONG_RUN_LENGTH - 1}) + "tail",
+              text: ("Note\\n\\n" + words.slice(449).join(" ") + "\\n\\n" + " \\n\\n".repeat(${LONG_RUN_LENGTH - 1}) + "tail").slice(0, 32768),
             },
           ];
           process.stdout.write(String(JSON.stringify(chunks) === JSON.stringify(expectedChunks)));
