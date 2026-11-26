@@ -742,6 +742,7 @@ describe("describeDailyNotesConfigErrorEntry", () => {
   it.each([
     { label: "PROTECTED_PATHS", env: { PROTECTED_PATHS: "Private" } },
     { label: "DAILY_NOTES_FOLDER", env: { DAILY_NOTES_FOLDER: "Journal" } },
+    { label: "DAILY_NOTES_FOLDER set to the vault root", env: { DAILY_NOTES_FOLDER: "/" } },
   ])("is empty under $label, which bypasses the file", ({ env }) => {
     expect(describeDailyNotesConfigErrorEntry(loadConfig(env))).toBe("")
   })

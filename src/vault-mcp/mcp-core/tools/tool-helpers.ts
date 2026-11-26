@@ -338,7 +338,10 @@ export const describeProtectedPaths = (params: {
  *  break because it joins a list mid-way. It is "" when the server never reads
  *  the file: DAILY_NOTES_FOLDER and PROTECTED_PATHS both bypass it. */
 export const describeDailyNotesConfigErrorEntry = (config: VaultConfig): string => {
-  const readsDailyNotesConfig = !config.protectedPathsOverride && !config.dailyNotesFolder
+  // A set DAILY_NOTES_FOLDER skips the file even when it loads as "" (the
+  // vault root), so the test is on set-ness, not truthiness.
+  const readsDailyNotesConfig =
+    !config.protectedPathsOverride && config.dailyNotesFolder === undefined
 
   if (!readsDailyNotesConfig) return ""
   return `\n- "cannot read daily notes config from .obsidian/daily-notes.json" — the file that names the protected daily notes folder can't be parsed; ask the vault's owner to repair it, or the server's operator to set DAILY_NOTES_FOLDER or PROTECTED_PATHS, then retry`
