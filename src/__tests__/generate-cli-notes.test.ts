@@ -10,7 +10,8 @@ import { describe, expect, it, onTestFinished } from "vitest"
  * (.github/scripts/generate-cli-notes.sh): which commits between two CLI tags
  * the notes list, and which of them lead the notes as breaking changes. The
  * real script runs under `bash` with real git, in a fresh repository per test.
- * Stub commands on PATH stand in for `gh` and `awk`.
+ * Stub commands on PATH stand in for `gh`, and for `awk` or `git` in the
+ * failure tests.
  */
 
 const SCRIPT_PATH = resolve(import.meta.dirname, "../../.github/scripts/generate-cli-notes.sh")
@@ -154,13 +155,17 @@ const commitStartChange = (repo: CliReleaseRepo, message: string, startValue = 1
 type PullRequestStub = { labels?: string[]; body: string }
 
 /** A gh stand-in that answers `gh pr view <number> --json labels,body` for the
- *  given PRs and fails any other call, so a lookup of the wrong PR shows up on
- *  stderr. */
-const ghAnsweringPullRequests = (pullRequests: Record<number, PullRequestStub>): string => {
+ *  given PRs, with `-R <repo>` after the number when repo is given, and fails
+ *  any other call, so a lookup of the wrong PR shows up on stderr. */
+const ghAnsweringPullRequests = (
+  pullRequests: Record<number, PullRequestStub>,
+  { repo }: { repo?: string } = {},
+): string => {
+  const repoArgs = repo ? ` -R ${repo}` : ""
   const caseArms = Object.entries(pullRequests).flatMap(([prNumber, { labels = [], body }]) => {
     const prJson = JSON.stringify({ labels: labels.map((name) => ({ name })), body })
     return [
-      `  "pr view ${prNumber} --json labels,body")`,
+      `  "pr view ${prNumber}${repoArgs} --json labels,body")`,
       "    cat <<'JSON'",
       prJson,
       "JSON",
@@ -362,6 +367,15 @@ describe("generate-cli-notes.sh", () => {
 
       expect(repo.generateNotes()).toEqual(LISTED_CODE_CHANGE_ONLY)
     })
+
+    it("prints nothing when every commit under cli/ is left out", () => {
+      const repo = createCliReleaseRepo()
+      repo.commit("docs(cli): explain the flag", {
+        "cli/src/program.ts": "// Read by the start command\nexport const flag = 1\n",
+      })
+
+      expect(repo.generateNotes()).toEqual({ status: 0, stdout: "", stderr: "" })
+    })
   })
 
   describe("breaking changes", () => {
@@ -501,6 +515,53 @@ describe("generate-cli-notes.sh", () => {
       expect(existsSync(markerPath)).toBe(false)
     })
 
+    it("looks the PR up in the GITHUB_REPOSITORY repository", () => {
+      const repo = createCliReleaseRepo()
+      commitStartChange(repo, "feat(cli): rename the start command (#12)")
+      const gh = ghAnsweringPullRequests(
+        { 12: { labels: ["breaking-change"], body: "Renames the command." } },
+        { repo: "fixture-owner/fixture-repo" },
+      )
+
+      expect(
+        repo.generateNotes({
+          stubCommands: { gh },
+          extraEnv: { ...WITH_GH_TOKEN, GITHUB_REPOSITORY: "fixture-owner/fixture-repo" },
+        }),
+      ).toEqual({
+        status: 0,
+        stdout:
+          "### ⚠ BREAKING CHANGES\n\n" +
+          "- feat(cli): rename the start command (#12)\n\n" +
+          "### Changes\n\n" +
+          "- feat(cli): rename the start command (#12)\n",
+        stderr: "",
+      })
+    })
+
+    it("warns about a PR lookup that prints no JSON and keeps the commit's own marks", () => {
+      const repo = createCliReleaseRepo()
+      commitStartChange(
+        repo,
+        "feat(cli): rename the start command (#12)\n\nBREAKING CHANGE: start is renamed.",
+      )
+      const garbledGh = "#!/bin/sh\necho 'Bad Gateway'\n"
+
+      expect(
+        repo.generateNotes({ stubCommands: { gh: garbledGh }, extraEnv: WITH_GH_TOKEN }),
+      ).toEqual({
+        status: 0,
+        stdout:
+          "### ⚠ BREAKING CHANGES\n\n" +
+          "- start is renamed.\n\n" +
+          "### Changes\n\n" +
+          "- feat(cli): rename the start command (#12)\n",
+        stderr:
+          "generate-cli-notes: gh pr view #12 errored: Expecting value: line 1 column 1 (char 0)" +
+          " — falling back to commit-only signals\n",
+      })
+    })
+
     it("lists a breaking line once when two PRs carry the same footer", () => {
       const repo = createCliReleaseRepo()
       commitStartChange(repo, "feat(cli): rename the start command (#12)")
@@ -535,6 +596,29 @@ describe("generate-cli-notes.sh", () => {
   })
 
   describe("failures", () => {
+    it("stops with git's exit status when reading the listed commits fails", () => {
+      const repo = createCliReleaseRepo()
+      commitListedCodeChange(repo)
+      const realGitPath = execFileSync("sh", ["-c", "command -v git"], {
+        encoding: "utf8",
+      }).trim()
+      // Fails only the git log call that reads each listed commit's message.
+      const gitFailingOnLog = [
+        "#!/bin/sh",
+        'case "$*" in',
+        '  *--no-walk=unsorted*) echo "fatal: bad object" >&2; exit 128 ;;',
+        "esac",
+        `exec '${realGitPath}' "$@"`,
+        "",
+      ].join("\n")
+
+      expect(repo.generateNotes({ stubCommands: { git: gitFailingOnLog } })).toEqual({
+        status: 128,
+        stdout: "",
+        stderr: "fatal: bad object\n",
+      })
+    })
+
     it("stops with the commit's hash when the line classifier fails", () => {
       const repo = createCliReleaseRepo()
       commitListedCodeChange(repo)
