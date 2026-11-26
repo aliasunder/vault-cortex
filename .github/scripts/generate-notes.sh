@@ -122,7 +122,6 @@ GH_PATH = shutil.which("gh") if os.environ.get("GH_TOKEN") else None
 # checkout's own remote.
 REPO = os.environ.get("GITHUB_REPOSITORY", "")
 BREAKING_LABEL = "breaking-change"
-_pr_cache = {}
 
 def warn(message):
     print(f"generate-notes: {message}", file=sys.stderr)
@@ -134,8 +133,6 @@ def pr_info(pr_number):
     PR body/label from the release notes."""
     if not GH_PATH:
         return None
-    if pr_number in _pr_cache:
-        return _pr_cache[pr_number]
     info = None
     try:
         repo_args = ["-R", REPO] if REPO else []
@@ -155,7 +152,6 @@ def pr_info(pr_number):
     except Exception as error:
         warn(f"gh pr view #{pr_number} errored: {error} — "
              f"falling back to commit-only signals")
-    _pr_cache[pr_number] = info
     return info
 
 # Commits with these scopes change nothing a user installs. Hook commits also
