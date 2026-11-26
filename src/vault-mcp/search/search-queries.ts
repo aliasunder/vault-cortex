@@ -101,6 +101,8 @@ export type RankingTuning = {
  *  plain functions with no state of their own. Each optional group is
  *  `null` when its feature is off, and each query degrades accordingly. */
 export type SearchQueryContext = {
+  /** Carries the fold_tag and property_value_text SQL functions that
+   *  createSearchIndex registers. */
   readonly db: Database.Database
   readonly vector: {
     readonly embedder: Embedder | undefined
@@ -367,10 +369,10 @@ export const fullTextSearch = (
     LIMIT ?
   `
 
-  // sanitizeFtsQuery leaves no query that FTS5 rejects, so an error here means
-  // a damaged index or a bug in this query. It reaches the caller, because an
-  // empty page would hide it as "no match" while every other index-backed
-  // tool reports it.
+  // sanitizeFtsQuery leaves no query that FTS5 rejects, so an error from this
+  // query means a damaged index or a bug in it. The error propagates through
+  // hybridSearch to the tool's response, because an empty page would report
+  // it as "no match".
   const rows = context.db
     .prepare<
       unknown[],
@@ -519,10 +521,12 @@ const anyTermLexicalCandidates = (
   memory.ftsSearchStmt
     .all(sanitizeFtsQueryAnyTerm(query))
     .filter(matchesFileFilter)
-    .map((row, ftsRank) => ({
+    .map((row, bm25Position) => ({
       row,
       ftsHit: false,
-      fusedScore: -ftsRank,
+      // The rescue path sorts by fusedScore, highest first, so the negated
+      // position keeps the bm25 order.
+      fusedScore: -bm25Position,
       distance: undefined,
     }))
 
@@ -962,8 +966,9 @@ const buildDateOrderBy = (
   column: string,
   explicitDirection: "ASC" | "DESC" | undefined,
 ): string => {
-  const directionFor = (col: string): "ASC" | "DESC" =>
-    explicitDirection ?? (DESCENDING_BY_DEFAULT.has(col) ? "DESC" : "ASC")
+  const directionFor = (dateColumn: string): "ASC" | "DESC" => {
+    return explicitDirection ?? (DESCENDING_BY_DEFAULT.has(dateColumn) ? "DESC" : "ASC")
+  }
 
   const cascade = DATE_CASCADE[column]
   const primary = `t.${column} IS NULL, t.${column} ${directionFor(column)}`
@@ -972,7 +977,7 @@ const buildDateOrderBy = (
     return `${primary}, n.mtime DESC`
   }
   const fallbacks = cascade
-    .map((col) => `t.${col} IS NULL, t.${col} ${directionFor(col)}`)
+    .map((dateColumn) => `t.${dateColumn} IS NULL, t.${dateColumn} ${directionFor(dateColumn)}`)
     .join(", ")
   return `${primary}, ${fallbacks}, n.mtime DESC`
 }
@@ -1218,16 +1223,17 @@ export const listAllTags = (
   // json_each reads any JSON value, so a damaged tags or body_tags column
   // would list numbers, nulls or an object's values as tags.
   // - This query finds the first column that is not an array of strings. A
-  //   NULL tags column reads as JSON null, as the row parsers read it.
-  // - parseStringArray throws the index damage error for that column, the
-  //   same error every tool that reads tags back throws.
+  //   NULL tags column reads as JSON null, as the row parsers read it, and
+  //   body_tags is NOT NULL.
+  // - A column that is not JSON at all makes json_type raise SQLite's
+  //   "malformed JSON" error instead.
   const damagedTagColumn = context.db
     .prepare<[], { tags_json: string }>(
       `
       SELECT tags_json FROM (
         SELECT IFNULL(tags, 'null') AS tags_json FROM notes
         UNION ALL
-        SELECT body_tags FROM notes
+        SELECT body_tags AS tags_json FROM notes
       )
       WHERE json_type(tags_json) != 'array'
          OR EXISTS (SELECT 1 FROM json_each(tags_json) WHERE type != 'text')
@@ -1236,6 +1242,9 @@ export const listAllTags = (
     )
     .get()
 
+  // parseStringArray rejects every column the query returns, so this call
+  // always throws, with the IndexIntegrityError the row parsers throw for the
+  // same column.
   if (damagedTagColumn) parseStringArray(damagedTagColumn.tags_json)
 
   // Every tag occurrence, property and body alike, is one row. Spellings that
@@ -1585,7 +1594,7 @@ export const getBacklinks = (
   const results: BacklinkEntry[] = rows.map((row) => ({
     path: row.path,
     title: row.title,
-    bytes: row.bytes ?? 0,
+    bytes: row.bytes,
   }))
   logger.info("get backlinks", {
     path: params.path,
@@ -1807,10 +1816,9 @@ export const vaultStats = (
   `
   const row = context.db.prepare<unknown[], VaultStats>(sql).get()
 
-  if (!row) {
-    logger.info("vault stats empty")
-    return { totalNotes: 0, untaggedNotes: 0, noPropertiesNotes: 0 }
-  }
+  // An aggregate query with no GROUP BY returns exactly one row, even over an
+  // empty table.
+  if (!row) throw new Error("vault stats query returned no row")
   logger.info("vault stats", row)
   return row
 }
