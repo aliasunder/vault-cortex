@@ -36,8 +36,8 @@ export default $config({
     // shell plus any repo-root `.env` / `.env.<stage>` (SST loads those itself),
     // so a setting found in neither falls back to its default.
     //
-    // SSH key fallback chain: SSH_PUBKEY (CI) → SSH_PUBKEY_PATH → ~/.ssh/vault-cortex.pub
-    // None is individually required — readSshPublicKey errors if all three miss.
+    // SSH key: SSH_PUBKEY (CI), else the file at SSH_PUBKEY_PATH, else ~/.ssh/vault-cortex.pub.
+    // None is individually required — readSshPublicKey errors when the file it picks is missing.
     const sshPubkey = env("SSH_PUBKEY").asString()
     const sshPubkeyPath = env("SSH_PUBKEY_PATH").asString()
 

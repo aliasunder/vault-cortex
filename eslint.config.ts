@@ -92,9 +92,10 @@ export default defineConfig(
       //   ESLint's own defaults.
       // - A function over the complexity limit carries
       //   `eslint-disable-next-line complexity` until a change splits it.
-      // - ESLint reports an arrow function at its `=>`, so the directive sits
-      //   on the line above the `=>` line, inside the signature when the
-      //   signature spans lines.
+      // - ESLint reports an arrow function at its `=>`, and a method or a
+      //   function-valued property at its key. The directive sits on the line
+      //   above the reported line, inside the signature when the signature
+      //   spans lines.
       complexity: ["error", { max: 20 }],
       "max-depth": ["error", 4],
     },

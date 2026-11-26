@@ -25,13 +25,13 @@ export type HeadingInfo = Readonly<{
  *  Empty headings (`##` alone on a line) are valid — group 2 is undefined. */
 const HEADING_REGEX = /^ {0,3}(#{1,6})(?:[ \t](.*))?$/
 
-/** Removes an ATX heading's optional closing sequence per CommonMark §4.2: one
- *  or more `#` at the end of the text, after a space or tab or as the whole
- *  text. `## Title ##` reads as `Title`, and `### ###` as an empty heading. */
 const isSpaceOrTab = (character: string | undefined): boolean => {
   return character === " " || character === "\t"
 }
 
+/** Removes an ATX heading's optional closing sequence per CommonMark §4.2: one
+ *  or more `#` at the end of the text, after a space or tab or as the whole
+ *  text. `## Title ##` reads as `Title`, and `### ###` as an empty heading. */
 const stripClosingHashes = (text: string): string => {
   // Three backward scans, each over its own run of characters, keep the work
   // linear in the text's length. When no `#` sits before the trailing spaces,
