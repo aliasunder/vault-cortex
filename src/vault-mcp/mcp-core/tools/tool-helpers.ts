@@ -338,8 +338,8 @@ export const describeProtectedPaths = (params: {
  *  break because it joins a list mid-way. It is "" when the server never reads
  *  the file: DAILY_NOTES_FOLDER and PROTECTED_PATHS both bypass it. */
 export const describeDailyNotesConfigErrorEntry = (config: VaultConfig): string => {
-  // A set DAILY_NOTES_FOLDER skips the file even when it loads as "" (the
-  // vault root), so the test is on set-ness, not truthiness.
+  // DAILY_NOTES_FOLDER set to the vault root loads as "" and still skips the
+  // file, so the delete and move guard reads it only when the folder is unset.
   const readsDailyNotesConfig =
     !config.protectedPathsOverride && config.dailyNotesFolder === undefined
 
