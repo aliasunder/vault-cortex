@@ -145,8 +145,8 @@ const findIdRank = (rankedIds: readonly string[], id: string): number => {
  * Gives every node id and edge endpoint a rank: equal ids share a rank, and
  * ranks follow compareIds order, which smallestContainingGroup's tie-breaks rely
  * on. An endpoint id that no node has still gets a rank, which no node shares, so
- * the edge list names that endpoint as missing. Later steps then compare and look
- * up numbers instead of ids:
+ * the edge list names that endpoint as missing. Ranks run from 0 to `rankCount - 1`,
+ * so later steps compare numbers and index arrays by rank instead of using ids:
  * - a crafted canvas can hold thousands of long ids that share a prefix, and
  *   nesting can compare ids once per group and node pair, so each of those
  *   comparisons would read the whole prefix;
@@ -159,7 +159,7 @@ const findIdRank = (rankedIds: readonly string[], id: string): number => {
 const rankCanvasIds = (params: {
   nodes: readonly CanvasNode[]
   edges: readonly CanvasEdge[]
-}): { nodes: RankedNode[]; edges: RankedEdge[] } => {
+}): { nodes: RankedNode[]; edges: RankedEdge[]; rankCount: number } => {
   const endpointIds = params.edges.flatMap((edge) => [edge.fromNode, edge.toNode])
   const sortedIds = [...params.nodes.map((node) => node.id), ...endpointIds].toSorted(compareIds)
 
@@ -174,6 +174,7 @@ const rankCanvasIds = (params: {
       fromRank: findIdRank(rankedIds, edge.fromNode),
       toRank: findIdRank(rankedIds, edge.toNode),
     })),
+    rankCount: rankedIds.length,
   }
 }
 
@@ -445,11 +446,19 @@ export const linearizeCanvas = (canvasJson: string): string => {
     : nodes.map(renderFlatNode)
 
   // Each node's name is worked out once, because an edge list can name the
-  // same node on every line and a text card's name scans its whole text.
-  // A later node with a repeated ID replaces the earlier one's entry.
-  const edgeNameByRank = new Map(nodes.map((node) => [node.idRank, edgeLineName(node)]))
+  // same node on every line and a text card's name scans its whole text:
+  // - The names sit in an array indexed by rank, not a Map. V8 hashes integer
+  //   Map keys with a fixed function, so a canvas could pick ids whose ranks
+  //   share one bucket and make every lookup walk it.
+  // - The array is filled to its full length first, so V8 keeps it a plain
+  //   array instead of a hash table keyed by index.
+  // - A later node with a repeated ID replaces the earlier one's entry.
+  const edgeNameByRank = Array.from<string | undefined>({ length: ranked.rankCount })
+  for (const node of nodes) {
+    edgeNameByRank[node.idRank] = edgeLineName(node)
+  }
   const edgeEndpointName = (endpoint: { rank: number; id: string }): string => {
-    return edgeNameByRank.get(endpoint.rank) ?? `(missing node "${endpoint.id}")`
+    return edgeNameByRank[endpoint.rank] ?? `(missing node "${endpoint.id}")`
   }
 
   const edgeLines = edges.map((edge) => {
