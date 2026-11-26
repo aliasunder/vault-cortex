@@ -449,7 +449,7 @@ export const linearizeCanvas = (canvasJson: string): string => {
   // same node on every line and a text card's name scans its whole text:
   // - The names sit in an array indexed by rank, not a Map. V8 hashes integer
   //   Map keys with a fixed function, so a canvas could pick ids whose ranks
-  //   share one bucket and make every lookup walk it.
+  //   share one bucket and make each lookup of those ranks walk it.
   // - The array is filled to its full length first, so V8 keeps it a plain
   //   array instead of a hash table keyed by index.
   // - A later node with a repeated ID replaces the earlier one's entry.
