@@ -326,7 +326,8 @@ What each release's notes list:
     counts: the templates ship optional settings commented out, for the user
     to uncomment.
 
-  In other files, `cli/README.md` included, every non-blank line counts.
+  The comment rule covers only `.ts` files: in `cli/README.md` and every
+  other file, every non-blank line counts.
 
 See the [DEPLOY.md CI/CD section](./DEPLOY.md#cicd) for details on each workflow.
 
