@@ -959,15 +959,16 @@ export const createSearchIndex = (
     `SELECT body_tags FROM notes WHERE path = ?`,
   )
 
-  /** Note paths cached for resolving canvas links. Note upserts, removals, rebuild resets and
-   *  rebuild rollbacks clear the cache. */
-  let cachedNotePathsForCanvasLinks: readonly string[] | undefined
-  const getNotePathsForCanvasLinks = (): readonly string[] => {
-    if (cachedNotePathsForCanvasLinks) return cachedNotePathsForCanvasLinks
-
-    const notePaths = selectAllNotePathsStmt.all().map((note) => note.path)
-    cachedNotePathsForCanvasLinks = notePaths
-    return notePaths
+  /** The note paths every link resolves against, read from the notes table on first use.
+   *  - links.resolve caches its lookups by list, so they last until the set of notes changes.
+   *  - A write that adds or removes a note clears the list inside its transaction, before
+   *    anything resolves against it; an edit of an existing note keeps it.
+   *  - A write that fails clears both path lists (clearPathListCaches), since its
+   *    transaction may have read a path that the rollback removed. */
+  let cachedNotePaths: readonly string[] | undefined
+  const getNotePaths = (): readonly string[] => {
+    cachedNotePaths ??= selectAllNotePathsStmt.all().map((note) => note.path)
+    return cachedNotePaths
   }
 
   // ── Non-markdown file awareness ────────────────────────────────
@@ -988,8 +989,19 @@ export const createSearchIndex = (
   const selectAllNonMdPathsStmt = db.prepare<unknown[], { path: string }>(
     `SELECT path FROM non_md_files`,
   )
-  const readNonMarkdownPaths = (): string[] => {
-    return selectAllNonMdPathsStmt.all().map((file) => file.path)
+
+  /** The non-markdown paths every file link resolves against, cached and cleared as
+   *  getNotePaths' list is, by the writes that add or remove a file. */
+  let cachedNonMarkdownPaths: readonly string[] | undefined
+  const getNonMarkdownPaths = (): readonly string[] => {
+    cachedNonMarkdownPaths ??= selectAllNonMdPathsStmt.all().map((file) => file.path)
+    return cachedNonMarkdownPaths
+  }
+
+  /** Clears both path lists, for a rebuild reset and for a write that failed. */
+  const clearPathListCaches = (): void => {
+    cachedNotePaths = undefined
+    cachedNonMarkdownPaths = undefined
   }
 
   // ── File content prepared statements (conditional on fileToolsEnabled) ──
@@ -1398,17 +1410,12 @@ export const createSearchIndex = (
   /** A note wins over a non-markdown file, and an unresolved link keeps its text as the target.
    *  The file tier is links.resolveAsset, the resolver the note mover uses, so the index and a
    *  move agree on where a file link points. */
-  const resolveLinkTarget = (params: {
-    linkText: string
-    notePaths: readonly string[]
-    nonMarkdownPaths: readonly string[]
-    sourcePath: string
-  }): string => {
-    const { linkText, notePaths, nonMarkdownPaths, sourcePath } = params
+  const resolveLinkTarget = (params: { linkText: string; sourcePath: string }): string => {
+    const { linkText, sourcePath } = params
 
     return (
-      links.resolve({ target: linkText, allPaths: notePaths, sourcePath }) ??
-      links.resolveAsset({ target: linkText, allAssetPaths: nonMarkdownPaths, sourcePath }) ??
+      links.resolve({ target: linkText, allPaths: getNotePaths(), sourcePath }) ??
+      links.resolveAsset({ target: linkText, allAssetPaths: getNonMarkdownPaths(), sourcePath }) ??
       linkText
     )
   }
@@ -1422,21 +1429,14 @@ export const createSearchIndex = (
     insertLinkStmt.run({ ...params, linkName: links.pathToLinkName(params.linkText) })
   }
 
-  /** Stores the links typed in one note, or in one canvas's text cards, as
-   *  "link" rows. They all resolve against the same two path lists, and the
-   *  resolvers build their lookups once per list. */
-  const insertTypedLinks = (params: {
-    source: string
-    linkTexts: readonly string[]
-    notePaths: readonly string[]
-    nonMarkdownPaths: readonly string[]
-  }): void => {
-    const { source, linkTexts, notePaths, nonMarkdownPaths } = params
+  /** Stores the links typed in one note, or in one canvas's text cards, as "link" rows. */
+  const insertTypedLinks = (params: { source: string; linkTexts: readonly string[] }): void => {
+    const { source, linkTexts } = params
 
     for (const linkText of linkTexts) {
       insertLink({
         source,
-        target: resolveLinkTarget({ linkText, notePaths, nonMarkdownPaths, sourcePath: source }),
+        target: resolveLinkTarget({ linkText, sourcePath: source }),
         linkText,
         linkKind: "link",
       })
@@ -1445,16 +1445,10 @@ export const createSearchIndex = (
 
   /** Re-resolves "link" rows from their text and updates each row whose target
    *  changes. Call it inside the write that added or removed a file, after that
-   *  write's own changes. */
+   *  write's own changes and after it cleared the path list it changed. */
   const reResolveLinks = (storedLinks: readonly StoredLink[]): void => {
     if (storedLinks.length === 0) return
 
-    // Read here rather than from getNotePathsForCanvasLinks' cache, so the
-    // paths include the file the triggering write just added or removed.
-    // Every link resolves against these two lists, so the resolvers build
-    // their lookups once.
-    const notePaths = selectAllNotePathsStmt.all().map((note) => note.path)
-    const nonMarkdownPaths = readNonMarkdownPaths()
     // Only the relative tiers read a link's source, and only its folder, so one
     // answer serves every link with the same text from the same folder.
     const resolvedTargets = new Map<string, string>()
@@ -1470,8 +1464,7 @@ export const createSearchIndex = (
       // - JSON quoting would grow control characters six-fold, past that bound.
       const memoKey = `${posix.dirname(source)}\u0000${linkText}`
       const resolvedTarget =
-        resolvedTargets.get(memoKey) ??
-        resolveLinkTarget({ linkText, notePaths, nonMarkdownPaths, sourcePath: source })
+        resolvedTargets.get(memoKey) ?? resolveLinkTarget({ linkText, sourcePath: source })
       resolvedTargets.set(memoKey, resolvedTarget)
 
       if (resolvedTarget === target) continue
@@ -1504,6 +1497,7 @@ export const createSearchIndex = (
       const baseFilename = links.stripExtension(basename(file.relativePath))
       upsertNonMdFileStmt.run(file.relativePath, basePath, baseFilename, file.bytes)
     }
+    cachedNonMarkdownPaths = undefined
     return files.length
   }
 
@@ -1515,11 +1509,13 @@ export const createSearchIndex = (
 
     // The wrap is immediate because it reads whether the path is new before
     // its first write (see the busy_timeout comment above).
-    db.transaction(() => {
+    const upsertNonMdFileRow = db.transaction(() => {
       const isNewFile = !selectNonMdPathStmt.get(filePath)
       upsertNonMdFileStmt.run(filePath, basePath, baseFilename, bytes)
 
       if (!isNewFile) return
+
+      cachedNonMarkdownPaths = undefined
 
       // A link names the file by its full filename ([[photo.png]]) or by its
       // stem ([[Trip Route]] for Trip Route.canvas), the basename column.
@@ -1534,16 +1530,31 @@ export const createSearchIndex = (
         links.pathToLinkName(`${fileName}.md`),
       ])
       reResolveLinksNaming(linkNames)
-    }).immediate()
+    }).immediate
+
+    // The catch encloses the transaction call, so a failed COMMIT clears the lists too.
+    try {
+      upsertNonMdFileRow()
+    } catch (error) {
+      clearPathListCaches()
+      throw error
+    }
   }
 
   /** Removes a non-markdown file. Called by the file watcher on unlink. The
    *  links that resolved to it re-resolve, to another file or to their text. */
   const removeNonMdFile = (filePath: string): void => {
-    db.transaction(() => {
-      deleteNonMdFileStmt.run(filePath)
-      reResolveLinksTo(filePath)
-    })()
+    try {
+      db.transaction(() => {
+        const { changes } = deleteNonMdFileStmt.run(filePath)
+
+        if (changes > 0) cachedNonMarkdownPaths = undefined
+        reResolveLinksTo(filePath)
+      })()
+    } catch (error) {
+      clearPathListCaches()
+      throw error
+    }
   }
 
   // ── File content indexing ─────────────────────────────────────
@@ -1624,15 +1635,8 @@ export const createSearchIndex = (
           })
         }
 
-        // A link typed in a text card resolves as the same link in a note. A
-        // canvas with no such link skips reading every note path from the table.
-        const notePaths = canvasLinks.textCardLinks.length > 0 ? getNotePathsForCanvasLinks() : []
-        insertTypedLinks({
-          source: params.filePath,
-          linkTexts: canvasLinks.textCardLinks,
-          notePaths,
-          nonMarkdownPaths: canvasLinks.textCardLinks.length > 0 ? readNonMarkdownPaths() : [],
-        })
+        // A link typed in a text card resolves as the same link in a note.
+        insertTypedLinks({ source: params.filePath, linkTexts: canvasLinks.textCardLinks })
       }
     })()
 
@@ -1900,7 +1904,7 @@ export const createSearchIndex = (
     // throw rolls back), so code after the wrap runs on both paths
     // — no link-phase work may live there. The wrap is immediate because it
     // reads whether the note is new before its first write.
-    db.transaction(() => {
+    const upsertNoteRows = db.transaction(() => {
       const isNewNote = !selectNotePathStmt.get(note.path)
       const upsertedNoteRow = upsertNotesStmt.get(
         note.path,
@@ -1921,6 +1925,10 @@ export const createSearchIndex = (
 
       // RETURNING yields the inserted or updated row on every upsert.
       if (!upsertedNoteRow) throw new Error(`note upsert returned no row: ${note.path}`)
+
+      // A new note changes the set of notes, so this write's links read the list again.
+      if (isNewNote) cachedNotePaths = undefined
+
       deleteFtsStmt.run(upsertedNoteRow.rowid)
       insertFtsStmt.run({
         rowid: upsertedNoteRow.rowid,
@@ -1975,23 +1983,22 @@ export const createSearchIndex = (
 
       if (skipLinks) return
 
-      const allPaths = selectAllNotePathsStmt.all()
-      const pathList = allPaths.map((row) => row.path)
-
       deleteLinksStmt.run(note.path)
-      insertTypedLinks({
-        source: note.path,
-        linkTexts: links.extractAll(noteBody, frontmatter),
-        notePaths: pathList,
-        nonMarkdownPaths: readNonMarkdownPaths(),
-      })
+      insertTypedLinks({ source: note.path, linkTexts: links.extractAll(noteBody, frontmatter) })
 
       // An edit leaves the set of paths, and so every other link's answer,
       // unchanged; a new path can claim the links that name it.
       if (isNewNote) reResolveLinksNaming([links.pathToLinkName(note.path)])
-    }).immediate()
+    }).immediate
 
-    cachedNotePathsForCanvasLinks = undefined
+    // The catch encloses the transaction call, so a failed COMMIT clears the lists too.
+    try {
+      upsertNoteRows()
+    } catch (error) {
+      clearPathListCaches()
+      throw error
+    }
+
     const sourceVersion = Symbol()
     sourceVersions.set(filePath, sourceVersion)
 
@@ -2487,19 +2494,27 @@ export const createSearchIndex = (
 
     // All deletes commit or roll back together — a mid-sequence throw must
     // not leave the note half-removed across notes/FTS/tasks/links.
-    db.transaction(() => {
-      const removedNoteRow = removeNotesStmt.get(filePath)
+    try {
+      db.transaction(() => {
+        const removedNoteRow = removeNotesStmt.get(filePath)
 
-      if (removedNoteRow) deleteFtsStmt.run(removedNoteRow.rowid)
-      deleteLinksStmt.run(filePath)
-      reResolveLinksTo(filePath)
-      deleteTasksStmt.run(filePath)
-      removeNoteChunksAndVectors(filePath)
-      if (memoryFile) {
-        removeMemoryEntriesForFile(memoryFile)
-      }
-    })()
-    cachedNotePathsForCanvasLinks = undefined
+        if (removedNoteRow) {
+          deleteFtsStmt.run(removedNoteRow.rowid)
+          cachedNotePaths = undefined
+        }
+        deleteLinksStmt.run(filePath)
+        reResolveLinksTo(filePath)
+        deleteTasksStmt.run(filePath)
+        removeNoteChunksAndVectors(filePath)
+        if (memoryFile) {
+          removeMemoryEntriesForFile(memoryFile)
+        }
+      })()
+    } catch (error) {
+      // The transaction may have read a path list without the note it rolled back.
+      clearPathListCaches()
+      throw error
+    }
     sourceVersions.delete(filePath)
   }
 
@@ -2544,7 +2559,7 @@ export const createSearchIndex = (
     )
 
     sourceVersions.clear()
-    cachedNotePathsForCanvasLinks = undefined
+    clearPathListCaches()
 
     // If directory listing fails after this reset, source tables stay empty until the next rebuild.
     db.exec("DELETE FROM notes_fts")
@@ -2903,10 +2918,7 @@ export const createSearchIndex = (
         // resolving targets that the per-note upsertNote pass may have missed
         // (e.g. Note A links to Note B, but Note B was indexed after Note A).
         // Each link resolves as in upsertNote's link step.
-        const allPaths = selectAllNotePathsStmt.all()
-        const pathList = allPaths.map((row) => row.path)
-        cachedNotePathsForCanvasLinks = pathList
-        const nonMarkdownPaths = readNonMarkdownPaths()
+        cachedNotePaths = selectAllNotePathsStmt.all().map((row) => row.path)
 
         // No source write may run during a rebuild, so this second clear
         // normally finds nothing. It stays so that a link written during the
@@ -2925,8 +2937,6 @@ export const createSearchIndex = (
               insertTypedLinks({
                 source: note.relativePath,
                 linkTexts: links.extractAll(parsed.content, parsed.data),
-                notePaths: pathList,
-                nonMarkdownPaths,
               })
             })()
           } catch (error) {
@@ -2981,7 +2991,7 @@ export const createSearchIndex = (
       })()
     } catch (error) {
       sourceVersions.clear()
-      cachedNotePathsForCanvasLinks = undefined
+      clearPathListCaches()
       throw error
     }
 

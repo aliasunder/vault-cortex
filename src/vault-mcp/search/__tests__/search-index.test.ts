@@ -10739,19 +10739,22 @@ describe("canvas note catalog reuse", () => {
     search.upsertNonMdFile("Target.canvas", 100)
     saveCanvas(search, "Target")
     expect(outgoingPaths(search)).toEqual(["Target.canvas"])
+    // Each write that adds or removes a note reads the catalog once, when it
+    // re-resolves the canvas link, and the save after it reuses that read.
+    scans.mockClear()
     search.upsertNote(
       withBodyTags({ filePath: "Target.md", rawContent: "targetamber", fileStat: testStat(1000) }),
       logger,
     )
-    scans.mockClear()
     saveCanvas(search, "Target")
     expect(scans).toHaveBeenCalledTimes(1)
     expect(outgoingPaths(search)).toEqual(["Target.md"])
-    search.removeNote("Target.md")
     scans.mockClear()
+    search.removeNote("Target.md")
     saveCanvas(search, "Target")
     expect(scans).toHaveBeenCalledTimes(1)
     expect(outgoingPaths(search)).toEqual(["Target.canvas"])
+    scans.mockClear()
     search.upsertNote(
       withBodyTags({
         filePath: "Target.md",
@@ -10760,7 +10763,6 @@ describe("canvas note catalog reuse", () => {
       }),
       logger,
     )
-    scans.mockClear()
     saveCanvas(search, "Target")
     saveCanvas(search, "Target")
     expect(scans).toHaveBeenCalledTimes(1)
@@ -10872,6 +10874,178 @@ describe("canvas note catalog reuse", () => {
     await recovered.pdfPass
     saveCanvas(search, "Target")
     expect(outgoingPaths(search)).toEqual(["Target.md"])
+  })
+})
+
+describe("path lists links resolve against", () => {
+  const saveNote = (search: SearchIndex, filePath: string, rawContent: string): void => {
+    search.upsertNote(withBodyTags({ filePath, rawContent, fileStat: testStat(1000) }), logger)
+  }
+  const outgoingPaths = (search: SearchIndex, notePath: string): string[] => {
+    return search
+      .getOutgoingLinks({ path: notePath, dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT }, logger)
+      .map((link) => link.path)
+  }
+  const indexedNotePaths = (search: SearchIndex): string[] => {
+    return search
+      .recentNotes({}, logger)
+      .map((note) => note.path)
+      .toSorted()
+  }
+  const INJECTED_FAILURE = "injected failure"
+
+  // In each test below, an edit of an existing note resolves a link first, which
+  // fills the path lists, so a write that kept a stale list would be caught.
+
+  it("a new note resolves a link to itself and claims a stored link that named it", () => {
+    const search = createSearchIndex(":memory:")
+    saveNote(search, "source.md", "[[New]]")
+    saveNote(search, "source.md", "[[New]] edited")
+
+    saveNote(search, "New.md", "[[New]]")
+
+    expect(outgoingPaths(search, "New.md")).toEqual(["New.md"])
+    expect(outgoingPaths(search, "source.md")).toEqual(["New.md"])
+  })
+
+  it("a removed note's incoming links fall back to their text", () => {
+    const search = createSearchIndex(":memory:")
+    saveNote(search, "Target.md", "# Target")
+    saveNote(search, "source.md", "[[Target]]")
+    saveNote(search, "source.md", "[[Target]] edited")
+    expect(outgoingPaths(search, "source.md")).toEqual(["Target.md"])
+
+    search.removeNote("Target.md")
+
+    expect(outgoingPaths(search, "source.md")).toEqual(["Target"])
+  })
+
+  it("a new non-markdown file claims a stored link that named it", () => {
+    const search = createSearchIndex(":memory:")
+    saveNote(search, "source.md", "![[photo.png]]")
+    saveNote(search, "source.md", "![[photo.png]] edited")
+    expect(outgoingPaths(search, "source.md")).toEqual(["photo.png"])
+
+    search.upsertNonMdFile("assets/photo.png", 100)
+
+    expect(outgoingPaths(search, "source.md")).toEqual(["assets/photo.png"])
+  })
+
+  it("a removed non-markdown file's incoming links fall back to their text", () => {
+    const search = createSearchIndex(":memory:")
+    search.upsertNonMdFile("assets/photo.png", 100)
+    saveNote(search, "source.md", "![[photo.png]]")
+    saveNote(search, "source.md", "![[photo.png]] edited")
+    expect(outgoingPaths(search, "source.md")).toEqual(["assets/photo.png"])
+
+    search.removeNonMdFile("assets/photo.png")
+
+    expect(outgoingPaths(search, "source.md")).toEqual(["photo.png"])
+  })
+
+  it("two edits of an existing note resolve against the same note path list", () => {
+    const search = createSearchIndex(":memory:")
+    saveNote(search, "Target.md", "# Target")
+    saveNote(search, "source.md", "[[Target]]")
+    const originalResolve = links.resolve
+    const notePathLists = new Set<readonly string[]>()
+    const resolveSpy = vi.spyOn(links, "resolve").mockImplementation((params) => {
+      notePathLists.add(params.allPaths)
+      return originalResolve(params)
+    })
+    onTestFinished(() => resolveSpy.mockRestore())
+
+    saveNote(search, "source.md", "[[Target]] edited once")
+    saveNote(search, "source.md", "[[Target]] edited twice")
+
+    expect(resolveSpy).toHaveBeenCalledTimes(2)
+    expect(notePathLists.size).toBe(1)
+    expect(outgoingPaths(search, "source.md")).toEqual(["Target.md"])
+  })
+
+  it("an edit after a new note's upsert fails does not resolve to the rolled-back note", () => {
+    const search = createSearchIndex(":memory:")
+    saveNote(search, "source.md", "[[Ghost]]")
+    saveNote(search, "other.md", "# Other")
+    const originalPathToLinkName = links.pathToLinkName
+    // insertLink keys every link through pathToLinkName, so the failure is
+    // limited to the new note's own path, which only its re-resolution step
+    // passes. That step runs after the link step refilled the note list.
+    const pathToLinkNameSpy = vi.spyOn(links, "pathToLinkName").mockImplementation((path) => {
+      if (path === "Ghost.md") throw new Error(INJECTED_FAILURE)
+      return originalPathToLinkName(path)
+    })
+    onTestFinished(() => pathToLinkNameSpy.mockRestore())
+
+    expect(() => saveNote(search, "Ghost.md", "[[other]]")).toThrow(new Error(INJECTED_FAILURE))
+    pathToLinkNameSpy.mockRestore()
+    expect(indexedNotePaths(search)).toEqual(["other.md", "source.md"])
+
+    saveNote(search, "source.md", "[[Ghost]] edited")
+
+    expect(outgoingPaths(search, "source.md")).toEqual(["Ghost"])
+  })
+
+  it("an edit after a note removal fails still resolves to the note the rollback kept", () => {
+    const search = createSearchIndex(":memory:")
+    saveNote(search, "Target.md", "# Target")
+    saveNote(search, "source.md", "[[Target]]")
+    saveNote(search, "other.md", "[[Target]]")
+    // The removal's re-resolution reads the note list, without Target.md, and
+    // then calls links.resolve, which fails.
+    const resolveSpy = vi.spyOn(links, "resolve").mockImplementationOnce(() => {
+      throw new Error(INJECTED_FAILURE)
+    })
+    onTestFinished(() => resolveSpy.mockRestore())
+
+    expect(() => search.removeNote("Target.md")).toThrow(new Error(INJECTED_FAILURE))
+    resolveSpy.mockRestore()
+    expect(indexedNotePaths(search)).toEqual(["Target.md", "other.md", "source.md"])
+
+    saveNote(search, "other.md", "[[Target]] edited")
+
+    expect(outgoingPaths(search, "other.md")).toEqual(["Target.md"])
+  })
+
+  it("an edit after a new file's upsert fails does not resolve to the rolled-back file", () => {
+    const search = createSearchIndex(":memory:")
+    saveNote(search, "source.md", "![[photo.png]]")
+    saveNote(search, "other.md", "# Other")
+    // The new file's re-resolution reads the file list, with the new file, and
+    // then calls links.resolveAsset, which fails.
+    const resolveAssetSpy = vi.spyOn(links, "resolveAsset").mockImplementationOnce(() => {
+      throw new Error(INJECTED_FAILURE)
+    })
+    onTestFinished(() => resolveAssetSpy.mockRestore())
+
+    expect(() => search.upsertNonMdFile("assets/photo.png", 100)).toThrow(
+      new Error(INJECTED_FAILURE),
+    )
+    resolveAssetSpy.mockRestore()
+
+    saveNote(search, "other.md", "![[photo.png]]")
+
+    expect(outgoingPaths(search, "other.md")).toEqual(["photo.png"])
+  })
+
+  it("an edit after a file removal fails still resolves to the file the rollback kept", () => {
+    const search = createSearchIndex(":memory:")
+    search.upsertNonMdFile("assets/photo.png", 100)
+    saveNote(search, "source.md", "![[photo.png]]")
+    saveNote(search, "other.md", "# Other")
+    // The removal's re-resolution reads the file list, without the file, and
+    // then calls links.resolveAsset, which fails.
+    const resolveAssetSpy = vi.spyOn(links, "resolveAsset").mockImplementationOnce(() => {
+      throw new Error(INJECTED_FAILURE)
+    })
+    onTestFinished(() => resolveAssetSpy.mockRestore())
+
+    expect(() => search.removeNonMdFile("assets/photo.png")).toThrow(new Error(INJECTED_FAILURE))
+    resolveAssetSpy.mockRestore()
+
+    saveNote(search, "other.md", "![[photo.png]]")
+
+    expect(outgoingPaths(search, "other.md")).toEqual(["assets/photo.png"])
   })
 })
 
