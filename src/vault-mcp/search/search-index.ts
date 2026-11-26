@@ -2237,15 +2237,17 @@ export const createSearchIndex = (
 
   /** Runs a note or file embedding job after the previous one settles, whatever
    *  its outcome, and returns the job's own result or rejection.
-   *  - Jobs for different paths take turns, so the server holds one chunk list
-   *    at a time.
-   *  - Only the running job waits on a tool call, so one job's model call, not
-   *    one per waiting job, runs when the foreground wait times out. */
+   *  - Jobs for different paths take turns, so the server holds one note's or
+   *    file's chunks at a time.
+   *  - Only the running job waits on a tool call, so when the foreground wait
+   *    times out, one of these jobs' model calls runs, not one per waiting job.
+   *  - embedMemoryEntriesForFile runs outside this queue, so its batches can
+   *    wait and call the model while a job here does. */
   const runEmbeddingJob = <JobResult>(job: () => Promise<JobResult>): Promise<JobResult> => {
     // A promise chain is the queue: each job starts from the one before it.
     // allSettled lets a rejected job release the next one, while the rejection
     // still reaches that job's own caller.
-    const currentJob = Promise.allSettled([lastEmbeddingJob]).then(job)
+    const currentJob = Promise.allSettled([lastEmbeddingJob]).then(() => job())
     lastEmbeddingJob = currentJob
     return currentJob
   }
@@ -2261,7 +2263,7 @@ export const createSearchIndex = (
     logger: Logger,
     // eslint-disable-next-line complexity -- this function is over the limit; split it before adding a branch
   ): Promise<number> => {
-    const { notePath, rawContent } = params
+    const { notePath, rawContent, sourceVersion } = params
 
     if (
       !embedder ||
@@ -2269,6 +2271,7 @@ export const createSearchIndex = (
       !selectChunkHashesStmt ||
       !selectChunkIdStmt ||
       !deleteStaleChunksStmt ||
+      !deleteStaleVectorsStmt ||
       !insertVectorStmt ||
       !deleteVectorByChunkIdStmt ||
       !selectNoteVectorsStmt
@@ -2276,11 +2279,7 @@ export const createSearchIndex = (
       return 0
     }
 
-    if (
-      !isCurrentSourceVersion({ sourcePath: notePath, sourceVersion: params.sourceVersion }, logger)
-    ) {
-      return 0
-    }
+    if (!isCurrentSourceVersion({ sourcePath: notePath, sourceVersion }, logger)) return 0
 
     // Re-parsing is pure, so this reads what upsertNote read; the unreadable-block
     // error is ignored because upsertNote already logged it
@@ -2332,17 +2331,14 @@ export const createSearchIndex = (
       const vectorBytes =
         storedVector ??
         (await embedChunkWhenIdle(
-          { text: chunk.text, sourcePath: notePath, sourceVersion: params.sourceVersion },
+          { text: chunk.text, sourcePath: notePath, sourceVersion },
           logger,
         ))
 
       if (!vectorBytes) return embeddedCount
       // No await separates this check from the write below, so a job
       // superseded while it waited or while the model ran writes nothing
-      const isCurrentJob = isCurrentSourceVersion(
-        { sourcePath: notePath, sourceVersion: params.sourceVersion },
-        logger,
-      )
+      const isCurrentJob = isCurrentSourceVersion({ sourcePath: notePath, sourceVersion }, logger)
 
       if (!isCurrentJob) return embeddedCount
       if (!storedVector) storedVectors.remember(hash, vectorBytes)
@@ -2380,9 +2376,7 @@ export const createSearchIndex = (
       if (storedVector) reusedCount++
     }
 
-    if (
-      !isCurrentSourceVersion({ sourcePath: notePath, sourceVersion: params.sourceVersion }, logger)
-    ) {
+    if (!isCurrentSourceVersion({ sourcePath: notePath, sourceVersion }, logger)) {
       return embeddedCount
     }
 
@@ -2390,7 +2384,7 @@ export const createSearchIndex = (
     // old tail starts at chunks.length; remove its vectors before their parent rows,
     // in one transaction so a crash cannot leave a chunk row whose vector is gone.
     db.transaction(() => {
-      if (deleteStaleVectorsStmt) deleteStaleVectorsStmt.run(notePath, chunks.length)
+      deleteStaleVectorsStmt.run(notePath, chunks.length)
       deleteStaleChunksStmt.run(notePath, chunks.length)
     })()
 
@@ -2493,21 +2487,14 @@ export const createSearchIndex = (
     params: { notePath: string; rawContent: string; sourceVersion: symbol },
     logger: Logger,
   ): Promise<void> => {
+    const { notePath, sourceVersion } = params
+
     if (!embedder) return
     await embedAndStoreChunks(params, logger)
-    const memoryFile = memoryFileNameFromPath(params.notePath)
+    const memoryFile = memoryFileNameFromPath(notePath)
 
-    if (
-      memoryFile &&
-      isCurrentSourceVersion(
-        { sourcePath: params.notePath, sourceVersion: params.sourceVersion },
-        logger,
-      )
-    ) {
-      await embedMemoryEntriesForFile(
-        { memoryFile, notePath: params.notePath, sourceVersion: params.sourceVersion },
-        logger,
-      )
+    if (memoryFile && isCurrentSourceVersion({ sourcePath: notePath, sourceVersion }, logger)) {
+      await embedMemoryEntriesForFile({ memoryFile, notePath, sourceVersion }, logger)
     }
   }
 
@@ -2522,13 +2509,16 @@ export const createSearchIndex = (
     logger: Logger,
     // eslint-disable-next-line complexity -- this function is over the limit; split it before adding a branch
   ): Promise<number> => {
+    const { filePath, sourceVersion } = params
+
     if (
-      !embedder ||
+      !fileContentVectorEnabled ||
       !selectFileContentForEmbeddingStmt ||
       !upsertFileChunkStmt ||
       !selectFileChunkHashesStmt ||
       !selectFileChunkIdStmt ||
       !deleteStaleFileChunksStmt ||
+      !deleteStaleFileVectorsStmt ||
       !insertFileVectorStmt ||
       !deleteFileVectorByChunkIdStmt ||
       !selectFileVectorsStmt
@@ -2537,17 +2527,12 @@ export const createSearchIndex = (
     }
 
     // Checked before the content loads, so a script's text is never read for embedding
-    if (!EMBEDDED_FILE_KINDS.has(getFileKind(params.filePath))) return 0
-    if (
-      !isCurrentSourceVersion(
-        { sourcePath: params.filePath, sourceVersion: params.sourceVersion },
-        logger,
-      )
-    ) {
+    if (!EMBEDDED_FILE_KINDS.has(getFileKind(filePath))) return 0
+    if (!isCurrentSourceVersion({ sourcePath: filePath, sourceVersion }, logger)) {
       return 0
     }
 
-    const fileContentRow = selectFileContentForEmbeddingStmt.get(params.filePath)
+    const fileContentRow = selectFileContentForEmbeddingStmt.get(filePath)
 
     if (!fileContentRow) return 0
 
@@ -2556,16 +2541,16 @@ export const createSearchIndex = (
     const chunks = chunkContent({
       noteTitle: fileContentRow.title,
       bodyContent: fileContentRow.content,
-      sourcePath: params.filePath,
+      sourcePath: filePath,
     })
 
     const existingHashes = new Map(
       selectFileChunkHashesStmt
-        .all(params.filePath)
+        .all(filePath)
         .map((chunkHashRow) => [chunkHashRow.chunk_index, chunkHashRow.content_hash]),
     )
 
-    const storedVectors = createStoredVectorLookup(() => selectFileVectorsStmt.all(params.filePath))
+    const storedVectors = createStoredVectorLookup(() => selectFileVectorsStmt.all(filePath))
 
     // The debug log line reports the rows written and how many of them reused
     // a stored vector instead of calling the model
@@ -2585,41 +2570,38 @@ export const createSearchIndex = (
       const vectorBytes =
         storedVector ??
         (await embedChunkWhenIdle(
-          { text: chunk.text, sourcePath: params.filePath, sourceVersion: params.sourceVersion },
+          { text: chunk.text, sourcePath: filePath, sourceVersion },
           logger,
         ))
 
       if (!vectorBytes) return embeddedCount
       // No await separates this check from the write below, so a job
       // superseded while it waited or while the model ran writes nothing
-      const isCurrentJob = isCurrentSourceVersion(
-        { sourcePath: params.filePath, sourceVersion: params.sourceVersion },
-        logger,
-      )
+      const isCurrentJob = isCurrentSourceVersion({ sourcePath: filePath, sourceVersion }, logger)
 
       if (!isCurrentJob) return embeddedCount
       if (!storedVector) storedVectors.remember(hash, vectorBytes)
 
       db.transaction(() => {
-        const existingChunk = selectFileChunkIdStmt.get(params.filePath, chunk.index)
+        const existingChunk = selectFileChunkIdStmt.get(filePath, chunk.index)
 
         if (existingChunk) {
           deleteFileVectorByChunkIdStmt.run(BigInt(existingChunk.id))
         }
 
         upsertFileChunkStmt.run({
-          file_path: params.filePath,
+          file_path: filePath,
           chunk_index: chunk.index,
           chunk_text: chunk.text,
           content_hash: hash,
         })
 
         // INSERT OR REPLACE assigns a new rowid, so the vector must use the replacement's ID.
-        const chunkRow = selectFileChunkIdStmt.get(params.filePath, chunk.index)
+        const chunkRow = selectFileChunkIdStmt.get(filePath, chunk.index)
 
         if (!chunkRow) {
           throw new Error(
-            `file chunk row missing after upsert: ${params.filePath} chunk ${String(chunk.index)}`,
+            `file chunk row missing after upsert: ${filePath} chunk ${String(chunk.index)}`,
           )
         }
         insertFileVectorStmt.run(BigInt(chunkRow.id), vectorBytes)
@@ -2629,12 +2611,7 @@ export const createSearchIndex = (
       if (storedVector) reusedCount++
     }
 
-    if (
-      !isCurrentSourceVersion(
-        { sourcePath: params.filePath, sourceVersion: params.sourceVersion },
-        logger,
-      )
-    ) {
+    if (!isCurrentSourceVersion({ sourcePath: filePath, sourceVersion }, logger)) {
       return embeddedCount
     }
 
@@ -2642,12 +2619,12 @@ export const createSearchIndex = (
     // old tail starts at chunks.length; remove its vectors before their parent rows,
     // in one transaction so a crash cannot leave a chunk row whose vector is gone.
     db.transaction(() => {
-      if (deleteStaleFileVectorsStmt) deleteStaleFileVectorsStmt.run(params.filePath, chunks.length)
-      deleteStaleFileChunksStmt.run(params.filePath, chunks.length)
+      deleteStaleFileVectorsStmt.run(filePath, chunks.length)
+      deleteStaleFileChunksStmt.run(filePath, chunks.length)
     })()
 
     logger.debug("embedded file content", {
-      path: params.filePath,
+      path: filePath,
       totalChunks: chunks.length,
       embeddedCount,
       reusedCount,

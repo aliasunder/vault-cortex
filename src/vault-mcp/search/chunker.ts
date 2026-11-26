@@ -20,9 +20,9 @@
  *  7. A split that yields no fragments at all falls back to one
  *     whole-body chunk so the note never leaves the vector index
  *  8. Each prefix part (title, metadata line, heading name) is cut to
- *     MAX_CHUNK_PREFIX_PART_CODE_POINTS, and a note's chunks stop at its
- *     chunk text limit (see MAX_CHUNK_TEXT_PER_BODY_CHARACTER) or at
- *     MAX_NOTE_CHUNKS, so the chunks stay proportional to the note's length
+ *     MAX_CHUNK_PREFIX_PART_CODE_POINTS, and a note's chunks stop at the
+ *     limits MAX_CHUNK_TEXT_TO_BODY_RATIO, MAX_NOTE_CHUNK_TEXT_CHARACTERS and
+ *     MAX_NOTE_CHUNKS set, so the chunks stay proportional to the note's length
  *  9. Each chunk's text is cut to MAX_CHUNK_CODE_POINTS */
 
 import { parseHeadings, type HeadingInfo } from "../obsidian-markdown/headings.js"
@@ -47,9 +47,10 @@ const MIN_CHUNK_TOKENS = 50
  *  them, so a longer part would leave little or no body text in view. */
 const MAX_CHUNK_PREFIX_PART_CODE_POINTS = 2_000
 
-// A note's chunks stop at the smaller of the two text bounds below or at
-// MAX_NOTE_CHUNKS; the first chunk and the table-of-contents chunk are always
-// kept.
+// A note's chunks stop at MAX_NOTE_CHUNKS, or once their text would pass
+// MAX_CHUNK_TEXT_TO_BODY_RATIO times the stripped body's length or
+// MAX_NOTE_CHUNK_TEXT_CHARACTERS, whichever is smaller. The first chunk and the
+// table-of-contents chunk are always kept.
 
 /** A note's chunk texts total several times the length of its stripped body:
  *  each chunk repeats its prefix, and a section below the top level is also
@@ -58,7 +59,7 @@ const MAX_CHUNK_PREFIX_PART_CODE_POINTS = 2_000
  *  lengthens, reaching 50 only with a title of about 700 characters. 50
  *  leaves room above those while keeping a note's chunk text, and the work to
  *  embed it, proportional to the note's length. */
-const MAX_CHUNK_TEXT_PER_BODY_CHARACTER = 50
+const MAX_CHUNK_TEXT_TO_BODY_RATIO = 50
 
 /** Bounds a very large note's chunk text in memory; a real note at the densest
  *  measured ratio needs a stripped body over 3.5 MB to reach it. */
@@ -182,10 +183,11 @@ const takeWithinNoteLimits = (chunkTexts: Iterable<string>, maxCharacters: numbe
   let keptCharacters = 0
 
   for (const chunkText of chunkTexts) {
-    const exceedsLimit =
-      keptCharacters + chunkText.length > maxCharacters || keptTexts.length >= MAX_NOTE_CHUNKS
+    const isFirstText = keptTexts.length === 0
+    const passesCharacterLimit = keptCharacters + chunkText.length > maxCharacters
+    const chunkCountReached = keptTexts.length >= MAX_NOTE_CHUNKS
 
-    if (exceedsLimit && keptTexts.length > 0) break
+    if (!isFirstText && (passesCharacterLimit || chunkCountReached)) break
     keptTexts.push(chunkText)
     keptCharacters += chunkText.length
   }
@@ -462,7 +464,7 @@ export const chunkContent = (params: {
   const strippedBody = stripMarkdownSyntax(bodyContent)
   const bodyTokenCount = approximateTokenCount(strippedBody)
   const maxChunkTextCharacters = Math.min(
-    MAX_CHUNK_TEXT_PER_BODY_CHARACTER * strippedBody.length,
+    MAX_CHUNK_TEXT_TO_BODY_RATIO * strippedBody.length,
     MAX_NOTE_CHUNK_TEXT_CHARACTERS,
   )
 
@@ -537,9 +539,12 @@ export const chunkContent = (params: {
   ).trim()
   const preambleExists = Boolean(preambleText)
 
-  // A section span is split only when it is reached. Assembly stops at the
-  // first text past the note's chunk text limit or chunk count, before any
-  // later span is split or any later fragment is prefixed.
+  // A section span is split only when it is reached.
+  // - Assembly stops at the first text past the note's chunk text limit or
+  //   chunk count, before any later span is split or any later fragment is
+  //   prefixed.
+  // - That holds only while every step from the spans to takeWithinNoteLimits
+  //   stays an iterator. An array anywhere in the chain splits every span first.
   const sectionTexts = collectSectionSpans(headings, preambleExists)
     .values()
     .flatMap((sectionSpan) => {
