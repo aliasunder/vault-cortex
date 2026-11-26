@@ -1,7 +1,7 @@
 /** The options a delete resolves per call before the data layer runs: the
  *  protected folders, the trash setting and the retention sweep's hooks. Both
- *  delete tools (notes and files) resolve them here, so the Sync rule and the
- *  recording rule have one home. */
+ *  delete tools (notes and files) resolve them here, so the Obsidian Sync rule
+ *  and the rule for which trash moves are recorded each have one home. */
 
 import type { VaultConfig } from "../config.js"
 import type { SearchIndex } from "../search/search-index.js"
@@ -10,7 +10,7 @@ import { resolveEffectiveProtectedPaths } from "./vault-folder-config.js"
 import { readTrashConfig } from "./trash-config.js"
 import type { TrashOption } from "./trash-config.js"
 
-export type DeleteOptions = {
+export type ResolvedDeleteOptions = {
   protectedPaths: readonly string[]
   trashOption: TrashOption
   recordTrashEntry: SearchIndex["recordTrashEntry"] | undefined
@@ -24,7 +24,7 @@ export const resolveDeleteOptions = async (
     search: Pick<SearchIndex, "recordTrashEntry" | "deleteTrashEntry">
   },
   logger: Logger,
-): Promise<DeleteOptions> => {
+): Promise<ResolvedDeleteOptions> => {
   const { config, vaultPath, search } = params
   const protectedPaths = await resolveEffectiveProtectedPaths({ config, vaultPath }, logger)
 

@@ -309,8 +309,8 @@ export const LIMIT_TRUNCATION_CLAUSE =
 // ── Deleting notes and files ────────────────────────────────────
 // vault_delete_note and vault_delete_file share the trash-outcome text, the
 // protected-path and daily-notes entries, the pruning text and the result
-// text, which render from here with each tool's own noun; the per-call options
-// they share are resolved in vault-operations/delete-options.ts.
+// text, which render from here; the per-call options they share are resolved
+// in vault-operations/delete-options.ts.
 
 /** Protected-path list for tool descriptions. Descriptions are built once at
  *  registration and the daily notes folder is resolved per call, so the text
@@ -372,7 +372,7 @@ const DELETE_WORDS: Record<
  *  adds a clause of its own, so it is not this constant. */
 export const PRUNE_EMPTY_FOLDERS_PARAMETER_ENTRY =
   "- prune_empty_folders keeps a folder that holds any file, even a hidden .DS_Store. Pruning is best-effort: a folder that can't be removed never fails the call."
-export const PRUNE_EMPTY_FOLDERS_DESCRIBE =
+export const PRUNE_EMPTY_FOLDERS_DESCRIPTION =
   "When true, also remove parent folders the delete leaves empty. Default false."
 export const PRUNED_FOLDERS_RETURNS_SENTENCE =
   "Notes how many empty folders were pruned when any were."

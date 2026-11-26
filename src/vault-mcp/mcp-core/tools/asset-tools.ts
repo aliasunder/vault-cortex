@@ -21,7 +21,7 @@ import {
   formatExtensionsOfKind,
   LISTING_FILESYSTEM_ERROR_ENTRY,
   PATH_SAFETY_ERROR_ENTRY,
-  PRUNE_EMPTY_FOLDERS_DESCRIBE,
+  PRUNE_EMPTY_FOLDERS_DESCRIPTION,
   PRUNE_EMPTY_FOLDERS_PARAMETER_ENTRY,
   PRUNED_FOLDERS_RETURNS_SENTENCE,
   SEARCHED_FILE_KINDS_TEXT,
@@ -361,7 +361,7 @@ Returns: ${deleteFileText.returns} ${PRUNED_FOLDERS_RETURNS_SENTENCE}`,
           .boolean()
           .optional()
           .default(false)
-          .describe(PRUNE_EMPTY_FOLDERS_DESCRIBE),
+          .describe(PRUNE_EMPTY_FOLDERS_DESCRIPTION),
       },
     },
     async ({ path, prune_empty_folders: pruneEmptyFolders }, extra) => {
