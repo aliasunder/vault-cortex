@@ -160,8 +160,8 @@ export default $config({
 
       if (existsSync(keyPath)) return readFileSync(keyPath, "utf8").trim()
       throw new Error(
-        `No SSH public key found. Tried env SSH_PUBKEY, then paths: ` +
-          `${keyPath}. Generate a dedicated deploy key:\n` +
+        `No SSH public key found. Tried env SSH_PUBKEY, then ${keyPath}. ` +
+          `Generate a dedicated deploy key:\n` +
           `  ssh-keygen -t ed25519 -f ~/.ssh/vault-cortex -C vault-cortex-deploy\n` +
           `Or set SSH_PUBKEY_PATH / SSH_PUBKEY to override.`,
       )
