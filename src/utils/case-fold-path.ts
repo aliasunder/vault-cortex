@@ -15,5 +15,6 @@ const foldToFixedPoint = (text: string): string => {
  *  (macOS/Windows bind mounts) compare equal. The upper-then-lower map folds
  *  the pairs a bare toLowerCase misses ("ς"/"σ", "ß"/"ss"); the trailing NFC
  *  re-normalizes because case mapping does not always preserve normalization
- *  form. Folded values are for comparison only and never touch disk. */
+ *  form. Folded values are for comparison only and never name a file on disk;
+ *  the search index stores them as trash-entry keys. */
 export const caseFoldPath = (path: string): string => foldToFixedPoint(path.normalize("NFC"))
