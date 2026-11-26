@@ -20,6 +20,8 @@
 # need both the `gh` binary and GH_TOKEN; when either is missing (local runs
 # without auth) the commit-only signals are used. A lookup that fails despite
 # being enabled warns on stderr rather than silently dropping the signal.
+# generate-cli-notes.sh detects the same marks for the CLI notes, so change
+# both scripts together.
 
 set -euo pipefail
 
@@ -73,20 +75,53 @@ subject_pat = re.compile(
 )
 # Release bump commits (server "release:" and CLI "release(cli):") are noise.
 release_pat = re.compile(r'^release(\(cli\))?:')
-# A BREAKING CHANGE footer — conventional commits allows a space or hyphen.
-breaking_pat = re.compile(r'^BREAKING[ -]CHANGE:\s*(.+)$', re.MULTILINE)
+# A footer line starts with its token and separator, `Token: ` or `Token #`
+# (https://www.conventionalcommits.org/en/v1.0.0/#specification). The token is a
+# word with hyphens in place of spaces, or BREAKING CHANGE, so a wrapped line
+# that starts with a hyphen, such as `- #12`, stays in the footer above it.
+FOOTER_START = r'(?:\w[\w-]*|BREAKING CHANGE)(?:: | #)'
+# A BREAKING CHANGE footer — conventional commits allows a space or hyphen. Its
+# text starts at the first text after the label, on the same line or a later
+# one, and runs to a blank line or to the next footer, so a wrapped footer is
+# read whole.
+breaking_pat = re.compile(
+    rf'^BREAKING[ -]CHANGE:\s*(.+(?:\n(?![ \t\r]*$|{FOOTER_START}).+)*)',
+    re.MULTILINE,
+)
 # Squash subjects end with the PR number, e.g. "… (#142)".
 pr_pat = re.compile(r'\(#(\d+)\)\s*$')
+
+# The first BREAKING CHANGE footer in a commit or PR body, or None. A footer
+# starts a paragraph or follows another footer, whose wrapped lines count as
+# part of it. So prose that wraps onto a line starting "BREAKING CHANGE:", or a
+# footer quoted right after a code fence, is not one.
+def find_breaking_footer(text):
+    footer_match = breaking_pat.search(text)
+    while footer_match:
+        paragraph_above = []
+        for line in reversed(text[: footer_match.start()].split("\n")[:-1]):
+            if not line.strip():
+                break
+            paragraph_above.append(line)
+        if not paragraph_above or any(re.match(FOOTER_START, line) for line in paragraph_above):
+            return footer_match
+        # From the next character, so a bare label that read a later footer as
+        # its own text does not hide that footer.
+        footer_match = breaking_pat.search(text, footer_match.start() + 1)
+    return None
+
+# A wrapped footer's lines join into one line.
+def footer_text(footer_match):
+    return " ".join(line.strip() for line in footer_match.group(1).splitlines())
 
 # PR lookups need both the `gh` binary and a token. CI passes GH_TOKEN; a local
 # run without it skips lookups and falls back to commit-only signals (the
 # documented offline behavior) instead of firing unauthenticated calls.
-GH = shutil.which("gh") if os.environ.get("GH_TOKEN") else None
+GH_PATH = shutil.which("gh") if os.environ.get("GH_TOKEN") else None
 # Set by GitHub Actions. A local run leaves it empty, and `gh` then uses the
 # checkout's own remote.
 REPO = os.environ.get("GITHUB_REPOSITORY", "")
 BREAKING_LABEL = "breaking-change"
-_pr_cache = {}
 
 def warn(message):
     print(f"generate-notes: {message}", file=sys.stderr)
@@ -96,15 +131,13 @@ def pr_info(pr_number):
     disabled (no `gh`/token) or the lookup fails. A failed lookup warns on
     stderr — a silent None could drop a breaking change that lives only in the
     PR body/label from the release notes."""
-    if not GH:
+    if not GH_PATH:
         return None
-    if pr_number in _pr_cache:
-        return _pr_cache[pr_number]
     info = None
     try:
         repo_args = ["-R", REPO] if REPO else []
         result = subprocess.run(
-            [GH, "pr", "view", pr_number, *repo_args, "--json", "labels,body"],
+            [GH_PATH, "pr", "view", pr_number, *repo_args, "--json", "labels,body"],
             capture_output=True, text=True, timeout=20,
         )
         if result.returncode == 0:
@@ -119,7 +152,6 @@ def pr_info(pr_number):
     except Exception as error:
         warn(f"gh pr view #{pr_number} errored: {error} — "
              f"falling back to commit-only signals")
-    _pr_cache[pr_number] = info
     return info
 
 # Commits with these scopes change nothing a user installs. Hook commits also
@@ -236,8 +268,8 @@ for record in records:
     if not subject or release_pat.match(subject):
         continue
 
-    match = subject_pat.match(subject)
-    has_contributor_only_scope = bool(match) and match["scope"] in CONTRIBUTOR_ONLY_SCOPES
+    subject_match = subject_pat.match(subject)
+    has_contributor_only_scope = bool(subject_match) and subject_match["scope"] in CONTRIBUTOR_ONLY_SCOPES
     # The scope check comes first: a failed path lookup warns that the commit
     # is listed.
     if has_contributor_only_scope:
@@ -256,8 +288,8 @@ for record in records:
     pr = pr_info(pr_match.group(1)) if pr_match else None
 
     # Categorize from the commit subject.
-    if match:
-        commit_type, scope, description = match.group("type", "scope", "description")
+    if subject_match:
+        commit_type, scope, description = subject_match.group("type", "scope", "description")
         description = description[0].upper() + description[1:]
         entry = f"- **{scope}:** {description}" if scope else f"- {description}"
         buckets.get(commit_type, other).append(entry)
@@ -267,15 +299,15 @@ for record in records:
 
     # Breaking signals, in preference order for the descriptive line:
     #   PR body footer > commit body footer > description (when only `!`/label flags).
-    commit_footer = breaking_pat.search(body)
-    pr_footer = breaking_pat.search(pr["body"]) if pr else None
+    commit_footer = find_breaking_footer(body)
+    pr_footer = find_breaking_footer(pr["body"]) if pr else None
     has_label = bool(pr and BREAKING_LABEL in pr["labels"])
-    has_breaking_marker = bool(match and match["breaking"])
+    has_breaking_marker = bool(subject_match and subject_match["breaking"])
     if has_breaking_marker or commit_footer or pr_footer or has_label:
         if pr_footer:
-            note = pr_footer.group(1).strip()
+            note = footer_text(pr_footer)
         elif commit_footer:
-            note = commit_footer.group(1).strip()
+            note = footer_text(commit_footer)
         else:
             note = description
         breaking.append(f"- {note}")

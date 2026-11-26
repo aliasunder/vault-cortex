@@ -246,11 +246,13 @@ updating each doc or generated file the change affects.
 
 ## Breaking changes
 
-Release notes (`.github/scripts/generate-notes.sh`) lead with a **⚠ BREAKING
-CHANGES** section. Breaking changes are detected from the **merged PR**, read
-via the API at release time — the reliable source: a squash commit's body is
-often dropped at merge (e.g. the GitHub mobile app), but the PR body and labels
-always survive.
+Server and CLI release notes (`.github/scripts/generate-notes.sh` and
+`.github/scripts/generate-cli-notes.sh`) lead with a **⚠ BREAKING CHANGES**
+section when a commit they list is breaking; [Release Process](#release-process)
+says which commits each script lists. Breaking changes are detected
+from the **merged PR**, read via the API at release time — the reliable
+source: a squash commit's body is often dropped at merge (e.g. the GitHub
+mobile app), but the PR body and labels always survive.
 
 To mark a PR as breaking, add a **`BREAKING CHANGE:` footer** (its own
 paragraph) at the **end of the PR description**. Its text becomes the
@@ -266,10 +268,6 @@ create it once under repo Settings → Labels if you want a clickable flag) and 
 merge even when the body is dropped. The `BREAKING CHANGE:` footer is preferred
 because it carries the descriptive line; the label and `!` only flag that a change
 is breaking.
-
-CLI release notes (`.github/scripts/generate-cli-notes.sh`) list commit
-subjects only, with no ⚠ section, so a breaking change to `cli/` carries the
-`!` marker in its PR title, which becomes the squash subject.
 
 The committed tool-surface baseline
 (`src/vault-mcp/mcp-core/__tests__/__snapshots__/tool-surface/`) is the
@@ -323,12 +321,14 @@ What each release's notes list:
   - in files under any `__tests__/` folder in `cli/src/`
   - the `"version"` line of `cli/package.json` (the release bump)
   - lines in `.ts` files that start, after any indent, with `#`, `//`, `/*`
-    or `*`: comments, and the comment text of the `.env` templates in
-    `cli/src/rules/env-templates.ts`. A `#` line shaped like a setting (`# KEY=value`) still
+    or `*`, taken as comments (a code line that starts the same way, such as
+    a `#private` field, is skipped too). The `#` case covers the comment text
+    of the `.env` templates in `cli/src/rules/env-templates.ts`. A `#` line shaped like a setting (`# KEY=value`) still
     counts: the templates ship optional settings commented out, for the user
     to uncomment.
 
-  In other files, `cli/README.md` included, every non-blank line counts.
+  The comment rule covers only `.ts` files: in `cli/README.md` and every
+  other file, a line starting with `#`, `//`, `/*` or `*` counts.
 
 See the [DEPLOY.md CI/CD section](./DEPLOY.md#cicd) for details on each workflow.
 

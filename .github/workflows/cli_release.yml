@@ -43,8 +43,11 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
+    # generate-cli-notes.sh reads merged PRs (labels/body) for breaking-change
+    # detection, so the token also needs pull-requests: read.
     permissions:
       contents: write # gh release create (git pushes use the App token)
+      pull-requests: read
       id-token: write # npm provenance
     steps:
       # A versioned release dispatched off main would publish that branch's
@@ -71,6 +74,8 @@ jobs:
       # token is supplied only to the push step.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          # The checks below and generate-cli-notes.sh read the full history
+          # and every tag.
           fetch-depth: 0
           persist-credentials: false
           # A versioned release builds on main's latest commit, so a run
@@ -178,6 +183,8 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           if ! git diff --quiet cli/package.json; then
             git add cli/package.json
+            # generate-notes.sh matches this subject to leave the commit out
+            # of the server notes.
             git commit -m "release(cli): v$NEXT"
           fi
           # Tag may already exist when dispatching again after a failed publish.
@@ -230,6 +237,7 @@ jobs:
       - name: Create GitHub release
         if: inputs.bump != 'beta'
         env:
+          # Also turns on generate-cli-notes.sh's merged-PR lookups.
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NEXT: ${{ steps.next.outputs.version }}
         run: |
