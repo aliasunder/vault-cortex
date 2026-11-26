@@ -55,9 +55,33 @@ describe("resolveDeleteOptions", () => {
     })
   })
 
-  it("deletes for good under Obsidian Sync without reading the trash setting", async () => {
+  it("deletes for good under Obsidian Sync whatever the trash setting says", async () => {
     // The setting says "local", and Sync must still win
     const vaultPath = await createVaultWithTrashOption("local")
+
+    const options = await resolveDeleteOptions(
+      {
+        config: loadConfig({ OBSIDIAN_SYNC: "true", PROTECTED_PATHS: "Private" }),
+        vaultPath,
+        search,
+      },
+      logger,
+    )
+
+    expect(options).toEqual({
+      protectedPaths: ["Private"],
+      trashOption: "none",
+      recordTrashEntry: undefined,
+      clearStaleTrashEntry: deleteTrashEntry,
+    })
+  })
+
+  it("never reads the trash setting under Obsidian Sync, so an unparseable app.json is no error", async () => {
+    // Off Sync this app.json fails the delete with "cannot read trash config"
+    const vaultPath = await mkdtemp(join(tmpdir(), "delete-options-"))
+    onTestFinished(() => rm(vaultPath, { recursive: true, force: true }))
+    await mkdir(join(vaultPath, ".obsidian"))
+    await writeFile(join(vaultPath, ".obsidian", "app.json"), "not valid json{{{")
 
     const options = await resolveDeleteOptions(
       {

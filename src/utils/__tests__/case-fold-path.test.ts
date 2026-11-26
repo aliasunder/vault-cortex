@@ -21,7 +21,8 @@ describe("caseFoldPath", () => {
   it("folds capital sharp s to the same key as ss", () => {
     // U+1E9E lowers to "ß" on the first map and reaches "ss" only on the
     // second, so a single map would keep this spelling apart from the others.
-    expect(caseFoldPath("Straẞe.md")).toBe("strasse.md")
+    // The escape pins U+1E9E, which looks like "ß" when typed as a literal.
+    expect(caseFoldPath("Stra\u1E9Ee.md")).toBe("strasse.md")
   })
 
   it("folds every code point to a fixed point", () => {
