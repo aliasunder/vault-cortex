@@ -406,6 +406,8 @@ links), for notes and for other files alike:
   exactly as in Obsidian.
 - **"Permanently delete"** — the note or file is removed for good.
 
+To restore a trashed note or file, move it out of `.trash` by hand.
+
 ## Configuration
 
 Only `MCP_AUTH_TOKEN` and `VAULT_PATH` are required. For optional settings

@@ -173,8 +173,8 @@ Optional settings narrow what a connected client can do — change them
 under **Variables**: `READONLY_MODE=true` removes every tool that writes to
 the vault, and `FILE_TOOLS_ENABLED=false` or `MEMORY_ENABLED=false` hide
 those tool groups entirely; `DISABLED_TOOLS=vault_write_file,vault_delete_file`
-keeps file reads and removes only file writing and deleting (see
-[Configuration](#configuration)).
+keeps file reads and removes only file writing and deleting (see the remote
+guide's [Configuration](../remote/README.md#configuration) table).
 
 Changing `MCP_AUTH_TOKEN` ends every session: access tokens issued under
 the old value stop working, stored refresh tokens become unusable, and each
