@@ -32,9 +32,8 @@ describe("caseFoldPath", () => {
     // Composed first, "ᾳ̣" (alpha with iota subscript, then a dot below) and
     // "α̣ι" (alpha, dot below, iota) fold to two keys, because the case map
     // turns the subscript into an iota in one order and not the other. A
-    // case-insensitive filesystem opens both spellings as one name. The
-    // escapes pin the mark order: an editor saving in NFC would rewrite the
-    // literals and let the test pass without the normalization it guards.
+    // case-insensitive filesystem opens both spellings as one name. Both
+    // literals are already in NFC, so an editor saving in NFC keeps them.
     const subscriptFirst = "ᾳ̣ Arch/plan.md"
     const dotFirst = "α̣ι Arch/plan.md"
     expect([caseFoldPath(subscriptFirst), caseFoldPath(dotFirst)]).toEqual([
