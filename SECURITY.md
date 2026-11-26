@@ -286,8 +286,8 @@ The server, and the `:remote` image's setup mode, set these headers:
   table-of-contents chunk, or once its chunk text reaches 50 times its
   stripped body or 50 million characters, and each chunk is cut to 32,768
   code points; keyword search is unaffected
-- Notes and files embed one at a time, so the server holds one note's or
-  file's chunks in memory at a time
+- Chunks embed one note or file at a time, so the server holds one note's
+  or file's chunks in memory at a time
 
 ### Container hardening
 

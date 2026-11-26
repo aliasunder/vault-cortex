@@ -57,8 +57,9 @@ const MAX_CHUNK_PREFIX_PART_CODE_POINTS = 2_000
  *  embedded in its top-level aggregate. Prose measures under 3 times, a Kanban
  *  board about 4.7, and a note of one-line sections 7 to 14 as its title
  *  lengthens, reaching 50 at a title of about 700 characters; such a note
- *  with a longer title loses its later chunks. 50 leaves room above those while keeping a note's chunk text, and the work to
- *  embed it, proportional to the note's length. */
+ *  with a longer title loses its later chunks. 50 leaves room above those
+ *  while keeping a note's chunk text, and the work to embed it, proportional
+ *  to the note's length. */
 const MAX_CHUNK_TEXT_TO_BODY_RATIO = 50
 
 /** Bounds a very large note's chunk text in memory; a real note at the densest
@@ -73,8 +74,8 @@ const MAX_NOTE_CHUNKS = 16_384
 
 /** Tokenizing runs on the main thread, when a chunk is embedded and again when
  *  the reranker scores it, and its cost grows with the text's length. Both
- *  models read only the first 512 tokens, which a real chunk reaches long
- *  before this many code points, so the cut changes no vector. */
+ *  models read only the first 512 tokens, which ordinary text reaches long
+ *  before this many code points, so the cut leaves its vectors unchanged. */
 const MAX_CHUNK_CODE_POINTS = 32_768
 
 /** Approximate token count via whitespace splitting — good enough for
