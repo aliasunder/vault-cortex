@@ -175,6 +175,11 @@ that change `cli/` should **not** bump the version — the release workflow owns
 it. The npm package is deliberately absent from `server.json` — it's a
 scaffolder, not a way to run the server.
 
+**Releases with nothing to list:** A `patch`, `minor` or `major` release whose
+notes would list no commit since the last CLI release stops before anything is
+tagged or published. The maintainer can dispatch it again with `force` to
+release anyway.
+
 **Beta testing:** The same **"Release CLI"** workflow supports a `beta` bump
 option that publishes a prerelease under the `beta` dist-tag for testing CLI
 changes before a real release. Dispatch from any branch — the version is set
