@@ -511,7 +511,53 @@ describe("generate-cli-notes.sh", () => {
       })
     })
 
-    it("lists a commit with no breaking section when its PR has no footer and no breaking-change label", () => {
+    it("reads a commit footer that follows another footer", () => {
+      const repo = createCliReleaseRepo()
+      commitStartChange(
+        repo,
+        "feat(cli): rename the start command\n\nRefs #42\nBREAKING CHANGE: run `up` instead of `start`.",
+      )
+
+      expect(repo.generateNotes()).toEqual({
+        status: 0,
+        stdout:
+          "### ⚠ BREAKING CHANGES\n\n" +
+          "- run `up` instead of `start`.\n\n" +
+          "### Changes\n\n" +
+          "- feat(cli): rename the start command\n",
+        stderr: "",
+      })
+    })
+
+    it("lists a commit as not breaking when prose wraps onto a line starting BREAKING CHANGE:", () => {
+      const repo = createCliReleaseRepo()
+      commitStartChange(
+        repo,
+        "feat(cli): document the footer\n\nThe guide explains the\nBREAKING CHANGE: footer and when to write it.",
+      )
+
+      expect(repo.generateNotes()).toEqual({
+        status: 0,
+        stdout: "- feat(cli): document the footer\n",
+        stderr: "",
+      })
+    })
+
+    it("lists a commit as not breaking when its PR body quotes a footer in a code block", () => {
+      const repo = createCliReleaseRepo()
+      commitStartChange(repo, "docs(cli): show the footer format (#12)")
+      const gh = ghAnsweringPullRequests({
+        12: { body: "Shows the footer format:\n\n```\nBREAKING CHANGE: describe the change\n```" },
+      })
+
+      expect(repo.generateNotes({ stubCommands: { gh }, extraEnv: WITH_GH_TOKEN })).toEqual({
+        status: 0,
+        stdout: "- docs(cli): show the footer format (#12)\n",
+        stderr: "",
+      })
+    })
+
+    it("lists a commit as not breaking when its PR has no footer and no breaking-change label", () => {
       const repo = createCliReleaseRepo()
       commitStartChange(repo, "feat(cli): rename the start command (#12)")
       const gh = ghAnsweringPullRequests({

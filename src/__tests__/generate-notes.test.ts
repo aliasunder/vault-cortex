@@ -268,6 +268,38 @@ describe("generate-notes.sh", () => {
       })
     })
 
+    it("reads a BREAKING CHANGE footer that follows another footer", () => {
+      const repo = createReleaseRepo()
+      repo.commit(
+        "feat: rename the search tool\n\nRefs #42\nBREAKING CHANGE: search is now find.",
+        {
+          "src/search.ts": "export const find = 1\n",
+        },
+      )
+
+      expect(repo.generateNotes()).toEqual({
+        status: 0,
+        stdout:
+          "### ⚠ BREAKING CHANGES\n\n- search is now find.\n\n" +
+          "### Features\n\n- Rename the search tool\n",
+        stderr: "",
+      })
+    })
+
+    it("lists a commit as not breaking when prose wraps onto a line starting BREAKING CHANGE:", () => {
+      const repo = createReleaseRepo()
+      repo.commit(
+        "docs: document the footer\n\nThe guide explains the\nBREAKING CHANGE: footer and when to write it.",
+        { "README.md": "footer\n" },
+      )
+
+      expect(repo.generateNotes()).toEqual({
+        status: 0,
+        stdout: "### Documentation\n\n- Document the footer\n",
+        stderr: "",
+      })
+    })
+
     it("keeps a wrapped line that starts with a hyphen and # in the BREAKING CHANGE footer", () => {
       const repo = createReleaseRepo()
       repo.commit(
@@ -375,7 +407,21 @@ describe("generate-notes.sh", () => {
       })
     })
 
-    it("lists a commit with no breaking section when its PR has no footer and no breaking-change label", () => {
+    it("lists a commit as not breaking when its PR body quotes a footer in a code block", () => {
+      const repo = createReleaseRepo()
+      repo.commit("docs: show the footer format (#12)", { "README.md": "footer\n" })
+      const gh = ghAnsweringPullRequests({
+        12: { body: "Shows the footer format:\n\n```\nBREAKING CHANGE: describe the change\n```" },
+      })
+
+      expect(repo.generateNotes({ stubCommands: { gh }, extraEnv: WITH_GH_TOKEN })).toEqual({
+        status: 0,
+        stdout: "### Documentation\n\n- Show the footer format (#12)\n",
+        stderr: "",
+      })
+    })
+
+    it("lists a commit as not breaking when its PR has no footer and no breaking-change label", () => {
       const repo = createReleaseRepo()
       repo.commit("feat: rename the search tool (#12)", {
         "src/search.ts": "export const find = 1\n",
@@ -388,6 +434,24 @@ describe("generate-notes.sh", () => {
         status: 0,
         stdout: "### Features\n\n- Rename the search tool (#12)\n",
         stderr: "",
+      })
+    })
+
+    it("warns about a failed PR lookup and lists a commit with no mark of its own as not breaking", () => {
+      const repo = createReleaseRepo()
+      repo.commit("feat: rename the search tool (#12)", {
+        "src/search.ts": "export const find = 1\n",
+      })
+      const failingGh = "#!/bin/sh\necho 'HTTP 502: Bad Gateway' >&2\nexit 1\n"
+
+      expect(
+        repo.generateNotes({ stubCommands: { gh: failingGh }, extraEnv: WITH_GH_TOKEN }),
+      ).toEqual({
+        status: 0,
+        stdout: "### Features\n\n- Rename the search tool (#12)\n",
+        stderr:
+          "generate-notes: gh pr view #12 failed (exit 1): HTTP 502: Bad Gateway" +
+          " — falling back to commit-only signals\n",
       })
     })
 
@@ -492,24 +556,6 @@ describe("generate-notes.sh", () => {
           "### Features\n\n- Rename the search tool (#12)\n\n" +
           "### Documentation\n\n- Describe the find tool (#13)\n",
         stderr: "",
-      })
-    })
-
-    it("warns about a failed PR lookup and lists a commit with no mark of its own as not breaking", () => {
-      const repo = createReleaseRepo()
-      repo.commit("feat: rename the search tool (#12)", {
-        "src/search.ts": "export const find = 1\n",
-      })
-      const failingGh = "#!/bin/sh\necho 'HTTP 502: Bad Gateway' >&2\nexit 1\n"
-
-      expect(
-        repo.generateNotes({ stubCommands: { gh: failingGh }, extraEnv: WITH_GH_TOKEN }),
-      ).toEqual({
-        status: 0,
-        stdout: "### Features\n\n- Rename the search tool (#12)\n",
-        stderr:
-          "generate-notes: gh pr view #12 failed (exit 1): HTTP 502: Bad Gateway" +
-          " — falling back to commit-only signals\n",
       })
     })
   })

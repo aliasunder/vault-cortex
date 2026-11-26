@@ -75,19 +75,31 @@ subject_pat = re.compile(
 )
 # Release bump commits (server "release:" and CLI "release(cli):") are noise.
 release_pat = re.compile(r'^release(\(cli\))?:')
-# A footer line starts with its token, a word with hyphens in place of spaces,
-# and its separator, `Token: ` or `Token #`
-# (https://www.conventionalcommits.org/en/v1.0.0/#specification).
+# A footer line starts with its token and separator, `Token: ` or `Token #`
+# (https://www.conventionalcommits.org/en/v1.0.0/#specification). The token is a
+# word with hyphens in place of spaces, or BREAKING CHANGE, so a wrapped line
+# that starts with a hyphen, such as `- #12`, stays in the footer above it.
 FOOTER_START = r'(?:\w[\w-]*|BREAKING CHANGE)(?:: | #)'
 # A BREAKING CHANGE footer — conventional commits allows a space or hyphen. Its
-# text runs to a blank line or to the next footer, so a wrapped footer is read
-# whole.
+# text starts at the first text after the label, on the same line or a later
+# one, and runs to a blank line or to the next footer, so a wrapped footer is
+# read whole.
 breaking_pat = re.compile(
     rf'^BREAKING[ -]CHANGE:\s*(.+(?:\n(?![ \t\r]*$|{FOOTER_START}).+)*)',
     re.MULTILINE,
 )
 # Squash subjects end with the PR number, e.g. "… (#142)".
 pr_pat = re.compile(r'\(#(\d+)\)\s*$')
+
+# The first BREAKING CHANGE footer in a commit or PR body, or None. A footer
+# starts a paragraph or follows another footer, so prose that wraps onto a line
+# starting "BREAKING CHANGE:", or an example in a code block, is not one.
+def find_breaking_footer(text):
+    for footer_match in breaking_pat.finditer(text):
+        previous_line = text[: footer_match.start()].removesuffix("\n").rpartition("\n")[2]
+        if not previous_line.strip() or re.match(FOOTER_START, previous_line):
+            return footer_match
+    return None
 
 # A wrapped footer's lines join into one line.
 def footer_text(footer_match):
@@ -282,8 +294,8 @@ for record in records:
 
     # Breaking signals, in preference order for the descriptive line:
     #   PR body footer > commit body footer > description (when only `!`/label flags).
-    commit_footer = breaking_pat.search(body)
-    pr_footer = breaking_pat.search(pr["body"]) if pr else None
+    commit_footer = find_breaking_footer(body)
+    pr_footer = find_breaking_footer(pr["body"]) if pr else None
     has_label = bool(pr and BREAKING_LABEL in pr["labels"])
     has_breaking_marker = bool(subject_match and subject_match["breaking"])
     if has_breaking_marker or commit_footer or pr_footer or has_label:
