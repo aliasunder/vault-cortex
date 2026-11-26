@@ -707,6 +707,22 @@ export const memoryRecall = async (
   // fusion keys (its entry_index shifts) and it would be returned twice.
   const ftsRows = memory.ftsSearchStmt.all(sanitizeFtsQuery(params.query)).filter(matchesFileFilter)
 
+  const logRecallResult = (
+    result: MemoryRecallResult,
+    { anyTermRescue }: { anyTermRescue: boolean },
+  ): void => {
+    logger.info("memory recall", {
+      query: params.query,
+      searchMode: result.search_mode,
+      reranked: result.reranked,
+      ftsHits: ftsRows.length,
+      vectorHits: vectorRows.length,
+      matched: result.total,
+      returned: result.entries.length,
+      ...(anyTermRescue ? { anyTermRescue: true } : {}),
+    })
+  }
+
   // No vectors available — keep every lexical match, FTS-rank ordered. When
   // the all-terms leg is empty, degrade to any-term matching before returning
   // empty. (A single-token query re-runs identically and still finds nothing
@@ -730,16 +746,7 @@ export const memoryRecall = async (
       searchMode: "fts",
       reranked: false,
     })
-    logger.info("memory recall", {
-      query: params.query,
-      searchMode: "fts",
-      reranked: false,
-      ftsHits: ftsRows.length,
-      vectorHits: 0,
-      matched: result.total,
-      returned: result.entries.length,
-      ...(anyTermRescueUsed ? { anyTermRescue: true } : {}),
-    })
+    logRecallResult(result, { anyTermRescue: anyTermRescueUsed })
     return result
   }
 
@@ -787,22 +794,6 @@ export const memoryRecall = async (
     })
   }
 
-  const logHybridResult = (
-    result: MemoryRecallResult,
-    { anyTermRescue }: { anyTermRescue: boolean },
-  ): void => {
-    logger.info("memory recall", {
-      query: params.query,
-      searchMode: result.search_mode,
-      reranked: result.reranked,
-      ftsHits: ftsRows.length,
-      vectorHits: vectorRows.length,
-      matched: result.total,
-      returned: result.entries.length,
-      ...(anyTermRescue ? { anyTermRescue: true } : {}),
-    })
-  }
-
   // Primary cut: cross-encoder relevance floor (keeps drifted-vocabulary
   // arc origins that cosine distance would lose).
   const rerankOutcome = context.reranker
@@ -828,7 +819,7 @@ export const memoryRecall = async (
         searchMode: "fts",
         reranked: false,
       })
-      logHybridResult(result, { anyTermRescue: true })
+      logRecallResult(result, { anyTermRescue: true })
       return result
     }
     const result = buildMemoryRecallResult({
@@ -838,7 +829,7 @@ export const memoryRecall = async (
       searchMode: "hybrid",
       reranked: true,
     })
-    logHybridResult(result, { anyTermRescue: false })
+    logRecallResult(result, { anyTermRescue: false })
     return result
   }
 
@@ -858,7 +849,7 @@ export const memoryRecall = async (
     searchMode: "hybrid",
     reranked: false,
   })
-  logHybridResult(result, { anyTermRescue: false })
+  logRecallResult(result, { anyTermRescue: false })
   return result
 }
 
