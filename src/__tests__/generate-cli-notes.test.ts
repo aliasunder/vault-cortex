@@ -9,8 +9,8 @@ import { ghAnsweringPullRequests, WITH_GH_TOKEN } from "./helpers/gh-pull-reques
 
 /**
  * Behavioral spec for the CLI release-notes generator
- * (.github/scripts/generate-cli-notes.sh): which commits between two CLI tags
- * the notes list, and which of them lead the notes as breaking changes. The
+ * (.github/scripts/generate-cli-notes.sh): which commits since the previous CLI
+ * tag the notes list, and which of them lead the notes as breaking changes. The
  * real script runs under `bash` with real git, in a fresh repository per test.
  * Stub commands on PATH stand in for `gh`, and for `awk` or `git` in the
  * failure tests.
