@@ -327,7 +327,7 @@ What each release's notes list:
     to uncomment.
 
   The comment rule covers only `.ts` files: in `cli/README.md` and every
-  other file, every non-blank line counts.
+  other file, a line starting with `#`, `//`, `/*` or `*` counts.
 
 See the [DEPLOY.md CI/CD section](./DEPLOY.md#cicd) for details on each workflow.
 
