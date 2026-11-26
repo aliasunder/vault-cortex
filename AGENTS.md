@@ -478,7 +478,8 @@ while writing, not after. `eslint.config.ts` enforces this subset:
 - No single-character identifiers (lint allows `i`, `a`/`b`, `k`, `_`).
 - No empty `catch {}` blocks (lint does not flag `.catch(() => {})`).
 - A blank line between a declaration and the guard that consumes it.
-- Function complexity at most 20, and blocks nested at most 4 deep.
+- Function complexity at most 20, and control statements (`if`, loops,
+  `switch`, `try`) nested at most 4 deep within one function.
 - In `src/` only: no `console`; Luxon over `Date` and no `process.env`
   member access outside `config.ts` (tests exempt). The rule misses a
   destructured `import { env } from "node:process"`, which `logger.ts` uses
