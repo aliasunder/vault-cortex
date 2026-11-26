@@ -161,11 +161,12 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
   // Set once by indexHeldPathsWithinBounds, which the startup batch runs after the rebuild.
   let heldPdfsIndexed: Promise<void> = Promise.resolve()
 
-  // Each path's latest embedding job. A new job for the path waits for this one,
-  // so a note edited many times runs one model job at a time. A job that still
-  // finishes after a newer edit writes nothing: the index checks the source
-  // version the job carries (the token upsertNote or upsertFileContent returned
-  // for the content it embeds) against the path's current one.
+  // Each path's latest embedding job. A new job for the path starts after this
+  // one settles, so a path holds at most one place in the search index's queue,
+  // which runs every note and file embedding job one at a time. A job that
+  // still finishes after a newer edit writes nothing: the index checks the
+  // source version the job carries (the token upsertNote or upsertFileContent
+  // returned for the content it embeds) against the path's current one.
   const pendingEmbeds = new Map<string, Promise<void>>()
 
   /**
