@@ -293,7 +293,7 @@ Your notes embed screenshots, reference architecture diagrams, and link out to c
   - "Move to system trash", the default, moves it to `.trash/` for `TRASH_RETENTION_DAYS` (30 days by default)
   - "Move to Obsidian trash" moves it to `.trash/` and keeps it there until you empty the folder
   - "Permanently delete" removes it for good
-  - On an Obsidian Sync vault the server skips the setting: the delete is permanent, and Sync's version history keeps a deleted attachment for two weeks
+  - On the `:remote` image, which runs Obsidian Sync, the server skips the setting: the delete is permanent, and Sync's version history keeps a deleted attachment for two weeks
 
 Set `FILE_TOOLS_ENABLED=false` to hide the file tools, or `DISABLED_TOOLS=vault_write_file,vault_delete_file` to keep reading files but turn off writing and deleting them.
 

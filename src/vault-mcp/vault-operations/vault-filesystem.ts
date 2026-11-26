@@ -891,10 +891,10 @@ const deleteNoteOrFile = async (
   }
 
   const fullPath = resolveSafePath(params.vaultPath, canonicalPath)
-  // Locked so a concurrent read-modify-write (patch/replace) can't recreate
-  // the note via its atomic-rename write after the unlink, and so a delete
-  // throws while a note move holds this path — the lock fails fast, it never
-  // waits.
+  // Locked so a concurrent write to the path (a note patch or replace, a file
+  // overwrite) can't recreate it via its atomic-rename write after the unlink,
+  // and so a delete throws while a note move holds this path — the lock fails
+  // fast, it never waits.
   return withExclusiveFileLock(fullPath, async () => {
     // The existence check runs inside the lock, mirroring moveNote, so a
     // missing entry fails with the "not found" error the tool documents

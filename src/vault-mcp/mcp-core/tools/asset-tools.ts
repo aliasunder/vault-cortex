@@ -331,7 +331,7 @@ Returns: "Wrote <path>".`,
 Example: vault_delete_file({ path: "Scratch/draft.canvas" })
 Example: vault_delete_file({ path: "attachments/old-screenshot.png", prune_empty_folders: true }) — also remove "attachments" if deleting the file empties it.
 
-When to use: Removing a canvas, a Base, an image, a PDF or any other non-markdown file you no longer need.${whenToolEnabledText("vault_delete_note", "\nFor .md notes use vault_delete_note.")}${whenToolEnabledText("vault_write_file", "\nTo replace a file's content, use vault_write_file with overwrite: true instead.")}
+When to use: Removing a canvas, a Base, an image, a PDF or any other non-markdown file you no longer need.${whenToolEnabledText("vault_delete_note", "\nFor .md notes use vault_delete_note.")}${whenToolEnabledText("vault_write_file", "\nTo replace a text file's content, use vault_write_file with overwrite: true instead.")}
 
 Behavior:${deleteFileText.trashOutcomeEntries}
 - Links and embeds to the file from notes and canvases become broken, images most often${whenToolEnabledText("vault_get_backlinks", "; for a canvas, list them first with vault_get_backlinks")}. Protected paths are refused: ${protectedPathsText}.
