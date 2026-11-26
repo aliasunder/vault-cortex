@@ -56,7 +56,8 @@ type CanvasEdge = Readonly<{
   label?: string | undefined
 }>
 
-/** A node with its id's rank among every id the canvas uses (rankCanvasIds). */
+/** A node with its id's rank: the id's position in the sorted list of distinct ids
+ *  that the canvas's nodes and edges use (rankCanvasIds). */
 type RankedNode = CanvasNode & Readonly<{ idRank: number }>
 
 /** An edge with the ranks of its two endpoint ids (rankCanvasIds). */
@@ -108,14 +109,16 @@ const parseEdge = (raw: unknown): CanvasEdge | null => {
   return { fromNode, toNode, label: optionalString(raw.label) }
 }
 
-/** Orders ids as JavaScript's `<` orders strings: by UTF-16 code unit. */
+/** Orders ids as JavaScript's `<` orders strings: by UTF-16 code unit. The id sort
+ *  and findIdRank's binary search both use it, because the search must follow the sort. */
 const compareIds = (left: string, right: string): number => {
   if (left < right) return -1
   if (left > right) return 1
   return 0
 }
 
-/** The position of `id` in `rankedIds`, which holds each id once, in compareIds order. */
+/** The position of `id` in `rankedIds`, which holds each id once, in compareIds order.
+ *  It searches instead of reading a Map, which slows on long ids as rankCanvasIds describes. */
 const findIdRank = (rankedIds: readonly string[], id: string): number => {
   // A binary search narrows the half-open range [low, high) to the id's position.
   let low = 0
@@ -124,6 +127,7 @@ const findIdRank = (rankedIds: readonly string[], id: string): number => {
     const middle = Math.floor((low + high) / 2)
     const middleId = rankedIds[middle]
 
+    // middle lies in [low, high), inside the list, so an id is always there.
     if (middleId === undefined) throw new Error(`no ranked id at position ${middle}`)
     const order = compareIds(middleId, id)
 
@@ -139,14 +143,17 @@ const findIdRank = (rankedIds: readonly string[], id: string): number => {
 
 /**
  * Gives every node id and edge endpoint a rank: equal ids share a rank, and
- * ranks follow compareIds order, which the group tie-breaks rely on. Later
- * steps then compare and look up numbers instead of ids:
- * - a crafted canvas can hold thousands of long ids that share a prefix, so
- *   each comparison of two of them reads the whole prefix;
+ * ranks follow compareIds order, which smallestContainingGroup's tie-breaks rely
+ * on. An endpoint id that no node has still gets a rank, which no node shares, so
+ * the edge list names that endpoint as missing. Later steps then compare and look
+ * up numbers instead of ids:
+ * - a crafted canvas can hold thousands of long ids that share a prefix, and
+ *   nesting can compare ids once per group and node pair, so each of those
+ *   comparisons would read the whole prefix;
  * - V8 hashes a string longer than 16,383 characters by its length alone, so a
- *   Map keyed by such ids compares each new key with every earlier one.
+ *   Map or Set keyed by such ids compares each new key with every earlier one.
  *
- * Ranking costs one sort and one binary search per id.
+ * Ranking compares ids only in one sort and one binary search per id.
  */
 const rankCanvasIds = (params: {
   nodes: readonly CanvasNode[]
@@ -154,6 +161,8 @@ const rankCanvasIds = (params: {
 }): { nodes: RankedNode[]; edges: RankedEdge[] } => {
   const endpointIds = params.edges.flatMap((edge) => [edge.fromNode, edge.toNode])
   const sortedIds = [...params.nodes.map((node) => node.id), ...endpointIds].toSorted(compareIds)
+  // Sorting puts equal ids side by side, so keeping each id that differs from the
+  // one before it removes duplicates without a Set.
   const rankedIds = sortedIds.filter((id, index) => index === 0 || id !== sortedIds[index - 1])
 
   return {
@@ -347,17 +356,17 @@ const renderNestedNodes = ({
   const ungroupedNodes = membersByGroup.get(undefined) ?? []
   const topLevelGroups = childGroupsByParent.get(undefined) ?? []
   const sections = ungroupedNodes.map(renderNode)
-  const frames = topLevelGroups.toReversed().map((group) => ({ group, depth: 0 }))
+  const groupsToRender = topLevelGroups.toReversed().map((group) => ({ group, depth: 0 }))
 
   // A stack of groups still to render; the last one pushed renders next, so
   // groups are pushed in reverse to come out in reading order.
-  for (let frame = frames.pop(); frame; frame = frames.pop()) {
-    const { group, depth } = frame
+  for (let groupAtDepth = groupsToRender.pop(); groupAtDepth; groupAtDepth = groupsToRender.pop()) {
+    const { group, depth } = groupAtDepth
 
     sections.push(groupHeading(group, depth))
     for (const member of membersByGroup.get(group) ?? []) sections.push(renderNode(member))
     for (const child of (childGroupsByParent.get(group) ?? []).toReversed()) {
-      frames.push({ group: child, depth: depth + 1 })
+      groupsToRender.push({ group: child, depth: depth + 1 })
     }
   }
   return sections
