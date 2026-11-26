@@ -25,6 +25,17 @@ describe("caseFoldPath", () => {
     expect(caseFoldPath("Stra\u1E9Ee.md")).toBe("strasse.md")
   })
 
+  it("folds a vowel's marks to one key whatever order they were typed in", () => {
+    // Composed first, "ᾳ̣" (alpha with iota subscript, then a dot below) and
+    // "α̣ι" (alpha, dot below, iota) fold to two keys, because the case map
+    // turns the subscript into an iota in one order and not the other. A
+    // case-insensitive filesystem opens both spellings as one name.
+    const subscriptFirst = "ᾳ̣ Arch/plan.md"
+    const dotFirst = "α̣ι Arch/plan.md"
+    expect(caseFoldPath(subscriptFirst)).toBe(caseFoldPath(dotFirst))
+    expect(caseFoldPath(subscriptFirst)).toBe("α̣ι arch/plan.md")
+  })
+
   it("folds every code point to a fixed point", () => {
     const unstable = []
 
