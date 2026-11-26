@@ -6,6 +6,7 @@ import { MAX_TEXT_OUTPUT_BYTES } from "../../vault-operations/asset-text.js"
 import { assetOperations } from "../../vault-operations/asset-operations.js"
 import type { AssetReadResult } from "../../vault-operations/asset-operations.js"
 import { vaultFs } from "../../vault-operations/vault-filesystem.js"
+import { resolveDeleteOptions } from "../../vault-operations/delete-options.js"
 import type { FittedImage } from "../../../utils/fit-image-to-byte-budget.js"
 import { TOOL_NAMES } from "../tool-registry.js"
 import type { ToolRegistrationContext } from "./tool-helpers.js"
@@ -20,7 +21,9 @@ import {
   formatExtensionsOfKind,
   LISTING_FILESYSTEM_ERROR_ENTRY,
   PATH_SAFETY_ERROR_ENTRY,
-  resolveDeleteOptions,
+  PRUNE_EMPTY_FOLDERS_DESCRIBE,
+  PRUNE_EMPTY_FOLDERS_PARAMETER_ENTRY,
+  PRUNED_FOLDERS_RETURNS_SENTENCE,
   SEARCHED_FILE_KINDS_TEXT,
 } from "./tool-helpers.js"
 
@@ -334,21 +337,19 @@ Example: vault_delete_file({ path: "attachments/old-screenshot.png", prune_empty
 When to use: Removing a canvas, a Base, an image, a PDF or any other non-markdown file you no longer need.${whenToolEnabledText("vault_delete_note", "\nFor .md notes use vault_delete_note.")}${whenToolEnabledText("vault_write_file", "\nTo replace a text file's content, use vault_write_file with overwrite: true instead.")}
 
 Behavior:${deleteFileText.trashOutcomeEntries}
-- Links and embeds to the file from notes and canvases become broken, images most often${whenToolEnabledText("vault_get_backlinks", "; for a canvas, list them first with vault_get_backlinks")}. Protected paths are refused: ${protectedPathsText}.
+- Links and embeds to the file from notes and canvases become broken${whenToolEnabledText("vault_get_backlinks", "; for a canvas, list them first with vault_get_backlinks")}. Protected paths are refused: ${protectedPathsText}.
 
 Parameters:
-- prune_empty_folders keeps a folder that holds any file, even a hidden .DS_Store. Pruning is best-effort: a folder that can't be removed never fails the call.
+${PRUNE_EMPTY_FOLDERS_PARAMETER_ENTRY}
 
 Errors:
 - "cannot delete protected path" — the path sits under a protected folder; ask the vault's owner to delete the file in Obsidian
 - "not a file: … is a markdown note" — the path ends in .md in any letter case; ${markdownNoteRemedy}
 ${PATH_SAFETY_ERROR_ENTRY}
 - "concurrent write in progress" — a write to this file is in flight; retry
-- "file not found: …" — no file exists at that path (a folder is not a file); ${fileNotFoundRemedy}${deleteFileText.trashMoveErrorEntries}
-- "cannot delete …" (other than a protected path) — the file stays put; ask the vault's owner to fix the cause (e.g. permissions), then retry
-${FILESYSTEM_ERROR_ENTRY}; the file stays put${deleteFileText.trashConfigErrorEntry}${describeDailyNotesConfigErrorEntry(config)}
+- "file not found: …" — no file exists at that path (a folder is not a file); ${fileNotFoundRemedy}${deleteFileText.trashMoveErrorEntries}${deleteFileText.deleteFailureEntries}${deleteFileText.trashConfigErrorEntry}${describeDailyNotesConfigErrorEntry(config)}
 
-Returns: ${deleteFileText.returns} Notes how many empty folders were pruned when any were.`,
+Returns: ${deleteFileText.returns} ${PRUNED_FOLDERS_RETURNS_SENTENCE}`,
       inputSchema: {
         path: z
           .string()
@@ -360,9 +361,7 @@ Returns: ${deleteFileText.returns} Notes how many empty folders were pruned when
           .boolean()
           .optional()
           .default(false)
-          .describe(
-            "When true, also remove parent folders the delete leaves empty. Default false.",
-          ),
+          .describe(PRUNE_EMPTY_FOLDERS_DESCRIBE),
       },
     },
     async ({ path, prune_empty_folders: pruneEmptyFolders }, extra) => {

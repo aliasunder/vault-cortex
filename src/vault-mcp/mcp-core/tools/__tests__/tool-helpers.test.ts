@@ -1,5 +1,5 @@
 import { describe, it, expect, expectTypeOf, onTestFinished, vi } from "vitest"
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { logger } from "../../../../logger.js"
@@ -20,7 +20,6 @@ import {
   describeDeleteResult,
   describeTextWindow,
   formatNoteMetadata,
-  resolveDeleteOptions,
   toolInputErrorResult,
 } from "../tool-helpers.js"
 
@@ -670,6 +669,13 @@ describe("describeDeleteOutcomes", () => {
       `  - "Permanently delete" removes the ${singular} for good.`,
     ].join("\n")
   }
+  const DELETE_FAILURE_LINES = (singular: string): string => {
+    return [
+      "",
+      `- "cannot delete …" (other than a protected path) — the ${singular} stays put; ask the vault's owner to fix the cause (e.g. permissions), then retry`,
+      `- "ENAMETOOLONG: …" or another filesystem error — the message says what to do; the ${singular} stays put`,
+    ].join("\n")
+  }
 
   it("describes a note's trash outcomes with the note nouns when the server does not sync", () => {
     expect(describeDeleteOutcomes({ obsidianSyncEnabled: false, pathKind: "note" })).toEqual({
@@ -678,6 +684,7 @@ describe("describeDeleteOutcomes", () => {
       trashOutcomeEntries: TRASH_OUTCOME_LINES("note", "Notes"),
       trashMoveErrorEntries:
         '\n- "cannot move to trash … — 100 collisions in .trash/" — .trash/ holds this name and 100 numbered copies; ask the vault\'s owner to clear old copies, then retry\n- "cannot move to trash …" without "100 collisions" — the note stays put; ask the vault\'s owner to fix .trash/ (e.g. a plain file blocks a needed folder), then retry',
+      deleteFailureEntries: DELETE_FAILURE_LINES("note"),
       trashConfigErrorEntry:
         '\n- "cannot read trash config from .obsidian/app.json" — ask the vault\'s owner to repair it, then retry',
       returns:
@@ -692,6 +699,7 @@ describe("describeDeleteOutcomes", () => {
       trashOutcomeEntries: TRASH_OUTCOME_LINES("file", "Files"),
       trashMoveErrorEntries:
         '\n- "cannot move to trash … — 100 collisions in .trash/" — .trash/ holds this name and 100 numbered copies; ask the vault\'s owner to clear old copies, then retry\n- "cannot move to trash …" without "100 collisions" — the file stays put; ask the vault\'s owner to fix .trash/ (e.g. a plain file blocks a needed folder), then retry',
+      deleteFailureEntries: DELETE_FAILURE_LINES("file"),
       trashConfigErrorEntry:
         '\n- "cannot read trash config from .obsidian/app.json" — ask the vault\'s owner to repair it, then retry',
       returns:
@@ -705,6 +713,7 @@ describe("describeDeleteOutcomes", () => {
         "Delete a markdown note for good. The vault's owner can recover it from Obsidian Sync's version history (1 month on Standard, 12 months on Plus).",
       trashOutcomeEntries: "",
       trashMoveErrorEntries: "",
+      deleteFailureEntries: DELETE_FAILURE_LINES("note"),
       trashConfigErrorEntry: "",
       returns: 'Confirmation message — "Deleted <path>".',
     })
@@ -716,6 +725,7 @@ describe("describeDeleteOutcomes", () => {
         "Delete a non-markdown file for good. The vault's owner may recover it from Obsidian Sync's version history, which keeps attachment versions for two weeks.",
       trashOutcomeEntries: "",
       trashMoveErrorEntries: "",
+      deleteFailureEntries: DELETE_FAILURE_LINES("file"),
       trashConfigErrorEntry: "",
       returns: 'Confirmation message — "Deleted <path>".',
     })
@@ -734,77 +744,6 @@ describe("describeDailyNotesConfigErrorEntry", () => {
     { label: "DAILY_NOTES_FOLDER", env: { DAILY_NOTES_FOLDER: "Journal" } },
   ])("is empty under $label, which bypasses the file", ({ env }) => {
     expect(describeDailyNotesConfigErrorEntry(loadConfig(env))).toBe("")
-  })
-})
-
-describe("resolveDeleteOptions", () => {
-  const recordTrashEntry = vi.fn()
-  const deleteTrashEntry = vi.fn()
-  const search = { recordTrashEntry, deleteTrashEntry }
-
-  /** A vault whose app.json holds the given Deleted files setting, or none. */
-  const createVaultWithTrashOption = async (trashOption?: string): Promise<string> => {
-    const vaultPath = await mkdtemp(join(tmpdir(), "tool-helpers-delete-"))
-    onTestFinished(() => rm(vaultPath, { recursive: true, force: true }))
-
-    if (trashOption) {
-      await mkdir(join(vaultPath, ".obsidian"))
-      await writeFile(join(vaultPath, ".obsidian", "app.json"), JSON.stringify({ trashOption }))
-    }
-    return vaultPath
-  }
-
-  it('records "system" moves for the retention sweep and clears stale rows', async () => {
-    const vaultPath = await createVaultWithTrashOption()
-
-    const options = await resolveDeleteOptions(
-      { config: loadConfig({}), vaultPath, search },
-      logger,
-    )
-
-    expect(options).toEqual({
-      protectedPaths: ["About Me", "Daily Notes"],
-      trashOption: "system",
-      recordTrashEntry,
-      clearStaleTrashEntry: deleteTrashEntry,
-    })
-  })
-
-  it('records nothing for "local" moves, which Obsidian keeps forever', async () => {
-    const vaultPath = await createVaultWithTrashOption("local")
-
-    const options = await resolveDeleteOptions(
-      { config: loadConfig({}), vaultPath, search },
-      logger,
-    )
-
-    expect(options).toEqual({
-      protectedPaths: ["About Me", "Daily Notes"],
-      trashOption: "local",
-      recordTrashEntry: undefined,
-      clearStaleTrashEntry: deleteTrashEntry,
-    })
-  })
-
-  it("deletes for good under Obsidian Sync without reading the trash setting", async () => {
-    // The setting says "local", and Sync must still win
-    const vaultPath = await createVaultWithTrashOption("local")
-
-    const options = await resolveDeleteOptions(
-      {
-        config: loadConfig({ OBSIDIAN_SYNC: "true", PROTECTED_PATHS: "Private" }),
-        vaultPath,
-        search,
-      },
-      logger,
-    )
-
-    expect(options).toEqual({
-      protectedPaths: ["Private"],
-      trashOption: "none",
-      recordTrashEntry: undefined,
-      clearStaleTrashEntry: deleteTrashEntry,
-    })
   })
 })
 

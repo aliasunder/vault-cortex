@@ -11,9 +11,6 @@ import type { LineWindow } from "../../obsidian-markdown/lines.js"
 import type { ToolName } from "../tool-registry.js"
 import type { ToolAvailability } from "../tool-availability.js"
 import { DEFAULT_DAILY_NOTES_FOLDER } from "../../vault-operations/daily-notes.js"
-import { resolveEffectiveProtectedPaths } from "../../vault-operations/vault-folder-config.js"
-import { readTrashConfig } from "../../vault-operations/trash-config.js"
-import type { TrashOption } from "../../vault-operations/trash-config.js"
 import { TRASH_NAME_SUFFIX_LIMIT } from "../../vault-operations/vault-filesystem.js"
 import type { PathKind } from "../../vault-operations/vault-filesystem.js"
 import { describeErrorForLog, describeErrorRelativeTo } from "../../../utils/describe-error.js"
@@ -310,9 +307,10 @@ export const LIMIT_TRUNCATION_CLAUSE =
   "nothing in the response signals truncation; raise limit for more"
 
 // ── Deleting notes and files ────────────────────────────────────
-// vault_delete_note and vault_delete_file share one trash setting, one
-// protected-path rule and one result shape, so the text and the handler
-// options each have one home here; a tool's own nouns are the only difference.
+// vault_delete_note and vault_delete_file share the trash-outcome text, the
+// protected-path and daily-notes entries, the pruning text and the result
+// text, which render from here with each tool's own noun; the per-call options
+// they share are resolved in vault-operations/delete-options.ts.
 
 /** Protected-path list for tool descriptions. Descriptions are built once at
  *  registration and the daily notes folder is resolved per call, so the text
@@ -351,29 +349,40 @@ export const describeDailyNotesConfigErrorEntry = (config: VaultConfig): string 
  *  a month or a year by plan, and attachment versions for two weeks. */
 const DELETE_WORDS: Record<
   PathKind,
-  { singular: string; pluralCapital: string; opener: string; syncRecovery: string }
+  { singular: string; pluralCapital: string; kindPhrase: string; syncRecovery: string }
 > = {
   note: {
     singular: "note",
     pluralCapital: "Notes",
-    opener: "a markdown note",
+    kindPhrase: "a markdown note",
     syncRecovery:
       "The vault's owner can recover it from Obsidian Sync's version history (1 month on Standard, 12 months on Plus).",
   },
   file: {
     singular: "file",
     pluralCapital: "Files",
-    opener: "a non-markdown file",
+    kindPhrase: "a non-markdown file",
     syncRecovery:
       "The vault's owner may recover it from Obsidian Sync's version history, which keeps attachment versions for two weeks.",
   },
 }
 
-/** The parts of a delete tool's description that depend on the trash setting.
- *  Under Obsidian Sync a delete never reads the "Deleted files" setting or
- *  touches .trash/, so the text about that setting, the trash outcomes and the
- *  errors they produce is left out. Each entry text starts with a line break
- *  because it joins a list mid-way, and is "" when left out. */
+/** The prune_empty_folders text the delete tools share: the Parameters entry,
+ *  the schema text and the Returns sentence. vault_move_note's Parameters entry
+ *  adds a clause of its own, so it is not this constant. */
+export const PRUNE_EMPTY_FOLDERS_PARAMETER_ENTRY =
+  "- prune_empty_folders keeps a folder that holds any file, even a hidden .DS_Store. Pruning is best-effort: a folder that can't be removed never fails the call."
+export const PRUNE_EMPTY_FOLDERS_DESCRIBE =
+  "When true, also remove parent folders the delete leaves empty. Default false."
+export const PRUNED_FOLDERS_RETURNS_SENTENCE =
+  "Notes how many empty folders were pruned when any were."
+
+/** The parts of a delete tool's description that carry the tool's noun or
+ *  depend on the trash setting. Under Obsidian Sync a delete never reads the
+ *  "Deleted files" setting or touches .trash/, so the text about that setting,
+ *  the trash outcomes and the errors they produce is left out. Each entry text
+ *  starts with a line break because it joins a list mid-way, and is "" when
+ *  left out. */
 export const describeDeleteOutcomes = (params: {
   obsidianSyncEnabled: boolean
   pathKind: PathKind
@@ -381,22 +390,29 @@ export const describeDeleteOutcomes = (params: {
   opener: string
   trashOutcomeEntries: string
   trashMoveErrorEntries: string
+  /** The "cannot delete …" entry and the filesystem entry, each saying the
+   *  note or file stays put; listed in every mode. */
+  deleteFailureEntries: string
   trashConfigErrorEntry: string
   returns: string
 } => {
-  const { singular, pluralCapital, opener, syncRecovery } = DELETE_WORDS[params.pathKind]
+  const { singular, pluralCapital, kindPhrase, syncRecovery } = DELETE_WORDS[params.pathKind]
+  const deleteFailureEntries = `
+- "cannot delete …" (other than a protected path) — the ${singular} stays put; ask the vault's owner to fix the cause (e.g. permissions), then retry
+${FILESYSTEM_ERROR_ENTRY}; the ${singular} stays put`
 
   if (params.obsidianSyncEnabled) {
     return {
-      opener: `Delete ${opener} for good. ${syncRecovery}`,
+      opener: `Delete ${kindPhrase} for good. ${syncRecovery}`,
       trashOutcomeEntries: "",
       trashMoveErrorEntries: "",
+      deleteFailureEntries,
       trashConfigErrorEntry: "",
       returns: `Confirmation message — "Deleted <path>".`,
     }
   }
   return {
-    opener: `Delete ${opener}, moving it to the vault's .trash/ folder or removing it for good as the vault's Obsidian "Deleted files" setting directs.`,
+    opener: `Delete ${kindPhrase}, moving it to the vault's .trash/ folder or removing it for good as the vault's Obsidian "Deleted files" setting directs.`,
     trashOutcomeEntries: `
 - The "Deleted files" setting decides the outcome, which the caller can't choose or see in advance:
   - "Move to system trash" moves the ${singular} to \`.trash/\`. ${pluralCapital} this server moved there are deleted after its retention period (TRASH_RETENTION_DAYS: 30 days by default, never when set to none).
@@ -405,49 +421,10 @@ export const describeDeleteOutcomes = (params: {
     trashMoveErrorEntries: `
 - "cannot move to trash … — ${TRASH_NAME_SUFFIX_LIMIT} collisions in .trash/" — .trash/ holds this name and ${TRASH_NAME_SUFFIX_LIMIT} numbered copies; ask the vault's owner to clear old copies, then retry
 - "cannot move to trash …" without "${TRASH_NAME_SUFFIX_LIMIT} collisions" — the ${singular} stays put; ask the vault's owner to fix .trash/ (e.g. a plain file blocks a needed folder), then retry`,
+    deleteFailureEntries,
     trashConfigErrorEntry: `
 - "cannot read trash config from .obsidian/app.json" — ask the vault's owner to repair it, then retry`,
     returns: `Confirmation message naming the outcome — "Deleted <path>" for permanent removal, "Moved <path> to trash (<.trash/ path>)" when the ${singular} landed in .trash/.`,
-  }
-}
-
-/** The options a delete handler resolves per call and hands to the data layer:
- *  the protected folders, the trash setting and the retention sweep's hooks. */
-export const resolveDeleteOptions = async (
-  params: {
-    config: VaultConfig
-    vaultPath: string
-    search: Pick<SearchIndex, "recordTrashEntry" | "deleteTrashEntry">
-  },
-  logger: Logger,
-): Promise<{
-  protectedPaths: readonly string[]
-  trashOption: TrashOption
-  recordTrashEntry: SearchIndex["recordTrashEntry"] | undefined
-  clearStaleTrashEntry: SearchIndex["deleteTrashEntry"]
-}> => {
-  const { config, vaultPath, search } = params
-  const protectedPaths = await resolveEffectiveProtectedPaths({ config, vaultPath }, logger)
-
-  // Under Obsidian Sync the setting is skipped and the note or file is deleted
-  // for good ("none", since "system" would land in .trash/): a server-side
-  // .trash/ never syncs back, and Sync's version history is the recovery path.
-  const trashOption = config.obsidianSyncEnabled ? "none" : await readTrashConfig(vaultPath, logger)
-
-  return {
-    protectedPaths,
-    trashOption,
-    // Only "system" moves are swept later, so only they are recorded; "local"
-    // is Obsidian's keep-forever trash.
-    recordTrashEntry: trashOption === "system" ? search.recordTrashEntry : undefined,
-    // Passed for every option, not only "system":
-    // - Emptying .trash/ by hand leaves trash records behind, so a stale
-    //   record can sit at the path this delete lands on.
-    // - A move the server does not record ("local", or a "system" move whose
-    //   record failed) drops that stale record, so the retention sweep never
-    //   deletes the entry just trashed.
-    // - A "none" delete lands nothing in .trash/ and never calls it.
-    clearStaleTrashEntry: search.deleteTrashEntry,
   }
 }
 

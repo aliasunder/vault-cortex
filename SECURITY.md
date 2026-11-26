@@ -127,8 +127,9 @@ mechanism-level detail.
   permanent. Files in the protected folders are refused, as notes are.
   `DISABLED_TOOLS=vault_delete_file` removes the tool.
 - The path checks are lexical: reads follow a visible symlink, and writes
-  and deletes follow a visible folder symlink, even into `.obsidian/` or outside the
-  vault. Creating a symlink requires direct filesystem access — no tool can
+  and deletes follow a visible folder symlink, even into `.obsidian/` or
+  outside the vault. Creating a symlink requires direct filesystem access — no
+  tool can
   create one, and anyone with that access can already read and write those
   files.
 

@@ -5,6 +5,7 @@ import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js"
 import { vaultFs, resolveVaultRelativePath } from "../../vault-operations/vault-filesystem.js"
 import { noteMover } from "../../vault-operations/note-mover.js"
 import { resolveEffectiveProtectedPaths } from "../../vault-operations/vault-folder-config.js"
+import { resolveDeleteOptions } from "../../vault-operations/delete-options.js"
 import { vaultPatcher } from "../../vault-operations/vault-patcher.js"
 import type { DisplacedLeadingContent } from "../../vault-operations/vault-patcher.js"
 import { pageTextByLines } from "../../obsidian-markdown/lines.js"
@@ -28,7 +29,9 @@ import {
   describeProtectedPaths,
   describeTextWindow,
   formatServedSentencesLine,
-  resolveDeleteOptions,
+  PRUNE_EMPTY_FOLDERS_DESCRIBE,
+  PRUNE_EMPTY_FOLDERS_PARAMETER_ENTRY,
+  PRUNED_FOLDERS_RETURNS_SENTENCE,
   NOTE_EXTENSION_ERROR_ENTRY,
   OPENING_BLOCK_ERROR_ENTRY,
   PATH_SAFETY_ERROR_ENTRY,
@@ -1143,18 +1146,16 @@ Behavior:${deleteNoteText.trashOutcomeEntries}
 - Links to the note from other notes become broken${whenToolEnabledText("vault_get_backlinks", "; list them first with vault_get_backlinks")}. Protected paths are refused: ${protectedPathsText}.
 
 Parameters:
-- prune_empty_folders keeps a folder that holds any file, even a hidden .DS_Store. Pruning is best-effort: a folder that can't be removed never fails the call.
+${PRUNE_EMPTY_FOLDERS_PARAMETER_ENTRY}
 
 Errors:
 - "cannot delete protected path" — the path sits under a protected folder; ${protectedPathRemedy}
 ${NOTE_EXTENSION_ERROR_ENTRY}
 ${PATH_SAFETY_ERROR_ENTRY}
 ${CONCURRENT_WRITE_RETRY_ERROR_ENTRY}
-- "note not found: …" — ${noteNotFoundVerifyRemedy}${deleteNoteText.trashMoveErrorEntries}
-- "cannot delete …" (other than a protected path) — the note stays put; ask the vault's owner to fix the cause (e.g. permissions), then retry
-${FILESYSTEM_ERROR_ENTRY}; the note stays put${deleteNoteText.trashConfigErrorEntry}${dailyNotesConfigErrorEntry}
+- "note not found: …" — ${noteNotFoundVerifyRemedy}${deleteNoteText.trashMoveErrorEntries}${deleteNoteText.deleteFailureEntries}${deleteNoteText.trashConfigErrorEntry}${dailyNotesConfigErrorEntry}
 
-Returns: ${deleteNoteText.returns} Notes how many empty folders were pruned when any were.`,
+Returns: ${deleteNoteText.returns} ${PRUNED_FOLDERS_RETURNS_SENTENCE}`,
       inputSchema: {
         path: z
           .string()
@@ -1166,9 +1167,7 @@ Returns: ${deleteNoteText.returns} Notes how many empty folders were pruned when
           .boolean()
           .optional()
           .default(false)
-          .describe(
-            "When true, also remove parent folders the delete leaves empty. Default false.",
-          ),
+          .describe(PRUNE_EMPTY_FOLDERS_DESCRIBE),
       },
     },
     async ({ path, prune_empty_folders: pruneEmptyFolders }, extra) => {
