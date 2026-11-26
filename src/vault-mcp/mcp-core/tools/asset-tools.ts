@@ -355,7 +355,7 @@ Returns: ${deleteFileText.returns} ${PRUNED_FOLDERS_RETURNS_SENTENCE}`,
           .string()
           .min(1)
           .describe(
-            'Vault-relative path of the file to delete, including its extension (e.g. "Boards/old.canvas"). Must NOT end in ".md". Use the exact letter case.',
+            'Vault-relative path of the file to delete, including its extension (e.g. "Boards/old.canvas"). Must NOT end in ".md", ".MD" or another casing of it. Use the exact letter case.',
           ),
         prune_empty_folders: z
           .boolean()

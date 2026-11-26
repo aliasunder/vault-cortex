@@ -158,7 +158,7 @@
           "path": {
             "type": "string",
             "minLength": 1,
-            "description": "Vault-relative path of the file to delete, including its extension (e.g. \"Boards/old.canvas\"). Must NOT end in \".md\". Use the exact letter case."
+            "description": "Vault-relative path of the file to delete, including its extension (e.g. \"Boards/old.canvas\"). Must NOT end in \".md\", \".MD\" or another casing of it. Use the exact letter case."
           },
           "prune_empty_folders": {
             "default": false,

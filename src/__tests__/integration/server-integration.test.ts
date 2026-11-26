@@ -1484,8 +1484,8 @@ describe("default config", () => {
     })
 
     it("vault_delete_file — moves a written canvas to .trash/ and prunes its emptied folder", async () => {
-      // The fixture vault has no app.json trash setting, so Obsidian's default
-      // "Move to system trash" applies and the file lands in .trash/
+      // The fixture vault's app.json sets "Move to Obsidian trash", so the file
+      // lands in .trash/ with no retention record, as the note deletes do here
       const canvasPath = "Disposable/scratch.canvas"
       onTestFinished(() => rm(join(vaultPath, ".trash", canvasPath), { force: true }))
       await callTool({
