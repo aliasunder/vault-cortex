@@ -11,8 +11,9 @@
 # - lines in files under any __tests__/ folder in cli/src/
 # - the "version" line of cli/package.json (the release bump)
 # - in any .ts file, lines that start, after any indent, with #, //, /* or *.
-#   These are comments; the # case exists for the .env templates'
-#   comment text in cli/src/rules/env-templates.ts.
+#   These are taken as comments, so a line of code that starts the same way
+#   (a #private field) is skipped too; the # case exists for the .env
+#   templates' comment text in cli/src/rules/env-templates.ts.
 #   A # line shaped like a setting (# KEY=value) still counts: the templates
 #   ship optional settings commented out, for the user to uncomment.
 #
