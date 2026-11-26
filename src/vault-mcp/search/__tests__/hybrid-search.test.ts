@@ -490,30 +490,24 @@ Content about deployment costs and infrastructure.
       onTestFinished(() => rm(databaseDir, { recursive: true }))
       const databasePath = join(databaseDir, "index.db")
       const hybridIndex = createSearchIndex(databasePath, createHybridMockEmbedder())
+
       const noteASourceVersion = hybridIndex.upsertNote(
         withBodyTags({ filePath: "a.md", rawContent: NOTE_A, fileStat: testStat(1000) }),
-        logger,
-      )
-      const noteCSourceVersion = hybridIndex.upsertNote(
-        withBodyTags({ filePath: "c.md", rawContent: NOTE_C, fileStat: testStat(1000) }),
         logger,
       )
       await hybridIndex.embedNote(
         { sourceVersion: noteASourceVersion, notePath: "a.md", rawContent: NOTE_A },
         logger,
       )
-      await hybridIndex.embedNote(
-        { sourceVersion: noteCSourceVersion, notePath: "c.md", rawContent: NOTE_C },
-        logger,
-      )
+
       const damagingConnection = new Database(databasePath)
       onTestFinished(() => {
         damagingConnection.close()
       })
-      expect(
-        damagingConnection.prepare("UPDATE notes SET tags = '[42]' WHERE path = ?").run("a.md")
-          .changes,
-      ).toBe(1)
+      const damageResult = damagingConnection
+        .prepare("UPDATE notes SET tags = ? WHERE path = ?")
+        .run("[42]", "a.md")
+      expect(damageResult.changes).toBe(1)
 
       // No lexical match, so only the vector leg's tag filter reads a.md's tags
       await expect(

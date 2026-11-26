@@ -2998,7 +2998,7 @@ describe("damaged stored tag columns", () => {
   )
 
   // A tag filter folds each stored tag in SQL before any row parser reads the
-  // note, so the fold itself rejects a tag that is not a string
+  // note, so the fold itself rejects a tag stored as a number or null
   it.each([
     {
       label: "searchByTag",
@@ -3043,7 +3043,9 @@ describe("damaged stored tag columns", () => {
       }),
       logger,
     )
+
     expect(damagedIndex.listTasks({ tag: "work" }, logger).total).toBe(1)
+
     const damagingConnection = new Database(databasePath)
     onTestFinished(() => {
       damagingConnection.close()
