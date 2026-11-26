@@ -11,11 +11,14 @@ describe("caseFoldPath", () => {
   })
 
   it("folds final and medial sigma to the same key", () => {
-    expect(caseFoldPath("λόγος.md")).toBe(caseFoldPath("λόγοσ.md"))
+    expect([caseFoldPath("λόγος.md"), caseFoldPath("λόγοσ.md")]).toEqual(["λόγοσ.md", "λόγοσ.md"])
   })
 
   it("folds sharp s and ss to the same key", () => {
-    expect(caseFoldPath("Straße.md")).toBe(caseFoldPath("strasse.md"))
+    expect([caseFoldPath("Straße.md"), caseFoldPath("strasse.md")]).toEqual([
+      "strasse.md",
+      "strasse.md",
+    ])
   })
 
   it("folds capital sharp s to the same key as ss", () => {
@@ -32,8 +35,10 @@ describe("caseFoldPath", () => {
     // case-insensitive filesystem opens both spellings as one name.
     const subscriptFirst = "ᾳ̣ Arch/plan.md"
     const dotFirst = "α̣ι Arch/plan.md"
-    expect(caseFoldPath(subscriptFirst)).toBe(caseFoldPath(dotFirst))
-    expect(caseFoldPath(subscriptFirst)).toBe("α̣ι arch/plan.md")
+    expect([caseFoldPath(subscriptFirst), caseFoldPath(dotFirst)]).toEqual([
+      "α̣ι arch/plan.md",
+      "α̣ι arch/plan.md",
+    ])
   })
 
   it("folds every code point to a fixed point", () => {
@@ -48,11 +53,14 @@ describe("caseFoldPath", () => {
     expect(unstable).toEqual([])
   })
 
-  it("folds decomposed and precomposed accents to the same key", () => {
+  it("folds decomposed and precomposed accents to one composed key", () => {
     // Escapes pin the normalization forms — plain literals can both be saved
     // in NFC by the editor, which would make this pass without normalizing.
     const decomposed = "Cafe\u0301.md"
     const precomposed = "Caf\u00e9.md"
-    expect(caseFoldPath(decomposed)).toBe(caseFoldPath(precomposed))
+    expect([caseFoldPath(decomposed), caseFoldPath(precomposed)]).toEqual([
+      "caf\u00e9.md",
+      "caf\u00e9.md",
+    ])
   })
 })
