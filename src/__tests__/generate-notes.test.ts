@@ -289,6 +289,39 @@ describe("generate-notes.sh", () => {
       })
     })
 
+    it("reads a BREAKING CHANGE footer that follows a wrapped footer", () => {
+      const repo = createReleaseRepo()
+      repo.commit(
+        "feat: rename the search tool\n\nRefs: #10,\n- #12\nBREAKING CHANGE: search is now find.",
+        { "src/search.ts": "export const find = 1\n" },
+      )
+
+      expect(repo.generateNotes()).toEqual({
+        status: 0,
+        stdout:
+          "### ⚠ BREAKING CHANGES\n\n- search is now find.\n\n" +
+          "### Features\n\n- Rename the search tool\n",
+        stderr: "",
+      })
+    })
+
+    it("reads a footer that follows a bare BREAKING CHANGE: label in wrapped prose", () => {
+      const repo = createReleaseRepo()
+      repo.commit(
+        "feat: rename the search tool\n\nThe guide explains the\nBREAKING CHANGE:\n\n" +
+          "BREAKING CHANGE: search is now find.",
+        { "src/search.ts": "export const find = 1\n" },
+      )
+
+      expect(repo.generateNotes()).toEqual({
+        status: 0,
+        stdout:
+          "### ⚠ BREAKING CHANGES\n\n- search is now find.\n\n" +
+          "### Features\n\n- Rename the search tool\n",
+        stderr: "",
+      })
+    })
+
     it("lists a commit as not breaking when prose wraps onto a line starting BREAKING CHANGE:", () => {
       const repo = createReleaseRepo()
       repo.commit(

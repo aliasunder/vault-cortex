@@ -529,6 +529,43 @@ describe("generate-cli-notes.sh", () => {
       })
     })
 
+    it("reads a commit footer that follows a wrapped footer", () => {
+      const repo = createCliReleaseRepo()
+      commitStartChange(
+        repo,
+        "feat(cli): rename the start command\n\nRefs: #10,\n- #12\nBREAKING CHANGE: run `up` instead of `start`.",
+      )
+
+      expect(repo.generateNotes()).toEqual({
+        status: 0,
+        stdout:
+          "### ⚠ BREAKING CHANGES\n\n" +
+          "- run `up` instead of `start`.\n\n" +
+          "### Changes\n\n" +
+          "- feat(cli): rename the start command\n",
+        stderr: "",
+      })
+    })
+
+    it("reads a footer that follows a bare BREAKING CHANGE: label in wrapped prose", () => {
+      const repo = createCliReleaseRepo()
+      commitStartChange(
+        repo,
+        "feat(cli): rename the start command\n\nThe guide explains the\nBREAKING CHANGE:\n\n" +
+          "BREAKING CHANGE: run `up` instead of `start`.",
+      )
+
+      expect(repo.generateNotes()).toEqual({
+        status: 0,
+        stdout:
+          "### ⚠ BREAKING CHANGES\n\n" +
+          "- run `up` instead of `start`.\n\n" +
+          "### Changes\n\n" +
+          "- feat(cli): rename the start command\n",
+        stderr: "",
+      })
+    })
+
     it("lists a commit as not breaking when prose wraps onto a line starting BREAKING CHANGE:", () => {
       const repo = createCliReleaseRepo()
       commitStartChange(

@@ -92,13 +92,22 @@ breaking_pat = re.compile(
 pr_pat = re.compile(r'\(#(\d+)\)\s*$')
 
 # The first BREAKING CHANGE footer in a commit or PR body, or None. A footer
-# starts a paragraph or follows another footer, so prose that wraps onto a line
-# starting "BREAKING CHANGE:", or an example in a code block, is not one.
+# starts a paragraph or follows another footer, whose wrapped lines count as
+# part of it. So prose that wraps onto a line starting "BREAKING CHANGE:", or a
+# footer quoted right after a code fence, is not one.
 def find_breaking_footer(text):
-    for footer_match in breaking_pat.finditer(text):
-        previous_line = text[: footer_match.start()].removesuffix("\n").rpartition("\n")[2]
-        if not previous_line.strip() or re.match(FOOTER_START, previous_line):
+    footer_match = breaking_pat.search(text)
+    while footer_match:
+        paragraph_above = []
+        for line in reversed(text[: footer_match.start()].split("\n")[:-1]):
+            if not line.strip():
+                break
+            paragraph_above.append(line)
+        if not paragraph_above or any(re.match(FOOTER_START, line) for line in paragraph_above):
             return footer_match
+        # From the next character, so a bare label that read a later footer as
+        # its own text does not hide that footer.
+        footer_match = breaking_pat.search(text, footer_match.start() + 1)
     return None
 
 # A wrapped footer's lines join into one line.
