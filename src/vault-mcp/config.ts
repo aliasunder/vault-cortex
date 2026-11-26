@@ -169,7 +169,7 @@ export type VaultConfig = Readonly<{
   /** True when this is a `:remote` deploy with Obsidian Sync. Set by
    *  `ENV OBSIDIAN_SYNC=true` baked into the `:remote` Docker target. */
   obsidianSyncEnabled: boolean
-  /** Days a note this server moved to `.trash/` is kept before the retention
+  /** Days a note or file this server moved to `.trash/` is kept before the retention
    *  sweep removes it; null (TRASH_RETENTION_DAYS=none) keeps entries
    *  forever. Only entries the server itself trashed under the `system`
    *  trash setting are swept — Obsidian's own trash entries are never
