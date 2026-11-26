@@ -64,14 +64,21 @@ const fixtures = (): { label: string; json: string; expected: string }[] => {
   }))
 }
 
+/** Main-thread CPU milliseconds for one render. Wall time also counts the time
+ *  other test workers hold the CPU, which can inflate one size and not the other. */
+const renderCpuMs = (json: string): number => {
+  // Collect the previous render's garbage so this render is not charged for it.
+  global.gc?.()
+  const start = process.threadCpuUsage()
+  linearizeCanvas(json)
+  const { user, system } = process.threadCpuUsage(start)
+  return (user + system) / 1000
+}
+
 const measurements = fixtures().map(({ label, json, expected }) => {
   const rendersExpected = linearizeCanvas(json) === expected
-  const elapsedRuns = Array.from({ length: RUNS }, () => {
-    const start = performance.now()
-    linearizeCanvas(json)
-    return performance.now() - start
-  })
-  return { label, rendersExpected, leastMs: Math.min(...elapsedRuns) }
+  const cpuRuns = Array.from({ length: RUNS }, () => renderCpuMs(json))
+  return { label, rendersExpected, leastMs: Math.min(...cpuRuns) }
 })
 
 process.stdout.write(JSON.stringify({ variant, measurements }))
