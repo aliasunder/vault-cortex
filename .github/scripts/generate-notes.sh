@@ -75,10 +75,19 @@ subject_pat = re.compile(
 )
 # Release bump commits (server "release:" and CLI "release(cli):") are noise.
 release_pat = re.compile(r'^release(\(cli\))?:')
-# A BREAKING CHANGE footer — conventional commits allows a space or hyphen.
-breaking_pat = re.compile(r'^BREAKING[ -]CHANGE:\s*(.+)$', re.MULTILINE)
+# A BREAKING CHANGE footer — conventional commits allows a space or hyphen. Its
+# text runs to a blank line or to the next `Token: value` footer, so a wrapped
+# footer is read whole.
+breaking_pat = re.compile(
+    r'^BREAKING[ -]CHANGE:\s*(.+(?:\n(?![ \t\r]*$|(?:[\w-]+|BREAKING CHANGE): ).+)*)',
+    re.MULTILINE,
+)
 # Squash subjects end with the PR number, e.g. "… (#142)".
 pr_pat = re.compile(r'\(#(\d+)\)\s*$')
+
+# A wrapped footer's lines join into one line.
+def footer_text(footer_match):
+    return " ".join(line.strip() for line in footer_match.group(1).splitlines())
 
 # PR lookups need both the `gh` binary and a token. CI passes GH_TOKEN; a local
 # run without it skips lookups and falls back to commit-only signals (the
@@ -275,9 +284,9 @@ for record in records:
     has_breaking_marker = bool(subject_match and subject_match["breaking"])
     if has_breaking_marker or commit_footer or pr_footer or has_label:
         if pr_footer:
-            note = pr_footer.group(1).strip()
+            note = footer_text(pr_footer)
         elif commit_footer:
-            note = commit_footer.group(1).strip()
+            note = footer_text(commit_footer)
         else:
             note = description
         breaking.append(f"- {note}")
