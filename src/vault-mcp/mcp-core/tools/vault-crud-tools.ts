@@ -2,7 +2,11 @@
 
 import { z } from "zod"
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js"
-import { vaultFs, resolveVaultRelativePath } from "../../vault-operations/vault-filesystem.js"
+import {
+  vaultFs,
+  resolveVaultRelativePath,
+  TRASH_NAME_SUFFIX_LIMIT,
+} from "../../vault-operations/vault-filesystem.js"
 import { noteMover } from "../../vault-operations/note-mover.js"
 import { resolveEffectiveProtectedPaths } from "../../vault-operations/vault-folder-config.js"
 import { resolveDeleteOptions } from "../../vault-operations/delete-options.js"
@@ -11,6 +15,7 @@ import type { DisplacedLeadingContent } from "../../vault-operations/vault-patch
 import { pageTextByLines } from "../../obsidian-markdown/lines.js"
 import { TOOL_NAMES } from "../tool-registry.js"
 import type { ToolRegistrationContext } from "./tool-helpers.js"
+import { formatDeleteResult, formatTextWindow, toolInputErrorResult } from "./tool-helpers.js"
 import {
   BLANK_LINES_NEVER_DOUBLE_CLAUSE,
   CONCURRENT_WRITE_RETRY_ERROR_ENTRY,
@@ -23,20 +28,13 @@ import {
   RETRY_REREAD_CLAUSE,
   WHITESPACE_ONLY_LINE_CLAUSE,
   describeDailyNotesConfigErrorEntry,
-  describeDeleteOutcomes,
-  describeDeleteResult,
   describePropertiesBlockErrorEntry,
   describeProtectedPaths,
-  describeTextWindow,
   formatServedSentencesLine,
-  PRUNE_EMPTY_FOLDERS_DESCRIPTION,
-  PRUNE_EMPTY_FOLDERS_PARAMETER_ENTRY,
-  PRUNED_FOLDERS_RETURNS_SENTENCE,
   NOTE_EXTENSION_ERROR_ENTRY,
   OPENING_BLOCK_ERROR_ENTRY,
   PATH_SAFETY_ERROR_ENTRY,
-  toolInputErrorResult,
-} from "./tool-helpers.js"
+} from "./tool-description-text.js"
 
 // Errors entries that two or more of this module's tools share word for word.
 const HEADING_NOT_FOUND_ERROR_ENTRY = `- "heading not found" — the message lists the available headings; ${HEADING_LIST_CAP_CLAUSE}`
@@ -289,7 +287,7 @@ Returns: Raw markdown string (default); JSON object of properties, {} when the n
         })
         reqLogger.info("tool_result", { mode: params.mode, lineWindow })
         return [
-          { type: "text" as const, text: describeTextWindow(path, lineWindow) },
+          { type: "text" as const, text: formatTextWindow(path, lineWindow) },
           { type: "text" as const, text: windowText },
         ]
       }
@@ -1108,10 +1106,33 @@ Returns: Confirmation message "Inserted <N> line(s) <before|after> anchor in <pa
     },
   )
 
-  const deleteNoteText = describeDeleteOutcomes({
-    obsidianSyncEnabled: config.obsidianSyncEnabled,
-    pathKind: "note",
-  })
+  // Under Obsidian Sync a delete never reads the "Deleted files" setting or
+  // touches .trash/, so the text about that setting, the trash outcomes, and
+  // the errors they produce is left out. Each entry text starts with a line
+  // break because it joins a list mid-way, and is "" when left out.
+  // vault_delete_file states the same outcomes for a file.
+  const deleteNoteText = config.obsidianSyncEnabled
+    ? {
+        opener: `Delete a markdown note for good. The vault's owner can recover it from Obsidian Sync's version history (1 month on Standard, 12 months on Plus).`,
+        trashOutcomeEntries: "",
+        trashMoveErrorEntries: "",
+        trashConfigErrorEntry: "",
+        returns: `Confirmation message — "Deleted <path>".`,
+      }
+    : {
+        opener: `Delete a markdown note, moving it to the vault's .trash/ folder or removing it for good as the vault's Obsidian "Deleted files" setting directs.`,
+        trashOutcomeEntries: `
+- The "Deleted files" setting decides the outcome, which the caller can't choose or see in advance:
+  - "Move to system trash" moves the note to \`.trash/\`. Notes this server moved there are deleted after its retention period (TRASH_RETENTION_DAYS: 30 days by default, never when set to none).
+  - "Move to Obsidian trash" moves the note to \`.trash/\` and keeps it forever.
+  - "Permanently delete" removes the note for good.`,
+        trashMoveErrorEntries: `
+- "cannot move to trash … — ${TRASH_NAME_SUFFIX_LIMIT} collisions in .trash/" — .trash/ holds this name and ${TRASH_NAME_SUFFIX_LIMIT} numbered copies; ask the vault's owner to clear old copies, then retry
+- "cannot move to trash …" without "${TRASH_NAME_SUFFIX_LIMIT} collisions" — the note stays put; ask the vault's owner to fix .trash/ (e.g. a plain file blocks a needed folder), then retry`,
+        trashConfigErrorEntry: `
+- "cannot read trash config from .obsidian/app.json" — ask the vault's owner to repair it, then retry`,
+        returns: `Confirmation message naming the outcome — "Deleted <path>" for permanent removal, "Moved <path> to trash (<.trash/ path>)" when the note landed in .trash/.`,
+      }
 
   // A memory entry has a tool of its own; a daily note has none, so its remedy
   // is always Obsidian.
@@ -1134,16 +1155,18 @@ Behavior:${deleteNoteText.trashOutcomeEntries}
 - Links to the note from other notes become broken${whenToolEnabledText("vault_get_backlinks", "; list them first with vault_get_backlinks")}. Protected paths are refused: ${protectedPathsText}.
 
 Parameters:
-${PRUNE_EMPTY_FOLDERS_PARAMETER_ENTRY}
+- prune_empty_folders keeps a folder that holds any file, even a hidden .DS_Store. Pruning is best-effort: a folder that can't be removed never fails the call.
 
 Errors:
 - "cannot delete protected path" — the path sits under a protected folder; ${protectedPathRemedy}
 ${NOTE_EXTENSION_ERROR_ENTRY}
 ${PATH_SAFETY_ERROR_ENTRY}
 ${CONCURRENT_WRITE_RETRY_ERROR_ENTRY}
-- "note not found: …" — ${noteNotFoundVerifyRemedy}${deleteNoteText.trashMoveErrorEntries}${deleteNoteText.deleteFailureEntries}${deleteNoteText.trashConfigErrorEntry}${dailyNotesConfigErrorEntry}
+- "note not found: …" — ${noteNotFoundVerifyRemedy}${deleteNoteText.trashMoveErrorEntries}
+- "cannot delete …" (other than a protected path) — the note stays put; ask the vault's owner to fix the cause (e.g. permissions), then retry
+${FILESYSTEM_ERROR_ENTRY}; the note stays put${deleteNoteText.trashConfigErrorEntry}${dailyNotesConfigErrorEntry}
 
-Returns: ${deleteNoteText.returns} ${PRUNED_FOLDERS_RETURNS_SENTENCE}`,
+Returns: ${deleteNoteText.returns} Notes how many empty folders were pruned when any were.`,
       inputSchema: {
         path: z
           .string()
@@ -1155,7 +1178,9 @@ Returns: ${deleteNoteText.returns} ${PRUNED_FOLDERS_RETURNS_SENTENCE}`,
           .boolean()
           .optional()
           .default(false)
-          .describe(PRUNE_EMPTY_FOLDERS_DESCRIPTION),
+          .describe(
+            "When true, also remove parent folders the delete leaves empty. Default false.",
+          ),
       },
     },
     async ({ path, prune_empty_folders: pruneEmptyFolders }, extra) => {
@@ -1180,7 +1205,7 @@ Returns: ${deleteNoteText.returns} ${PRUNED_FOLDERS_RETURNS_SENTENCE}`,
             prunedFolderCount,
             ...(trashLocation ? { trashLocation } : {}),
           })
-          return describeDeleteResult({ path, prunedFolderCount, trashLocation })
+          return formatDeleteResult({ path, prunedFolderCount, trashLocation })
         },
       )
     },

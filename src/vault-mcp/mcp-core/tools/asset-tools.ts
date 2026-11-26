@@ -5,27 +5,22 @@ import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js"
 import { MAX_TEXT_OUTPUT_BYTES } from "../../vault-operations/asset-text.js"
 import { assetOperations } from "../../vault-operations/asset-operations.js"
 import type { AssetReadResult } from "../../vault-operations/asset-operations.js"
-import { vaultFs } from "../../vault-operations/vault-filesystem.js"
+import { vaultFs, TRASH_NAME_SUFFIX_LIMIT } from "../../vault-operations/vault-filesystem.js"
 import { resolveDeleteOptions } from "../../vault-operations/delete-options.js"
 import type { FittedImage } from "../../../utils/fit-image-to-byte-budget.js"
 import { TOOL_NAMES } from "../tool-registry.js"
 import type { ToolRegistrationContext } from "./tool-helpers.js"
+import { formatDeleteResult, formatTextWindow } from "./tool-helpers.js"
 import {
   CONTENT_CONTROL_CHARACTER_ERROR_ENTRY,
   describeDailyNotesConfigErrorEntry,
-  describeDeleteOutcomes,
-  describeDeleteResult,
   describeProtectedPaths,
-  describeTextWindow,
   FILESYSTEM_ERROR_ENTRY,
   formatExtensionsOfKind,
   LISTING_FILESYSTEM_ERROR_ENTRY,
   PATH_SAFETY_ERROR_ENTRY,
-  PRUNE_EMPTY_FOLDERS_DESCRIPTION,
-  PRUNE_EMPTY_FOLDERS_PARAMETER_ENTRY,
-  PRUNED_FOLDERS_RETURNS_SENTENCE,
   SEARCHED_FILE_KINDS_TEXT,
-} from "./tool-helpers.js"
+} from "./tool-description-text.js"
 
 /** One-line, model-facing summary accompanying an image block: what file it
  *  is, what was delivered, and whether/how it was shrunk to fit. */
@@ -82,7 +77,7 @@ const formatAssetReadResult = (result: AssetReadResult): CallToolResult["content
 
       const metadataBlock = {
         type: "text" as const,
-        text: describeTextWindow(result.path, result.lineWindow),
+        text: formatTextWindow(result.path, result.lineWindow),
       }
       const contentBlock = { type: "text" as const, text: result.text }
       return [metadataBlock, contentBlock]
@@ -311,10 +306,34 @@ Returns: "Wrote <path>".`,
     },
   )
 
-  const deleteFileText = describeDeleteOutcomes({
-    obsidianSyncEnabled: config.obsidianSyncEnabled,
-    pathKind: "file",
-  })
+  // Under Obsidian Sync a delete never reads the "Deleted files" setting or
+  // touches .trash/, so the text about that setting, the trash outcomes, and
+  // the errors they produce is left out. Each entry text starts with a line
+  // break because it joins a list mid-way, and is "" when left out.
+  // vault_delete_note states the same outcomes for a note; the recovery
+  // sentence differs because Sync keeps attachment versions for two weeks.
+  const deleteFileText = config.obsidianSyncEnabled
+    ? {
+        opener: `Delete a non-markdown file for good. The vault's owner may recover it from Obsidian Sync's version history, which keeps attachment versions for two weeks.`,
+        trashOutcomeEntries: "",
+        trashMoveErrorEntries: "",
+        trashConfigErrorEntry: "",
+        returns: `Confirmation message — "Deleted <path>".`,
+      }
+    : {
+        opener: `Delete a non-markdown file, moving it to the vault's .trash/ folder or removing it for good as the vault's Obsidian "Deleted files" setting directs.`,
+        trashOutcomeEntries: `
+- The "Deleted files" setting decides the outcome, which the caller can't choose or see in advance:
+  - "Move to system trash" moves the file to \`.trash/\`. Files this server moved there are deleted after its retention period (TRASH_RETENTION_DAYS: 30 days by default, never when set to none).
+  - "Move to Obsidian trash" moves the file to \`.trash/\` and keeps it forever.
+  - "Permanently delete" removes the file for good.`,
+        trashMoveErrorEntries: `
+- "cannot move to trash … — ${TRASH_NAME_SUFFIX_LIMIT} collisions in .trash/" — .trash/ holds this name and ${TRASH_NAME_SUFFIX_LIMIT} numbered copies; ask the vault's owner to clear old copies, then retry
+- "cannot move to trash …" without "${TRASH_NAME_SUFFIX_LIMIT} collisions" — the file stays put; ask the vault's owner to fix .trash/ (e.g. a plain file blocks a needed folder), then retry`,
+        trashConfigErrorEntry: `
+- "cannot read trash config from .obsidian/app.json" — ask the vault's owner to repair it, then retry`,
+        returns: `Confirmation message naming the outcome — "Deleted <path>" for permanent removal, "Moved <path> to trash (<.trash/ path>)" when the file landed in .trash/.`,
+      }
   const protectedPathsText = describeProtectedPaths({ config, whenToolEnabledText })
   // Each remedy names its tool only while that tool is served, and keeps a
   // remedy that needs no tool otherwise.
@@ -340,16 +359,18 @@ Behavior:${deleteFileText.trashOutcomeEntries}
 - Links and embeds to the file from notes and canvases become broken${whenToolEnabledText("vault_get_backlinks", "; for a canvas, list them first with vault_get_backlinks")}. Protected paths are refused: ${protectedPathsText}.
 
 Parameters:
-${PRUNE_EMPTY_FOLDERS_PARAMETER_ENTRY}
+- prune_empty_folders keeps a folder that holds any file, even a hidden .DS_Store. Pruning is best-effort: a folder that can't be removed never fails the call.
 
 Errors:
 - "cannot delete protected path" — the path sits under a protected folder; ask the vault's owner to delete the file in Obsidian
 - "not a file: … is a markdown note" — the path ends in .md in any letter case; ${markdownNoteRemedy}
 ${PATH_SAFETY_ERROR_ENTRY}
 - "concurrent write in progress" — a write to this file is in flight; retry
-- "file not found: …" — no file exists at that path (a folder is not a file); ${fileNotFoundRemedy}${deleteFileText.trashMoveErrorEntries}${deleteFileText.deleteFailureEntries}${deleteFileText.trashConfigErrorEntry}${describeDailyNotesConfigErrorEntry(config)}
+- "file not found: …" — no file exists at that path (a folder is not a file); ${fileNotFoundRemedy}${deleteFileText.trashMoveErrorEntries}
+- "cannot delete …" (other than a protected path) — the file stays put; ask the vault's owner to fix the cause (e.g. permissions), then retry
+${FILESYSTEM_ERROR_ENTRY}; the file stays put${deleteFileText.trashConfigErrorEntry}${describeDailyNotesConfigErrorEntry(config)}
 
-Returns: ${deleteFileText.returns} ${PRUNED_FOLDERS_RETURNS_SENTENCE}`,
+Returns: ${deleteFileText.returns} Notes how many empty folders were pruned when any were.`,
       inputSchema: {
         path: z
           .string()
@@ -361,7 +382,9 @@ Returns: ${deleteFileText.returns} ${PRUNED_FOLDERS_RETURNS_SENTENCE}`,
           .boolean()
           .optional()
           .default(false)
-          .describe(PRUNE_EMPTY_FOLDERS_DESCRIPTION),
+          .describe(
+            "When true, also remove parent folders the delete leaves empty. Default false.",
+          ),
       },
     },
     async ({ path, prune_empty_folders: pruneEmptyFolders }, extra) => {
@@ -386,7 +409,7 @@ Returns: ${deleteFileText.returns} ${PRUNED_FOLDERS_RETURNS_SENTENCE}`,
             prunedFolderCount,
             ...(trashLocation ? { trashLocation } : {}),
           })
-          return describeDeleteResult({ path, prunedFolderCount, trashLocation })
+          return formatDeleteResult({ path, prunedFolderCount, trashLocation })
         },
       )
     },

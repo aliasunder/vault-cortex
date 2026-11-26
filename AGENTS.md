@@ -97,7 +97,7 @@ src/
     vault-operations/ # Vault read, write, and patch: vault-filesystem (base I/O), vault-patcher, note-mover, memory-store, daily-notes, delete-options, vault-folder-config, task-mutations, task-format-config, trash-config, trash-sweeper, asset-operations, asset-text
       pdf-extractor.ts, pdf-extraction-child.ts, pdf-extraction-protocol.ts # One shared child owns PDF text reads and deferred indexing; raw page rendering stays in the server
     mcp-core/ # MCP protocol surface: mcp-router, tool-registry, tool-availability, tool-definitions, prompt-definitions, coded-error-remedy
-      tools/ # One <domain>-tools module per data-layer domain (vault-crud, search, task, memory, daily-note, asset), plus tool-helpers
+      tools/ # One <domain>-tools module per data-layer domain (vault-crud, search, task, memory, daily-note, asset), plus tool-helpers (registration plumbing and per-call result text) and tool-description-text (text two or more descriptions share)
       prompts/ # One <name>-prompt module per prompt (vault-orientation, memory-review, daily-review), plus prompt-helpers
     search/ # SQLite FTS5, hybrid search, file watching, embedding: search-index, search-queries, fts-query, hybrid-search, search-helpers, rrf, embedder, reranker, search-models, chunker, file-watcher, body-tag-parser + body-tag-worker (body tags parsed in a worker thread)
     oauth/ # OAuth 2.1: oauth-provider, oauth-routes, authorize-guard, consent-page, unknown-client-page
@@ -178,7 +178,11 @@ A module's folder is decided by **what it depends on**, not just its topic:
   module is self-contained: one register function and its data-layer imports,
   with tool names imported from the registry. Shared helpers
   (`createSafeHandlers`, `formatNoteMetadata`, `ToolRegistrationContext`
-  type) live in `tool-helpers.ts`. Group modules take `safeHandler` and
+  type) live in `tool-helpers.ts`; text that two or more tool descriptions
+  state word for word, and the `describe*` builders for text that depends on
+  the config or the enabled tool set, live in `tool-description-text.ts`.
+  `describe*` names description text built at registration and `format*`
+  names result text built per call. Group modules take `safeHandler` and
   `safeHandlerContent` from the registration context; `createSafeHandlers`
   builds them per server from the enabled tools and the vault path.
   **Tool handlers stay thin**: schema, wire mapping (snake_case ↔ camelCase),
