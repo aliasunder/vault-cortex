@@ -69,7 +69,8 @@ export default defineConfig(
         { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },
       ],
       "@typescript-eslint/consistent-type-assertions": ["error", { assertionStyle: "never" }],
-      // AGENTS.md → Code style: arrow functions over `function` declarations.
+      // AGENTS.md → Code style: no `function` declarations. Function
+      // expressions stay allowed, for code that needs its own `this`.
       "func-style": ["error", "expression"],
       // AGENTS.md → Code style: `type` over `interface`.
       "@typescript-eslint/consistent-type-definitions": ["error", "type"],
@@ -86,9 +87,14 @@ export default defineConfig(
         { min: 2, properties: "never", exceptions: ["i", "a", "b", "k", "_"] },
       ],
       // AGENTS.md → Structure and control flow: a function stays small enough
-      // for a reviewer to hold. Both limits are ESLint's own defaults. A
-      // function already over one carries an inline disable until a change
-      // splits it.
+      // for a reviewer to hold.
+      // - The recommended configs leave both rules off, and these limits are
+      //   ESLint's own defaults.
+      // - A function over the complexity limit carries
+      //   `eslint-disable-next-line complexity` until a change splits it.
+      // - ESLint reports an arrow function at its `=>`, so the directive sits
+      //   on the line above the `=>` line, inside the signature when the
+      //   signature spans lines.
       complexity: ["error", { max: 20 }],
       "max-depth": ["error", 4],
     },

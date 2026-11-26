@@ -571,9 +571,9 @@ The rest are the author's responsibility at write time.
   args. Keep a clear one- or two-arg call positional.
 - A boolean mode param means the function does two things: split it;
   the caller owns the gating.
-- A function at the complexity limit, or marked
-  `eslint-disable-next-line complexity`, takes no new branch. Split out
-  the part being changed first, in its own commit.
+- A function marked `eslint-disable-next-line complexity` takes no new
+  branch, and a function that a new branch pushes over the limit gets no
+  new disable. Split out the part being changed first, in its own commit.
 - Decomposition must earn its seams; DRY targets shared decisions, not
   repeated text. A one-expression SDK or Zod wrapper stays inline; a
   parameter a function only forwards is a wrong seam (compile config into

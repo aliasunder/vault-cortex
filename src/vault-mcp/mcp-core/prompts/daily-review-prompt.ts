@@ -16,7 +16,6 @@ import {
 } from "../../vault-operations/daily-notes.js"
 import { describeErrorForLog } from "../../../utils/describe-error.js"
 import type { OutgoingLinkEntry, TaskEntry } from "../../search/search-index.js"
-import { TOOL_NAMES } from "../tool-registry.js"
 import {
   type PromptRegistrationContext,
   describeErrorForPromptFallback,
@@ -160,7 +159,7 @@ export const registerDailyReviewPrompt = ({
         max_chars: maxCharsArg,
       },
     },
-    // eslint-disable-next-line complexity -- over the limit; split it before adding a branch
+    // eslint-disable-next-line complexity -- this function is over the limit; split it before adding a branch
     trackedPromptHandler(search, async (args, extra) => {
       const reqLogger = sessionLogger.child({
         requestId: extra.requestId,
@@ -335,21 +334,17 @@ export const registerDailyReviewPrompt = ({
           ? `**Surface durable facts** — any preference, decision, or fact worth remembering long-term — and propose saving it to ${config.memoryDir}/ memory via vault_update_memory (append-with-dates, newest-first). Confirm before writing.`
           : "**Surface durable facts** — any preference, decision, or fact worth remembering long-term — and tell me so I can record them."
         const memoryStep = config.memoryEnabled ? memoryStepText : ""
-        const rescheduleTools = formatEnabledToolList([
-          TOOL_NAMES.VAULT_PATCH_NOTE,
-          TOOL_NAMES.VAULT_REPLACE_IN_NOTE,
-        ])
-        const taskUpdateDirective = [
-          whenToolEnabledText(
-            TOOL_NAMES.VAULT_UPDATE_TASK,
-            "Update status, priority, or dates with vault_update_task.",
-          ),
-          !isToolEnabled(TOOL_NAMES.VAULT_UPDATE_TASK) && rescheduleTools.length > 0
-            ? `Reschedule by editing the date with ${rescheduleTools}.`
-            : "",
-        ]
-          .filter(Boolean)
-          .join(" ")
+        const rescheduleTools = formatEnabledToolList(["vault_patch_note", "vault_replace_in_note"])
+        const describeTaskUpdate = (): string => {
+          if (isToolEnabled("vault_update_task")) {
+            return "Update status, priority, or dates with vault_update_task."
+          }
+          if (rescheduleTools.length > 0) {
+            return `Reschedule by editing the date with ${rescheduleTools}.`
+          }
+          return ""
+        }
+        const taskUpdateDirective = describeTaskUpdate()
         const taskReviewWithData =
           taskUpdateDirective.length > 0
             ? `**Review tasks** — check the task summaries above. Are any blocked or need rescheduling? ${taskUpdateDirective}`

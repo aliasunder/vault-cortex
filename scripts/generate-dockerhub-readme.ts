@@ -43,7 +43,6 @@ const LICENSE_REPLACEMENT = [
 ]
 
 const EXCLUDED_H2 = new Set([
-  "Quick Start",
   "How It Works",
   "Hybrid Search",
   "Memory",
@@ -59,7 +58,11 @@ const EXCLUDED_H2 = new Set([
   "Acknowledgments",
 ])
 
-const REPLACED_H2 = new Set(["License"])
+/** Sections whose README text is dropped, each mapped to the lines published in its place. */
+const REPLACED_H2: ReadonlyMap<string, readonly string[]> = new Map([
+  ["Quick Start", QUICKSTART_REDIRECT],
+  ["License", LICENSE_REPLACEMENT],
+])
 
 /** Docker Hub truncates a repository description past this many bytes. */
 const DOCKER_HUB_CAP_BYTES = 25_000
@@ -88,6 +91,7 @@ const rewriteUrls = (line: string): string => {
 
   result = result.replace(/\]\(\.\/assets\//g, `](${GITHUB_RAW}/assets/`)
 
+  // Before the generic `](./` rewrite below, which would turn these into /blob/ links.
   for (const dir of DIRECTORY_PATHS) {
     result = result.replaceAll(`](./${dir}`, `](${GITHUB_REPO}/tree/main/${dir}`)
   }
@@ -99,10 +103,10 @@ const rewriteUrls = (line: string): string => {
   return result
 }
 
-/** Collapses markdown table padding — renders identically but saves
- *  hundreds of bytes per row against Docker Hub's 25000-byte cap. Divider
- *  rows compress too (still valid markdown). Assumes no escaped pipes
- *  (\|) in cells — the README's tables have none. */
+/** Collapses markdown table padding (`|  a  |  b |` becomes `| a | b |`) —
+ *  renders identically but saves hundreds of bytes per row against Docker
+ *  Hub's 25000-byte cap. Divider rows compress too (still valid markdown).
+ *  Assumes no escaped pipes (\|) in cells — the README's tables have none. */
 const compressTableRow = (line: string): string => {
   if (!line.startsWith("|")) return line
   const cells = line.split("|").map((cell) => cell.trim())
@@ -122,12 +126,13 @@ const parseHeading = (line: string): { level: number; text: string } | undefined
   return { level: match[1].length, text: match[2] }
 }
 
-// eslint-disable-next-line complexity -- over the limit; split it before adding a branch
+// eslint-disable-next-line complexity -- this function is over the limit; split it before adding a branch
 const generate = (): void => {
   const readme = readFileSync(resolvePath("README.md"), "utf-8")
   const lines = readme.split("\n")
   const output: string[] = [HEADER]
 
+  // Parser state carried from one README line to the next.
   let insideFence = false
   let insideDetails = false
   let skipSection = false
@@ -137,11 +142,7 @@ const generate = (): void => {
 
   for (const line of lines) {
     if (line.startsWith("```")) {
-      if (!insideFence) {
-        insideFence = true
-        continue
-      }
-      insideFence = false
+      insideFence = !insideFence
       continue
     }
     if (insideFence) continue
@@ -167,15 +168,14 @@ const generate = (): void => {
     if (heading?.level === 2) {
       if (EXCLUDED_H2.has(heading.text)) {
         skipSection = true
-        if (heading.text === "Quick Start") {
-          output.push(...QUICKSTART_REDIRECT)
-        }
         continue
       }
 
-      if (REPLACED_H2.has(heading.text)) {
+      const replacementLines = REPLACED_H2.get(heading.text)
+
+      if (replacementLines) {
         skipSection = true
-        output.push(...LICENSE_REPLACEMENT)
+        output.push(...replacementLines)
         continue
       }
 
@@ -214,6 +214,8 @@ const generate = (): void => {
       }
     }
 
+    // The README's centered banner ends at the first `</div>`, and the
+    // Docker Hub notice goes right below it.
     if (!insertedNotice && line.trim() === "</div>") {
       output.push(rewriteUrls(line))
       output.push(...NOTICE)

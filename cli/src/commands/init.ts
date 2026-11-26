@@ -296,7 +296,7 @@ const offerDockerRun = async (deployment: Deployment, deps: InitDeps): Promise<S
 // Local flow: resolve vault path → resolve target dir → generate token →
 // write .env → optionally start the container → print connect instructions.
 // Returns a process exit code.
-// eslint-disable-next-line complexity -- over the limit; split it before adding a branch
+// eslint-disable-next-line complexity -- this function is over the limit; split it before adding a branch
 const runLocalInit = async (flags: InitFlags, deps: InitDeps): Promise<number> => {
   const { prompts } = deps
 
@@ -573,8 +573,7 @@ export const runInit = async (flags: InitFlags, deps: InitDeps): Promise<number>
 
   // Mode resolution: explicit --mode wins; --yes implies local; otherwise
   // ask, defaulting to local — it's the simpler activation path.
-  const flagMode = flags.mode && isMode(flags.mode) ? flags.mode : undefined
-  const mode: Mode = flagMode ?? (flags.yes ? "local" : await askMode(prompts))
+  const mode: Mode = flags.mode ?? (flags.yes ? "local" : await askMode(prompts))
 
   const exitCode =
     mode === "local" ? await runLocalInit(flags, deps) : await runRemoteInit(flags, deps)

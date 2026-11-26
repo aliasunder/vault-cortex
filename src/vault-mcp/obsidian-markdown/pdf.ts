@@ -25,6 +25,8 @@ const structuredPageItems = (content: PageTextContent): StructuredTextItem[] => 
   const toStructuredItem = (
     textItem: Extract<PageTextContent["items"][number], { str: string }>,
   ): StructuredTextItem => {
+    // A PDF transform is the matrix [a b c d e f]: (c, d) is the transformed
+    // vertical unit vector, and (e, f) is the text's origin.
     const [, , verticalBasisX, verticalBasisY, xCoordinate, yCoordinate] = textItem.transform
     const direction = textItem.dir
     const isKnownDirection = direction === "ltr" || direction === "rtl" || direction === "ttb"
@@ -556,9 +558,10 @@ export const extractPdfIndexText = async (pdfData: Uint8Array): Promise<PdfTextR
     const pageLimit = Math.min(totalPages, MAX_INDEXED_PDF_PAGES)
     const itemsByPage: StructuredTextItem[][] = []
     const linksByPage: ReadonlyArray<string>[] = []
-    // Both are reassigned each page: the loop can end on either cap, and a prefix with no visible
-    // text never ends it on the byte cap, however large its links footer, because the result
-    // would be empty.
+    // Both are reassigned on each page:
+    // - the loop can end after any page;
+    // - the byte cap ends it only once a page has visible text, because until then the result
+    //   is empty, however large the links footer grows.
     let rendition = ""
     let hasContent = false
     for (let pageNumber = 1; pageNumber <= pageLimit; pageNumber += 1) {

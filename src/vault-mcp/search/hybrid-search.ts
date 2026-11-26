@@ -376,7 +376,7 @@ export const hybridSearch = async (
     include_leading_callout?: boolean | undefined
   },
   logger: Logger,
-  // eslint-disable-next-line complexity -- over the limit; split it before adding a branch
+  // eslint-disable-next-line complexity -- this function is over the limit; split it before adding a branch
 ): Promise<HybridSearchResult> => {
   const userLimit = Math.max(0, Math.floor(params.limit ?? 20))
   const snippetTokens = params.snippet_tokens ?? 30

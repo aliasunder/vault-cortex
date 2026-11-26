@@ -100,7 +100,7 @@ export const registerVaultCrudTools = ({
   search,
   logger: sessionLogger,
   config,
-  // eslint-disable-next-line complexity -- over the limit; split it before adding a branch
+  // eslint-disable-next-line complexity -- this function is over the limit; split it before adding a branch
 }: ToolRegistrationContext): void => {
   // The read, edit, and delete tools' not-found remedies name vault_list_notes or
   // vault_read_note only while that tool is served; otherwise they fall back to a
@@ -293,6 +293,13 @@ Returns: Raw markdown string (default); JSON object of properties, {} when the n
 
       const isPagedRead = Boolean(start_line || limit)
 
+      if (isPagedRead && outline) {
+        return returnError("line paging is not available in outline mode")
+      }
+      if (isPagedRead && properties_only) {
+        return returnError("line paging is not available in properties_only mode")
+      }
+
       const formatPagedRead = (params: {
         text: string
         mode: "section" | "full"
@@ -308,13 +315,6 @@ Returns: Raw markdown string (default); JSON object of properties, {} when the n
           { type: "text" as const, text: describeTextWindow(path, lineWindow) },
           { type: "text" as const, text: windowText },
         ]
-      }
-
-      if (isPagedRead && outline) {
-        return returnError("line paging is not available in outline mode")
-      }
-      if (isPagedRead && properties_only) {
-        return returnError("line paging is not available in properties_only mode")
       }
 
       if (properties_only) {
@@ -342,49 +342,36 @@ Returns: Raw markdown string (default); JSON object of properties, {} when the n
       // A present heading selects section mode; its absence falls through to a
       // full read.
       if (heading) {
-        if (isPagedRead) {
-          return safeHandlerContent(
+        const readSection = () => {
+          return vaultFs.readNoteSection(
+            { vaultPath, path, heading, headingLevel: heading_level },
             reqLogger,
-            () => {
-              return vaultFs.readNoteSection(
-                { vaultPath, path, heading, headingLevel: heading_level },
-                reqLogger,
-              )
-            },
-            (text) => formatPagedRead({ text, mode: "section" }),
           )
         }
-        return safeHandler(
-          reqLogger,
-          () => {
-            return vaultFs.readNoteSection(
-              { vaultPath, path, heading, headingLevel: heading_level },
-              reqLogger,
-            )
-          },
-          (text) => {
-            reqLogger.info("tool_result", { mode: "section" })
-            return text
-          },
-        )
+
+        if (isPagedRead) {
+          return safeHandlerContent(reqLogger, readSection, (text) => {
+            return formatPagedRead({ text, mode: "section" })
+          })
+        }
+        return safeHandler(reqLogger, readSection, (text) => {
+          reqLogger.info("tool_result", { mode: "section" })
+          return text
+        })
       }
+
+      const readFullNote = () => vaultFs.readNote({ vaultPath, path }, reqLogger)
 
       if (isPagedRead) {
-        return safeHandlerContent(
-          reqLogger,
-          () => vaultFs.readNote({ vaultPath, path }, reqLogger),
-          (text) => formatPagedRead({ text, mode: "full" }),
-        )
+        return safeHandlerContent(reqLogger, readFullNote, (text) => {
+          return formatPagedRead({ text, mode: "full" })
+        })
       }
 
-      return safeHandler(
-        reqLogger,
-        () => vaultFs.readNote({ vaultPath, path }, reqLogger),
-        (text) => {
-          reqLogger.info("tool_result", { mode: "full" })
-          return text
-        },
-      )
+      return safeHandler(reqLogger, readFullNote, (text) => {
+        reqLogger.info("tool_result", { mode: "full" })
+        return text
+      })
     },
   )
 

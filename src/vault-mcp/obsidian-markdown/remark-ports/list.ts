@@ -107,7 +107,7 @@ type LineScan = {
   indented: boolean
 }
 
-// eslint-disable-next-line complexity -- over the limit; split it before adding a branch
+// eslint-disable-next-line complexity -- this function is over the limit; split it before adding a branch
 export const list = function (
   this: RemarkParserMembers,
   eat: Eat,
@@ -188,7 +188,8 @@ export const list = function (
     const previousEmpty = empty
 
     empty = !prefixed && !content.trim().length
-    // Every branch below either ends the list or moves on to the next line
+    // Every branch below either ends the list or moves on to the next line. In order, the line
+    // is an indented continuation, a new item, a blank line, or a lazy continuation or list end.
     index = lineEnd + 1
 
     if (indented && item) {
@@ -312,7 +313,7 @@ const scanItemLine = (
   lineStart: number,
   item: ListItemLines | null,
   commonmark: boolean,
-  // eslint-disable-next-line complexity -- over the limit; split it before adding a branch
+  // eslint-disable-next-line complexity -- this function is over the limit; split it before adding a branch
 ): LineScan => {
   const length = value.length
   const lineFeedIndex = value.indexOf(LINE_FEED, lineStart)
@@ -435,16 +436,16 @@ const removeListItemBullet = (
   // The list tokenizer hands over only lines it read a bullet from
   if (!bulletMatch) throw new Error("list item has no bullet")
 
-  const [bulletText, bulletIndent = "", bulletMarker = "", bulletSpacing = "", firstLineRest = ""] =
+  const [bulletText, bulletIndent = "", markerText = "", bulletSpacing = "", firstLineRest = ""] =
     bulletMatch
-  const bullet = bulletIndent + bulletMarker + bulletSpacing
+  const bullet = bulletIndent + markerText + bulletSpacing
   // Copied unchanged from remark's normalListItem (lib/tokenize/list.js): a
   // dot-numbered item below 10 whose bullet has an odd length (`1. `) is
   // widened by one space, so its later lines may indent one column more.
   // `Number` reads `1.` but not `1)` or `-`, so only dot-marked items widen.
   // Obsidian agrees.
   const widenedMarker =
-    Number(bulletMarker) < 10 && bullet.length % 2 === 1 ? SPACE + bulletMarker : bulletMarker
+    Number(markerText) < 10 && bullet.length % 2 === 1 ? SPACE + markerText : markerText
   const bulletAsSpaces = bulletIndent + SPACE.repeat(widenedMarker.length) + bulletSpacing
   const replaced = bulletAsSpaces + firstLineRest + value.slice(bulletText.length)
   const lines = replaced.split(LINE_FEED)

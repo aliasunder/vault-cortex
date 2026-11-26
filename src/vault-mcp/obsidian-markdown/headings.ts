@@ -28,20 +28,24 @@ const HEADING_REGEX = /^ {0,3}(#{1,6})(?:[ \t](.*))?$/
 /** Removes an ATX heading's optional closing sequence per CommonMark §4.2: one
  *  or more `#` at the end of the text, after a space or tab or as the whole
  *  text. `## Title ##` reads as `Title`, and `### ###` as an empty heading. */
+const isSpaceOrTab = (character: string | undefined): boolean => {
+  return character === " " || character === "\t"
+}
+
 const stripClosingHashes = (text: string): string => {
   // Three backward scans, each over its own run of characters, keep the work
   // linear in the text's length. When no `#` sits before the trailing spaces,
   // the scan stops and the text comes back unchanged.
   let boundary = text.length
 
-  while (boundary > 0 && (text[boundary - 1] === " " || text[boundary - 1] === "\t")) boundary -= 1
+  while (boundary > 0 && isSpaceOrTab(text[boundary - 1])) boundary -= 1
   const hashEnd = boundary
 
   while (boundary > 0 && text[boundary - 1] === "#") boundary -= 1
   if (boundary === hashEnd) return text
   const hashStart = boundary
 
-  while (boundary > 0 && (text[boundary - 1] === " " || text[boundary - 1] === "\t")) boundary -= 1
+  while (boundary > 0 && isSpaceOrTab(text[boundary - 1])) boundary -= 1
   const hashesAreWholeText = hashStart === 0
   const hashesFollowSpace = boundary < hashStart
   const isClosingSequence = hashesAreWholeText || hashesFollowSpace
@@ -117,8 +121,8 @@ export const findTrailingCommentBlockStart = (lines: readonly string[]): number 
       continue
     }
 
-    // An inline comment both starts and ends its line with `%%`, so it
-    // always closes at the line's end.
+    // The state is closed on both sides of this line, so a line still marked as
+    // comment holds an inline `%% … %%`, which always closes at the line's end.
     const isInlineComment = !wasOpen && !commentOpen && commentResult.lineIsComment
 
     if (isInlineComment) {
@@ -156,7 +160,7 @@ export const findTrailingCommentBlockStart = (lines: readonly string[]): number 
  * Skips content inside fenced code blocks and `%% %%` comment blocks.
  * Section body = heading line(s)+1 through next same-or-higher heading (or EOF).
  */
-// eslint-disable-next-line complexity -- over the limit; split it before adding a branch
+// eslint-disable-next-line complexity -- this function is over the limit; split it before adding a branch
 export const parseHeadings = (lines: readonly string[]): HeadingInfo[] => {
   // Phase 1: collect headings. Setext detection needs two-line lookahead
   // (text line + underline), so the parser uses a for-loop with mutable
@@ -215,7 +219,7 @@ export const parseHeadings = (lines: readonly string[]): HeadingInfo[] => {
 
     // Setext underline check — a setext heading is a paragraph line followed
     // by a `===` (H1) or `---` (H2) underline (CommonMark §4.3).
-    if (setextCandidate !== null) {
+    if (setextCandidate) {
       const setextMatch = SETEXT_UNDERLINE_REGEX.exec(line)
       const underlineChars = setextMatch?.[1]
 
@@ -250,11 +254,14 @@ export const parseHeadings = (lines: readonly string[]): HeadingInfo[] => {
     ...heading,
     bodyEndLine: Math.max(heading.bodyStartLine, trailingCommentBlockStart),
   }))
+  // The stack holds the same objects as completedHeadings, so closing a
+  // heading sets the bodyEndLine this function returns.
   const openHeadings: Array<(typeof completedHeadings)[number]> = []
 
-  // Each heading is pushed and closed once; only same-or-deeper levels close here.
+  // Each heading is pushed and closed once; only same-or-deeper levels close
+  // here. An empty stack reads as level 0, below every heading's level.
   for (const heading of completedHeadings) {
-    while (openHeadings.length && (openHeadings.at(-1)?.level ?? 0) >= heading.level) {
+    while ((openHeadings.at(-1)?.level ?? 0) >= heading.level) {
       const closedHeading = openHeadings.pop()
 
       if (closedHeading) closedHeading.bodyEndLine = heading.startLine

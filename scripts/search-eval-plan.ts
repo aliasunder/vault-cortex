@@ -31,23 +31,23 @@ const judgmentFiltersSchema = z.strictObject({
   modified: judgmentDateFilterSchema.optional(),
 })
 
-// eslint-disable-next-line complexity -- over the limit; split it before adding a branch
 const hasNarrowingFilter = (filters: SearchFilters | undefined): boolean => {
   if (!filters) return false
 
-  return Boolean(
-    filters.folder ||
-    filters.tags?.length ||
-    filters.related?.length ||
-    filters.type ||
-    Object.keys(filters.properties ?? {}).length ||
-    filters.created?.before ||
-    filters.created?.on ||
-    filters.created?.after ||
-    filters.modified?.before ||
-    filters.modified?.on ||
+  const filterValues = [
+    filters.folder,
+    filters.tags?.length,
+    filters.related?.length,
+    filters.type,
+    Object.keys(filters.properties ?? {}).length,
+    filters.created?.before,
+    filters.created?.on,
+    filters.created?.after,
+    filters.modified?.before,
+    filters.modified?.on,
     filters.modified?.after,
-  )
+  ]
+  return filterValues.some(Boolean)
 }
 
 const judgmentQuerySchema = z
@@ -126,8 +126,8 @@ const matchesExpectedPath = (judgmentQuery: JudgmentQuery, path: string): boolea
 
   if (!expectedPrefix) return false
 
-  // Trailing slash means this is a folder-membership test: paths inside the
-  // folder match, but the folder path itself never does.
+  // The prefix always names a folder, with a slash added when missing, so
+  // paths inside the folder match, but the folder path itself never does.
   const folderPrefix = expectedPrefix.endsWith("/") ? expectedPrefix : `${expectedPrefix}/`
   return foldedPath.startsWith(caseFoldPath(folderPrefix))
 }

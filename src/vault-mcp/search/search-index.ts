@@ -534,7 +534,9 @@ export const createSearchIndex = (
      *  harness sets these to measure candidate values. */
     ranking?: queries.RankingTuning | undefined
   },
-  // eslint-disable-next-line complexity -- over the limit; split it before adding a branch
+  // Most of the factory's complexity comes from its feature-gated
+  // `condition ? db.prepare(…) : null` statements, not from branching logic.
+  // eslint-disable-next-line complexity -- this function is over the limit; split it before adding a branch
 ) => {
   const memoryDir = options?.memoryDir
   const fileToolsEnabled = options?.fileToolsEnabled ?? false
@@ -1695,9 +1697,12 @@ export const createSearchIndex = (
       if (!isNewFile) return
 
       // A link names the file by its full filename ([[photo.png]]) or by its
-      // stem ([[Trip Route]] for Trip Route.canvas), the basename column. Each
-      // name is looked up with and without a ".md" ending in any letter case,
-      // because the folded pass matches [[x.md]], keyed without it, to x.MD.png.
+      // stem ([[Trip Route]] for Trip Route.canvas), the basename column.
+      // pathToLinkName strips only a lowercase ".md" ending, so each name
+      // gives two keys. For the stem `x.MD` of `x.MD.png`:
+      // - lowercased first, it keys as `x`, like the link [[x.md]], which the
+      //   folded pass matches to this file;
+      // - with ".md" added, it keys as `x.md`, like the link [[x.MD]].
       const fileNames = [basename(filePath), baseFilename]
       const linkNames = fileNames.flatMap((fileName) => [
         links.pathToLinkName(fileName.toLowerCase()),
@@ -2234,7 +2239,7 @@ export const createSearchIndex = (
   const embedAndStoreChunks = async (
     params: { notePath: string; rawContent: string; sourceVersion: symbol },
     logger: Logger,
-    // eslint-disable-next-line complexity -- over the limit; split it before adding a branch
+    // eslint-disable-next-line complexity -- this function is over the limit; split it before adding a branch
   ): Promise<number> => {
     const { notePath, rawContent } = params
 
@@ -2486,7 +2491,7 @@ export const createSearchIndex = (
   const embedAndStoreFileChunks = async (
     params: { filePath: string; sourceVersion: symbol },
     logger: Logger,
-    // eslint-disable-next-line complexity -- over the limit; split it before adding a branch
+    // eslint-disable-next-line complexity -- this function is over the limit; split it before adding a branch
   ): Promise<number> => {
     if (
       !embedder ||
