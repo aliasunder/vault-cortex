@@ -7462,6 +7462,35 @@ describe("link-target limits", () => {
     },
     CHILD_TEST_TIMEOUT_MS,
   )
+
+  it(
+    "indexes 125 long missing links beside files 1,000 folders deep in about the time it takes beside shallow files",
+    () => {
+      const helperPath = new URL("./helpers/deep-file-link-growth.ts", import.meta.url)
+      const output = execFileSync(process.execPath, ["--import", "tsx", helperPath.pathname], {
+        encoding: "utf8",
+        timeout: LINEAR_TIMING_CHILD_DEADLINE_MS,
+        killSignal: "SIGKILL",
+        env: { ...process.env, LOG_LEVEL: "error" },
+      })
+      const { measurements } = JSON.parse(output)
+      const [shallow, deep] = measurements
+
+      type Measurement = { label: string; unresolved: number }
+
+      expect(
+        measurements.map(({ label, unresolved }: Measurement) => ({ label, unresolved })),
+      ).toEqual([
+        { label: "shallow", unresolved: 125 },
+        { label: "deep", unresolved: 125 },
+      ])
+      // Each link's cost depends on its own segments, not on how deep the
+      // files sit, so the deep run stays within a small multiple of the
+      // shallow one.
+      expect(deep.leastMs).toBeLessThanOrEqual(Math.max(TIMING_FLOOR_MS, shallow.leastMs) * 4)
+    },
+    CHILD_TEST_TIMEOUT_MS,
+  )
 })
 
 // ── Link rows ───────────────────────────────────────────────────

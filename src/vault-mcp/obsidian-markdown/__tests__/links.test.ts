@@ -1246,6 +1246,51 @@ describe("resolver oracle", () => {
   )
 })
 
+// ── Resolution cost ──────────────────────────────────────────────
+
+/** The helper's path list grows eightfold, so a resolver that scans the list
+ *  grows about 8x and one that reads a lookup stays about flat. Four sits
+ *  between the two with room for scheduling noise. */
+const LOOKUP_GROWTH_LIMIT = 4
+
+describe("resolution cost against the path list", () => {
+  it.each([
+    { label: "unresolved note targets", variant: "notes" },
+    {
+      label: "folder-qualified targets naming notes that all share one name",
+      variant: "same-name",
+    },
+    { label: "unresolved file targets", variant: "files" },
+  ])(
+    "resolves 2,000 $label against eight times the paths in about the same time",
+    ({ variant }) => {
+      const helperPath = new URL("./helpers/link-resolution-growth.ts", import.meta.url)
+      const output = execFileSync(
+        process.execPath,
+        ["--import", "tsx", helperPath.pathname, variant],
+        { encoding: "utf8", timeout: CHILD_DEADLINE_MS, killSignal: "SIGKILL" },
+      )
+      const { measurements } = JSON.parse(output)
+      const [small, large] = measurements
+
+      type Measurement = { pathCount: number; resolvedCount: number }
+
+      expect(
+        measurements.map(({ pathCount, resolvedCount }: Measurement) => {
+          return { pathCount, resolvedCount }
+        }),
+      ).toEqual([
+        { pathCount: 1_000, resolvedCount: 0 },
+        { pathCount: 8_000, resolvedCount: 0 },
+      ])
+      expect(large.leastMs).toBeLessThanOrEqual(
+        Math.max(TIMING_FLOOR_MS, small.leastMs) * LOOKUP_GROWTH_LIMIT,
+      )
+    },
+    CHILD_TEST_TIMEOUT_MS,
+  )
+})
+
 // ── Link-target limits ───────────────────────────────────────────
 
 /** A target of exactly `bytes` bytes with a ".." after a name. */
