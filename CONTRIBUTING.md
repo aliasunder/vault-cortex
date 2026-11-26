@@ -248,7 +248,8 @@ updating each doc or generated file the change affects.
 
 Server and CLI release notes (`.github/scripts/generate-notes.sh` and
 `.github/scripts/generate-cli-notes.sh`) lead with a **⚠ BREAKING CHANGES**
-section when a change they list is breaking. Breaking changes are detected
+section when a commit they list is breaking; [Release Process](#release-process)
+says which commits each script lists. Breaking changes are detected
 from the **merged PR**, read via the API at release time — the reliable
 source: a squash commit's body is often dropped at merge (e.g. the GitHub
 mobile app), but the PR body and labels always survive.

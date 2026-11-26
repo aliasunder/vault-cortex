@@ -20,8 +20,8 @@
 # need both the `gh` binary and GH_TOKEN; when either is missing (local runs
 # without auth) the commit-only signals are used. A lookup that fails despite
 # being enabled warns on stderr rather than silently dropping the signal.
-# generate-cli-notes.sh applies the same rule to the CLI notes, so change both
-# scripts together.
+# generate-cli-notes.sh detects the same marks for the CLI notes, so change
+# both scripts together.
 
 set -euo pipefail
 
@@ -83,7 +83,7 @@ pr_pat = re.compile(r'\(#(\d+)\)\s*$')
 # PR lookups need both the `gh` binary and a token. CI passes GH_TOKEN; a local
 # run without it skips lookups and falls back to commit-only signals (the
 # documented offline behavior) instead of firing unauthenticated calls.
-GH = shutil.which("gh") if os.environ.get("GH_TOKEN") else None
+GH_PATH = shutil.which("gh") if os.environ.get("GH_TOKEN") else None
 # Set by GitHub Actions. A local run leaves it empty, and `gh` then uses the
 # checkout's own remote.
 REPO = os.environ.get("GITHUB_REPOSITORY", "")
@@ -98,7 +98,7 @@ def pr_info(pr_number):
     disabled (no `gh`/token) or the lookup fails. A failed lookup warns on
     stderr — a silent None could drop a breaking change that lives only in the
     PR body/label from the release notes."""
-    if not GH:
+    if not GH_PATH:
         return None
     if pr_number in _pr_cache:
         return _pr_cache[pr_number]
@@ -106,7 +106,7 @@ def pr_info(pr_number):
     try:
         repo_args = ["-R", REPO] if REPO else []
         result = subprocess.run(
-            [GH, "pr", "view", pr_number, *repo_args, "--json", "labels,body"],
+            [GH_PATH, "pr", "view", pr_number, *repo_args, "--json", "labels,body"],
             capture_output=True, text=True, timeout=20,
         )
         if result.returncode == 0:
@@ -238,8 +238,8 @@ for record in records:
     if not subject or release_pat.match(subject):
         continue
 
-    match = subject_pat.match(subject)
-    has_contributor_only_scope = bool(match) and match["scope"] in CONTRIBUTOR_ONLY_SCOPES
+    subject_match = subject_pat.match(subject)
+    has_contributor_only_scope = bool(subject_match) and subject_match["scope"] in CONTRIBUTOR_ONLY_SCOPES
     # The scope check comes first: a failed path lookup warns that the commit
     # is listed.
     if has_contributor_only_scope:
@@ -258,8 +258,8 @@ for record in records:
     pr = pr_info(pr_match.group(1)) if pr_match else None
 
     # Categorize from the commit subject.
-    if match:
-        commit_type, scope, description = match.group("type", "scope", "description")
+    if subject_match:
+        commit_type, scope, description = subject_match.group("type", "scope", "description")
         description = description[0].upper() + description[1:]
         entry = f"- **{scope}:** {description}" if scope else f"- {description}"
         buckets.get(commit_type, other).append(entry)
@@ -272,7 +272,7 @@ for record in records:
     commit_footer = breaking_pat.search(body)
     pr_footer = breaking_pat.search(pr["body"]) if pr else None
     has_label = bool(pr and BREAKING_LABEL in pr["labels"])
-    has_breaking_marker = bool(match and match["breaking"])
+    has_breaking_marker = bool(subject_match and subject_match["breaking"])
     if has_breaking_marker or commit_footer or pr_footer or has_label:
         if pr_footer:
             note = pr_footer.group(1).strip()

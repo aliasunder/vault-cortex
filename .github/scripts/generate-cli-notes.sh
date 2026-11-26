@@ -20,10 +20,11 @@
 # - a ! after the type and scope in its subject (feat(cli)!: ...)
 # - a BREAKING CHANGE: or BREAKING-CHANGE: footer in its body
 # - the same footer in its merged PR's body, or a breaking-change PR label
-# Its line takes the PR footer's text, else the commit footer's, else the
-# subject. PR lookups need both the gh binary and GH_TOKEN, and a failed lookup
-# warns on stderr and falls back to the commit's own marks. generate-notes.sh
-# applies the same rule to the server notes, so change both scripts together.
+# A breaking commit's line in the ⚠ section takes the PR footer's text, else
+# the commit footer's, else the subject. PR lookups need both the gh binary
+# and GH_TOKEN, and a failed lookup warns on stderr and falls back to the
+# commit's own marks. generate-notes.sh detects the same marks for the server
+# notes, so change both scripts together.
 
 set -euo pipefail
 
@@ -38,10 +39,10 @@ else
   RANGE="$NEW_TAG"
 fi
 
-# Exits 0 when the patch on stdin adds or removes a counted line, and
-# NO_COUNTED_LINE when it does not. awk exits 2 on its own errors, so the code
-# for "no counted line" differs from it, and any other code stops the script
-# instead of reading as a commit with nothing to list.
+# Reads a patch on stdin and exits with:
+# - 0 when the patch adds or removes a counted line
+# - NO_COUNTED_LINE when it does not. awk exits 2 on its own errors, so a
+#   failed awk never reads as a patch with no counted line.
 NO_COUNTED_LINE=3
 has_counted_change() {
   awk -v no_counted_line="$NO_COUNTED_LINE" '
@@ -82,17 +83,18 @@ COMMIT_HASHES=$(git log --no-merges --format=%H "$RANGE" -- "${CLI_PATHSPEC[@]}"
 
 LISTED_HASHES=()
 for commit_hash in $COMMIT_HASHES; do
+  # -U0 leaves out context lines, which has_counted_change never reads.
   PATCH=$(git diff-tree -p --root --no-commit-id -U0 "$commit_hash" -- "${CLI_PATHSPEC[@]}")
   classify_status=0
   has_counted_change <<< "$PATCH" || classify_status=$?
-  if [ "$classify_status" -eq "$NO_COUNTED_LINE" ]; then
-    continue
-  fi
-  if [ "$classify_status" -ne 0 ]; then
-    echo "generate-cli-notes: could not classify $commit_hash" >&2
-    exit 1
-  fi
-  LISTED_HASHES+=("$commit_hash")
+  case "$classify_status" in
+    0) LISTED_HASHES+=("$commit_hash") ;;
+    "$NO_COUNTED_LINE") ;;
+    *)
+      echo "generate-cli-notes: could not classify $commit_hash" >&2
+      exit 1
+      ;;
+  esac
 done
 
 # With no listed commit the notes are empty. The check comes before python3,
@@ -105,16 +107,17 @@ python3 - "${LISTED_HASHES[@]}" << 'PYTHON'
 import json, os, re, shutil, subprocess, sys
 
 # One record per commit, in the order given (newest first), as
-# `<subject>\x1f<body>`, records NUL-separated. git writes its own errors to
-# stderr.
+# `<subject>\x1f<body>`, each ended by a NUL and the newline git log adds.
 log_result = subprocess.run(
     ["git", "log", "--no-walk=unsorted", "--format=%s%x1f%b%x00", *sys.argv[1:]],
     stdout=subprocess.PIPE, encoding="utf-8", errors="replace",
 )
+# git has already printed its error on stderr, which is not captured.
 if log_result.returncode != 0:
     sys.exit(log_result.returncode)
-# The text after the last NUL is the newline that ends git log's output.
-records = log_result.stdout.split("\x00")[:-1]
+# Splitting on NUL leaves that newline at the start of every record after the
+# first, and alone after the last NUL.
+records = [record.lstrip("\n") for record in log_result.stdout.split("\x00")[:-1]]
 
 # Pattern: type(scope)!: description — scope and the breaking `!` are optional.
 subject_pat = re.compile(
@@ -128,7 +131,7 @@ pr_pat = re.compile(r'\(#(\d+)\)\s*$')
 # PR lookups need both the `gh` binary and a token. CI passes GH_TOKEN; a local
 # run without it skips lookups and falls back to commit-only signals instead of
 # firing unauthenticated calls.
-GH = shutil.which("gh") if os.environ.get("GH_TOKEN") else None
+GH_PATH = shutil.which("gh") if os.environ.get("GH_TOKEN") else None
 # Set by GitHub Actions. A local run leaves it empty, and `gh` then uses the
 # checkout's own remote.
 REPO = os.environ.get("GITHUB_REPOSITORY", "")
@@ -143,7 +146,7 @@ def pr_info(pr_number):
     disabled (no `gh`/token) or the lookup fails. A failed lookup warns on
     stderr — a silent None could drop a breaking change that lives only in the
     PR body/label from the release notes."""
-    if not GH:
+    if not GH_PATH:
         return None
     if pr_number in _pr_cache:
         return _pr_cache[pr_number]
@@ -151,7 +154,7 @@ def pr_info(pr_number):
     try:
         repo_args = ["-R", REPO] if REPO else []
         result = subprocess.run(
-            [GH, "pr", "view", pr_number, *repo_args, "--json", "labels,body"],
+            [GH_PATH, "pr", "view", pr_number, *repo_args, "--json", "labels,body"],
             capture_output=True, text=True, timeout=20,
         )
         if result.returncode == 0:
@@ -173,12 +176,9 @@ change_lines = []
 breaking = []
 for record in records:
     subject, _, body = record.partition("\x1f")
-    # Every record after the first starts with the newline git log writes after
-    # each NUL terminator.
-    subject = subject.lstrip("\n")
     change_lines.append(f"- {subject}")
 
-    match = subject_pat.match(subject)
+    subject_match = subject_pat.match(subject)
     pr_match = pr_pat.search(subject)
     pr = pr_info(pr_match.group(1)) if pr_match else None
 
@@ -187,7 +187,7 @@ for record in records:
     commit_footer = breaking_pat.search(body)
     pr_footer = breaking_pat.search(pr["body"]) if pr else None
     has_label = bool(pr and BREAKING_LABEL in pr["labels"])
-    has_breaking_marker = bool(match and match["breaking"])
+    has_breaking_marker = bool(subject_match and subject_match["breaking"])
     if has_breaking_marker or commit_footer or pr_footer or has_label:
         if pr_footer:
             note = pr_footer.group(1).strip()
