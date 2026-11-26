@@ -4683,6 +4683,21 @@ describe("a damaged index row carries the index remedy", () => {
     })
   }, 30_000)
 
+  it("vault_search with a tags filter over a tags column that is not JSON returns the SQLite error with the remedy", async () => {
+    const { ownClient, index } = await startServerWithOpenIndex()
+    const searchArgs = { query: "incoming links", filters: { tags: ["test"] } }
+    const before = await callTool({ client: ownClient, name: "vault_search", args: searchArgs })
+    expect(before.isError).toBeUndefined()
+
+    index.prepare("UPDATE notes SET tags = '{' WHERE path = ?").run("Orphan Note.md")
+
+    const result = await callTool({ client: ownClient, name: "vault_search", args: searchArgs })
+    expect(result).toEqual({
+      content: [{ type: "text", text: `[SqliteError]: malformed JSON. ${INDEX_REMEDY}` }],
+      isError: true,
+    })
+  }, 30_000)
+
   // Embeddings are off in this server, so only the keyword leg reads the
   // note's row, and no other leg can raise the error.
   it("vault_search matching a note whose tags column has the wrong shape returns the integrity error with the remedy", async () => {
