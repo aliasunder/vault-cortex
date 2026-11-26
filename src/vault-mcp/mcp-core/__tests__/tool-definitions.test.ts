@@ -3361,13 +3361,39 @@ describe("vault_delete_file description reflects OBSIDIAN_SYNC", () => {
       endMarker: "\n\nReturns:",
     })
   }
+  const MARKDOWN_NOTE_ENTRY_WITH_DELETE_NOTE =
+    '- "not a file: … is a markdown note" — the path ends in .md in any letter case; delete a note with vault_delete_note, and ask the vault\'s owner to delete a .MD file in Obsidian'
+  const FILE_NOT_FOUND_ENTRY_WITH_LIST_FILES =
+    '- "file not found: …" — no file exists at that path (a folder is not a file); verify the path with vault_list_files'
   const PATH_AND_LOOKUP_ERROR_ENTRIES = [
     '- "cannot delete protected path" — the path sits under a protected folder; ask the vault\'s owner to delete the file in Obsidian',
-    '- "not a file: … is a markdown note" — the path ends in .md in any letter case; delete a note with vault_delete_note, and ask the vault\'s owner to delete a .MD file in Obsidian',
+    MARKDOWN_NOTE_ENTRY_WITH_DELETE_NOTE,
     '- "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — pass a vault-relative path with no dot-prefixed part',
     '- "concurrent write in progress" — a write to this file is in flight; retry',
-    '- "file not found: …" — no file exists at that path (a folder is not a file); verify the path with vault_list_files',
+    FILE_NOT_FOUND_ENTRY_WITH_LIST_FILES,
   ]
+
+  it.each([
+    {
+      label: "the markdown-note entry keeps a remedy when vault_delete_note is disabled",
+      disabledTool: "vault_delete_note",
+      servedEntry: MARKDOWN_NOTE_ENTRY_WITH_DELETE_NOTE,
+      disabledEntry:
+        '- "not a file: … is a markdown note" — the path ends in .md in any letter case; ask the vault\'s owner to delete it in Obsidian',
+    },
+    {
+      label: "the not-found entry keeps a remedy when vault_list_files is disabled",
+      disabledTool: "vault_list_files",
+      servedEntry: FILE_NOT_FOUND_ENTRY_WITH_LIST_FILES,
+      disabledEntry:
+        '- "file not found: …" — no file exists at that path (a folder is not a file); check the path\'s spelling and letter case',
+    },
+  ])("$label", ({ disabledTool, servedEntry, disabledEntry }) => {
+    const errorsWhenDisabled = deleteFileErrors({ DISABLED_TOOLS: disabledTool })
+
+    expect(errorsWhenDisabled).toBe(deleteFileErrors({}).replace(servedEntry, disabledEntry))
+    expect(errorsWhenDisabled).not.toContain(disabledTool)
+  })
   const DELETE_FAILURE_ENTRIES = [
     '- "cannot delete …" (other than a protected path) — the file stays put; ask the vault\'s owner to fix the cause (e.g. permissions), then retry',
     '- "ENAMETOOLONG: …" or another filesystem error — the message says what to do; the file stays put',
