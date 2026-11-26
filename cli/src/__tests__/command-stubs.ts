@@ -111,7 +111,13 @@ export const createScriptedPrompts = (answers: ScriptedAnswer[] = []): ScriptedP
     },
     select: async (message, options, initialValue) => {
       selectCalls.push({ message, options, initialValue })
-      return nextStringAnswer(message)
+      const answer = nextStringAnswer(message)
+      const pickedOption = options.find((option) => option.value === answer)
+
+      if (!pickedOption) {
+        throw new Error(`select "${message}" has no option ${answer}`)
+      }
+      return pickedOption.value
     },
     multiselect: async (message, options) => {
       multiselectCalls.push({ message, options })

@@ -193,7 +193,7 @@ const chooseInUseNameAction = async (
     return "reuse"
   }
   if (otherAppImage) return "own-name"
-  const pickedAction = await prompts.select(
+  return prompts.select(
     `An install named "${requestedName}" already exists on this machine (its container or data volumes are here). What should this install do?`,
     [
       {
@@ -209,8 +209,6 @@ const chooseInUseNameAction = async (
     ],
     "own-name",
   )
-
-  return pickedAction === "reuse" ? "reuse" : "own-name"
 }
 
 /**

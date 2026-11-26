@@ -59,8 +59,8 @@ export type InitDeps = {
 
 const isMode = (value: string): value is Mode => value === "local" || value === "remote"
 
-const askMode = async (prompts: Prompts): Promise<Mode> => {
-  const selected = await prompts.select(
+const askMode = (prompts: Prompts): Promise<Mode> => {
+  return prompts.select(
     "How do you want to run Vault Cortex?",
     [
       {
@@ -76,7 +76,6 @@ const askMode = async (prompts: Prompts): Promise<Mode> => {
     ],
     "local",
   )
-  return isMode(selected) ? selected : "local"
 }
 
 /**
