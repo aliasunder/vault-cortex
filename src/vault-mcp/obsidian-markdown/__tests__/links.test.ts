@@ -916,10 +916,7 @@ describe("resolveAsset", () => {
     "app/views/Inventory.base",
   ]
 
-  it("folds ASCII case in the path-suffix tier, matching the SQL twin's LIKE", () => {
-    // The indexer's suffix statements compare with LIKE (ASCII-case-
-    // insensitive), so the array resolver must fold too or the two
-    // resolvers pick different files for one target.
+  it("folds ASCII case in the path-suffix tier's first pass", () => {
     expect(
       links.resolveAsset({
         target: "sunset.png",
@@ -928,7 +925,7 @@ describe("resolveAsset", () => {
     ).toBe("photos/Sunset.png")
   })
 
-  it("folds ASCII case in the folder-qualified stem tier, matching the SQL twin's LIKE", () => {
+  it("folds ASCII case in the folder-qualified stem tier's first pass", () => {
     expect(
       links.resolveAsset({
         target: "views/Inventory",
@@ -1015,7 +1012,7 @@ describe("resolveAsset", () => {
     ).toBe("Photo.png")
   })
 
-  it("folds only ASCII letters in asset links, matching the SQL twin's NOCASE", () => {
+  it("folds only ASCII letters in asset links", () => {
     expect(
       links.resolveAsset({
         target: "éclair.png",

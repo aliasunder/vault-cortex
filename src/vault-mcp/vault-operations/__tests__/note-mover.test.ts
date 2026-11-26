@@ -866,8 +866,8 @@ describe("moveNote — asset link rewriting", () => {
   it("resolves a multi-dot asset target to its full-filename file via the stem family", async () => {
     const { writeFixture, moveNote, readNote } = setupVault()
     // Only photo.png.canvas exists — ![[../assets/photo.png]] has no
-    // full-filename match, so the stem family resolves it (mirroring the
-    // indexer's resolveNonMarkdownFile).
+    // full-filename match, so the stem family resolves it, as it does in the
+    // index.
     await writeFixture("assets/photo.png.canvas", "{}")
     await writeFixture("Notes/Note.md", "Image: ![[../assets/photo.png]]\n")
 

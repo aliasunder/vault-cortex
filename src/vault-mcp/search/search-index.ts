@@ -43,7 +43,6 @@ import {
   buildChunkTitleLine,
   buildFtsMetadataText,
   buildFtsNameText,
-  escapeLikeWildcards,
   foldTag,
   NOTE_METADATA_COLUMNS_SQL,
   parseStringArray,
@@ -394,9 +393,11 @@ export type OutgoingLinkEntry = {
 //      links ([text](target) / ![alt](target)) from the note body (skipping fenced code
 //      blocks and inline code spans); links.extractFromFrontmatter() adds
 //      [[wikilinks]] from frontmatter property values (e.g. related:).
-//   2. links.resolve() maps each raw target to a vault-relative path by trying
+//   2. links.resolve() maps each raw target to a note path by trying
 //      exact match → relative-to-source match → basename/shortest-path heuristic,
-//      first in the link's own letter case, then with letter case folded.
+//      first in the link's own letter case, then with letter case folded. A
+//      target no note matches goes to links.resolveAsset() over the
+//      non_md_files paths, the resolver the note mover uses for file links.
 //   3. upsertNote stores each link's resolved target beside its text. Unresolved
 //      targets are stored as-is (raw text) for broken-link detection.
 //   4. Each link re-resolves from its text when the files it could name change:
@@ -984,48 +985,13 @@ export const createSearchIndex = (
     `SELECT path FROM non_md_files WHERE path = ?`,
   )
   const deleteNonMdFileStmt = db.prepare(`DELETE FROM non_md_files WHERE path = ?`)
-  /** Direct path match for targets that already include a non-md extension
-   *  (e.g. `[[photo.png]]`, `![[diagram.svg]]`). */
-  const resolveNonMdByFullPathStmt = db.prepare<[string], { path: string }>(
-    `SELECT path FROM non_md_files WHERE path = ? LIMIT 1`,
+  const selectAllNonMdPathsStmt = db.prepare<unknown[], { path: string }>(
+    `SELECT path FROM non_md_files`,
   )
-  /** The multi-match resolution queries (resolveNonMdByBasePath, ByBasename,
-   *  ByBasePathSuffix, ByFullPathSuffix) all ORDER BY length(path), path so
-   *  the shortest path wins deterministically — matching links.resolve's
-   *  note-resolution heuristic. */
-  const resolveNonMdByBasePathStmt = db.prepare<[string], { path: string }>(
-    `SELECT path FROM non_md_files WHERE base_path = ? ORDER BY length(path), path LIMIT 1`,
-  )
-  const resolveNonMdByBasenameStmt = db.prepare<[string], { path: string }>(
-    `SELECT path FROM non_md_files WHERE basename = ? ORDER BY length(path), path LIMIT 1`,
-  )
-  /** The folded-case twins of the three equality queries above, for the
-   *  second resolution pass. NOCASE folds ASCII letters only, matching
-   *  links.resolveAsset's folded pass. The collation applies to the comparison
-   *  alone, so ORDER BY stays BINARY like links.resolveAsset's shortestOf, and
-   *  two files that differ only in letter case resolve the same way in both. */
-  const resolveNonMdByFullPathIgnoringCaseStmt = db.prepare<[string], { path: string }>(
-    `SELECT path FROM non_md_files WHERE path = ? COLLATE NOCASE ORDER BY length(path), path LIMIT 1`,
-  )
-  const resolveNonMdByBasePathIgnoringCaseStmt = db.prepare<[string], { path: string }>(
-    `SELECT path FROM non_md_files WHERE base_path = ? COLLATE NOCASE ORDER BY length(path), path LIMIT 1`,
-  )
-  const resolveNonMdByBasenameIgnoringCaseStmt = db.prepare<[string], { path: string }>(
-    `SELECT path FROM non_md_files WHERE basename = ? COLLATE NOCASE ORDER BY length(path), path LIMIT 1`,
-  )
-  /** Suffix-path match: finds non-md files whose base_path ends with the target
-   *  (preserving folder segments). Mirrors links.resolveAsset's stem-suffix
-   *  tier. LIKE ignores ASCII letter case, so this and the full-path suffix
-   *  query below match in either letter case. ESCAPE clause prevents `_` and
-   *  `%` in the target from acting as LIKE wildcards. */
-  const resolveNonMdByBasePathSuffixStmt = db.prepare<[string], { path: string }>(
-    `SELECT path FROM non_md_files WHERE base_path LIKE '%/' || ? ESCAPE '\\' ORDER BY length(path), path LIMIT 1`,
-  )
-  /** Full-filename suffix matches precede stem matches, so photo.png beats photo.png.canvas.
-   *  Escape LIKE wildcards as in the base-path suffix query. */
-  const resolveNonMdByFullPathSuffixStmt = db.prepare<[string], { path: string }>(
-    `SELECT path FROM non_md_files WHERE path LIKE '%/' || ? ESCAPE '\\' ORDER BY length(path), path LIMIT 1`,
-  )
+  const readNonMarkdownPaths = (): string[] => {
+    return selectAllNonMdPathsStmt.all().map((file) => file.path)
+  }
+
   // ── File content prepared statements (conditional on fileToolsEnabled) ──
   // Each file_content_fts row has its file_content row's rowid, as the comment
   // above upsertNotesStmt explains.
@@ -1429,162 +1395,20 @@ export const createSearchIndex = (
     `SELECT ${NOTE_METADATA_COLUMNS_SQL} FROM notes WHERE path = ?`,
   )
 
-  /** The first walk over every tier that resolveNonMarkdownFile describes. The
-   *  equality queries keep the link's letter case, and the two LIKE suffix
-   *  queries ignore ASCII letter case. */
-  const resolveNonMarkdownFileInExactCase = (params: {
-    target: string
-    relativeTarget: string | null
-  }): string | null => {
-    const { target, relativeTarget } = params
-
-    // ── Full-filename family: exact → relative → path suffix ──
-
-    // Exact path match for targets that already include a non-md extension
-    // (e.g. [[photo.png]], ![[diagram.svg]]).
-    const fullPathMatch = resolveNonMdByFullPathStmt.get(target)
-
-    if (fullPathMatch) return fullPathMatch.path
-
-    // Relative-to-source match ("path from current file"), e.g.
-    // ![x](../assets/photo.png).
-    if (relativeTarget) {
-      const relativeFullPathMatch = resolveNonMdByFullPathStmt.get(relativeTarget)
-
-      if (relativeFullPathMatch) return relativeFullPathMatch.path
-    }
-
-    // Path-suffix match ("photo.png", "assets/photo.png") — Obsidian's
-    // shortest-path format for assets in a deeper folder.
-    const fullPathSuffixMatch = resolveNonMdByFullPathSuffixStmt.get(escapeLikeWildcards(target))
-
-    if (fullPathSuffixMatch) return fullPathSuffixMatch.path
-
-    // ── Stem family: exact → relative → suffix/basename ──
-
-    // Exact base_path match ("path from vault folder")
-    const basePathMatch = resolveNonMdByBasePathStmt.get(target)
-
-    if (basePathMatch) return basePathMatch.path
-
-    // Relative-to-source match for extensionless targets
-    // (e.g. [[../boards/Trip Route]]).
-    if (relativeTarget) {
-      const relativeBasePathMatch = resolveNonMdByBasePathStmt.get(relativeTarget)
-
-      if (relativeBasePathMatch) return relativeBasePathMatch.path
-    }
-
-    // Basename / suffix-path match (Obsidian's shortest-path resolution).
-    // When the target includes folder segments (e.g. "views/Inventory"),
-    // preserve them in the match — only strip to pure basename when the
-    // target is already a bare name. Mirrors links.resolveAsset's endsWith check.
-    if (target.includes("/")) {
-      const basePathSuffixMatch = resolveNonMdByBasePathSuffixStmt.get(escapeLikeWildcards(target))
-      return basePathSuffixMatch?.path ?? null
-    }
-    const basenameMatch = resolveNonMdByBasenameStmt.get(target)
-    return basenameMatch?.path ?? null
-  }
-
-  /** The second, folded-case walk: the exact, relative and stem comparisons
-   *  with ASCII letter case folded. The suffix tiers already ignore ASCII letter
-   *  case through SQLite's LIKE, so their first miss stands and they are not
-   *  repeated. */
-  const resolveNonMarkdownFileIgnoringCase = (params: {
-    target: string
-    relativeTarget: string | null
-  }): string | null => {
-    const { target, relativeTarget } = params
-
-    // ── Full-filename family: exact → relative ──
-
-    const fullPathMatch = resolveNonMdByFullPathIgnoringCaseStmt.get(target)
-
-    if (fullPathMatch) return fullPathMatch.path
-
-    if (relativeTarget) {
-      const relativeFullPathMatch = resolveNonMdByFullPathIgnoringCaseStmt.get(relativeTarget)
-
-      if (relativeFullPathMatch) return relativeFullPathMatch.path
-    }
-
-    // ── Stem family: exact → relative → basename ──
-
-    const basePathMatch = resolveNonMdByBasePathIgnoringCaseStmt.get(target)
-
-    if (basePathMatch) return basePathMatch.path
-
-    if (relativeTarget) {
-      const relativeBasePathMatch = resolveNonMdByBasePathIgnoringCaseStmt.get(relativeTarget)
-
-      if (relativeBasePathMatch) return relativeBasePathMatch.path
-    }
-
-    // A target with folder segments ends at the base-path suffix tier, which
-    // already folded case and missed.
-    if (target.includes("/")) return null
-
-    const basenameMatch = resolveNonMdByBasenameIgnoringCaseStmt.get(target)
-    return basenameMatch?.path ?? null
-  }
-
-  /** Resolves a wikilink target to a known non-markdown file path, or null
-   *  when no match is found. Handles both extensionless targets ([[Trip Route]]
-   *  → Trip Route.canvas) and explicit-extension targets ([[photo.png]],
-   *  ![img](attachments/photo.png)) in every form Obsidian resolves — exact
-   *  path, relative to the source note, and basename/shortest path. SQL twin
-   *  of links.resolveAsset, which runs the same tiers in the same order over
-   *  an array of paths.
-   *
-   *  Resolution tiers fall into two families by what they match against, and
-   *  the full-filename family runs first:
-   *  - The full-filename family queries the path column as-is.
-   *  - The stem family queries the extension-stripped base_path/basename
-   *    columns.
-   *  - One target can match in both families. A multi-dot filename's stem
-   *    keeps its inner dots ("photo.png.canvas" → base_path "photo.png"), so
-   *    [[photo.png]] can stem-match a different file. Running full-filename
-   *    first makes it prefer a/photo.png, and the stem tiers still resolve it
-   *    when only photo.png.canvas exists, as Obsidian's
-   *    [[Trip Route]] → Trip Route.canvas stem matching does.
-   *  - An extensionless target can match in both too: the full-filename tiers
-   *    hit an extensionless file (LICENSE, Dockerfile) by exact path or path
-   *    suffix, and the stem tiers hit any file whose extension-stripped name
-   *    matches.
-   *
-   *  The exact, relative and stem tiers run with exact letter case first, and
-   *  the two path-suffix tiers ignore ASCII letter case, as LIKE does. Only
-   *  when every tier misses do the exact, relative and stem comparisons run
-   *  again with ASCII letter case folded. A target over the link-target limit
-   *  resolves to null, as in links.resolveAsset. */
-  const resolveNonMarkdownFile = (params: {
-    target: string
-    sourcePath?: string
-  }): string | null => {
-    const { target, sourcePath } = params
-
-    if (!links.isWithinLinkTargetLimit(target)) return null
-
-    const relativeTarget = sourcePath ? links.joinToSourceFolder(sourcePath, target) : null
-
-    return (
-      resolveNonMarkdownFileInExactCase({ target, relativeTarget }) ??
-      resolveNonMarkdownFileIgnoringCase({ target, relativeTarget })
-    )
-  }
-
-  /** A note wins over a non-markdown file, and an unresolved link keeps its text as the target. */
+  /** A note wins over a non-markdown file, and an unresolved link keeps its text as the target.
+   *  The file tier is links.resolveAsset, the resolver the note mover uses, so the index and a
+   *  move agree on where a file link points. */
   const resolveLinkTarget = (params: {
     linkText: string
     notePaths: readonly string[]
+    nonMarkdownPaths: readonly string[]
     sourcePath: string
   }): string => {
-    const { linkText, notePaths, sourcePath } = params
+    const { linkText, notePaths, nonMarkdownPaths, sourcePath } = params
 
     return (
       links.resolve({ target: linkText, allPaths: notePaths, sourcePath }) ??
-      resolveNonMarkdownFile({ target: linkText, sourcePath }) ??
+      links.resolveAsset({ target: linkText, allAssetPaths: nonMarkdownPaths, sourcePath }) ??
       linkText
     )
   }
@@ -1599,20 +1423,20 @@ export const createSearchIndex = (
   }
 
   /** Stores the links typed in one note, or in one canvas's text cards, as
-   *  "link" rows. They all resolve against the one `notePaths` list, and
-   *  links.resolve caches folded paths per list, so it folds that list only
-   *  once. */
+   *  "link" rows. They all resolve against the same two path lists, and the
+   *  resolvers build their lookups once per list. */
   const insertTypedLinks = (params: {
     source: string
     linkTexts: readonly string[]
     notePaths: readonly string[]
+    nonMarkdownPaths: readonly string[]
   }): void => {
-    const { source, linkTexts, notePaths } = params
+    const { source, linkTexts, notePaths, nonMarkdownPaths } = params
 
     for (const linkText of linkTexts) {
       insertLink({
         source,
-        target: resolveLinkTarget({ linkText, notePaths, sourcePath: source }),
+        target: resolveLinkTarget({ linkText, notePaths, nonMarkdownPaths, sourcePath: source }),
         linkText,
         linkKind: "link",
       })
@@ -1626,10 +1450,11 @@ export const createSearchIndex = (
     if (storedLinks.length === 0) return
 
     // Read here rather than from getNotePathsForCanvasLinks' cache, so the
-    // paths include the note the triggering write just added or removed.
-    // Every link resolves against this one list, so links.resolve folds it
-    // only once.
+    // paths include the file the triggering write just added or removed.
+    // Every link resolves against these two lists, so the resolvers build
+    // their lookups once.
     const notePaths = selectAllNotePathsStmt.all().map((note) => note.path)
+    const nonMarkdownPaths = readNonMarkdownPaths()
     // Only the relative tiers read a link's source, and only its folder, so one
     // answer serves every link with the same text from the same folder.
     const resolvedTargets = new Map<string, string>()
@@ -1646,7 +1471,7 @@ export const createSearchIndex = (
       const memoKey = `${posix.dirname(source)}\u0000${linkText}`
       const resolvedTarget =
         resolvedTargets.get(memoKey) ??
-        resolveLinkTarget({ linkText, notePaths, sourcePath: source })
+        resolveLinkTarget({ linkText, notePaths, nonMarkdownPaths, sourcePath: source })
       resolvedTargets.set(memoKey, resolvedTarget)
 
       if (resolvedTarget === target) continue
@@ -1806,6 +1631,7 @@ export const createSearchIndex = (
           source: params.filePath,
           linkTexts: canvasLinks.textCardLinks,
           notePaths,
+          nonMarkdownPaths: canvasLinks.textCardLinks.length > 0 ? readNonMarkdownPaths() : [],
         })
       }
     })()
@@ -2157,6 +1983,7 @@ export const createSearchIndex = (
         source: note.path,
         linkTexts: links.extractAll(noteBody, frontmatter),
         notePaths: pathList,
+        nonMarkdownPaths: readNonMarkdownPaths(),
       })
 
       // An edit leaves the set of paths, and so every other link's answer,
@@ -3079,6 +2906,7 @@ export const createSearchIndex = (
         const allPaths = selectAllNotePathsStmt.all()
         const pathList = allPaths.map((row) => row.path)
         cachedNotePathsForCanvasLinks = pathList
+        const nonMarkdownPaths = readNonMarkdownPaths()
 
         // No source write may run during a rebuild, so this second clear
         // normally finds nothing. It stays so that a link written during the
@@ -3098,6 +2926,7 @@ export const createSearchIndex = (
                 source: note.relativePath,
                 linkTexts: links.extractAll(parsed.content, parsed.data),
                 notePaths: pathList,
+                nonMarkdownPaths,
               })
             })()
           } catch (error) {

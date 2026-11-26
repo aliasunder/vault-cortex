@@ -6226,7 +6226,7 @@ describe("rebuildFromVault", () => {
     ).toBe(1)
   })
 
-  it("does not let LIKE wildcards in the target match unrelated files", async () => {
+  it("matches a _ in a link target only to a _ in a file path", async () => {
     await mkdir(join(vaultDir, "foo/aXb"), { recursive: true })
     await writeFile(join(vaultDir, "source.md"), "# Source\n\nSee [[a_b/c]].\n", "utf8")
     await writeFile(join(vaultDir, "foo/aXb/c.canvas"), "{}", "utf8")
@@ -6388,10 +6388,9 @@ describe("rebuildFromVault", () => {
     ).toBe(0)
   })
 
-  it("resolves a case-differing asset target through the SQL suffix tier's fold", async () => {
-    // The stored path differs from the link target only in case — the SQL
-    // suffix tier must match via LIKE's ASCII fold, mirroring the JS
-    // resolver's foldAsciiCase.
+  it("resolves a case-differing asset target through the suffix tier's ASCII fold", async () => {
+    // The stored path differs from the link target only in case, so only the
+    // path-suffix tier, which folds ASCII case in its first pass, matches it.
     await mkdir(join(vaultDir, "photos"), { recursive: true })
     await writeFile(join(vaultDir, "source.md"), "# Source\n\n![[sunset.png]]\n", "utf8")
     await writeFile(join(vaultDir, "photos", "Sunset.png"), "binary", "utf8")
@@ -8545,6 +8544,34 @@ describe("links that differ from their file only in letter case", () => {
     },
   )
 
+  it("leaves a link whose target holds a NUL unresolved, as links.resolveAsset does", () => {
+    index.upsertNonMdFile("dir/x", 100)
+    indexNote("source.md", "[[x\u0000garbage]]\n")
+
+    expect(
+      index.getOutgoingLinks(
+        { path: "source.md", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
+        logger,
+      ),
+    ).toEqual([
+      {
+        path: "x\u0000garbage",
+        title: null,
+        exists: false,
+        kind: "note",
+        bytes: null,
+        daily_note_forward_ref: false,
+      },
+    ])
+    expect(
+      links.resolveAsset({
+        target: "x\u0000garbage",
+        allAssetPaths: ["dir/x"],
+        sourcePath: "source.md",
+      }),
+    ).toBeNull()
+  })
+
   it("leaves a link to a non-ASCII file name in another case unresolved in both resolvers", () => {
     index.upsertNonMdFile("Éclair.png", 100)
     indexNote("source.md", "![[éclair.png]]\n")
@@ -9586,9 +9613,9 @@ describe("file targets written with extensions", () => {
     },
   )
 
-  it("does not let LIKE wildcards in the target match unrelated files via full-path suffix", () => {
-    // Only photo1final.png exists — if the _ in the target were treated as a
-    // LIKE wildcard it would match (1 satisfies _), giving a false resolution.
+  it("matches a _ in a full-path suffix target only to a _ in a file path", () => {
+    // Only photo1final.png exists, so a _ matching any character would give a
+    // false resolution.
     index.upsertNonMdFile("img/photo1final.png", 100)
     index.upsertNote(
       withBodyTags({

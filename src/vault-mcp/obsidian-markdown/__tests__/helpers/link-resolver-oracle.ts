@@ -1,7 +1,9 @@
 /** A frozen copy of the scanning resolvers links.ts shipped before its
  *  per-list lookups: every tier scans the whole path list. The oracle tests
  *  compare the current resolvers with it, so their answers stay unchanged.
- *  Only the helpers both versions share come from links.ts. */
+ *  Only the helpers both versions share come from links.ts. The comments are
+ *  copied too, so they describe the index as it was then, with an SQL twin of
+ *  the asset resolver. */
 
 import { posix } from "node:path"
 import { links } from "../../links.js"

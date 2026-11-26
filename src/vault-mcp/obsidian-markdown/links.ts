@@ -473,22 +473,19 @@ const extractFromFrontmatter = (data: Record<string, unknown>): string[] => {
 
 // ── Resolution ──────────────────────────────────────────────────
 
-/** Code-point count of a path — SQLite's length() metric, not the UTF-16
- *  code-unit count that String.length reports (they differ on paths with
- *  emoji or other non-BMP characters). */
+/** Code-point count of a path, not the UTF-16 code-unit count that
+ *  String.length reports, so a path with an emoji or another non-BMP
+ *  character is as long as the characters it shows. */
 const codePointLength = (path: string): number => [...path].length
 
-/** Lowercases ASCII letters only, the fold SQLite applies in LIKE and in
- *  COLLATE NOCASE. */
+/** Lowercases ASCII letters only, the fold file links resolve with. */
 const foldAsciiCase = (path: string): string => {
   return path.replace(/[A-Z]/g, (letter) => letter.toLowerCase())
 }
 
-/** Orders same-tier resolution matches, winner first: the shortest path,
- *  with a byte-order tiebreak for determinism — the same total order as the
- *  SQL resolver's ORDER BY length(path), path LIMIT 1 (code-point length,
- *  BINARY collation), so the array-based and SQL-backed resolvers can never
- *  pick different files for one target. The Buffer.compare tie-break is
+/** Orders same-tier resolution matches, winner first: the path with fewer
+ *  code points, then the one earlier in UTF-8 byte order, so the winner never
+ *  depends on the order of the path list. The Buffer.compare tie-break is
  *  deliberately inline: this leaf layer cannot import utils, so it must
  *  stay in lockstep with utils/compare-utf8-bytes.ts. */
 const compareShortestPathFirst = (leftPath: string, rightPath: string): number => {
@@ -768,9 +765,8 @@ const stemOfBasename = (path: string): string => stripExtension(posix.basename(p
 
 const createAssetLookups = (paths: readonly string[]): AssetLookups => {
   const getExactPaths = createComparablePaths({ paths, toComparablePath: keepPath })
-  // The folded asset form lowercases ASCII letters only, because every asset
-  // comparison has an SQL twin in the index (search/search-index.ts), and a
-  // wider fold would let the two resolvers pick different files for one link.
+  // The folded asset form lowercases ASCII letters only. Folding every letter
+  // would change which file an existing link names.
   const getAsciiFoldedPaths = createComparablePaths({ paths, toComparablePath: foldAsciiCase })
 
   const createLookupsInLetterCase = (
@@ -918,9 +914,8 @@ const resolve = (params: {
 
 /** One pass over the asset tiers, with the exact, relative, stem exact, stem
  *  relative and bare-stem comparisons in `letterCase`. The two suffix tiers
- *  run in the exact pass only, as in the SQL twin's walks. In the folded
- *  pass, two files that differ only in letter case share a form, and each
- *  lookup returns the shorter. */
+ *  run in the exact pass only. In the folded pass, two files that differ only
+ *  in letter case share a form, and each lookup returns the shorter. */
 const resolveAssetInLetterCase = (params: {
   target: string
   relativeTarget: string | null
@@ -946,11 +941,10 @@ const resolveAssetInLetterCase = (params: {
     if (relativeMatch) return relativeMatch
   }
 
-  // The suffix tiers fold ASCII case because their SQL twins compare with
-  // LIKE, which is ASCII-case-insensitive; the other tiers compare in the
-  // pass's letter case because their twins compare with =, plain in the
-  // exact pass and COLLATE NOCASE in the folded one. Folding already in the
-  // exact pass, a suffix tier could only repeat its miss in the folded pass.
+  // The suffix tiers fold ASCII case already in the exact pass, so
+  // ![[photo.png]] reaches the shorter of A/Photo.PNG and B/sub/photo.png,
+  // while the other tiers compare in the pass's letter case. Folded from the
+  // start, a suffix tier could only repeat its miss in the folded pass.
   const runsSuffixTiers = letterCase === "exact"
   const foldedTarget = foldAsciiCase(target)
   const fullPathSuffixMatch = runsSuffixTiers ? lookups.foldedPathEndingWith(foldedTarget) : null
@@ -971,9 +965,8 @@ const resolveAssetInLetterCase = (params: {
 
   // A target with folder segments keeps them in the match (suffix on the
   // stem, case folded like the other suffix tier); a bare name matches the
-  // filename stem in the pass's letter case, as its SQL twin compares the
-  // basename with =. Either way this is the pass's last tier: a miss ends
-  // the pass with null.
+  // filename stem in the pass's letter case. Either way this is the pass's
+  // last tier: a miss ends the pass with null.
   if (target.includes("/")) {
     if (!runsSuffixTiers) return null
 
@@ -983,10 +976,9 @@ const resolveAssetInLetterCase = (params: {
 }
 
 /** Resolves a link target to a known non-markdown vault file, or null when no
- *  match exists. Pure array-based twin of the indexer's SQL-backed
- *  resolveNonMarkdownFile (search/search-index.ts) — same tiers, same family
- *  ordering — so the move rewriter and the index agree on where an asset link
- *  points. Handles both extensionless targets ([[Trip Route]] →
+ *  match exists. The index (search/search-index.ts) and the move rewriter both
+ *  resolve file links with it, so they agree on where an asset link points.
+ *  Handles both extensionless targets ([[Trip Route]] →
  *  Trip Route.canvas) and explicit-extension targets ([[photo.png]],
  *  ![img](../assets/photo.png)) in every form Obsidian resolves — exact path,
  *  relative to the source note, and basename/shortest path.
