@@ -11583,6 +11583,45 @@ describe("canvas file content and links", () => {
       expect(backlinks).toEqual([{ path: "Diagrams/arch.canvas", title: "arch", bytes: 500 }])
     })
 
+    // A database from before non_md_files.bytes existed holds NULL in it
+    // until the startup rebuild backfills the row.
+    it("reports 0 bytes for a canvas backlink source whose size is not yet recorded", async () => {
+      const databaseDir = await mkdtemp(join(tmpdir(), "backlink-null-bytes-"))
+      onTestFinished(() => rm(databaseDir, { recursive: true }))
+      const databasePath = join(databaseDir, "index.db")
+      const fileIndex = createSearchIndex(databasePath, undefined, undefined, {
+        fileToolsEnabled: true,
+      })
+      fileIndex.upsertNote(
+        withBodyTags({
+          filePath: "Projects/vault-cortex.md",
+          rawContent: "# vault-cortex\n\nMain project note.\n",
+          fileStat: testStat(1000),
+        }),
+        logger,
+      )
+      fileIndex.upsertNonMdFile("Diagrams/arch.canvas", 500)
+      fileIndex.upsertFileContent(
+        {
+          filePath: "Diagrams/arch.canvas",
+          rawContent: CANVAS_WITH_FILE_NODES,
+          fileStat: testStat(5000, 500),
+        },
+        logger,
+      )
+      const migratingConnection = new Database(databasePath)
+      onTestFinished(() => {
+        migratingConnection.close()
+      })
+      const clearResult = migratingConnection
+        .prepare("UPDATE non_md_files SET bytes = NULL WHERE path = ?")
+        .run("Diagrams/arch.canvas")
+      expect(clearResult.changes).toBe(1)
+
+      const backlinks = fileIndex.getBacklinks({ path: "Projects/vault-cortex.md" }, logger)
+      expect(backlinks).toEqual([{ path: "Diagrams/arch.canvas", title: "arch", bytes: 0 }])
+    })
+
     it("canvas outgoing links show file-node targets", () => {
       const fileIndex = createSearchIndex(":memory:", undefined, undefined, {
         fileToolsEnabled: true,
