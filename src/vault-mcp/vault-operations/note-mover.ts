@@ -40,7 +40,7 @@ import {
   pruneEmptyParents,
   toVaultRelativePath,
 } from "./vault-filesystem.js"
-import { links } from "../obsidian-markdown/links.js"
+import { links, type DestinationForm } from "../obsidian-markdown/links.js"
 import { classifyLines } from "../obsidian-markdown/lines.js"
 import { extractCanvasLinks, rewriteCanvasLinks } from "../obsidian-markdown/canvas.js"
 import { isCanvasPath } from "../obsidian-markdown/file-kinds.js"
@@ -267,14 +267,160 @@ const rewriteTarget = (
 
 // ── Body rewriting ──────────────────────────────────────────────
 
-/** Percent-encodes a markdown link path segment-by-segment. Parentheses are
- *  encoded explicitly because encodeURIComponent skips them and an unencoded ")"
- *  would close the link early. */
-const encodeMarkdownLinkPath = (path: string): string => {
-  return path
-    .split("/")
-    .map((segment) => encodeURIComponent(segment).replace(/\(/g, "%28").replace(/\)/g, "%29"))
-    .join("/")
+/** Characters a backslash keeps literal in both destination forms: `*` and
+ *  `$` could otherwise open emphasis or math around the link, and `[`, `]`
+ *  could end its text. */
+const BACKSLASH_ESCAPED_CHARACTERS: ReadonlySet<string> = new Set(["*", "$", "[", "]"])
+
+/** Characters that open emphasis, strikethrough or a highlight only in a run
+ *  or at a word's edge, so a single one between two other characters stays
+ *  raw (`meeting_notes.md`). */
+const RUN_DELIMITER_CHARACTERS: ReadonlySet<string> = new Set(["_", "~", "="])
+
+/** A character a destination writes percent-encoded in both forms:
+ *  - `%`, because Obsidian percent-decodes the link;
+ *  - `#`, which would start a heading;
+ *  - `` ` ``, because a backslash before one still opens a code span;
+ *  - `"`, `\`, `^`, `{`, `|`, `}`, which encodeURI escapes too. */
+const PERCENT_ENCODED_CHARACTERS: ReadonlySet<string> = new Set([
+  "%",
+  "#",
+  "`",
+  '"',
+  "\\",
+  "^",
+  "{",
+  "|",
+  "}",
+])
+
+const WHITESPACE = /\s/
+
+const ASCII_LETTER = /[A-Za-z]/
+
+/** C0 controls (below U+0020) and DEL (U+007F). */
+const isControlCharacter = (character: string): boolean => {
+  const codeUnit = character.charCodeAt(0)
+  return codeUnit < 0x20 || codeUnit === 0x7f
+}
+
+const percentEncode = (character: string): string => {
+  return [...Buffer.from(character, "utf8")]
+    .map((byte) => `%${byte.toString(16).toUpperCase().padStart(2, "0")}`)
+    .join("")
+}
+
+/** Whether every prefix of `path` closes no more parentheses than it opens,
+ *  and the whole path closes them all, so raw parentheses cannot end a bare
+ *  destination early. */
+const hasBalancedParentheses = (path: string): boolean => {
+  // The walk threads the open-parenthesis depth.
+  let depth = 0
+
+  for (const character of path) {
+    if (character === "(") depth++
+    if (character === ")") depth--
+    if (depth < 0) return false
+  }
+  return depth === 0
+}
+
+/** One character of a new path with its neighbours, which are undefined at
+ *  the path's edges. */
+type PathCharacter = {
+  character: string
+  previous: string | undefined
+  next: string | undefined
+}
+
+const toPathCharacters = (path: string): PathCharacter[] => {
+  const characters = [...path]
+
+  return characters.map((character, index) => {
+    return { character, previous: characters[index - 1], next: characters[index + 1] }
+  })
+}
+
+/** Whether a `_`, `~` or equals sign stands alone between two characters
+ *  that are not whitespace. */
+const isSingleBetweenWords = ({ character, previous, next }: PathCharacter): boolean => {
+  if (!previous || !next) return false
+  return (
+    previous !== character &&
+    next !== character &&
+    !WHITESPACE.test(previous) &&
+    !WHITESPACE.test(next)
+  )
+}
+
+/** How one character of a new path is written in a destination, by the
+ *  rules both forms share, or null when the form decides. */
+const encodeSharedCharacter = (pathCharacter: PathCharacter): string | null => {
+  const { character, previous } = pathCharacter
+
+  if (PERCENT_ENCODED_CHARACTERS.has(character)) return percentEncode(character)
+  if (BACKSLASH_ESCAPED_CHARACTERS.has(character)) return `\\${character}`
+  if (RUN_DELIMITER_CHARACTERS.has(character)) {
+    return isSingleBetweenWords(pathCharacter) ? character : `\\${character}`
+  }
+  // A letter after `&` could start a character reference (`&amp;`), and a
+  // backslash does not stop Obsidian decoding one, so the letter is encoded.
+  if (ASCII_LETTER.test(character) && previous === "&") return percentEncode(character)
+  return null
+}
+
+/** Writes a new path as a bare destination that Obsidian stores as that
+ *  path: what encodeURI escapes is percent-encoded, `<` and `>` are
+ *  backslash-escaped, and parentheses stay raw when they balance. */
+const encodeBareDestination = (path: string): string => {
+  const keepsParentheses = hasBalancedParentheses(path)
+
+  return toPathCharacters(path)
+    .map((pathCharacter) => {
+      const { character } = pathCharacter
+      const sharedEncoding = encodeSharedCharacter(pathCharacter)
+
+      if (sharedEncoding !== null) return sharedEncoding
+      if (character === "<" || character === ">") return `\\${character}`
+      if (character === "(" || character === ")") {
+        return keepsParentheses ? character : percentEncode(character)
+      }
+      return encodeURI(character)
+    })
+    .join("")
+}
+
+/** Writes a new path as an angle destination that Obsidian stores as that
+ *  path: spaces, parentheses and non-ASCII characters stay raw, control
+ *  characters are percent-encoded, and so are `<` and `>`, since the first
+ *  `>` closes the brackets. */
+const encodeAngleDestination = (path: string): string => {
+  return toPathCharacters(path)
+    .map((pathCharacter) => {
+      const { character } = pathCharacter
+      const sharedEncoding = encodeSharedCharacter(pathCharacter)
+
+      if (sharedEncoding !== null) return sharedEncoding
+      if (character === "<" || character === ">" || isControlCharacter(character)) {
+        return percentEncode(character)
+      }
+      return character
+    })
+    .join("")
+}
+
+/** Writes a new path in a markdown link's destination form. Three kinds of
+ *  path have no spelling Obsidian stores as the path, and are written by the
+ *  same rules: one holding `#` or `:`, which Obsidian forbids in file names,
+ *  one with whitespace at its edges, which Obsidian trims, and one holding a
+ *  no-break space, which Obsidian reads as a space. */
+const encodeMarkdownDestination = (path: string, form: DestinationForm): string => {
+  switch (form) {
+    case "bare":
+      return encodeBareDestination(path)
+    case "angle":
+      return encodeAngleDestination(path)
+  }
 }
 
 type LinkEdit = { start: number; end: number; replacement: string }
@@ -322,7 +468,8 @@ const rewriteWikilinkText = (linkText: string, rewriteLink: RewriteLink): string
   return `${parts.embed}[[${newTarget}${parts.heading}${parts.alias}]]`
 }
 
-/** Rewrites one matched markdown link, preserving the link text, heading, and
+/** Rewrites one matched markdown link, preserving the link text, the
+ *  destination's form, the heading as written, the title, the spacing and
  *  the original extension state; null when the target needs no change. */
 const rewriteMarkdownLinkText = (linkText: string, rewriteLink: RewriteLink): string | null => {
   const parts = links.splitMarkdownLink(linkText)
@@ -337,7 +484,7 @@ const rewriteMarkdownLinkText = (linkText: string, rewriteLink: RewriteLink): st
   if (newTarget === null) return null
   // prefix runs from the "[" to the target and suffix from the heading's end
   // to the ")", both verbatim, so only the path between them changes.
-  return `${parts.prefix}${encodeMarkdownLinkPath(newTarget)}${parts.heading}${parts.suffix}`
+  return `${parts.prefix}${encodeMarkdownDestination(newTarget, parts.form)}${parts.heading}${parts.suffix}`
 }
 
 /** Gathers wikilink and markdown-link edits for one line, excluding code spans. */
@@ -635,10 +782,12 @@ const listLowercaseStemSpellings = (targetStem: string): string[] => {
   // (É → %C3%89 vs é → %C3%A9).
   const lowercaseStem = targetStem.toLowerCase()
   const lowercaseEncodedStem = encodeURIComponent(targetStem).toLowerCase()
-  // encodeURIComponent leaves parentheses unencoded, but the rewriter's
-  // encodeMarkdownLinkPath encodes them as %28/%29 — a paren-bearing name
-  // produces a markdown link the first two forms can't match.
+  // encodeURIComponent leaves parentheses unencoded, but a bare markdown link
+  // may encode them as %28/%29, which the first two forms can't match.
   const lowercaseParenEncodedStem = lowercaseEncodedStem.replace(/\(/g, "%28").replace(/\)/g, "%29")
+  // The bare destination encoder writes what encodeURI escapes, which keeps
+  // `&`, `+`, `@` and the other reserved characters raw (`R+D%20@%20Home`).
+  const lowercaseUriEncodedStem = encodeURI(targetStem).toLowerCase()
   // A Canvas stores its links inside JSON strings, which escape `"` and `\`.
   // JSON.stringify applies that escaping; the slice drops the quotes it adds
   // around the string.
@@ -659,9 +808,28 @@ const listLowercaseStemSpellings = (targetStem: string): string[] => {
     lowercaseStem,
     lowercaseEncodedStem,
     lowercaseParenEncodedStem,
+    lowercaseUriEncodedStem,
     lowercaseJsonEscapedStem,
     lowercaseAsciiEscapedStem,
   ]
+}
+
+/** A character a link's destination decodes: an escape backslash, a percent
+ *  escape's `%`, a character reference's `&`, or a no-break space. */
+const LINK_DECODED_CHARACTER = /[\\%&\u00a0]/
+
+/** An escaped quote or backslash in a JSON string. Global — use only with replace. */
+const JSON_STRING_ESCAPE = /\\(["\\])/g
+
+/** The views of a file's text a link's target spelling can appear in: the
+ *  text itself and, when it holds a character a link decodes, the text
+ *  decoded the way a stored link reads it. A Canvas's JSON string escapes
+ *  are undone first, so a text card's `a\_b.md` reads as `a_b.md`. */
+const listSearchableViews = (path: string, content: string): string[] => {
+  if (!LINK_DECODED_CHARACTER.test(content)) return [content]
+
+  const linkText = isCanvasPath(path) ? content.replace(JSON_STRING_ESCAPE, "$1") : content
+  return [content, links.decodeLinkSpellings(linkText)]
 }
 
 /** Scans vault notes and Canvas files for links to targetPath, returning the
@@ -703,9 +871,9 @@ const discoverBacklinksFromFilesystem = async (
         const content = await readFile(fullPath, "utf8")
         // Skip files whose text can't contain a link — a cheap substring
         // pre-filter before the full parse below.
-        const lowercaseContent = content.toLowerCase()
-        const couldContainLink = lowercaseStemSpellings.some((spelling) => {
-          return lowercaseContent.includes(spelling)
+        const couldContainLink = listSearchableViews(candidatePath, content).some((view) => {
+          const lowercaseView = view.toLowerCase()
+          return lowercaseStemSpellings.some((spelling) => lowercaseView.includes(spelling))
         })
 
         if (!couldContainLink) return null

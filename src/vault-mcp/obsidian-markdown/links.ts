@@ -76,7 +76,7 @@ type LinkSpan = { start: number; end: number; targetStart: number; targetEnd: nu
 
 /** How a markdown link writes its destination: in angle brackets
  *  (`[x](<My Note.md>)`) or bare (`[x](My%20Note.md)`). */
-type DestinationForm = "angle" | "bare"
+export type DestinationForm = "angle" | "bare"
 
 /** A markdown link a scanner found:
  *  - [targetEnd, headingEnd) holds the raw `#heading`, empty without one;
@@ -286,6 +286,21 @@ const readStoredTarget = (content: string): StoredTarget | null => {
   // percent-decoding keeps `%23` encoded, and trimming removes only spaces.
   const headingOffset = hashSource === -1 ? null : findRawOffset(content, hashSource)
   return { target, headingOffset }
+}
+
+/** A run of percent escapes. Global — use only with replace. */
+const PERCENT_ESCAPE_RUN = /(?:%[0-9A-Fa-f]{2})+/g
+
+/** Decodes text the way a stored markdown link decodes its destination, so a
+ *  substring search can find a link's target in it: escape backslashes
+ *  dropped, character references decoded, each run of percent escapes decoded
+ *  like decodeURI when it is well formed, and no-break spaces replaced with
+ *  spaces. */
+const decodeLinkSpellings = (text: string): string => {
+  const unescaped = text.replace(ESCAPED_PUNCTUATION, "$1")
+  const { decoded } = decodeCharacterReferences(unescaped)
+  const percentDecoded = decoded.replace(PERCENT_ESCAPE_RUN, (run) => decodeUriOrNull(run) ?? run)
+  return percentDecoded.replaceAll(NO_BREAK_SPACE, " ")
 }
 
 /** Each unescaped parenthesis of a line, in order. matches holds the record
@@ -1527,6 +1542,7 @@ export const links = {
   inlineCodeSpans,
   splitWikilink,
   splitMarkdownLink,
+  decodeLinkSpellings,
   extractFromBody,
   extractFromFrontmatter,
   extractAll,
