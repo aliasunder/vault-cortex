@@ -3291,22 +3291,25 @@ describe("file tool handlers", () => {
       env: {},
       trashOption: "system",
       recordsTrashEntry: true,
+      deleteResult: { prunedFolderCount: 1, trashLocation: ".trash/media/old.png" },
+      expectedText: "Moved media/old.png to trash (.trash/media/old.png) (removed 1 empty folder)",
     },
     {
       label: "a permanent delete and no record hook under OBSIDIAN_SYNC=true",
       env: { OBSIDIAN_SYNC: "true" },
       trashOption: "none",
       recordsTrashEntry: false,
+      // A "none" delete lands nothing in .trash/, so it has no trash location
+      deleteResult: { prunedFolderCount: 1 },
+      expectedText: "Deleted media/old.png (removed 1 empty folder)",
     },
   ])(
     "vault_delete_file hands the delete $label",
-    async ({ env, trashOption, recordsTrashEntry }) => {
+    async ({ env, trashOption, recordsTrashEntry, deleteResult, expectedText }) => {
       const tempVault = await mkdtemp(join(tmpdir(), "tool-definitions-delete-file-"))
       onTestFinished(() => rm(tempVault, { recursive: true, force: true }))
       // The delete is stubbed, so the test sees the options the handler resolves
-      const deleteSpy = vi
-        .spyOn(vaultFs, "deleteAsset")
-        .mockResolvedValueOnce({ prunedFolderCount: 1, trashLocation: ".trash/old.png" })
+      const deleteSpy = vi.spyOn(vaultFs, "deleteAsset").mockResolvedValueOnce(deleteResult)
       onTestFinished(() => deleteSpy.mockRestore())
       const recordTrashEntry = vi.fn()
       const deleteTrashEntry = vi.fn()
@@ -3323,14 +3326,7 @@ describe("file tool handlers", () => {
         mockExtra,
       )
 
-      expect(result).toEqual({
-        content: [
-          {
-            type: "text",
-            text: "Moved media/old.png to trash (.trash/old.png) (removed 1 empty folder)",
-          },
-        ],
-      })
+      expect(result).toEqual({ content: [{ type: "text", text: expectedText }] })
       expect(deleteSpy).toHaveBeenCalledTimes(1)
       expect(deleteSpy).toHaveBeenCalledWith(
         {

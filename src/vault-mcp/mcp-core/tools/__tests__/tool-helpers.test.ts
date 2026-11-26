@@ -699,11 +699,8 @@ describe("describeDeleteOutcomes", () => {
     })
   })
 
-  it("gives each kind its own Sync recovery sentence and no trash text under Obsidian Sync", () => {
-    const syncedNote = describeDeleteOutcomes({ obsidianSyncEnabled: true, pathKind: "note" })
-    const syncedFile = describeDeleteOutcomes({ obsidianSyncEnabled: true, pathKind: "file" })
-
-    expect(syncedNote).toEqual({
+  it("gives a note the note history's recovery sentence and no trash text under Obsidian Sync", () => {
+    expect(describeDeleteOutcomes({ obsidianSyncEnabled: true, pathKind: "note" })).toEqual({
       opener:
         "Delete a markdown note for good. The vault's owner can recover it from Obsidian Sync's version history (1 month on Standard, 12 months on Plus).",
       trashOutcomeEntries: "",
@@ -711,7 +708,10 @@ describe("describeDeleteOutcomes", () => {
       trashConfigErrorEntry: "",
       returns: 'Confirmation message — "Deleted <path>".',
     })
-    expect(syncedFile).toEqual({
+  })
+
+  it("gives a file the attachment history's recovery sentence and no trash text under Obsidian Sync", () => {
+    expect(describeDeleteOutcomes({ obsidianSyncEnabled: true, pathKind: "file" })).toEqual({
       opener:
         "Delete a non-markdown file for good. The vault's owner may recover it from Obsidian Sync's version history, which keeps attachment versions for two weeks.",
       trashOutcomeEntries: "",

@@ -1117,6 +1117,28 @@ describe("deleteNote", () => {
     ).rejects.toThrow(new Error('note not found: "ghost.md"'))
   })
 
+  it("reports a folder named like a note as not found and leaves it and its contents in place", async () => {
+    // Under "system" a folder that passed the existence check would be renamed
+    // into .trash/ whole, contents and all.
+    await mkdir(join(vault, "Archive.md"))
+    await writeFile(join(vault, "Archive.md/kept.md"), "kept", "utf8")
+
+    await expect(
+      deleteNote(
+        {
+          vaultPath: vault,
+          path: "Archive.md",
+          protectedPaths: DEFAULT_PROTECTED,
+          pruneEmptyFolders: false,
+          trashOption: "system",
+        },
+        logger,
+      ),
+    ).rejects.toThrow(new Error('note not found: "Archive.md"'))
+    expect(await readFile(join(vault, "Archive.md/kept.md"), "utf8")).toBe("kept")
+    await expect(stat(join(vault, ".trash"))).rejects.toThrow(/ENOENT/)
+  })
+
   it("rejects a traversal path that resolves into a protected folder", async () => {
     // "decoy/../About Me/..." does not literally start with "About Me/" but
     // resolves into it — the guard must normalize before the prefix check.

@@ -135,19 +135,17 @@ describe("vault_delete_file refuses a markdown note", () => {
     { label: "as written", path: "Projects/alpha.md" },
     { label: "with a trailing backslash", path: "Projects/alpha.md\\" },
     { label: "in upper case", path: "Projects/Alpha.MD" },
-  ])("spelled $label, and leaves the note readable", async ({ path }) => {
+  ])("spelled $label, and leaves the note unchanged", async ({ path }) => {
+    const notePath = join(serverVaultPath, "Projects/alpha.md")
+    const noteBefore = await readFile(notePath, "utf8")
+
     const result = await callTool({ client, name: "vault_delete_file", args: { path } })
-    const readback = await callTool({
-      client,
-      name: "vault_read_note",
-      args: { path: "Projects/alpha.md" },
-    })
 
     expect(result).toEqual({
       content: [{ type: "text", text: `[Error]: not a file: "${path}" is a markdown note` }],
       isError: true,
     })
-    expect(readback.isError).not.toBe(true)
+    await expect(readFile(notePath, "utf8")).resolves.toBe(noteBefore)
   })
 })
 
