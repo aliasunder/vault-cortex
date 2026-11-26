@@ -27,9 +27,13 @@ else
   RANGE="$NEW_TAG"
 fi
 
-# Exits 0 when the patch on stdin adds or removes a counted line.
+# Exits 0 when the patch on stdin adds or removes a counted line, and
+# NO_COUNTED_LINE when it does not. awk exits 2 on its own errors, so the code
+# for "no counted line" differs from it, and any other code stops the script
+# instead of reading as a commit with nothing to list.
+NO_COUNTED_LINE=3
 has_counted_change() {
-  awk '
+  awk -v no_counted_line="$NO_COUNTED_LINE" '
     # A file header comes before its first @@ line, so a content line such as
     # "--- x" (a removed "-- x") is never read as a header.
     /^diff --git / { in_hunk = 0; path = ""; next }
@@ -54,7 +58,7 @@ has_counted_change() {
       found = 1
       exit
     }
-    END { exit found ? 0 : 1 }
+    END { exit found ? 0 : no_counted_line }
   '
 }
 
@@ -67,7 +71,14 @@ COMMIT_HASHES=$(git log --no-merges --format=%H "$RANGE" -- "${CLI_PATHSPEC[@]}"
 
 for commit_hash in $COMMIT_HASHES; do
   PATCH=$(git diff-tree -p --root --no-commit-id -U0 "$commit_hash" -- "${CLI_PATHSPEC[@]}")
-  if has_counted_change <<< "$PATCH"; then
-    git show -s --format='- %s' "$commit_hash"
+  classify_status=0
+  has_counted_change <<< "$PATCH" || classify_status=$?
+  if [ "$classify_status" -eq "$NO_COUNTED_LINE" ]; then
+    continue
   fi
+  if [ "$classify_status" -ne 0 ]; then
+    echo "generate-cli-notes: could not classify $commit_hash" >&2
+    exit 1
+  fi
+  git show -s --format='- %s' "$commit_hash"
 done

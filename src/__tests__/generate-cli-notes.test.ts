@@ -37,11 +37,21 @@ type FileChanges = Record<string, string | null>
 
 type NotesRun = { status: number | null; stdout: string; stderr: string }
 
+type NotesRunOptions = {
+  /** Shell scripts by command name, placed ahead of the runner's PATH for the
+   *  script run only. */
+  stubCommands?: Record<string, string>
+}
+
 type CliReleaseRepo = {
   commit: (message: string, changes: FileChanges) => void
+  headHash: () => string
   /** Tags HEAD as cli-v0.2.0 and runs the script for it. */
-  generateNotes: () => NotesRun
+  generateNotes: (options?: NotesRunOptions) => NotesRun
 }
+
+/** A stub command must be executable for the script to find it on PATH. */
+const EXECUTABLE_MODE = 0o755
 
 /** A repository whose first commit holds a small cli/ package and a server
  *  file, tagged firstCommitTag. */
@@ -98,17 +108,29 @@ const createCliReleaseRepo = ({
   })
   git("tag", firstCommitTag)
 
-  const generateNotes = (): NotesRun => {
+  const headHash = (): string => git("rev-parse", "HEAD").trim()
+
+  const pathWithStubs = (stubCommands: Record<string, string>): string => {
+    const stubDir = join(tempDir, "stub-bin")
+
+    mkdirSync(stubDir, { recursive: true })
+    for (const [commandName, script] of Object.entries(stubCommands)) {
+      writeFileSync(join(stubDir, commandName), script, { mode: EXECUTABLE_MODE })
+    }
+    return `${stubDir}:${runnerPath()}`
+  }
+
+  const generateNotes = ({ stubCommands = {} }: NotesRunOptions = {}): NotesRun => {
     git("tag", "cli-v0.2.0")
     const result = spawnSync("bash", [SCRIPT_PATH, "cli-v0.2.0"], {
       cwd: repoDir,
-      env,
+      env: { ...env, PATH: pathWithStubs(stubCommands) },
       encoding: "utf8",
     })
     return { status: result.status, stdout: result.stdout, stderr: result.stderr }
   }
 
-  return { commit, generateNotes }
+  return { commit, headHash, generateNotes }
 }
 
 /** A commit the notes always list, so a run that lists nothing cannot pass a
@@ -297,6 +319,22 @@ describe("generate-cli-notes.sh", () => {
       repo.commit("feat: add a server tool", { "src/server.ts": "export const server = 2\n" })
 
       expect(repo.generateNotes()).toEqual(LISTED_CODE_CHANGE_ONLY)
+    })
+  })
+
+  describe("failures", () => {
+    it("stops with the commit's hash when the line classifier fails", () => {
+      const repo = createCliReleaseRepo()
+      commitListedCodeChange(repo)
+
+      // awk exits 2 on its own errors, such as a program it cannot parse.
+      const failingAwk = "#!/bin/sh\nexit 2\n"
+
+      expect(repo.generateNotes({ stubCommands: { awk: failingAwk } })).toEqual({
+        status: 1,
+        stdout: "",
+        stderr: `generate-cli-notes: could not classify ${repo.headHash()}\n`,
+      })
     })
   })
 })
