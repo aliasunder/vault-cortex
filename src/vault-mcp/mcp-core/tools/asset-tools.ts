@@ -333,7 +333,7 @@ Parameters:
 
 Errors:
 - "cannot delete protected path" — the path sits under a protected folder; ask the vault's owner to delete the file in Obsidian
-- "not a file: … is a markdown note" — the path ends in .md in any letter case${whenToolEnabledText("vault_delete_note", "; delete a note with vault_delete_note")}, and a file named .MD in Obsidian
+- "not a file: … is a markdown note" — the path ends in .md in any letter case; ${whenToolEnabledText("vault_delete_note", "delete a note with vault_delete_note, and ")}ask the vault's owner to delete a .MD file in Obsidian
 ${PATH_SAFETY_ERROR_ENTRY}
 - "concurrent write in progress" — a write to this file is in flight; retry
 - "file not found: …" — no file exists at that path (a folder is not a file)${whenToolEnabledText("vault_list_files", "; verify the path with vault_list_files")}${deleteFileText.trashMoveErrorEntries}
