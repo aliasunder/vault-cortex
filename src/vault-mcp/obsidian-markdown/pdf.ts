@@ -531,6 +531,18 @@ export type PdfTextResult = Readonly<{
   totalPages: number
 }>
 
+/** pdfjs types a page's annotations as `any`, so each field is checked before use. */
+const webLinkUrls = (
+  annotations: ReadonlyArray<{ subtype?: unknown; url?: unknown }>,
+): ReadonlyArray<string> => {
+  return annotations.flatMap((annotation) => {
+    const { subtype, url } = annotation
+    const isWebLink = subtype === "Link" && typeof url === "string" && url.length > 0
+
+    return isWebLink ? [url] : []
+  })
+}
+
 /** Reads pages in order until the markdown rendition reaches MAX_INDEXED_PDF_BYTES or the page
  *  count reaches MAX_INDEXED_PDF_PAGES. The returned text can run past the byte cap by the last
  *  page read; the caller cuts it. Every page read so far is rendered again after each page, so
@@ -556,17 +568,7 @@ export const extractPdfIndexText = async (pdfData: Uint8Array): Promise<PdfTextR
         itemsByPage.push(pageItems)
         hasContent ||= pageItems.some(hasVisibleText)
 
-        const annotations = await page.getAnnotations()
-        for (const annotation of annotations) {
-          const isWebLink =
-            annotation.subtype === "Link" &&
-            typeof annotation.url === "string" &&
-            annotation.url.length > 0
-
-          if (isWebLink) {
-            pdfLinks.push(annotation.url)
-          }
-        }
+        pdfLinks.push(...webLinkUrls(await page.getAnnotations()))
       } finally {
         page.cleanup()
       }
