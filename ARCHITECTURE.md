@@ -636,10 +636,12 @@ Vector tables persist across restarts and rebuilds (only FTS, notes, links, task
 - Each successful source upsert returns a unique `sourceVersion`. Queued watcher jobs and background rebuild snapshots retain that version, so deletion or replacement invalidates earlier work even when content or modification time repeats.
 - Note, file-content and memory-entry writers check the captured version before model work and after each model await. Obsolete jobs skip derived writes, note/file tail pruning and later memory batches.
 - The watcher assigns an event token before reading each file and checks it before indexing. Unlink or a newer event invalidates earlier reads.
-- The index runs one note or file embedding job at a time, whether the watcher or the rebuild queued it. The server holds one note's or file's chunks at a time, and when the wait for a running tool call times out, one of these jobs' model calls runs, not one per waiting job.
 - Each note and file reaches the keyword index before its own embedding is queued.
 
-**Background embedding and tool calls:** model inference runs synchronously on the server's one JavaScript thread, so before each background model call (a chunk, or a 16-entry memory batch) the job waits until no tool call or prompt is running, for at most 5 seconds (`BACKGROUND_EMBED_MAX_WAIT_MS`). A tool call or prompt that arrives while a model call runs still waits for the model call to finish.
+**Background embedding and tool calls:** model inference runs synchronously on the server's one JavaScript thread.
+
+- Before each background model call (a chunk, or a 16-entry memory batch), the job waits until no tool call or prompt is running, for at most 5 seconds (`BACKGROUND_EMBED_MAX_WAIT_MS`). A tool call or prompt that arrives while a model call runs still waits for the model call to finish.
+- The index runs one note or file embedding job at a time, whether the watcher or the rebuild queued it, so when that wait times out, one of these jobs' model calls runs, not one per waiting job. The server also holds one note's or file's chunks at a time.
 
 **Embedding pipeline:** Controlled by `EMBEDDING_ENABLED` (default: `true`). Markdown syntax is stripped before embedding (`plaintext.ts`). Short notes (under 500 body tokens) stay a single title-prefixed chunk unless a metadata line pushes them past the chunk budget. Longer notes split into per-heading sections via `chunker.ts`:
 
