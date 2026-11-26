@@ -45,6 +45,7 @@ import {
   buildFtsNameText,
   escapeLikeWildcards,
   foldTag,
+  IndexIntegrityError,
   NOTE_METADATA_COLUMNS_SQL,
   parseStringArray,
 } from "./search-helpers.js"
@@ -550,8 +551,13 @@ export const createSearchIndex = (
   })
 
   // SQL tag predicates and query inputs use the same Obsidian case-folding rule.
+  // A stored tag that is not a string is index damage, so it throws the row
+  // parsers' error instead of folding into a tag no note carries.
   db.function("fold_tag", { deterministic: true }, (value: unknown): string => {
-    return foldTag(String(value))
+    if (!isString(value)) {
+      throw new IndexIntegrityError(`expected a string tag, got: ${JSON.stringify(value)}`)
+    }
+    return foldTag(value)
   })
 
   db.pragma("journal_mode = WAL")

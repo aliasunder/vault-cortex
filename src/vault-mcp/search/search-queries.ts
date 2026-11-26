@@ -1165,7 +1165,11 @@ export const listTasks = (
       `SELECT COUNT(*) as total FROM tasks t JOIN notes n ON n.path = t.note_path ${whereClause}`,
     )
     .get(...queryParams)
-  const total = countRow === undefined ? 0 : countRow.total
+
+  // An aggregate query with no GROUP BY returns exactly one row, even over an
+  // empty table.
+  if (!countRow) throw new Error("task count query returned no row")
+  const { total } = countRow
 
   // Kanban detection: notes with kanban-plugin in frontmatter are Kanban boards,
   // so their tasks need lane moves (not checkbox toggles) to complete.
