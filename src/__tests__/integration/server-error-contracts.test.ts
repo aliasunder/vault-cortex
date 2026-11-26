@@ -4522,10 +4522,11 @@ describe("cannot read trash config", () => {
       name: "vault_write_note",
       args: { path: "Scratch/malformed-config.md", body: "still here" },
     })
+    const canvasContentBefore = '{"nodes":[],"edges":[]}'
     await callTool({
       client: ownClient,
       name: "vault_write_file",
-      args: { path: "Scratch/malformed-config.canvas", content: "{}" },
+      args: { path: "Scratch/malformed-config.canvas", content: canvasContentBefore },
     })
     const deleteResult = await callTool({
       client: ownClient,
@@ -4552,7 +4553,7 @@ describe("cannot read trash config", () => {
     ).resolves.toBe("still here\n")
     await expect(
       readFile(join(server.vaultPath, "Scratch", "malformed-config.canvas"), "utf8"),
-    ).resolves.toBe("{}")
+    ).resolves.toBe(canvasContentBefore)
 
     // The server's stdout arrives through a pipe, so the log line can land
     // after the tool result; a half-received line fails to parse and retries.

@@ -1453,6 +1453,17 @@ describe("deleteAsset", () => {
     expect(await readFile(join(vault, "Scratch/owned.md"), "utf8")).toBe("keep")
   })
 
+  it("deletes a file whose upper-case extension is not .MD", async () => {
+    // Pins that the refusal keys on the markdown extension, not on letter case.
+    await mkdir(join(vault, "Scratch"), { recursive: true })
+    await writeFile(join(vault, "Scratch/owned.TXT"), "text", "utf8")
+
+    const result = await deleteWith("Scratch/owned.TXT")
+
+    expect(result).toEqual({ prunedFolderCount: 0 })
+    await expect(stat(join(vault, "Scratch/owned.TXT"))).rejects.toThrow(/ENOENT/)
+  })
+
   it.each([
     { label: "as written", path: "About Me/avatar.png", quotedPath: "About Me/avatar.png" },
     {
