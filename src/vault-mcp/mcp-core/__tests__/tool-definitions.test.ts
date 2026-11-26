@@ -663,13 +663,21 @@ describe("sentences shared across sibling tools", () => {
       label: "the protected-path list",
       sentence:
         "About Me/ and the daily notes folder (Daily Notes/ by default; vault_get_daily_note's path shows the folder in use; not protected when Obsidian's Daily Notes folder setting is the vault root or blank)",
-      tools: [TOOL_NAMES.VAULT_DELETE_NOTE, TOOL_NAMES.VAULT_MOVE_NOTE],
+      tools: [
+        TOOL_NAMES.VAULT_DELETE_NOTE,
+        TOOL_NAMES.VAULT_MOVE_NOTE,
+        TOOL_NAMES.VAULT_DELETE_FILE,
+      ],
     },
     {
       label: "the daily-notes config error entry",
       sentence:
         "- \"cannot read daily notes config from .obsidian/daily-notes.json\" — the file that names the protected daily notes folder can't be parsed; ask the vault's owner to repair it, or the server's operator to set DAILY_NOTES_FOLDER or PROTECTED_PATHS, then retry",
-      tools: [TOOL_NAMES.VAULT_DELETE_NOTE, TOOL_NAMES.VAULT_MOVE_NOTE],
+      tools: [
+        TOOL_NAMES.VAULT_DELETE_NOTE,
+        TOOL_NAMES.VAULT_MOVE_NOTE,
+        TOOL_NAMES.VAULT_DELETE_FILE,
+      ],
     },
     {
       label: "the file kinds search indexes by content",
