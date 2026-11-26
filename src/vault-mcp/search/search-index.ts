@@ -2380,8 +2380,9 @@ export const createSearchIndex = (
       return embeddedCount
     }
 
-    // chunkContent assigns indices 0 through length - 1, so a shortened note's
-    // old tail starts at chunks.length; remove its vectors before their parent rows,
+    // chunkContent assigns indices 0 through length - 1, so the stored chunks past
+    // the note's new count (after an edit, or once chunkContent's limits cut the
+    // note) start at chunks.length; remove their vectors before their parent rows,
     // in one transaction so a crash cannot leave a chunk row whose vector is gone.
     db.transaction(() => {
       deleteStaleVectorsStmt.run(notePath, chunks.length)
@@ -2615,8 +2616,9 @@ export const createSearchIndex = (
       return embeddedCount
     }
 
-    // chunkContent assigns indices 0 through length - 1, so a shortened file's
-    // old tail starts at chunks.length; remove its vectors before their parent rows,
+    // chunkContent assigns indices 0 through length - 1, so the stored chunks past
+    // the file's new count (after an edit, or once chunkContent's limits cut the
+    // file) start at chunks.length; remove their vectors before their parent rows,
     // in one transaction so a crash cannot leave a chunk row whose vector is gone.
     db.transaction(() => {
       deleteStaleFileVectorsStmt.run(filePath, chunks.length)
@@ -2641,8 +2643,8 @@ export const createSearchIndex = (
   }
 
   /** The watcher's entry point for embedding a file. It drops
-   *  embedAndStoreFileChunks' chunk count, so the watcher's queue of pending
-   *  embeds holds one promise type for notes and files. Safe to call for any
+   *  embedAndStoreFileChunks' chunk count, so file-watcher's pendingEmbeds map
+   *  holds one promise type for notes and files. Safe to call for any
    *  file: it does nothing when embedding or file tools are off, for a kind
    *  search does not embed, or for a file not in the index. */
   const embedFileContent = async (
