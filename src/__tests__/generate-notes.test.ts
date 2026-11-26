@@ -209,10 +209,13 @@ describe("generate-notes.sh", () => {
         "src/search.ts": "export const find = 1\n",
       })
 
-      expect(repo.generateNotes().stdout).toBe(
-        "### ⚠ BREAKING CHANGES\n\n- search is now find\n\n" +
+      expect(repo.generateNotes()).toEqual({
+        status: 0,
+        stdout:
+          "### ⚠ BREAKING CHANGES\n\n- search is now find\n\n" +
           "### Features\n\n- Rename the search tool\n- Add search\n",
-      )
+        stderr: "",
+      })
     })
 
     it("joins a wrapped BREAKING CHANGE footer into one line, ending at the blank line after it", () => {
@@ -336,7 +339,7 @@ describe("generate-notes.sh", () => {
       commitListedFeature(repo)
       repo.commit("release: v0.2.0", { "src/version.ts": "0.2.0\n" })
 
-      expect(repo.generateNotes().stdout).toBe(LISTED_FEATURE_ONLY)
+      expect(repo.generateNotes()).toEqual({ status: 0, stdout: LISTED_FEATURE_ONLY, stderr: "" })
     })
 
     it("says there are no notable changes when every commit is left out", () => {
@@ -566,7 +569,7 @@ describe("generate-notes.sh", () => {
       commitListedFeature(repo)
       repo.commit("chore(deps-dev): bump a dev tool", { "src/tooling.ts": "tool\n" })
 
-      expect(repo.generateNotes().stdout).toBe(LISTED_FEATURE_ONLY)
+      expect(repo.generateNotes()).toEqual({ status: 0, stdout: LISTED_FEATURE_ONLY, stderr: "" })
     })
 
     it("leaves out a hooks commit even when it also changes files under src/", () => {
@@ -577,7 +580,7 @@ describe("generate-notes.sh", () => {
         "src/__tests__/install-deps.test.ts": "test\n",
       })
 
-      expect(repo.generateNotes().stdout).toBe(LISTED_FEATURE_ONLY)
+      expect(repo.generateNotes()).toEqual({ status: 0, stdout: LISTED_FEATURE_ONLY, stderr: "" })
     })
 
     it("leaves out a deps-dev commit git cannot diff, without a warning", () => {
@@ -605,14 +608,18 @@ describe("generate-notes.sh", () => {
       commitListedFeature(repo)
       repo.commit("docs: update contributor notes", { [path]: "contributor\n" })
 
-      expect(repo.generateNotes().stdout).toBe(LISTED_FEATURE_ONLY)
+      expect(repo.generateNotes()).toEqual({ status: 0, stdout: LISTED_FEATURE_ONLY, stderr: "" })
     })
 
     it("keeps a commit that changes only files under a dot-folder such as .github/", () => {
       const repo = createReleaseRepo()
       repo.commit("ci: run tests on push", { ".github/workflows/ci.yml": "on: push\n" })
 
-      expect(repo.generateNotes().stdout).toBe("### CI / Infrastructure\n\n- Run tests on push\n")
+      expect(repo.generateNotes()).toEqual({
+        status: 0,
+        stdout: "### CI / Infrastructure\n\n- Run tests on push\n",
+        stderr: "",
+      })
     })
 
     it.each([
@@ -622,9 +629,11 @@ describe("generate-notes.sh", () => {
       const repo = createReleaseRepo()
       repo.commit("docs: update the deploy settings", { [path]: "setting\n" })
 
-      expect(repo.generateNotes().stdout).toBe(
-        "### Documentation\n\n- Update the deploy settings\n",
-      )
+      expect(repo.generateNotes()).toEqual({
+        status: 0,
+        stdout: "### Documentation\n\n- Update the deploy settings\n",
+        stderr: "",
+      })
     })
 
     it("keeps a commit that changes a contributor-only file and a shipped file", () => {
@@ -634,14 +643,22 @@ describe("generate-notes.sh", () => {
         "src/notes.ts": "notes\n",
       })
 
-      expect(repo.generateNotes().stdout).toBe("### Bug Fixes\n\n- Handle empty notes\n")
+      expect(repo.generateNotes()).toEqual({
+        status: 0,
+        stdout: "### Bug Fixes\n\n- Handle empty notes\n",
+        stderr: "",
+      })
     })
 
     it("keeps an empty commit", () => {
       const repo = createReleaseRepo()
       repo.commit("chore: trigger a release", {})
 
-      expect(repo.generateNotes().stdout).toBe("### Maintenance\n\n- Trigger a release\n")
+      expect(repo.generateNotes()).toEqual({
+        status: 0,
+        stdout: "### Maintenance\n\n- Trigger a release\n",
+        stderr: "",
+      })
     })
 
     it("keeps a commit git cannot diff, and warns", () => {
@@ -680,7 +697,7 @@ describe("generate-notes.sh", () => {
         ),
       })
 
-      expect(repo.generateNotes().stdout).toBe(LISTED_FEATURE_ONLY)
+      expect(repo.generateNotes()).toEqual({ status: 0, stdout: LISTED_FEATURE_ONLY, stderr: "" })
     })
 
     it("leaves out a commit that changes only devDependencies in package.json", () => {
@@ -690,7 +707,7 @@ describe("generate-notes.sh", () => {
         "package.json": toJsonFile({ ...BASE_MANIFEST, devDependencies: { vitest: ">=1.0.0" } }),
       })
 
-      expect(repo.generateNotes().stdout).toBe(LISTED_FEATURE_ONLY)
+      expect(repo.generateNotes()).toEqual({ status: 0, stdout: LISTED_FEATURE_ONLY, stderr: "" })
     })
 
     it("leaves out a lockfile-only change that moves only dev-only packages", () => {
@@ -702,7 +719,7 @@ describe("generate-notes.sh", () => {
         ),
       })
 
-      expect(repo.generateNotes().stdout).toBe(LISTED_FEATURE_ONLY)
+      expect(repo.generateNotes()).toEqual({ status: 0, stdout: LISTED_FEATURE_ONLY, stderr: "" })
     })
 
     it("leaves out an override that moves only dev-only packages", () => {
@@ -715,7 +732,7 @@ describe("generate-notes.sh", () => {
         ),
       })
 
-      expect(repo.generateNotes().stdout).toBe(LISTED_FEATURE_ONLY)
+      expect(repo.generateNotes()).toEqual({ status: 0, stdout: LISTED_FEATURE_ONLY, stderr: "" })
     })
 
     it("leaves out an override the lockfile also records in the project's own entry", () => {
@@ -731,7 +748,7 @@ describe("generate-notes.sh", () => {
         ),
       })
 
-      expect(repo.generateNotes().stdout).toBe(LISTED_FEATURE_ONLY)
+      expect(repo.generateNotes()).toEqual({ status: 0, stdout: LISTED_FEATURE_ONLY, stderr: "" })
     })
 
     it("keeps a commit that changes the dependencies the app installs", () => {
@@ -746,7 +763,11 @@ describe("generate-notes.sh", () => {
         ),
       })
 
-      expect(repo.generateNotes().stdout).toBe("### Maintenance\n\n- **deps:** Bump zod\n")
+      expect(repo.generateNotes()).toEqual({
+        status: 0,
+        stdout: "### Maintenance\n\n- **deps:** Bump zod\n",
+        stderr: "",
+      })
     })
 
     it("keeps a commit that changes a package.json field other than devDependencies or overrides", () => {
@@ -755,7 +776,11 @@ describe("generate-notes.sh", () => {
         "package.json": toJsonFile({ ...BASE_MANIFEST, scripts: { start: "node ." } }),
       })
 
-      expect(repo.generateNotes().stdout).toBe("### Maintenance\n\n- Add a start script\n")
+      expect(repo.generateNotes()).toEqual({
+        status: 0,
+        stdout: "### Maintenance\n\n- Add a start script\n",
+        stderr: "",
+      })
     })
 
     it("keeps a dev dependency bump that also moves a package the app installs", () => {
@@ -771,7 +796,11 @@ describe("generate-notes.sh", () => {
         ),
       })
 
-      expect(repo.generateNotes().stdout).toBe("### Maintenance\n\n- **deps:** Bump vitest\n")
+      expect(repo.generateNotes()).toEqual({
+        status: 0,
+        stdout: "### Maintenance\n\n- **deps:** Bump vitest\n",
+        stderr: "",
+      })
     })
 
     it("keeps a lockfile change that removes a package the app installs", () => {
@@ -780,9 +809,11 @@ describe("generate-notes.sh", () => {
         "package-lock.json": toJsonFile(lockfileWith({ "node_modules/zod": null })),
       })
 
-      expect(repo.generateNotes().stdout).toBe(
-        "### Maintenance\n\n- **deps:** Prune the lockfile\n",
-      )
+      expect(repo.generateNotes()).toEqual({
+        status: 0,
+        stdout: "### Maintenance\n\n- **deps:** Prune the lockfile\n",
+        stderr: "",
+      })
     })
 
     it("keeps a lockfile change to the project's own dependencies", () => {
@@ -795,14 +826,22 @@ describe("generate-notes.sh", () => {
         ),
       })
 
-      expect(repo.generateNotes().stdout).toBe("### Maintenance\n\n- **deps:** Sync the lockfile\n")
+      expect(repo.generateNotes()).toEqual({
+        status: 0,
+        stdout: "### Maintenance\n\n- **deps:** Sync the lockfile\n",
+        stderr: "",
+      })
     })
 
     it("keeps a commit that deletes package-lock.json", () => {
       const repo = createReleaseRepo()
       repo.commit("chore: drop the lockfile", { "package-lock.json": null })
 
-      expect(repo.generateNotes().stdout).toBe("### Maintenance\n\n- Drop the lockfile\n")
+      expect(repo.generateNotes()).toEqual({
+        status: 0,
+        stdout: "### Maintenance\n\n- Drop the lockfile\n",
+        stderr: "",
+      })
     })
 
     it("keeps a commit whose package-lock.json is not valid JSON, and warns", () => {
@@ -852,10 +891,13 @@ describe("generate-notes.sh", () => {
       })
       repo.commit("fix(deps): bump zod", { "package-lock.json": npm6LockfileWithZod("1.0.1") })
 
-      expect(repo.generateNotes().stdout).toBe(
-        "### Bug Fixes\n\n- **deps:** Bump zod\n\n" +
+      expect(repo.generateNotes()).toEqual({
+        status: 0,
+        stdout:
+          "### Bug Fixes\n\n- **deps:** Bump zod\n\n" +
           "### Maintenance\n\n- Switch to the npm 6 lockfile\n",
-      )
+        stderr: "",
+      })
     })
 
     it.each([
