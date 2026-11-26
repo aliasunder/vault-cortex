@@ -153,7 +153,8 @@ const findIdRank = (rankedIds: readonly string[], id: string): number => {
  * - V8 hashes a string longer than 16,383 characters by its length alone, so a
  *   Map or Set keyed by such ids compares each new key with every earlier one.
  *
- * Ranking compares ids only in one sort and one binary search per id.
+ * Ranking compares ids only in one sort, one pass over the sorted ids and one
+ * binary search per id.
  */
 const rankCanvasIds = (params: {
   nodes: readonly CanvasNode[]
@@ -161,6 +162,7 @@ const rankCanvasIds = (params: {
 }): { nodes: RankedNode[]; edges: RankedEdge[] } => {
   const endpointIds = params.edges.flatMap((edge) => [edge.fromNode, edge.toNode])
   const sortedIds = [...params.nodes.map((node) => node.id), ...endpointIds].toSorted(compareIds)
+
   // Sorting puts equal ids side by side, so keeping each id that differs from the
   // one before it removes duplicates without a Set.
   const rankedIds = sortedIds.filter((id, index) => index === 0 || id !== sortedIds[index - 1])
@@ -197,6 +199,7 @@ const smallestContainingGroup = (
     // The node is compared by object because IDs can repeat, and a card that
     // shares its group's ID still belongs in that group.
     if (group === node || !isContainedIn(node, group)) return false
+
     // Two groups with identical rectangles contain each other; without a
     // tiebreak each would claim the other as parent, neither would be
     // top-level, and both would drop out of the render entirely. Give the
@@ -211,6 +214,7 @@ const smallestContainingGroup = (
   })
 
   if (containing.length === 0) return undefined
+
   // Equal-area ties break on the lower id so ownership is a property of the
   // canvas content, not of JSON array order, whenever the ids differ.
   return containing.reduce((smallest, candidate) => {
