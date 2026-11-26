@@ -10,7 +10,7 @@
   "pages": [
     {
       "title": "Overview",
-      "purpose": "What Vault Cortex is and does, drawn from the current README.md: an MCP server giving AI agents hybrid search, task management, structured memory, non-markdown file reading, writing and deletion, and read/write access to an Obsidian vault. The ways to run it are covered on the Deployment page. Summarize the README's value proposition as it stands at index time rather than a fixed capability list."
+      "purpose": "What Vault Cortex is and does, drawn from the current README.md: an MCP server giving AI agents hybrid search, task management, structured memory, non-markdown file reading, and read/write access to an Obsidian vault. The ways to run it are covered on the Deployment page. Summarize the README's value proposition as it stands at index time rather than a fixed capability list."
     },
     {
       "title": "Getting Started",

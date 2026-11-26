@@ -690,11 +690,12 @@ or another setting has already hidden.
 
 ## Deleting notes and files
 
-Deletes are permanent, and they sync to your other devices like a delete
-made in Obsidian. To recover a deleted note or file that Sync uploaded, use
-Obsidian Sync's version history (Settings → Sync → Deleted files). It keeps
-a deleted note for 1 month on Sync Standard and 12 months on Sync Plus, and
-a deleted attachment for two weeks on either plan.
+Deletes are permanent, and with the default `SYNC_MODE=bidirectional` they
+sync to your other devices like a delete made in Obsidian. To recover a
+deleted note or file that Sync uploaded, use Obsidian Sync's version history
+(Settings → Sync → Deleted files). It keeps a deleted note for 1 month on
+Sync Standard and 12 months on Sync Plus, and a deleted attachment for two
+weeks on either plan.
 
 ## Daily notes
 
