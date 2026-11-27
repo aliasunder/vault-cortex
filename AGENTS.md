@@ -1260,9 +1260,10 @@ fresh clone.
 
 ## Upgrading pinned dependencies
 
-Three pins track something outside this repo: `rrule` is the version the
-Tasks plugin declares and `remark-parse` the release Obsidian's metadata
-cache forked (both excluded from Dependabot), and `obsidian-headless` is the
+Four pins track something outside this repo: `rrule` is the version the
+Tasks plugin declares, `remark-parse` the release Obsidian's metadata cache
+forked and `parse-entities` the version remark-parse 8 calls (all three
+excluded from Dependabot), and `obsidian-headless` is the
 Sync CLI whose observed behaviour the `:remote` init chain depends on
 (Dependabot opens a PR for each of its releases). Before bumping any of them,
 or merging such a PR, read

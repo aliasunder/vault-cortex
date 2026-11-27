@@ -244,7 +244,7 @@ const rewriteTarget = (
   // is kept only when the original carried the resolved file's real
   // extension, in any letter case, since ![[Photo.PNG]] resolves to
   // photo.png. As a result:
-  // - a markdown link always keeps its extension;
+  // - a markdown link keeps its extension state, with or without one;
   // - a wikilink to a note never carries ".md";
   // - a stem-form asset link stays extensionless.
   const grammarWritesExtension = targetKind === "asset" || grammar === "markdown"

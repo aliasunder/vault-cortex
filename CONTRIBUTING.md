@@ -339,13 +339,14 @@ See the [DEPLOY.md CI/CD section](./DEPLOY.md#cicd) for details on each workflow
 
 ## Upgrading pinned dependencies
 
-Three pins track something outside this repo. Treat each bump as a potential
+Four pins track something outside this repo. Treat each bump as a potential
 regression and re-verify that package's contract below before merging.
 
 | Package             | Pinned in                                                     | Tracks                                                                             | Dependabot       |
 | ------------------- | ------------------------------------------------------------- | ---------------------------------------------------------------------------------- | ---------------- |
 | `rrule`             | root `package.json`                                           | the version the Tasks plugin declares                                              | excluded         |
 | `remark-parse`      | root `package.json`, with `overrides` for its dependency tree | the release Obsidian's metadata cache forked                                       | excluded         |
+| `parse-entities`    | root `package.json`                                           | the version remark-parse 8 calls, which link destinations decode with              | excluded         |
 | `obsidian-headless` | `obsidian-headless/package.json` and its lockfile             | the Sync CLI whose observed behaviour the `:remote` image's init scripts depend on | a PR per release |
 
 ### Upgrading rrule (recurrence parity)
@@ -384,7 +385,9 @@ decision, not a drift fix.
 Obsidian's syntax as tokenizers in `obsidian-remark-parser.ts`. The pin is
 excluded from Dependabot, and 8.0.3 is the last 8.x release, so an advisory
 anywhere in its dependency tree is answered with an `overrides` entry, as
-`trim` is.
+`trim` is. `obsidian-markdown/links.ts` decodes link destinations with
+`parse-entities@2.0.0`, the version remark-parse 8 calls, so bump the
+parse-entities pin only together with remark-parse.
 
 Never open, read or copy Obsidian's app code (`worker.js`, `app.js`) when
 editing `obsidian-remark-parser.ts`, `body-tags.ts` or `remark-ports/`:
