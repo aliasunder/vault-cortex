@@ -1308,22 +1308,22 @@ Every doc edit follows these rules:
   Each protection against data loss or attack (atomic writes, the
   per-file mutex) keeps one clause saying how it works ("stages to a
   temp file, then renames").
-- **In the README, the deploy guides and cli/README.md, features are
-  stated as what the Obsidian user can do**, in their vocabulary
-  ("complete a task," "move between lanes," "filter by due date"), never
-  implementation vocabulary ("mutate," "atomic write cycle," "composable
-  mutations"); ARCHITECTURE.md keeps its engineering terms. Sentences
-  about how the project is built use the standard names for the
-  techniques it chose and the hazards it guards against (FTS5, RRF,
-  cross-encoder, per-file mutex, TOCTOU, `link()`). The README and
+- **In the README, DEPLOY.md, the `deploy/` guides and cli/README.md,
+  features are stated as what the Obsidian user can do**, in their
+  vocabulary ("complete a task," "move between lanes," "filter by due
+  date"), never implementation vocabulary ("mutate," "atomic write
+  cycle," "composable mutations"); ARCHITECTURE.md keeps its engineering
+  terms. Sentences about how the project is built use the standard names
+  for the techniques it chose and the hazards it guards against (FTS5,
+  RRF, cross-encoder, per-file mutex, TOCTOU, `link()`). The README and
   SECURITY.md add no gloss to those names, even when a review calls
   them jargon.
 - **One home per fact; other docs link to it**, because a second copy
   goes stale when the first is edited. Windows setup lives in
   `deploy/local/`, and the README links there. Registry descriptions,
-  the generated DOCKERHUB.md, settings tables, the recovery path beside
-  a destructive-outcome claim and an opt-out stated in its feature's
-  section are deliberate copies.
+  the generated DOCKERHUB.md, settings tables, an opt-out stated in its
+  feature's section and the recovery path beside a destructive-outcome
+  claim are deliberate copies.
 
 **Write-time format decision** — before committing any prose (code
 comments, JSDoc, README sections, PR descriptions, env-file comments):
