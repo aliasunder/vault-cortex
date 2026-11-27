@@ -63,7 +63,7 @@ See the [full Quick Start guide](https://github.com/aliasunder/vault-cortex#quic
 
 ## Tools
 
-Reads and edits are sized to the agent's context. `vault_read_note` can return just a note's properties, its heading outline, one section, or a window of lines instead of the whole note. `vault_replace_span` and `vault_delete_span` find a block by a short fragment of its first and last lines, and `vault_insert_at_anchor` places new lines beside a line found the same way, so the agent edits a block without reproducing it.
+Reads and edits can work on part of a note, so a long note doesn't fill the agent's context window. `vault_read_note` can return just a note's properties, its heading outline, one section, or a window of lines. `vault_replace_span` and `vault_delete_span` find a block by a short fragment of its first and last lines, and `vault_insert_at_anchor` places new lines beside a line found the same way, so the agent edits a block without reproducing it.
 
 | Category | Tool | Description |
 | --------------- | ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
@@ -137,7 +137,7 @@ Vault Cortex indexes every [property](https://help.obsidian.md/Editing+and+forma
 
 ## Configuration
 
-All settings are environment variables with sensible defaults. The table lists the required settings and the switches most installs change; every setting, with its default and limits, is in the [local](https://github.com/aliasunder/vault-cortex/tree/main/deploy/local/README.md#configuration) and [remote](https://github.com/aliasunder/vault-cortex/tree/main/deploy/remote/README.md#configuration) guides' configuration tables, which also cover Obsidian Sync's own settings.
+All settings are environment variables with sensible defaults, set in `.env` or in the service's **Variables** tab on Railway and **Environment** tab on Render. The table lists the required settings and the switches most installs change; every setting, with its default and limits, is in the [local](https://github.com/aliasunder/vault-cortex/tree/main/deploy/local/README.md#configuration) and [remote](https://github.com/aliasunder/vault-cortex/tree/main/deploy/remote/README.md#configuration) guides' configuration tables, which also cover Obsidian Sync's own settings.
 
 | Variable | Required for | Default | Description |
 | ---------------------- | ------------ | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -151,7 +151,7 @@ All settings are environment variables with sensible defaults. The table lists t
 | `FILE_TOOLS_ENABLED` | — | `true` | Set `false` to hide the file tools. To keep reading files but turn off writing and deleting them, set `DISABLED_TOOLS=vault_write_file,vault_delete_file` instead. |
 | `READONLY_MODE` | — | `false` | Set `true` to hide every tool that changes the vault and skip memory folder auto-creation — connected clients can read and search but never edit. |
 | `DISABLED_TOOLS` | — | — | Hide individual tools by name, comma-separated (e.g. `vault_delete_note,vault_move_note`); names match the Tool column in the [tools table](https://github.com/aliasunder/vault-cortex#tools). It cannot re-enable a tool another setting hides, and an unknown name stops the server at startup. |
-| `PROTECTED_PATHS` | — | the memory folder (`MEMORY_DIR`), daily notes folder | Folders whose notes and files can't be deleted, whose notes can't be moved, and that no note can be moved into; their notes stay editable. A value you set replaces both default folders. |
+| `PROTECTED_PATHS` | — | the memory folder (`MEMORY_DIR`), daily notes folder | Comma-separated folders whose notes and files can't be deleted, whose notes can't be moved, and that no note can be moved into; their notes stay editable. A value you set replaces both default folders. |
 | `TZ` | — | `UTC` | IANA timezone for timestamps and daily note resolution |
 | `TRASH_RETENTION_DAYS` | — | `30` | Days a note or file deleted under Obsidian's default "Move to system trash" setting stays in `.trash/` before the server cleans it up; `none` keeps them forever. Unused with Obsidian Sync, whose deletes are permanent. |
 

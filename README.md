@@ -93,8 +93,8 @@ docker compose up
 
 Your vault on a server, kept current by Obsidian Sync, reachable from any MCP client. This is the setup claude.ai on the web and your phone can reach, and the vault stays reachable when your laptop is closed.
 
-- **One click (Railway or Render):** you give your vault name and timezone (plus the vault password if your vault is encrypted); the platform handles HTTPS, restarts, a generated MCP token, and persistent storage, and once deployed a setup page walks you through signing in to Obsidian Sync in your browser.
-- **Your own server:** the CLI asks for the public URL and vault name, captures the Sync token for you, and generates the MCP token; HTTPS is yours to set up.
+- **One click (Railway or Render):** you give your vault name and timezone (plus the vault password if your vault is encrypted). The platform handles HTTPS, restarts, persistent storage, and a generated MCP token, which each guide's **Your URL and token** section shows how to find. Once deployed, a setup page walks you through signing in to Obsidian Sync in your browser.
+- **Your own server:** the CLI asks for the public URL and vault name, captures your Obsidian Sync token for you, and generates the MCP token; [HTTPS](./deploy/remote/#https-access) is yours to set up.
 
 |                | Railway                                                                                                                                                                             | Render                                                                                                                                                  | Self-hosted                                                  |
 | -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
@@ -106,7 +106,7 @@ Your vault on a server, kept current by Obsidian Sync, reachable from any MCP cl
 
 All three need an [Obsidian Sync](https://obsidian.md/sync) subscription ($4 USD/mo). Whichever you pick, your vault stays in plain Markdown in Obsidian Sync and on your devices; the container only holds a copy.
 
-**The setup page.** Deploy without an Obsidian Sync token and the server starts in setup mode: opening its URL in a browser lands on a sign-in page at `/setup`. Enter your Obsidian account credentials once (two-factor supported) — you sign in with your Obsidian account through the server, which keeps only the Sync token from that sign-in, restarts, and downloads your vault.
+**The setup page.** Deploy without an Obsidian Sync token and the server starts in setup mode: opening its URL in a browser lands on a sign-in page at `/setup`. Enter your Obsidian account credentials once (two-factor supported). The server passes them to Obsidian and saves only the Sync token Obsidian returns, then restarts and downloads your vault.
 
 <p align="center"><img src="./deploy/img/setup-sign-in.jpg" width="440" alt="The Connect Obsidian Sync setup page with MCP token, email, and password fields"></p>
 
@@ -121,7 +121,7 @@ The [Vault Cortex CLI](./cli/) sets up the same container on any Linux box you r
 npx vault-cortex@latest init --mode remote
 ```
 
-That's it — the CLI walks through the public URL, Obsidian Sync token (it can run [`get-sync-token`](./cli/README.md#get-sync-token) for you), vault name, the vault password for an encrypted vault, and auth config, then starts the server ([CLI reference →](./cli/)). The [CLI and Compose notes under the local setup](#local-2-minutes--docker--your-vault-folder) apply here too.
+That's it — the CLI walks through the public URL, Obsidian Sync token (it can run [`get-sync-token`](./cli/README.md#get-sync-token) for you), vault name, the vault password for an encrypted vault, and auth config, then starts the server ([CLI reference →](./cli/)). From then on the CLI manages the server, and a Compose setup updates with Compose, as [under the local setup](#local-2-minutes--docker--your-vault-folder).
 
 <details>
 <summary><strong>Manual setup</strong> (no Node.js needed)</summary>
@@ -224,7 +224,7 @@ See [ARCHITECTURE.md](./ARCHITECTURE.md) for the full design, auth flow diagrams
 
 ## Hybrid Search
 
-Keyword search alone fails when your vocabulary doesn't match the vault's — "aspirations" won't find a note about "targets", "coworkers" won't surface your "references" file. In testing against a real vault, 6 of 20 natural-language queries returned nothing with keywords alone, and 3 more returned only tangential results. Hybrid search found all nine in the same test.
+Keyword search alone fails when your vocabulary doesn't match the vault's — "aspirations" won't find a note about "targets", "coworkers" won't surface your "references" file. In testing against a real vault, 6 of 20 natural-language queries returned nothing with keywords alone, and 3 more returned only tangential results. Hybrid search returned relevant notes for all nine of those queries in the same test.
 
 Hybrid search fuses the keyword and vector rankings via [Reciprocal Rank Fusion](./ARCHITECTURE.md#hybrid-search), then the reranker refines the fused result:
 
@@ -288,9 +288,14 @@ Your notes embed screenshots, reference architecture diagrams, and link out to c
 - **Other text files** — a file of any other type, such as a `.js` file, a `.toml` config or a file with no extension, reads back the way a text file does when its content is UTF-8. Search doesn't index these, so browse a folder to find them
 - **Browse** — list any visible folder's files with per-extension counts and file sizes; files a note links to report their size in the link graph too
 - **Write** — create or replace a canvas, a Base, or any other text file from any client, so a board or a Bases view can change from your phone. A canvas or `.json` file must be valid JSON and a Base valid YAML before it is saved. PDFs, images other than SVG, and any existing file that holds binary data can't be written. An overwrite keeps no copy on the server; on an Obsidian Sync vault, Sync's [version history](https://obsidian.md/help/sync/version-history) keeps earlier versions of the files it syncs (attachments for two weeks)
-- **Delete** — remove a canvas, an image, a PDF, or any other file from any client. Links and embeds to it in your notes break, as they do when you delete a file in Obsidian, and files in the protected folders (`PROTECTED_PATHS`) are refused. Without Obsidian Sync the file follows Obsidian's "Deleted files" setting (Settings → Files and links) as a note does, so the default moves it to `.trash/` for `TRASH_RETENTION_DAYS`; with Obsidian Sync the delete is permanent and Sync's version history keeps a deleted attachment for two weeks
+- **Delete** — remove a canvas, an image, a PDF, or any other file from any client. Links and embeds to it in your notes break, as they do when you delete a file in Obsidian, and files in the protected folders (`PROTECTED_PATHS`) are refused. Where the file goes:
+  - without Obsidian Sync, it follows Obsidian's "Deleted files" setting (Settings → Files and links) as a note does. The default, "Move to system trash", moves it to the vault's `.trash/` folder, because a container has no system trash, and the server removes it after `TRASH_RETENTION_DAYS`
+  - with Obsidian Sync, the delete is permanent, and Sync's version history keeps a deleted attachment for two weeks
 
-Search covers the first 100 KB of each text file, and of a PDF's text up to its first 500 pages; a PDF larger than `MAX_FILE_BYTES` (50 MB by default) or whose text can't be extracted, and a page or script over 16 MB, is found by its name.
+Search reads the first 100 KB of each searchable file's text, and at most a PDF's first 500 pages. These files are found by their name only:
+
+- a PDF larger than `MAX_FILE_BYTES` (50 MB by default), or one whose text can't be extracted
+- an HTML page or script larger than 16 MB
 
 Set `FILE_TOOLS_ENABLED=false` to hide the file tools, or `DISABLED_TOOLS=vault_write_file,vault_delete_file` to keep reading files but turn off writing and deleting them.
 
@@ -300,7 +305,7 @@ See [ARCHITECTURE.md → Files](./ARCHITECTURE.md#files) for the image pipeline,
 
 ## Tools
 
-Reads and edits are sized to the agent's context. `vault_read_note` can return just a note's properties, its heading outline, one section, or a window of lines instead of the whole note. `vault_replace_span` and `vault_delete_span` find a block by a short fragment of its first and last lines, and `vault_insert_at_anchor` places new lines beside a line found the same way, so the agent edits a block without reproducing it.
+Reads and edits can work on part of a note, so a long note doesn't fill the agent's context window. `vault_read_note` can return just a note's properties, its heading outline, one section, or a window of lines. `vault_replace_span` and `vault_delete_span` find a block by a short fragment of its first and last lines, and `vault_insert_at_anchor` places new lines beside a line found the same way, so the agent edits a block without reproducing it.
 
 | Category        | Tool                         | Description                                                                                                                  |
 | --------------- | ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
@@ -376,13 +381,13 @@ Vault Cortex indexes every [property](https://help.obsidian.md/Editing+and+forma
 
 These are conventions, not requirements — Vault Cortex works with any property schema.
 
-**Leading callouts** get the same treatment. When a note's first body content is an Obsidian [callout](https://help.obsidian.md/Editing+and+formatting/Callouts) (`> [!type]`) — either right after frontmatter or right after the title heading — it's indexed and surfaced alongside every discovery result (on `vault_search`, ask for it with `include_leading_callout`). This makes notes self-describing: an agent scanning results can see what each note is _for_ before deciding which to read. The memory templates use `> [!info] Scope of this file` callouts for this, and any note in your vault can use the same pattern.
+**Leading callouts** are promoted too. When a note's first body content is an Obsidian [callout](https://help.obsidian.md/Editing+and+formatting/Callouts) (`> [!type]`) — either right after frontmatter or right after the title heading — it's indexed and surfaced alongside every discovery result (on `vault_search`, ask for it with `include_leading_callout`). This makes notes self-describing: an agent scanning results can see what each note is _for_ before deciding which to read. The memory templates use `> [!info] Scope of this file` callouts for this, and any note in your vault can use the same pattern.
 
 ---
 
 ## Configuration
 
-All settings are environment variables with sensible defaults. The table lists the required settings and the switches most installs change; every setting, with its default and limits, is in the [local](./deploy/local/README.md#configuration) and [remote](./deploy/remote/README.md#configuration) guides' configuration tables, which also cover Obsidian Sync's own settings.
+All settings are environment variables with sensible defaults, set in `.env` or in the service's **Variables** tab on Railway and **Environment** tab on Render. The table lists the required settings and the switches most installs change; every setting, with its default and limits, is in the [local](./deploy/local/README.md#configuration) and [remote](./deploy/remote/README.md#configuration) guides' configuration tables, which also cover Obsidian Sync's own settings.
 
 | Variable               | Required for | Default                                              | Description                                                                                                                                                                                                                                             |
 | ---------------------- | ------------ | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -396,7 +401,7 @@ All settings are environment variables with sensible defaults. The table lists t
 | `FILE_TOOLS_ENABLED`   | —            | `true`                                               | Set `false` to hide the file tools. To keep reading files but turn off writing and deleting them, set `DISABLED_TOOLS=vault_write_file,vault_delete_file` instead.                                                                                      |
 | `READONLY_MODE`        | —            | `false`                                              | Set `true` to hide every tool that changes the vault and skip memory folder auto-creation — connected clients can read and search but never edit.                                                                                                       |
 | `DISABLED_TOOLS`       | —            | —                                                    | Hide individual tools by name, comma-separated (e.g. `vault_delete_note,vault_move_note`); names match the Tool column in the [tools table](#tools). It cannot re-enable a tool another setting hides, and an unknown name stops the server at startup. |
-| `PROTECTED_PATHS`      | —            | the memory folder (`MEMORY_DIR`), daily notes folder | Folders whose notes and files can't be deleted, whose notes can't be moved, and that no note can be moved into; their notes stay editable. A value you set replaces both default folders.                                                               |
+| `PROTECTED_PATHS`      | —            | the memory folder (`MEMORY_DIR`), daily notes folder | Comma-separated folders whose notes and files can't be deleted, whose notes can't be moved, and that no note can be moved into; their notes stay editable. A value you set replaces both default folders.                                               |
 | `TZ`                   | —            | `UTC`                                                | IANA timezone for timestamps and daily note resolution                                                                                                                                                                                                  |
 | `TRASH_RETENTION_DAYS` | —            | `30`                                                 | Days a note or file deleted under Obsidian's default "Move to system trash" setting stays in `.trash/` before the server cleans it up; `none` keeps them forever. Unused with Obsidian Sync, whose deletes are permanent.                               |
 
@@ -406,9 +411,9 @@ All settings are environment variables with sensible defaults. The table lists t
 
 In remote mode your devices must send that file: turn on Obsidian Settings → Sync → **Vault configuration sync** on each device. Details: the [remote guide's Daily notes section](./deploy/remote/README.md#daily-notes).
 
-To set the folder or format yourself (the file isn't available, or you use the Periodic Notes plugin), set `DAILY_NOTES_FOLDER` or `DAILY_NOTES_FORMAT`; a set value always wins over the config file. Both are in the guides' configuration tables.
+If the file isn't available, or you use the Periodic Notes plugin, set `DAILY_NOTES_FOLDER` or `DAILY_NOTES_FORMAT`; a set value always wins over the config file. Both are in the [local](./deploy/local/README.md#configuration) and [remote](./deploy/remote/README.md#configuration) guides' configuration tables.
 
-When your daily notes live in the vault root, or in the new-note folder because Obsidian's folder setting is empty, delete and move don't protect them.
+`PROTECTED_PATHS` doesn't cover daily notes in the vault root, or in the **Default location for new notes** folder that Obsidian uses when the Daily notes folder setting is empty: protecting that folder would also protect every other note in it.
 
 ---
 
@@ -416,10 +421,10 @@ When your daily notes live in the vault root, or in the new-note folder because 
 
 Vault Cortex writes to personal notes — the file safety layer is built to prevent corruption, not just errors.
 
-- **Atomic writes** — every file write stages to a temp file, then renames. Readers never see a partial note, and outside `WINDOWS_MODE` never an empty one. Exclusive creates use `link()` (POSIX no-clobber; a reserved `'wx'` create under `WINDOWS_MODE`) to close the TOCTOU window on note moves.
+- **Atomic writes** — every file write stages to a temp file, then renames. Readers never see a partial note, and never an empty one except on Windows (`WINDOWS_MODE=true`). Exclusive creates use `link()` (POSIX no-clobber; on Windows, a reserved `'wx'` create) to close the TOCTOU window on note moves.
 - **Per-file mutex** — concurrent MCP tool calls serialize or fail-fast per file. Moves lock the source, destination, and every backlink source as one unit.
 - **Body edits keep properties as written** — editing a note's body leaves its properties (the `---` block Obsidian shows as Properties) as they were, comments included.
-- **Property rewrites refuse what they can't keep** — `vault_update_properties`, a `vault_write_note` overwrite, the task tools and a move that changes a link inside the block rewrite the block: every property and value stays, YAML comments are dropped, and the formatting may change. A rewrite is refused, leaving the note unchanged, when the block is invalid YAML, is a list or a single value instead of `key: value` properties, or holds a value with an explicit tag such as `!!str`; the error says how to repair it.
+- **Property rewrites keep every value or refuse** — `vault_update_properties`, a `vault_write_note` overwrite, the task tools and a move that changes a link inside the block rewrite the block: every property and value stays, YAML comments are dropped, and the formatting may change. A rewrite is refused, leaving the note unchanged, when the block is invalid YAML, is a list or a single value instead of `key: value` properties, or holds a value with an explicit tag such as `!!str`; the error says how to repair it.
 - **Notes with broken properties stay usable** — search treats a note whose properties are invalid YAML as having none, as Obsidian does. The note still shows in search and task lists, its body links still count as backlinks, and you can read, edit and move it with the block left as written. The server log flags it for repair.
 - **Path traversal blocked** — every path is resolved, then checked to sit inside the vault. Protected-path deletion is refused after normalization, and memory file names reject separators.
 - **Hidden paths are off-limits** — files and folders starting with a dot (`.obsidian/`, `.trash/`) never appear in listings or search, and any tool call that targets one directly is rejected, matching Obsidian. Plugin configs and their API keys stay out of reach.
@@ -436,7 +441,7 @@ See [ARCHITECTURE.md → Data Integrity](./ARCHITECTURE.md#data-integrity) for m
 
 ## Authentication
 
-For a server with read/write access to personal notes, authentication is not optional. Vault Cortex implements OAuth 2.1 with Authorization Code and PKCE, dynamic client registration and refresh-token rotation. The reference AWS deployment ([SST](#deployment-options)) adds defense-in-depth: requests are validated at two independent layers (API Gateway Lambda authorizer + Express middleware). Per [BlueRock's 2026 MCP security analysis](https://www.bluerock.io/use-cases/safely-adopt-mcp), only 8.5% of MCP servers implement OAuth; 41% have no authentication at all.
+For a server with read/write access to personal notes, authentication is not optional. Vault Cortex implements OAuth 2.1 with Authorization Code and PKCE, dynamic client registration and refresh-token rotation. The [reference AWS deployment](#deployment-options) (SST) adds defense-in-depth: requests are validated at two independent layers (API Gateway Lambda authorizer + Express middleware). Per [BlueRock's 2026 MCP security analysis](https://www.bluerock.io/use-cases/safely-adopt-mcp), only 8.5% of MCP servers implement OAuth; 41% have no authentication at all.
 
 Two methods:
 

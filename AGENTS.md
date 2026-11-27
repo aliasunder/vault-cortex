@@ -1325,13 +1325,14 @@ rules follow from each doc's readers:
   keeps is not a gloss.
 - **One home per fact; other docs link to it**, because a second copy
   goes stale when the first is edited. Windows setup lives in
-  `deploy/local/`, and the README links there. The full settings
-  reference lives in the deploy guides' tables; the README keeps the
-  required settings and the switches most installs change. Deliberate
-  copies stay: registry descriptions, the generated DOCKERHUB.md, each
-  doc's env var table, the clause the first rule keeps beside a
-  protection, an opt-out stated in its feature's section and the
-  recovery path beside a destructive-outcome claim.
+  `deploy/local/`, and the README links there. The Configuration table
+  in `deploy/local/README.md` and the one in `deploy/remote/README.md`
+  are each the full settings reference for that setup; the README's
+  table keeps only the required settings and the switches most installs
+  change. Deliberate copies stay: registry descriptions, the generated
+  DOCKERHUB.md, each doc's env var table, the clause the first rule
+  keeps beside a protection, an opt-out stated in its feature's section
+  and the recovery path beside a destructive-outcome claim.
 - **Before calling a doc done, walk the entire document start to finish
   as each reader it serves.** Line-level fact-checking cannot validate a
   doc; each sentence can be true while the doc as a whole misleads.
@@ -1450,10 +1451,11 @@ pattern:
 2. **Deploy compose** (`deploy/local/docker-compose.yml` and/or
    `deploy/remote/docker-compose.yml`) — add `${VAR:-default}` passthrough
    in `environment:`
-3. **Deploy .env.example** (`deploy/local/.env.example` and/or
-   `deploy/remote/.env.example`) — document for users with comment + default,
-   and the Configuration table in that directory's `README.md`.
-   These are the source of truth for optional var documentation.
+3. **Deploy .env.example and Configuration table** (`deploy/local/` and/or
+   `deploy/remote/`) — document the var in that folder's `.env.example`
+   with a comment and its default, then add its row to the Configuration
+   table in that folder's `README.md`. Step 4 syncs from the
+   `.env.example` files; no drift test checks the table rows.
 4. **Run `npm run sync:cli-env-blocks`** — syncs the optional sections from
    step 3 into `cli/src/rules/env-templates.ts` (`LOCAL_OPTIONAL_BLOCK` /
    `REMOTE_OPTIONAL_BLOCK`). Always run after editing deploy/ env files.
