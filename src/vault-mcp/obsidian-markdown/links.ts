@@ -881,8 +881,14 @@ const toMarkdownLinkSpan = (params: {
  *  - the destination is `<…>` or bare, after optional whitespace;
  *  - a title in `"…"`, `'…'` or `(…)` may follow after whitespace;
  *  - a complete link is used up even when it names nothing (a URL, a heading
- *    in the same note), so the scan resumes after its `)`. */
-const scanMarkdownLinks = (text: string, visit: (span: MarkdownLinkSpan) => void): void => {
+ *    in the same note), so the scan resumes after its `)`, and
+ *    `visitUnnamedLink` receives its destination and title, from the first
+ *    character after the `(` to the end of the link. */
+const scanMarkdownLinks = (
+  text: string,
+  visit: (span: MarkdownLinkSpan) => void,
+  visitUnnamedLink?: (region: { start: number; end: number }) => void,
+): void => {
   // The link text cursor outlives a failed opener and only moves forward: a
   // later opener reaches the same `]` or a later one.
   let textEnd = 0
@@ -926,6 +932,7 @@ const scanMarkdownLinks = (text: string, visit: (span: MarkdownLinkSpan) => void
       : toMarkdownLinkSpan({ text, start, link, linkKind: "link" })
 
     if (span) visit(span)
+    else visitUnnamedLink?.({ start: link.contentStart, end: link.end })
     // end - 1 is the link's `)`, and the loop's start++ moves past it.
     start = link.end - 1
   }
@@ -967,27 +974,47 @@ const maskTemplaterExpressions = (text: string): string => {
 }
 
 /** Calls the visitors for each link in a body line, wikilinks first and then
- *  markdown links. A wikilink inside a markdown link's destination or title is
- *  no link of its own, as Obsidian reads `[x](a.md "[[b]]")`, so no two links
- *  the visitors receive overlap. */
+ *  markdown links, from `line`, a copy of `rawLine` with spans blanked and
+ *  every offset kept. A wikilink inside any markdown link's destination or
+ *  title is no link of its own, as Obsidian reads `[x](a.md "[[b]]")` and
+ *  `[x](https://example.com "[[b]]")`, so no two links the visitors receive
+ *  overlap. That holds only where the blanking left the destination and title
+ *  as written: Obsidian reads ``[x](b.md `c` "[[d]]")`` as the wikilink alone. */
 const scanBodyLineLinks = (params: {
   line: string
+  rawLine: string
   visitWikilink: (span: LinkSpan) => void
   visitMarkdownLink: (span: MarkdownLinkSpan) => void
 }): void => {
-  const { line, visitWikilink, visitMarkdownLink } = params
+  const { line, rawLine, visitWikilink, visitMarkdownLink } = params
   const markdownSpans: MarkdownLinkSpan[] = []
-  scanMarkdownLinks(line, (span) => markdownSpans.push(span))
-  // Wikilinks arrive in start order, so one index walks the markdown spans
-  // forward, past each span that ends before the wikilink starts.
-  let spanIndex = 0
+  // Each markdown link's destination and title, in text order.
+  const destinationRegions: { start: number; end: number }[] = []
+
+  const keepIfUnblanked = (region: { start: number; end: number }): void => {
+    const { start, end } = region
+
+    if (line.slice(start, end) === rawLine.slice(start, end)) destinationRegions.push(region)
+  }
+
+  scanMarkdownLinks(
+    line,
+    (span) => {
+      markdownSpans.push(span)
+      keepIfUnblanked({ start: span.targetStart, end: span.end })
+    },
+    keepIfUnblanked,
+  )
+  // Wikilinks arrive in start order, so one index walks the regions forward,
+  // past each region that ends before the wikilink starts.
+  let regionIndex = 0
 
   const isInsideDestination = (wikilinkStart: number): boolean => {
-    while ((markdownSpans[spanIndex]?.end ?? Infinity) <= wikilinkStart) spanIndex++
-    const enclosingSpan = markdownSpans[spanIndex]
+    while ((destinationRegions[regionIndex]?.end ?? Infinity) <= wikilinkStart) regionIndex++
+    const enclosingRegion = destinationRegions[regionIndex]
 
-    if (!enclosingSpan) return false
-    return wikilinkStart >= enclosingSpan.targetStart
+    if (!enclosingRegion) return false
+    return wikilinkStart >= enclosingRegion.start
   }
 
   scanWikilinks(line, (span) => {
@@ -997,13 +1024,15 @@ const scanBodyLineLinks = (params: {
 }
 
 /** Finds a body line's wikilinks, then its markdown links (not in text order),
- *  with the offsets a rewriter needs to splice replacements. Links in inline
- *  code are found too; a caller that skips them scans a maskInlineCode copy of
- *  the line. No two matches overlap. */
-const matchLinksInLine = (line: string): LinkMatch[] => {
+ *  outside inline code, as links.extractFromBody reads them. Offsets match
+ *  `line`, each match's `text` is the link with inline code blanked, and no
+ *  two matches overlap. */
+const matchLinksInLine = (rawLine: string): LinkMatch[] => {
+  const line = maskInlineCode(rawLine)
   const matches: LinkMatch[] = []
   scanBodyLineLinks({
     line,
+    rawLine,
     visitWikilink: ({ start, end }) => {
       matches.push({ text: line.slice(start, end), start, end, kind: "wikilink" })
     },
@@ -1176,6 +1205,7 @@ const extractFromBody = (content: string): string[] => {
 
     scanBodyLineLinks({
       line: linkExtractableLine,
+      rawLine: text,
       visitWikilink: ({ targetStart, targetEnd }) => {
         const rawTarget = linkExtractableLine.slice(targetStart, targetEnd)
         const target = stripEscapedPipe(rawTarget.trim())

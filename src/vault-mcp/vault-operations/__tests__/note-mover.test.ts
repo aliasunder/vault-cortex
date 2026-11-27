@@ -946,6 +946,32 @@ describe("moveNote — selectivity (must-not-rewrite cases)", () => {
     })
   })
 
+  it("leaves a markdown link alone when its destination held a code span", async () => {
+    const { writeFixture, moveNote, readNote } = setupVault()
+    await writeFixture("Old.md", "content\n")
+    await writeFixture("`draft`Old.md", "content\n")
+    await writeFixture("Hub.md", "See [x](<`draft`Old.md>) here.\n")
+
+    const result = await moveNote({
+      oldPath: "Old.md",
+      newPath: "New.md",
+      backlinkSources: ["Hub.md"],
+    })
+
+    expect(await readNote("Hub.md")).toBe("See [x](<`draft`Old.md>) here.\n")
+    expect(result.links_updated).toBe(0)
+  })
+
+  it("rewrites a wikilink after a markdown destination that a code span ends", async () => {
+    const { writeFixture, moveNote, readNote } = setupVault()
+    await writeFixture("Old.md", "content\n")
+    await writeFixture("Hub.md", 'See [x](b.md `foo` "[[Old]]") here.\n')
+
+    await moveNote({ oldPath: "Old.md", newPath: "New.md", backlinkSources: ["Hub.md"] })
+
+    expect(await readNote("Hub.md")).toBe('See [x](b.md `foo` "[[New]]") here.\n')
+  })
+
   it("rewrites a markdown link whose heading holds a wikilink as one link", async () => {
     const { writeFixture, moveNote, readNote } = setupVault()
     await writeFixture("x.md", "content\n")

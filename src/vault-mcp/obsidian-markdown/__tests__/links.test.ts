@@ -1045,6 +1045,8 @@ describe("extractFromBody against Obsidian 1.15.1", () => {
     { input: "[x](b.md 'see [[Old]]')", obsidian: ["b.md"], expected: ["b.md"] },
     { input: "[x](b.md (see [[Old]]))", obsidian: ["b.md"], expected: ["b.md"] },
     { input: '![x](b.png "[[Old]]")', obsidian: ["b.png"], expected: ["b.png"] },
+    { input: '[x](https://example.com "[[Plan]]")', obsidian: [], expected: [] },
+    { input: '[x](#h "[[Plan]]")', obsidian: ["#h"], expected: [] },
     {
       input: '[[Old]] and [x](b.md "[[Other]]")',
       obsidian: ["Old", "b.md"],
@@ -1054,6 +1056,12 @@ describe("extractFromBody against Obsidian 1.15.1", () => {
 
   it.each(wikilinkInDestinationCases)("extracts $expected from $input", ({ input, expected }) => {
     expect(links.extractFromBody(input)).toEqual(expected)
+  })
+
+  it("keeps a wikilink in a title that only blanking inline code completes", () => {
+    // Obsidian 1.15.1 stores only `Old`: the code span ends the link it reads.
+    // `b.md` comes from reading the destination with that span blanked.
+    expect(links.extractFromBody('See [x](b.md `foo` "[[Old]]")')).toEqual(["Old", "b.md"])
   })
 })
 

@@ -365,6 +365,21 @@ const rewriteMarkdownDestination = (params: {
 
   if (!parts) return null
 
+  const start = parts.prefix.length
+  const headingStart = start + parts.writtenTarget.length
+  const end = headingStart + parts.heading.length
+  const heading = linkText.slice(headingStart, end)
+
+  // Obsidian reads backticks in a destination as written, so a target read
+  // with a code span blanked (`` `draft`Old.md `` as `Old.md`) can name
+  // another file, and the link is left as it is. The check starts after the
+  // `(`, because a blanked span before the target reads as whitespace.
+  const destinationStart = parts.prefix.lastIndexOf("(") + 1
+  const destinationWasBlanked =
+    linkText.slice(destinationStart, end) !== maskedLinkText.slice(destinationStart, end)
+
+  if (destinationWasBlanked) return null
+
   // The link resolves by its target as Obsidian stores it, not as written.
   const newTarget = rewriteLink({
     rawTarget: `${parts.path}${parts.extension}`,
@@ -373,11 +388,6 @@ const rewriteMarkdownDestination = (params: {
   })
 
   if (newTarget === null) return null
-
-  const start = parts.prefix.length
-  const headingStart = start + parts.writtenTarget.length
-  const end = headingStart + parts.heading.length
-  const heading = linkText.slice(headingStart, end)
   const sameForm = {
     destination: `${links.encodeMarkdownDestination(newTarget, parts.destinationForm)}${heading}`,
     suffix: parts.suffix,
@@ -407,10 +417,10 @@ const rewriteBodyLine = (
   line: string,
   rewriteLink: RewriteLink,
 ): { line: string; linksRewritten: number } => {
-  // Links are found in a copy with inline code blanked, as links.extractFromBody
-  // reads them, so a link opener inside a code span cannot swallow a link after
-  // it. Offsets match the line, which supplies each link's text.
-  const edits = links.matchLinksInLine(links.maskInlineCode(line)).flatMap((linkMatch) => {
+  // Links are found with inline code blanked, as links.extractFromBody reads
+  // them, so a link opener inside a code span cannot swallow a link after it.
+  // Offsets match the line, which supplies each link's text as written.
+  const edits = links.matchLinksInLine(line).flatMap((linkMatch) => {
     const linkText = line.slice(linkMatch.start, linkMatch.end)
 
     if (linkMatch.kind === "wikilink") {
