@@ -1284,14 +1284,36 @@ deployment walkthrough lives in [`DEPLOY.md`](./DEPLOY.md); the local and
 Obsidian-Sync quickstarts live under [`deploy/`](./deploy/). Keep this
 file focused on conventions; don't duplicate procedure here.
 
-**Write for the Obsidian user, not the developer.** User-facing docs
-(README, deploy guides, cli/README) describe what a feature does in
-terms the end user thinks in — "complete a task," "move between lanes,"
-"filter by due date" — not implementation vocabulary ("mutate,"
-"atomic write cycle," "composable mutations"). Internal docs (AGENTS.md,
-ARCHITECTURE.md, code comments) use precise engineering language. The
-test: would an Obsidian user with no programming background understand
-the sentence? If not, rewrite it.
+**Write for each doc's reader.** The README has two: an Obsidian user
+deciding whether to run this (what can the agent do in my vault, does
+it work with my client and my phone, will it damage my notes, what does
+it cost, how do I start) and an engineering reader evaluating the
+project (clear framing, sound technical choices named in their real
+terms, a disciplined project). ARCHITECTURE.md serves a contributor,
+the deploy guides a self-hoster at a terminal or a deploy button,
+SECURITY.md a vulnerability reporter, and cli/README.md someone who
+found the npm package first. Three rules follow:
+
+- **Vocabulary stays; mechanism goes to ARCHITECTURE.md.** FTS5, RRF,
+  cross-encoder, per-file mutex, TOCTOU and `link()` name the choices
+  the engineering reader evaluates, so the README and SECURITY.md keep
+  them unglossed. How a mechanism works (resolve-then-prefix-check,
+  temp-file-then-rename, blend weights) is the contributor's reading.
+- **Features are stated as what the reader can now do**, in the
+  reader's vocabulary ("complete a task," "move between lanes," "filter
+  by due date"), never implementation vocabulary ("mutate," "atomic
+  write cycle," "composable mutations").
+- **One home per fact; other docs point.** Caveats, platform gotchas
+  and the full settings reference live in the deploy guides; the README
+  keeps the required variables and the switches a reader flips while
+  deciding. A fact stated twice goes stale once.
+
+Before adding, cutting or moving a passage, name the doc's reader and
+the question the passage answers for them. A passage that answers no
+question of theirs is cut, however true; one written for another doc's
+reader moves there. A term a review flags as unexplained stays when it
+names a design choice; a sentence that explains how a mechanism works
+moves to ARCHITECTURE.md.
 
 **Write-time format decision** — before committing any prose (code
 comments, JSDoc, README sections, PR descriptions, env-file comments):
@@ -1304,10 +1326,10 @@ match their siblings' length and shape.
 **Doc quality rules:**
 
 - Before calling a doc done, pick each reader the doc serves (the
-  Obsidian user, a self-hoster deploying it, a contributor) and walk the
-  entire document start to finish — line-level fact-checking
-  cannot validate a doc; each sentence can be true while the doc
-  as a whole misleads.
+  README's Obsidian user and engineering reader, a self-hoster deploying
+  it, a contributor) and walk the entire document start to finish —
+  line-level fact-checking cannot validate a doc; each sentence can be
+  true while the doc as a whole misleads.
 - When a doc offers multiple paths (install methods, tools, runtimes),
   every operational section (update, restart, verify, troubleshoot)
   serves every offered path — or explicitly scopes itself.
