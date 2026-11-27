@@ -644,10 +644,10 @@ export const createSearchIndex = (
       basename  TEXT NOT NULL,
       bytes     INTEGER
     );
+    -- No query reads these five indexes: file links resolve in memory through
+    -- links.resolveAsset. They cost only writes.
     CREATE INDEX IF NOT EXISTS idx_non_md_base_path ON non_md_files(base_path);
     CREATE INDEX IF NOT EXISTS idx_non_md_basename ON non_md_files(basename);
-    -- The letter-case-blind lookups compare with COLLATE NOCASE, which the
-    -- BINARY indexes above cannot serve.
     CREATE INDEX IF NOT EXISTS idx_non_md_path_nocase ON non_md_files(path COLLATE NOCASE);
     CREATE INDEX IF NOT EXISTS idx_non_md_base_path_nocase ON non_md_files(base_path COLLATE NOCASE);
     CREATE INDEX IF NOT EXISTS idx_non_md_basename_nocase ON non_md_files(basename COLLATE NOCASE);
