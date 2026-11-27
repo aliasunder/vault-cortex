@@ -2929,9 +2929,7 @@ export const createSearchIndex = (
         // Pass 2: re-extract links now that all paths are in the notes table,
         // resolving targets that the per-note upsertNote pass may have missed
         // (e.g. Note A links to Note B, but Note B was indexed after Note A).
-        // Each link resolves as in upsertNote's link step, and the first one
-        // reads the complete path list.
-        cachedNotePaths = undefined
+        // Each link resolves as in upsertNote's link step.
 
         // No source write may run during a rebuild, so this second clear
         // normally finds nothing. It stays so that a link written during the
