@@ -339,9 +339,14 @@ See the [DEPLOY.md CI/CD section](./DEPLOY.md#cicd) for details on each workflow
 
 ## Upgrading pinned dependencies
 
-Three packages are pinned to the version of the thing they imitate and are
-excluded from Dependabot. Treat each bump as a potential regression and
-re-verify that package's contract below before merging.
+Three pins track something outside this repo. Treat each bump as a potential
+regression and re-verify that package's contract below before merging.
+
+| Package             | Pinned in                                                     | Tracks                                                                             | Dependabot       |
+| ------------------- | ------------------------------------------------------------- | ---------------------------------------------------------------------------------- | ---------------- |
+| `rrule`             | root `package.json`                                           | the version the Tasks plugin declares                                              | excluded         |
+| `remark-parse`      | root `package.json`, with `overrides` for its dependency tree | the release Obsidian's metadata cache forked                                       | excluded         |
+| `obsidian-headless` | `obsidian-headless/package.json` and its lockfile             | the Sync CLI whose observed behaviour the `:remote` image's init scripts depend on | a PR per release |
 
 ### Upgrading rrule (recurrence parity)
 
@@ -381,10 +386,13 @@ excluded from Dependabot, and 8.0.3 is the last 8.x release, so an advisory
 anywhere in its dependency tree is answered with an `overrides` entry, as
 `trim` is.
 
-The scripts below run Obsidian's `worker.js` as a black box and print its
-answers; AGENTS.md's rule against reading Obsidian's app code applies to
-every edit of `obsidian-remark-parser.ts`, `body-tags.ts` and
-`remark-ports/`.
+Never open, read or copy Obsidian's app code (`worker.js`, `app.js`) when
+editing `obsidian-remark-parser.ts`, `body-tags.ts` or `remark-ports/`:
+Obsidian is proprietary and this repo is MIT, so those files are written from
+Obsidian's observed behaviour only. The scripts below are the only permitted
+contact; they run `worker.js` as a black box and print its answers.
+[AGENTS.md](./AGENTS.md#upgrading-pinned-dependencies) states the same rule
+for agents.
 
 Re-check the parser against Obsidian when remark-parse changes and when
 Obsidian ships a new release:

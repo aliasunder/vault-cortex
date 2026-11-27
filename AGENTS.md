@@ -1082,7 +1082,8 @@ Two naming layers — MCP (JSON wire format) and TypeScript (internal):
   CLI, extract the functions verbatim from its bundle, pin their outputs
   for fixed inputs as test-owned vectors (each commented with its source),
   and keep the live end-to-end run as the final oracle. Obsidian's app
-  code is never read; CONTRIBUTING.md's "Upgrading remark-parse" runs it as a black box.
+  code is never read; CONTRIBUTING.md's "Upgrading remark-parse" runs it
+  as a black box.
 - CI shell snippets are tested under `bash -e` before committing: Actions
   runs `run:` steps with errexit, so use `if/then/fi` over
   `[ test ] && cmd`.
@@ -1236,17 +1237,22 @@ fresh clone.
 
 ## Upgrading pinned dependencies
 
-`rrule`, `remark-parse` and `obsidian-headless` are pinned to the versions
-of the Tasks plugin, Obsidian's own parser and the Sync CLI they imitate,
-and excluded from Dependabot. Before bumping any of them, read
+Three pins track something outside this repo: `rrule` is the version the
+Tasks plugin declares and `remark-parse` the release Obsidian's metadata
+cache forked (both excluded from Dependabot), and `obsidian-headless` is the
+Sync CLI whose observed behaviour the `:remote` init chain depends on
+(Dependabot opens a PR for each of its releases). Before bumping any of them,
+or merging such a PR, read
 [CONTRIBUTING.md → Upgrading pinned dependencies](./CONTRIBUTING.md#upgrading-pinned-dependencies)
-and run that package's re-verification before merging.
+and run that package's re-verification first.
 
-NEVER open, read or copy Obsidian's app code (`worker.js`, `app.js`) when
-editing `obsidian-remark-parser.ts`, `body-tags.ts` or `remark-ports/`.
-Obsidian is proprietary and this repo is MIT, so those files are written
-from Obsidian's observed behaviour only: the body-tag scripts run `worker.js`
-as a black box and print its answers, and nothing else may read it.
+On any edit of `src/vault-mcp/obsidian-markdown/obsidian-remark-parser.ts`,
+`body-tags.ts` or `remark-ports/`, not only an upgrade: NEVER open, read or
+copy Obsidian's app code (`worker.js`, `app.js`). Obsidian is proprietary and
+this repo is MIT, so those files are written from Obsidian's observed
+behaviour only. The only permitted contact is the body-tag scripts in
+CONTRIBUTING.md's "Upgrading remark-parse", which run `worker.js` as a black
+box and print its answers.
 
 ## Operational docs
 
