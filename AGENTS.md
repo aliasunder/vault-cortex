@@ -1271,12 +1271,13 @@ or merging such a PR, read
 and run that package's re-verification first.
 
 On any edit of `src/vault-mcp/obsidian-markdown/obsidian-remark-parser.ts`,
-`body-tags.ts` or `remark-ports/`, not only an upgrade: NEVER open, read or
-copy Obsidian's app code (`worker.js`, `app.js`). Obsidian is proprietary and
-this repo is MIT, so those files are written from Obsidian's observed
-behaviour only. The only permitted contact is the body-tag scripts in
-CONTRIBUTING.md's "Upgrading remark-parse", which run `worker.js` as a black
-box and print its answers.
+`body-tags.ts`, `remark-ports/`, the markdown link grammar in `links.ts` or the
+link destination encoder in `vault-operations/note-mover.ts`, not only an
+upgrade: NEVER open, read or copy Obsidian's app code (`worker.js`, `app.js`).
+Obsidian is proprietary and this repo is MIT, so that code is written from
+Obsidian's observed behaviour only. The only permitted contact is running
+`worker.js` as a black box and reading its answers, as the body-tag scripts in
+CONTRIBUTING.md's "Upgrading remark-parse" do.
 
 ## Operational docs
 

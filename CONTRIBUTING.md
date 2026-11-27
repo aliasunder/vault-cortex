@@ -390,10 +390,12 @@ anywhere in its dependency tree is answered with an `overrides` entry, as
 parse-entities pin only together with remark-parse.
 
 Never open, read or copy Obsidian's app code (`worker.js`, `app.js`) when
-editing `obsidian-remark-parser.ts`, `body-tags.ts` or `remark-ports/`:
-Obsidian is proprietary and this repo is MIT, so those files are written from
-Obsidian's observed behaviour only. The scripts below are the only permitted
-contact; they run `worker.js` as a black box and print its answers.
+editing `obsidian-remark-parser.ts`, `body-tags.ts`, `remark-ports/`, the
+markdown link grammar in `links.ts` or the link destination encoder in
+`note-mover.ts`: Obsidian is proprietary and this repo is MIT, so that code is
+written from Obsidian's observed behaviour only. The only permitted contact is
+running `worker.js` as a black box and reading its answers, as the scripts
+below do.
 [AGENTS.md](./AGENTS.md#upgrading-pinned-dependencies) states the same rule
 for agents.
 
