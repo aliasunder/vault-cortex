@@ -140,7 +140,7 @@ Vault Cortex indexes every [property](https://help.obsidian.md/Editing+and+forma
 All settings are environment variables with sensible defaults. The table lists the required settings and the switches most installs change; every setting, with its default and limits, is in the [local](https://github.com/aliasunder/vault-cortex/tree/main/deploy/local/README.md#configuration) and [remote](https://github.com/aliasunder/vault-cortex/tree/main/deploy/remote/README.md#configuration) guides' configuration tables, which also cover Obsidian Sync's own settings.
 
 | Variable | Required for | Default | Description |
-| ---------------------- | ------------ | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| ---------------------- | ------------ | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `MCP_AUTH_TOKEN` | All | — | Bearer token for authentication (also the JWT signing key) |
 | `VAULT_PATH` | Local | — | Host path to your vault. Must not contain `*`, `?`, or `[` — rejected at startup. |
 | `PUBLIC_URL` | Remote | — | Public URL clients connect to, used for OAuth discovery. Filled in automatically on Render and Railway when left unset |
@@ -151,7 +151,7 @@ All settings are environment variables with sensible defaults. The table lists t
 | `FILE_TOOLS_ENABLED` | — | `true` | Set `false` to hide the file tools. To keep reading files but turn off writing and deleting them, set `DISABLED_TOOLS=vault_write_file,vault_delete_file` instead. |
 | `READONLY_MODE` | — | `false` | Set `true` to hide every tool that changes the vault and skip memory folder auto-creation — connected clients can read and search but never edit. |
 | `DISABLED_TOOLS` | — | — | Hide individual tools by name, comma-separated (e.g. `vault_delete_note,vault_move_note`); names match the Tool column in the [tools table](https://github.com/aliasunder/vault-cortex#tools). It cannot re-enable a tool another setting hides, and an unknown name stops the server at startup. |
-| `PROTECTED_PATHS` | — | `MEMORY_DIR`, daily notes folder | Folders whose notes and files can't be deleted, whose notes can't be moved, and that no note can be moved into; their notes stay editable. A value you set replaces both default folders. |
+| `PROTECTED_PATHS` | — | the memory folder (`MEMORY_DIR`), daily notes folder | Folders whose notes and files can't be deleted, whose notes can't be moved, and that no note can be moved into; their notes stay editable. A value you set replaces both default folders. |
 | `TZ` | — | `UTC` | IANA timezone for timestamps and daily note resolution |
 | `TRASH_RETENTION_DAYS` | — | `30` | Days a note or file deleted under Obsidian's default "Move to system trash" setting stays in `.trash/` before the server cleans it up; `none` keeps them forever. Unused with Obsidian Sync, whose deletes are permanent. |
 
