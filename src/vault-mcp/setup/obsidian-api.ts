@@ -2,7 +2,7 @@
  *  it: sign in (the `ob login` request), list the account's vaults, and
  *  check a vault key (the two `ob sync-setup` calls). The pinned CLI in
  *  obsidian-headless/ is the contract — re-verify every call on every bump
- *  (AGENTS.md → Upgrading obsidian-headless). The npm CLI's sign-in step
+ *  (CONTRIBUTING.md → Upgrading obsidian-headless). The npm CLI's sign-in step
  *  (cli/src/steps/obsidian-sign-in.ts) carries its own copy of the sign-in
  *  call; the two packages share no code. */
 
