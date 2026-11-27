@@ -1,10 +1,11 @@
 /**
- * Builds long strings from many pieces in bounded memory. A global `replace`,
- * a `replaceAll` or one `join` over every piece keeps all the pieces alive
- * until the result is built, at about 30 bytes of heap per piece, so a long
- * text dense with pieces is joined in batches instead. These helpers sit in
- * the parser layer because obsidian-markdown/ imports no other internal
- * module.
+ * Builds long strings from many pieces in bounded memory.
+ * - A global `replace`, a `replaceAll` or one `join` over every piece keeps
+ *   all the pieces alive until the result is built, at about 30 bytes of heap
+ *   per piece, so a long text dense with pieces is joined in batches instead.
+ * - These helpers hold no Obsidian format of their own. They sit in the
+ *   parser layer because obsidian-markdown/ imports no other internal module,
+ *   so utils/ is out of its reach.
  */
 
 /** How many pieces a joiner holds before it joins them into one run; a batch

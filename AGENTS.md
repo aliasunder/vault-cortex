@@ -302,7 +302,7 @@ exists.
 - **`links.ts` is the deliberate edge case** — a pure parser that nonetheless
   exports a single `links` namespace to keep link recognition private behind
   position-safe methods. Its scanners own their cursors per call; its `/g`
-  regexes are used only through `replace`.
+  regexes reach text only through `replaceAllInBatches`, which copies them.
 
 `vault-filesystem.ts` illustrates the nuance within one module: its high-level
 data API is grouped under `vaultFs`, but its low-level shared primitives

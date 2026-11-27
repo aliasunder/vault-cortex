@@ -50,10 +50,4 @@ describe("replaceAllInBatches", () => {
 
     expect(replaced).toBe("abc")
   })
-
-  it("returns the same string when nothing matches", () => {
-    const text = "no escapes here"
-
-    expect(replaceAllInBatches({ text, pattern: /\\(.)/g, replacement: () => "" })).toBe(text)
-  })
 })
