@@ -9,6 +9,7 @@
 
 import { posix } from "node:path"
 import parseEntities from "parse-entities"
+import { createTextJoiner, replaceAllInBatches } from "./batched-text.js"
 import { classifyLines } from "./lines.js"
 
 // ── Grammar (private) ───────────────────────────────────────────
@@ -52,13 +53,13 @@ const CODE_POINT_DIGITS = { decimal: 7, hex: 6 }
 /** parse-entities decodes a numeric reference past U+10FFFF as U+FFFD. */
 const REPLACEMENT_CHARACTER = String.fromCodePoint(0xfffd)
 
-/** How many decoded pieces the reference decoder holds before it joins them.
- *  A text dense with `&` has one piece per character, and one string per piece
- *  costs about 90 bytes of heap per character; a batch this size stays under a
- *  megabyte. */
-const PIECES_PER_JOIN = 4096
-
 const NO_BREAK_SPACE = "\u00a0"
+
+/** Every no-break space. Global \u2014 use only with replace. */
+const NO_BREAK_SPACES = new RegExp(NO_BREAK_SPACE, "g")
+
+/** Keeps the character an ESCAPED_PUNCTUATION match escapes. */
+const dropEscapeBackslash = (match: RegExpExecArray): string => match[0].slice("\\".length)
 
 /** A link that starts in the linking note's folder (`./`) or its parent
  *  (`../`), which Obsidian keeps as a vault link even when it holds a `:`. */
@@ -282,8 +283,8 @@ const findHashSource = (params: { piece: string; decodedPiece: string }): number
 const decodeCharacterReferences = (text: string): { decoded: string; hashSource: number } => {
   if (!text.includes("&")) return { decoded: text, hashSource: text.indexOf("#") }
 
-  const decodedRuns: string[] = []
-  const pendingPieces: string[] = []
+  // A text dense with `&` has one piece per character.
+  const joiner = createTextJoiner()
   // The walk threads each piece's offset, and keeps the first `#` it finds.
   let pieceStart = 0
   let hashSource = -1
@@ -296,15 +297,10 @@ const decodeCharacterReferences = (text: string): { decoded: string; hashSource:
     const hashInPiece = hashSource === -1 ? findHashSource({ piece, decodedPiece }) : -1
 
     if (hashInPiece !== -1) hashSource = pieceStart + hashInPiece
-    pendingPieces.push(decodedPiece)
-    if (pendingPieces.length === PIECES_PER_JOIN) {
-      decodedRuns.push(pendingPieces.join(""))
-      pendingPieces.length = 0
-    }
+    joiner.push(decodedPiece)
     pieceStart = pieceEnd
   }
-  decodedRuns.push(pendingPieces.join(""))
-  return { decoded: decodedRuns.join(""), hashSource }
+  return { decoded: joiner.join(), hashSource }
 }
 
 const isEscapePairAt = (text: string, position: number): boolean => {
@@ -355,13 +351,21 @@ const readStoredTarget = (params: {
   linkKind: MarkdownLinkKind
 }): StoredTarget | null => {
   const { content, linkKind } = params
-  const unescaped = content.replace(ESCAPED_PUNCTUATION, "$1")
+  const unescaped = replaceAllInBatches({
+    text: content,
+    pattern: ESCAPED_PUNCTUATION,
+    replacement: dropEscapeBackslash,
+  })
   const { decoded, hashSource } = decodeCharacterReferences(unescaped)
   const decodedLink = decodeUriOrNull(decoded) ?? (linkKind === "embed" ? decoded : null)
 
   if (decodedLink === null) return null
 
-  const storedLink = decodedLink.replaceAll(NO_BREAK_SPACE, " ").trim()
+  const storedLink = replaceAllInBatches({
+    text: decodedLink,
+    pattern: NO_BREAK_SPACES,
+    replacement: () => " ",
+  }).trim()
   // Obsidian checks how the link starts before percent-decoding and trimming, so
   // `%2E%2E/a:b.md` and `< ../a:b.md>` are still URLs.
   const readsAsUrl = storedLink.includes(":") && !RELATIVE_LINK_START.test(decoded)
@@ -403,10 +407,22 @@ const decodeLinkSpellings = (text: string): string => {
   // passes below.
   if (!LINK_DECODED_CHARACTER.test(text)) return text
 
-  const unescaped = text.replace(ESCAPED_PUNCTUATION, "$1")
+  const unescaped = replaceAllInBatches({
+    text,
+    pattern: ESCAPED_PUNCTUATION,
+    replacement: dropEscapeBackslash,
+  })
   const { decoded } = decodeCharacterReferences(unescaped)
-  const percentDecoded = decoded.replace(PERCENT_ESCAPE_RUN, (run) => decodeUriOrNull(run) ?? run)
-  return percentDecoded.replaceAll(NO_BREAK_SPACE, " ")
+  const percentDecoded = replaceAllInBatches({
+    text: decoded,
+    pattern: PERCENT_ESCAPE_RUN,
+    replacement: ([run]) => decodeUriOrNull(run) ?? run,
+  })
+  return replaceAllInBatches({
+    text: percentDecoded,
+    pattern: NO_BREAK_SPACES,
+    replacement: () => " ",
+  })
 }
 
 /** Characters a backslash keeps literal in both destination forms:
@@ -1007,10 +1023,11 @@ const scanMarkdownLinks = (params: {
  *  - An expression must close before the next line terminator, so a CR or a
  *    Unicode line separator inside `text` ends it too. */
 const maskTemplaterExpressions = (text: string): string => {
-  const pieces: string[] = []
+  const joiner = createTextJoiner()
   // The closer cursor outlives a failed opener: a later opener finds no `%>`
   // or line terminator before it.
   let close = 0
+  // How much of the text the joiner already holds; 0 means no expression.
   let copiedThrough = 0
 
   const isCloserAt = (position: number): boolean => {
@@ -1025,21 +1042,23 @@ const maskTemplaterExpressions = (text: string): string => {
     }
     if (!isCloserAt(close)) continue
     const end = close + 2
-    pieces.push(text.slice(copiedThrough, start), " ".repeat(end - start))
+    joiner.push(text.slice(copiedThrough, start))
+    joiner.push(" ".repeat(end - start))
     copiedThrough = end
     start = end - 1
   }
-  if (pieces.length === 0) return text
-  pieces.push(text.slice(copiedThrough))
-  return pieces.join("")
+  if (copiedThrough === 0) return text
+  joiner.push(text.slice(copiedThrough))
+  return joiner.join()
 }
 
 /** Matches what ends a wikilink's target as Obsidian reads it: `#`, `|` or
  *  `]]`, but not a lone `]`. */
 const WIKILINK_TARGET_DELIMITER = /[#|]|\]\]/
 
-/** Calls the visitors for each link in a body line, wikilinks first and then
- *  markdown links:
+/** Calls the visitors for each link in a body line, markdown links as the scan
+ *  finds them and then wikilinks, so the line's links are never all held at
+ *  once:
  *  - `maskedLine` is `line` with the spans a caller skips blanked to spaces;
  *    markdown links are found in it and their destinations and titles read
  *    from `line`, as scanMarkdownLinks describes;
@@ -1057,30 +1076,28 @@ const scanBodyLineLinks = (params: {
   visitMarkdownLink: (span: MarkdownLinkSpan) => void
 }): void => {
   const { maskedLine, line, visitWikilink, visitMarkdownLink } = params
-  const markdownSpans: MarkdownLinkSpan[] = []
-  // The masked line with each destination and title blanked, built in pieces
-  // as the scan reports them in text order. A wikilink cannot cross a link's
+  // The masked line with each destination and title blanked, built as the
+  // first scan reports them in text order. A wikilink cannot cross a link's
   // `](`, so the blanking removes only wikilinks that start inside a
   // destination or title.
-  const wikilinkLinePieces: string[] = []
-  // How much of the masked line the pieces already hold.
+  const wikilinkLineJoiner = createTextJoiner()
+  // How much of the masked line the joiner already holds; it stays 0 on a
+  // line with no complete markdown link, which is scanned as it is.
   let copiedThrough = 0
 
   scanMarkdownLinks({
     maskedText: maskedLine,
     destinationText: line,
-    visit: (span) => markdownSpans.push(span),
+    visit: visitMarkdownLink,
     visitDestinationAndTitle: ({ start, end }) => {
-      wikilinkLinePieces.push(maskedLine.slice(copiedThrough, start), " ".repeat(end - start))
+      wikilinkLineJoiner.push(maskedLine.slice(copiedThrough, start))
+      wikilinkLineJoiner.push(" ".repeat(end - start))
       copiedThrough = end
     },
   })
 
-  // A line with no complete markdown link is scanned as it is, so it is not copied.
-  const wikilinkLine =
-    wikilinkLinePieces.length === 0
-      ? maskedLine
-      : [...wikilinkLinePieces, maskedLine.slice(copiedThrough)].join("")
+  if (copiedThrough > 0) wikilinkLineJoiner.push(maskedLine.slice(copiedThrough))
+  const wikilinkLine = copiedThrough > 0 ? wikilinkLineJoiner.join() : maskedLine
 
   // Masking only blanks characters, so each delimiter found in `line` is never
   // after the one the masked scan stopped at, and both searches stay inside
@@ -1098,10 +1115,9 @@ const scanBodyLineLinks = (params: {
   }
 
   scanWikilinks(wikilinkLine, visitWikilinkAsWritten)
-  for (const span of markdownSpans) visitMarkdownLink(span)
 }
 
-/** Finds a body line's wikilinks, then its markdown links (not in text order),
+/** Finds a body line's markdown links, then its wikilinks (not in text order),
  *  outside inline code, as links.extractFromBody reads them. Unlike
  *  extractFromBody, it also finds links inside Templater expressions.
  *  Offsets and each match's `text` come from `line` as written. */
@@ -1134,7 +1150,11 @@ const matchWikilinks = (text: string): LinkMatch[] => {
  *  finds no link inside one and every offset after it stays the same. The
  *  spaces keep text on either side of a span from joining into a new link. */
 const maskInlineCode = (line: string): string => {
-  return line.replace(INLINE_CODE_RE, (codeSpan) => " ".repeat(codeSpan.length))
+  return replaceAllInBatches({
+    text: line,
+    pattern: INLINE_CODE_RE,
+    replacement: ([codeSpan]) => " ".repeat(codeSpan.length),
+  })
 }
 
 // ── Parsing ─────────────────────────────────────────────────────

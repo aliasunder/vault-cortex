@@ -24,7 +24,15 @@ const DECODED_SHAPES: ReadonlySet<unknown> = new Set([
   "ampersand-tail",
   "digit-run",
   "long-number",
+  "escaped-punctuation",
+  "no-break-spaces",
+  "percent-runs",
 ])
+
+/** The shapes whose targets are extracted with extractFromBody. */
+const EXTRACTED_SHAPES: ReadonlySet<unknown> = new Set(["dense-links", "code-spans", "templater"])
+
+const NO_BREAK_SPACE = String.fromCharCode(0xa0)
 
 /** The line each shape names:
  *  - sparse: one parenthesis;
@@ -32,7 +40,13 @@ const DECODED_SHAPES: ReadonlySet<unknown> = new Set([
  *  - ampersands: only `&`;
  *  - ampersand-tail: one `&amp;` reference before plain text;
  *  - digit-run: one `&#` reference whose digits are leading zeros before 65;
- *  - long-number: one `&#` reference whose digits name no code point. */
+ *  - long-number: one `&#` reference whose digits name no code point;
+ *  - escaped-punctuation: only `\&`;
+ *  - no-break-spaces: only no-break spaces;
+ *  - percent-runs: `%41 ` repeated;
+ *  - dense-links: `[](a)` repeated, one markdown link every five characters;
+ *  - code-spans: `` `a` `` repeated;
+ *  - templater: `<%a%>` repeated. */
 const buildLine = (shape: unknown): string => {
   if (shape === "sparse") {
     const filler = `ab c"d'e<f `
@@ -45,13 +59,20 @@ const buildLine = (shape: unknown): string => {
   }
   if (shape === "digit-run") return `&#${"0".repeat(LINE_LENGTH - 5)}65;`
   if (shape === "long-number") return `&#${"1".repeat(LINE_LENGTH - 3)};`
+  if (shape === "escaped-punctuation") return "\\&".repeat(LINE_LENGTH / 2)
+  if (shape === "no-break-spaces") return NO_BREAK_SPACE.repeat(LINE_LENGTH)
+  if (shape === "percent-runs") return "%41 ".repeat(LINE_LENGTH / 4)
+  if (shape === "dense-links") return "[](a)".repeat(LINE_LENGTH / 5)
+  if (shape === "code-spans") return "`a`".repeat(Math.floor(LINE_LENGTH / 3))
+  if (shape === "templater") return "<%a%>".repeat(LINE_LENGTH / 5)
   throw new Error(`unknown line shape: ${String(shape)}`)
 }
 
-/** Returns how many matches a scan found, or how many characters a decode
- *  returned. */
+/** Returns how many matches a scan found, how many characters a decode
+ *  returned, or how many targets an extraction found. */
 const runOperation = (line: string): number => {
   if (DECODED_SHAPES.has(workerData)) return links.decodeLinkSpellings(line).length
+  if (EXTRACTED_SHAPES.has(workerData)) return links.extractFromBody(line).length
   return links.matchLinksInLine(line).length
 }
 

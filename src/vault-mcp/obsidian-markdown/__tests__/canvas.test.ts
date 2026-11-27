@@ -461,7 +461,7 @@ describe("extractCanvasLinks", () => {
 
     expect(extractCanvasLinks(json)).toEqual({
       fileCardPaths: [],
-      textCardLinks: ["A", "B", "C", "D", "E.png", "F.md"],
+      textCardLinks: ["F.md", "A", "B", "C", "D", "E.png"],
     })
   })
 

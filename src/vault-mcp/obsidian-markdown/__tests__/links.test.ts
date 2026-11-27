@@ -31,8 +31,8 @@ import { linkResolverOracle } from "./helpers/link-resolver-oracle.js"
 describe("matchLinksInLine", () => {
   it("skips links in inline code and returns each match's text as written", () => {
     expect(links.matchLinksInLine("`[[A]]` [`x`](b.md) [[D]]")).toEqual([
-      { text: "[[D]]", start: 20, end: 25, kind: "wikilink" },
       { text: "[`x`](b.md)", start: 8, end: 19, kind: "markdown" },
+      { text: "[[D]]", start: 20, end: 25, kind: "wikilink" },
     ])
   })
 
@@ -63,8 +63,8 @@ describe("matchLinksInLine", () => {
     const line = '[[A]] [x](b.md "[[C]]")'
 
     expect(links.matchLinksInLine(line)).toEqual([
-      { text: "[[A]]", start: 0, end: 5, kind: "wikilink" },
       { text: '[x](b.md "[[C]]")', start: 6, end: 23, kind: "markdown" },
+      { text: "[[A]]", start: 0, end: 5, kind: "wikilink" },
     ])
   })
 
@@ -188,8 +188,8 @@ describe("matchLinksInLine", () => {
 
   it("finds both link kinds in one line", () => {
     expect(links.matchLinksInLine("[[A]] and [x](b.md)")).toEqual([
-      { text: "[[A]]", start: 0, end: 5, kind: "wikilink" },
       { text: "[x](b.md)", start: 10, end: 19, kind: "markdown" },
+      { text: "[[A]]", start: 0, end: 5, kind: "wikilink" },
     ])
   })
 
@@ -673,7 +673,7 @@ describe("extractFromBody", () => {
     const targets = links.extractFromBody(
       "![photo](pics/photo.png), [doc](papers/report.pdf), and [[Caption]]",
     )
-    expect(targets).toEqual(["Caption", "pics/photo.png", "papers/report.pdf"])
+    expect(targets).toEqual(["pics/photo.png", "papers/report.pdf", "Caption"])
   })
 
   it("extracts extensionless markdown links, percent-decoded", () => {
@@ -1121,7 +1121,7 @@ describe("extractFromBody against Obsidian 1.15.1", () => {
     {
       input: '[[Old]] and [x](b.md "[[Other]]")',
       obsidian: ["Old", "b.md"],
-      expected: ["Old", "b.md"],
+      expected: ["b.md", "Old"],
     },
   ]
 
@@ -1147,7 +1147,7 @@ describe("extractFromBody against Obsidian 1.15.1", () => {
     { input: '[x](<a b.md> "`t` [[Old]]")', obsidian: ["a b.md"], expected: ["a b.md"] },
     { input: '[x](b.md "<% tp.x %> [[Old]]")', obsidian: ["b.md"], expected: ["b.md"] },
     { input: "[x](Old.md`v2`)", obsidian: ["Old.md`v2`"], expected: ["Old.md`v2`"] },
-    { input: '[x](b.md "[[c") [[Old]]', obsidian: ["b.md", "Old"], expected: ["Old", "b.md"] },
+    { input: '[x](b.md "[[c") [[Old]]', obsidian: ["b.md", "Old"], expected: ["b.md", "Old"] },
     { input: '[x](Old.md#[[Old]] "`c`")', obsidian: ["Old.md#[[Old]]"], expected: ["Old.md"] },
     { input: "[x](Old.md#`h`)", obsidian: ["Old.md#`h`"], expected: ["Old.md"] },
     { input: "[x](<Old.md#a `b` c>)", obsidian: ["Old.md#a `b` c"], expected: ["Old.md"] },
@@ -1243,7 +1243,19 @@ const isMemoryWorkerMessage = (message: unknown): message is MemoryWorkerMessage
  *  getHeapStatistics reads a worker's heap while it runs one synchronous call,
  *  and its external memory counts typed arrays. */
 const measureHeapGrowth = async (
-  shape: "sparse" | "dense" | "ampersands" | "ampersand-tail" | "digit-run" | "long-number",
+  shape:
+    | "sparse"
+    | "dense"
+    | "ampersands"
+    | "ampersand-tail"
+    | "digit-run"
+    | "long-number"
+    | "escaped-punctuation"
+    | "no-break-spaces"
+    | "percent-runs"
+    | "dense-links"
+    | "code-spans"
+    | "templater",
 ): Promise<{ peakGrowth: number; parenthesisCount: number; resultLength: number }> => {
   const workerUrl = new URL("./helpers/link-memory-worker.ts", import.meta.url)
   const worker = new Worker(workerUrl, { workerData: shape, execArgv: ["--import", "tsx"] })
@@ -1352,6 +1364,24 @@ describe("link spelling decode memory", () => {
     expect(peakGrowth).toBeLessThan(BYTES_PER_CHARACTER * LINE_LENGTH)
   }, 60_000)
 
+  // Each case's line decodes to resultLength characters.
+  const denseDecodeCases = [
+    { shape: "escaped-punctuation", text: "escape pairs", resultLength: LINE_LENGTH / 2 },
+    { shape: "no-break-spaces", text: "no-break spaces", resultLength: LINE_LENGTH },
+    { shape: "percent-runs", text: "short percent runs", resultLength: LINE_LENGTH / 2 },
+  ] as const
+
+  it.each(denseDecodeCases)(
+    "grows the heap at most 8 bytes per character decoding a 10,000,000-character line of $text",
+    async ({ shape, resultLength: expectedLength }) => {
+      const { peakGrowth, resultLength } = await measureHeapGrowth(shape)
+
+      expect(resultLength).toBe(expectedLength)
+      expect(peakGrowth).toBeLessThan(BYTES_PER_CHARACTER * LINE_LENGTH)
+    },
+    60_000,
+  )
+
   it("grows the heap at most 8 bytes per character decoding one &# reference with a 10,000,000-digit number", async () => {
     const { peakGrowth, resultLength } = await measureHeapGrowth("long-number")
 
@@ -1359,6 +1389,33 @@ describe("link spelling decode memory", () => {
     expect(resultLength).toBe(1)
     expect(peakGrowth).toBeLessThan(BYTES_PER_CHARACTER * LINE_LENGTH)
   }, 60_000)
+})
+
+describe("link extraction memory", () => {
+  const LINE_LENGTH = 10_000_000
+
+  /** The masked copies of the line and the line with destinations blanked
+   *  cost a few bytes per character; holding each link found on the line
+   *  until its end would cost about 60. */
+  const BYTES_PER_CHARACTER = 8
+
+  // Each case's line yields `targets` distinct targets.
+  const denseLineCases = [
+    { shape: "dense-links", text: "markdown links", targets: 1 },
+    { shape: "code-spans", text: "inline code spans", targets: 0 },
+    { shape: "templater", text: "Templater expressions", targets: 0 },
+  ] as const
+
+  it.each(denseLineCases)(
+    "grows the heap at most 8 bytes per character extracting a 10,000,000-character line of $text",
+    async ({ shape, targets }) => {
+      const { peakGrowth, resultLength } = await measureHeapGrowth(shape)
+
+      expect(resultLength).toBe(targets)
+      expect(peakGrowth).toBeLessThan(BYTES_PER_CHARACTER * LINE_LENGTH)
+    },
+    60_000,
+  )
 })
 
 // ── Markdown links against the remark oracle ─────────────────────

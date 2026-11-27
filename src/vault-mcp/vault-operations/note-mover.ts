@@ -46,6 +46,7 @@ import {
   toVaultRelativePath,
 } from "./vault-filesystem.js"
 import { links } from "../obsidian-markdown/links.js"
+import { replaceAllInBatches } from "../obsidian-markdown/batched-text.js"
 import { classifyLines } from "../obsidian-markdown/lines.js"
 import { extractCanvasLinks, rewriteCanvasLinks } from "../obsidian-markdown/canvas.js"
 import { isCanvasPath } from "../obsidian-markdown/file-kinds.js"
@@ -734,7 +735,13 @@ const JSON_STRING_ESCAPE = /\\(["\\])/g
  *  a text card's `a\_b.md` reads as `a_b.md`. */
 const listSearchableViews = (params: { path: string; content: string }): string[] => {
   const { path, content } = params
-  const linkText = isCanvasPath(path) ? content.replace(JSON_STRING_ESCAPE, "$1") : content
+  const linkText = isCanvasPath(path)
+    ? replaceAllInBatches({
+        text: content,
+        pattern: JSON_STRING_ESCAPE,
+        replacement: ([escape]) => escape.slice("\\".length),
+      })
+    : content
   const decodedView = links.decodeLinkSpellings(linkText)
 
   if (decodedView === content) return [content]
