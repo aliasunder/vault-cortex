@@ -1434,6 +1434,40 @@ describe("moveNote — asset link rewriting", () => {
     })
   })
 
+  it("adds the extension to a moved note's file wikilink when the note's new name takes the extensionless spelling", async () => {
+    const { writeFixture, moveNote, readNote } = setupVault()
+    await writeFixture("Galleries/q/B.png", "img")
+    await writeFixture("S/note.md", "See ![[q/B]] and [x](q/B).\n")
+
+    const result = await moveNote({ oldPath: "S/note.md", newPath: "Galleries/q/B.md" })
+
+    // The markdown link keeps its extension state, so no spelling of it
+    // reaches the image and it stays as written.
+    expect(await readNote("Galleries/q/B.md")).toBe("See ![[Galleries/q/B.png]] and [x](q/B).\n")
+    expect(result).toEqual({
+      moved_to: "Galleries/q/B.md",
+      links_updated: 1,
+      updated_notes: [],
+      pruned_empty_folders: 0,
+    })
+  })
+
+  it("leaves a moved note's file link as written when the note's new name takes every spelling of it", async () => {
+    const { writeFixture, moveNote, readNote } = setupVault()
+    await writeFixture("Galleries/q/B.png", "img")
+    await writeFixture("S/note.md", "See [x](q/B.png).\n")
+
+    const result = await moveNote({ oldPath: "S/note.md", newPath: "Galleries/q/B.png.md" })
+
+    expect(await readNote("Galleries/q/B.png.md")).toBe("See [x](q/B.png).\n")
+    expect(result).toEqual({
+      moved_to: "Galleries/q/B.png.md",
+      links_updated: 0,
+      updated_notes: [],
+      pruned_empty_folders: 0,
+    })
+  })
+
   it("rewrites a relative wikilink embed to an asset when the note moves deeper", async () => {
     const { writeFixture, moveNote, readNote } = setupVault()
     await writeFixture("assets/photo.png", "img")

@@ -144,24 +144,33 @@ const classifyLinkForm = (params: {
   return "basename"
 }
 
-/** Builds a replacement target that resolves to desiredTarget from the new source
- *  location, keeping the original link form. Falls back to vault-absolute if the
- *  shorter form would resolve elsewhere after the move. keepExtension controls
- *  the extension state: true keeps desiredTarget's extension (the original
- *  link carried it), false strips it back to the stem/extensionless form.
- *  writesRelativeStart puts "./" before a relative replacement that does not
- *  climb with "../". The replacement takes desiredTarget's letter case, not
- *  the link's. */
+/** Builds a replacement target that resolves to desiredTarget from the new
+ *  source location, or returns null when no spelling does. It returns the
+ *  first of these that resolves there:
+ *  1. the original link form, basename or relative;
+ *  2. the vault-absolute path, in the extension state keepExtension asks
+ *     for: true keeps desiredTarget's extension (the original link carried
+ *     it), false strips it back to the stem/extensionless form;
+ *  3. for a wikilink, the vault-absolute path with desiredTarget's extension,
+ *     since a note named like a file (`B.md` beside `B.png`) takes the
+ *     extensionless spelling. A markdown link always keeps its extension
+ *     state, so it gets no third spelling.
+ *  A note named like the file with its extension (`B.png.md`) takes every
+ *  spelling, so the link is left as written. writesRelativeStart puts "./"
+ *  before a relative replacement that does not climb with "../". The
+ *  replacement takes desiredTarget's letter case, not the link's. */
 const buildReplacementTarget = (params: {
   form: LinkForm
+  grammar: LinkGrammar
   desiredTarget: string
   newSourcePath: string
   keepExtension: boolean
   writesRelativeStart: boolean
   resolveFromNewSource: (candidate: string) => string | null
-}): string => {
+}): string | null => {
   const {
     form,
+    grammar,
     desiredTarget,
     newSourcePath,
     keepExtension,
@@ -176,17 +185,21 @@ const buildReplacementTarget = (params: {
 
   if (form === "basename") {
     const basename = posix.basename(absoluteForm)
-    return resolvesToDesired(basename) ? basename : absoluteForm
+
+    if (resolvesToDesired(basename)) return basename
   }
 
   if (form === "relative") {
     const pathFromSource = posix.relative(posix.dirname(newSourcePath), absoluteForm)
     const addsRelativeStart = writesRelativeStart && !pathFromSource.startsWith("../")
     const relative = addsRelativeStart ? `./${pathFromSource}` : pathFromSource
-    return resolvesToDesired(relative) ? relative : absoluteForm
+
+    if (resolvesToDesired(relative)) return relative
   }
 
-  return absoluteForm
+  const vaultAbsoluteSpellings =
+    grammar === "wikilink" ? [absoluteForm, desiredTarget] : [absoluteForm]
+  return vaultAbsoluteSpellings.find(resolvesToDesired) ?? null
 }
 
 /** Returns the replacement target for one link, or null to leave it unchanged.
@@ -269,7 +282,8 @@ const rewriteTarget = (
   // photo.png. As a result:
   // - a markdown link keeps its extension state, with or without one;
   // - a wikilink to a note never carries ".md";
-  // - a stem-form asset link stays extensionless.
+  // - a stem-form asset link stays extensionless, except a wikilink whose
+  //   extensionless spelling a note takes (buildReplacementTarget).
   const grammarWritesExtension = targetKind === "asset" || grammar === "markdown"
   const carriesResolvedExtension =
     originalExtension.toLowerCase() === posix.extname(desiredTarget).toLowerCase()
@@ -282,6 +296,7 @@ const rewriteTarget = (
     grammar === "markdown" && (rawTarget.startsWith("./") || rawTarget.startsWith("../"))
 
   return buildReplacementTarget({
+    grammar,
     form: classifyLinkForm({
       rawTarget,
       sourcePath: context.oldSourcePath,
