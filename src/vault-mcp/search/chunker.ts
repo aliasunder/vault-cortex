@@ -78,6 +78,13 @@ const MAX_NOTE_CHUNKS = 16_384
  *  before this many code points, so the cut leaves its vectors unchanged. */
 const MAX_CHUNK_CODE_POINTS = 32_768
 
+/** Cuts text bound for the embedding model or the reranker to
+ *  MAX_CHUNK_CODE_POINTS on a whole grapheme: every chunk, and every memory
+ *  entry, which is embedded and reranked without being chunked. */
+export const truncateModelInput = (text: string): string => {
+  return truncateToCodePointLimit(text, MAX_CHUNK_CODE_POINTS)
+}
+
 /** Approximate token count via whitespace splitting — good enough for
  *  deciding chunk boundaries without loading a real tokenizer. */
 const approximateTokenCount = (text: string): number => text.split(/\s+/).filter(Boolean).length
@@ -198,7 +205,7 @@ const takeWithinNoteLimits = (chunkTexts: Iterable<string>, maxCharacters: numbe
 const indexChunks = (chunkTexts: readonly string[]): NoteChunk[] => {
   return chunkTexts.map((chunkText, index) => ({
     index,
-    text: truncateToCodePointLimit(chunkText, MAX_CHUNK_CODE_POINTS),
+    text: truncateModelInput(chunkText),
   }))
 }
 

@@ -284,8 +284,9 @@ The server, and the `:remote` image's setup mode, set these headers:
   most 16,000,000; a larger canvas renders flat
 - A note's or file's embedding stops at 16,384 chunks plus its
   table-of-contents chunk, or once its chunk text reaches 50 times its
-  stripped body or 50 million characters, and each chunk is cut to 32,768
-  code points; keyword search is unaffected
+  stripped body or 50 million characters; each chunk, and each memory
+  entry, is cut to 32,768 code points before the models read it; keyword
+  search is unaffected
 - Chunks embed one note or file at a time, so the server holds one note's
   or file's chunks in memory at a time
 

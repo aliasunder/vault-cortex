@@ -27,7 +27,7 @@ import { DEFAULT_STATUS_REGISTRY, tasks } from "../obsidian-markdown/tasks.js"
 import type { StatusClassification, TaskPriority, TaskStatus } from "../obsidian-markdown/tasks.js"
 import { contentHash, type Embedder } from "./embedder.js"
 import type { Reranker } from "./reranker.js"
-import { buildChunkMetadataPrefix, chunkContent } from "./chunker.js"
+import { buildChunkMetadataPrefix, chunkContent, truncateModelInput } from "./chunker.js"
 import type { PdfExtractor, PdfIndexExtraction } from "../vault-operations/pdf-extractor.js"
 import { caseFoldPath } from "../../utils/case-fold-path.js"
 import { describeError, describeErrorForLog } from "../../utils/describe-error.js"
@@ -2440,7 +2440,9 @@ export const createSearchIndex = (
       batchStart += MEMORY_EMBED_BATCH_SIZE
     ) {
       const batchRows = unembeddedRows.slice(batchStart, batchStart + MEMORY_EMBED_BATCH_SIZE)
-      const batchTexts = batchRows.map((row) => `${row.file} > ${row.section}\n${row.entry_text}`)
+      const batchTexts = batchRows.map((row) => {
+        return truncateModelInput(`${row.file} > ${row.section}\n${row.entry_text}`)
+      })
       const embeddings = await callModelWhenIdle(
         { sourcePath: notePath, sourceVersion, callModel: () => embedder.embedBatch(batchTexts) },
         logger,

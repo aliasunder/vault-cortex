@@ -239,6 +239,36 @@ describe("memoryRecall", () => {
     expect(entries.map((entry) => entry.date)).toEqual(["2026-03-01", "2026-07-02"])
   })
 
+  it("cuts a long entry to 32,768 code points before the embedder and the reranker read it", async () => {
+    const embedder = createTopicMockEmbedder()
+    const reranker = createTopicMockReranker()
+    const index = createSearchIndex(":memory:", embedder, reranker, { memoryDir: "About Me" })
+    // ASCII text, so each UTF-16 unit is one code point and slice cuts by code points
+    const rawContent = `# Opinions\n\n## Working style (newest first)\n\n- **2026-07-02**: Pacing ${"recovery ".repeat(5_000)}\n`
+    const sourceVersion = index.upsertNote(
+      withBodyTags({
+        filePath: "About Me/Opinions.md",
+        rawContent,
+        fileStat: { mtimeMs: 1000, size: rawContent.length },
+      }),
+      logger,
+    )
+    await index.embedNote({ sourceVersion, notePath: "About Me/Opinions.md", rawContent }, logger)
+
+    const { entries } = await index.memoryRecall({ query: "pacing recovery" }, logger)
+
+    expect(entries.map((entry) => entry.date)).toEqual(["2026-07-02"])
+    const [recalledEntry] = entries
+    const fullModelText = `Opinions > ${recalledEntry?.section}\n${recalledEntry?.text}`
+    expect(fullModelText.length).toBeGreaterThan(32_768)
+    expect(embedder.embedBatch).toHaveBeenCalledTimes(1)
+    expect(embedder.embedBatch).toHaveBeenCalledWith([fullModelText.slice(0, 32_768)])
+    expect(reranker.rerankPairs).toHaveBeenCalledTimes(1)
+    expect(reranker.rerankPairs).toHaveBeenCalledWith("pacing recovery", [
+      fullModelText.slice(0, 32_768),
+    ])
+  })
+
   it("truncates the least-relevant entries first and reports the full total", async () => {
     const index = await createRecallIndex({
       reranker: createTopicMockReranker(),
