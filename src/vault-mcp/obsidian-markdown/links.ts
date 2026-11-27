@@ -2,7 +2,7 @@
  *  into parts, extracting their targets from a note, and resolving a target to a
  *  vault path. Both the indexer (search/search-index.ts) and the link rewriter
  *  (vault-operations/note-mover.ts) depend on this module as a peer, so the two
- *  can never disagree about what a link is or where it points.
+ *  read links with one grammar and resolve them by one set of rules.
  *
  *  Recognition stays private so callers share the grammar and receive
  *  position-safe matches through the methods on `links`. */
@@ -16,13 +16,13 @@ import { classifyLines } from "./lines.js"
 /** JavaScript whitespace also includes non-ASCII spaces and line terminators. */
 const WHITESPACE = /\s/
 
-/** A backslash before one of CommonMark's ASCII punctuation characters
- *  (https://spec.commonmark.org/0.31.2/#ascii-punctuation-character), which
- *  Obsidian drops from a stored markdown link. Global — use only with replace. */
-const ESCAPED_PUNCTUATION = /\\([!-/:-@[-`{-~])/g
-
-/** One of CommonMark's ASCII punctuation characters. */
+/** One of CommonMark's ASCII punctuation characters
+ *  (https://spec.commonmark.org/0.31.2/#ascii-punctuation-character). */
 const ASCII_PUNCTUATION = /[!-/:-@[-`{-~]/
+
+/** A backslash before ASCII punctuation, which Obsidian drops from a stored
+ *  markdown link. Global — use only with replace. */
+const ESCAPED_PUNCTUATION = new RegExp(String.raw`\\(${ASCII_PUNCTUATION.source})`, "g")
 
 /** An ASCII letter or digit, the characters parse-entities reads as part of a
  *  character reference's name. */
@@ -32,8 +32,9 @@ const REFERENCE_NAME_CHARACTER = /[0-9A-Za-z]/
  *  has 31 characters. */
 const LONGEST_REFERENCE_NAME = 31
 
-/** remark-parse 8 decodes a link destination's character references with
- *  these options: a reference counts only when a `;` ends it. */
+/** Obsidian reads links with a fork of remark-parse 8, which decodes a link
+ *  destination's character references through parse-entities with these
+ *  options: a reference counts only when a `;` ends it. */
 const REFERENCE_OPTIONS = { nonTerminated: false }
 
 const NO_BREAK_SPACE = "\u00a0"
@@ -108,22 +109,22 @@ type WikilinkParts = {
 }
 
 /** The parts of a markdown link `[text](<path.ext#heading> "title")`.
- *  prefix + rawTarget + heading + suffix is the link's text:
+ *  prefix + writtenTarget + heading + suffix is the link's text:
  *  - prefix: everything before the target (`[text](`, spaces, `<`);
- *  - rawTarget: the target as written;
+ *  - writtenTarget: the target as written;
  *  - path and extension: the target as Obsidian stores it, split at the
  *    extension's dot, which extension keeps ("" for an extensionless target);
  *  - heading: the raw `#heading`, "" without one;
  *  - suffix: everything after (spaces, `>`, the title, `)`);
- *  - form: how the destination is written. */
+ *  - destinationForm: how the destination is written. */
 type MarkdownLinkParts = {
   prefix: string
-  rawTarget: string
+  writtenTarget: string
   path: string
   extension: string
   heading: string
   suffix: string
-  form: DestinationForm
+  destinationForm: DestinationForm
 }
 
 // ── Line scanning ───────────────────────────────────────────────
@@ -173,11 +174,14 @@ const scanWikilinks = (text: string, visit: (span: LinkSpan) => void): void => {
 // ── Markdown link destinations ──────────────────────────────────
 
 /** Decodes the character references in one piece of text that holds no `&`
- *  after its first character. parse-entities checks every prefix of a
- *  reference name against its legacy table, which costs quadratic time on a
- *  long run of letters. A run longer than any reference name can only decode
- *  through a legacy prefix, and only when a `;` ends it, so its head alone
- *  decides the output. */
+ *  after its first character.
+ *  - Legacy names are the HTML references that may omit their `;`, such as
+ *    `&not`. In a longer name that a `;` ends, parse-entities decodes the
+ *    longest legacy name it starts with: `&notit;` becomes `¬it;`.
+ *  - parse-entities checks every prefix of a name for a legacy one, which
+ *    costs quadratic time on a long run of letters. A name longer than any
+ *    reference can only decode through a legacy prefix, so its head alone
+ *    decides the output. */
 const decodeReferencePiece = (piece: string): string => {
   if (!piece.startsWith("&")) return piece
 
@@ -189,6 +193,9 @@ const decodeReferencePiece = (piece: string): string => {
   if (nameLength <= LONGEST_REFERENCE_NAME) return parseEntities(piece, REFERENCE_OPTIONS)
   if (piece[nameEnd] !== ";") return piece
 
+  // The head keeps `&` and one name character more than the longest name, so
+  // the appended `;` cannot complete a whole name. Only a legacy prefix
+  // decodes, as in the whole piece, and the `;` survives for the slice to drop.
   const headEnd = LONGEST_REFERENCE_NAME + 2
   const decodedHead = parseEntities(`${piece.slice(0, headEnd)};`, REFERENCE_OPTIONS)
   return `${decodedHead.slice(0, -";".length)}${piece.slice(headEnd)}`
@@ -198,12 +205,15 @@ const decodeReferencePiece = (piece: string): string => {
  *  -1 without one. A piece that opens with `&` decodes its reference first and
  *  keeps the rest as written, so a `#` at the start came from the reference
  *  (`&num;`) and any later `#` keeps its distance from the piece's end. */
-const findHashSource = (piece: string, decodedPiece: string): number => {
+const findHashSource = (params: { piece: string; decodedPiece: string }): number => {
+  const { piece, decodedPiece } = params
   const hashIndex = decodedPiece.indexOf("#")
 
   if (hashIndex === -1) return -1
   if (hashIndex === 0) return 0
-  return piece.length - (decodedPiece.length - hashIndex)
+
+  const hashDistanceFromEnd = decodedPiece.length - hashIndex
+  return piece.length - hashDistanceFromEnd
 }
 
 /** Decodes character references as Obsidian does in a link destination, and
@@ -224,7 +234,7 @@ const decodeCharacterReferences = (text: string): { decoded: string; hashSource:
 
   for (const piece of text.split(/(?=&)/)) {
     const decodedPiece = decodeReferencePiece(piece)
-    const hashInPiece = hashSource === -1 ? findHashSource(piece, decodedPiece) : -1
+    const hashInPiece = hashSource === -1 ? findHashSource({ piece, decodedPiece }) : -1
 
     if (hashInPiece !== -1) hashSource = pieceStart + hashInPiece
     decodedPieces.push(decodedPiece)
@@ -237,8 +247,9 @@ const isEscapePairAt = (text: string, position: number): boolean => {
   return text[position] === "\\" && ASCII_PUNCTUATION.test(text.charAt(position + 1))
 }
 
-/** The offset in `content` of the character that dropping escape backslashes
- *  moved to `unescapedOffset`, counting an escape pair from its backslash. */
+/** Maps `unescapedOffset`, an offset in `content` with its escape backslashes
+ *  dropped, back to an offset in `content`. An escaped character maps to its
+ *  backslash. */
 const findRawOffset = (content: string, unescapedOffset: number): number => {
   // Each step reads one character of the unescaped text: an escape pair or a
   // single character.
@@ -259,9 +270,9 @@ const decodeUriOrNull = (encoded: string): string | null => {
   }
 }
 
-/** A destination's target as Obsidian stores it. headingOffset is where the
+/** A destination's target as Obsidian stores it. rawHeadingOffset is where the
  *  raw `#heading` starts in the destination's content, or null without one. */
-type StoredTarget = { target: string; headingOffset: number | null }
+type StoredTarget = { target: string; rawHeadingOffset: number | null }
 
 /** Reads a markdown link destination's content the way Obsidian stores the
  *  link, or returns null for a destination that names no other note or file:
@@ -295,24 +306,29 @@ const readStoredTarget = (params: {
 
   const hashIndex = storedLink.indexOf("#")
   const linkpath = hashIndex === -1 ? storedLink : storedLink.slice(0, hashIndex)
+  // A space before the `#` (`<a.md #h>`) stays out of the target.
   const target = linkpath.trim()
 
   if (!target) return null
 
   // The stored link's first `#` is the first one references produced:
   // percent-decoding keeps `%23` encoded, and trimming removes only whitespace.
-  const headingOffset = hashSource === -1 ? null : findRawOffset(content, hashSource)
-  return { target, headingOffset }
+  const rawHeadingOffset = hashSource === -1 ? null : findRawOffset(content, hashSource)
+  return { target, rawHeadingOffset }
 }
 
 /** A run of percent escapes. Global — use only with replace. */
 const PERCENT_ESCAPE_RUN = /(?:%[0-9A-Fa-f]{2})+/g
 
-/** Decodes text the way a stored markdown link decodes its destination, so a
- *  substring search can find a link's target in it: escape backslashes
- *  dropped, character references decoded, each run of percent escapes decoded
- *  like decodeURI when it is well formed, and no-break spaces replaced with
- *  spaces. */
+/** Decodes a whole file's text the way a stored markdown link decodes its
+ *  destination, so a substring search for a target finds the links that
+ *  store it:
+ *  - escape backslashes are dropped and character references decoded;
+ *  - each run of percent escapes is decoded like decodeURI, and a malformed
+ *    run stays as written, so one bad escape leaves the file's other links
+ *    decoded;
+ *  - no-break spaces become spaces.
+ *  It neither trims nor drops URLs, because it reads many links at once. */
 const decodeLinkSpellings = (text: string): string => {
   const unescaped = text.replace(ESCAPED_PUNCTUATION, "$1")
   const { decoded } = decodeCharacterReferences(unescaped)
@@ -341,6 +357,8 @@ const forEachUnescapedParenthesis = (text: string, visit: (position: number) => 
   }
 }
 
+/** Every caller passes an index in range, so the -1 fallback only narrows
+ *  the typed array's element type. */
 const readRecord = (records: Int32Array, recordIndex: number): number => {
   return records[recordIndex] ?? -1
 }
@@ -374,6 +392,8 @@ const buildParenRecords = (text: string): ParenRecords => {
     recordIndex++
   })
 
+  // A `(` still open at the line's end has no match, but its slot holds the
+  // record below it, which would read as a match. Each such slot is reset.
   while (openRecord !== -1) {
     const recordBelow = readRecord(matches, openRecord)
     matches[openRecord] = -1
@@ -404,7 +424,7 @@ const findUnescaped = (params: {
 }
 
 const findNonWhitespace = (text: string, from: number): number => {
-  // A plain walk: the caller's cursor keeps a run from being walked twice.
+  // A caller that can revisit a run wraps this walk in a forward cursor.
   let position = from
 
   while (position < text.length && WHITESPACE.test(text.charAt(position))) position++
@@ -437,7 +457,9 @@ const TITLE_CLOSERS: ReadonlyMap<string, TitleCloser> = new Map([
 
 /** One destination form's cursors after the destination:
  *  - the end of the whitespace run that follows it;
- *  - per title closer, the closer and the end of the whitespace run after it. */
+ *  - per title closer, the closer and the end of the whitespace run after it.
+ *    Each closer kind keeps its own cursors, because a later title closed by
+ *    `'` can end before an earlier one closed by `"`. */
 type FormCursors = {
   skipAfterDestination: (from: number) => number
   findTitleCloser: Record<TitleCloser, (from: number) => number>
@@ -490,7 +512,8 @@ type ScannedLink = ScannedDestination & { end: number }
  *  - each form's cursors after the destination serve positions that only
  *    move forward within that form. A bare destination that starts inside
  *    an earlier one either closes at its own `)` or shares that one's first
- *    whitespace. The forms keep separate cursors because a bare title can
+ *    whitespace: in `[a](x[b](y z)`, both `x[b](y` and `y` end at the space
+ *    before `z`. The forms keep separate cursors because a bare title can
  *    start before a failed angle title: `[a](< [b](x.md "t") > "x`.
  *
  *  Openers whose link text ends at the same `]` read one destination, so the
@@ -529,7 +552,8 @@ const createDestinationReader = (text: string): ((openParen: number) => ScannedL
     return matchRecord === -1 ? -1 : readRecord(parens.positions, matchRecord)
   }
 
-  /** `<…>`: the first `>` closes it, and a line break before that `>` fails it. */
+  /** `<…>`: the first `>` closes it, and an LF or CR before that `>` fails
+   *  it. U+2028 and U+2029 stay inside it, as in Obsidian. */
   const scanAngleDestination = (openBracket: number): ScannedDestination | null => {
     const contentStart = openBracket + 1
     const closeBracket = findAngleCloser(contentStart)
@@ -541,10 +565,11 @@ const createDestinationReader = (text: string): ((openParen: number) => ScannedL
   /** A bare destination runs to its first unescaped whitespace, or to the `)`
    *  that matches the link's own `(`, whichever comes first. Without either,
    *  it fails. */
-  const scanBareDestination = (
-    contentStart: number,
-    openParen: number,
-  ): ScannedDestination | null => {
+  const scanBareDestination = (params: {
+    contentStart: number
+    openParen: number
+  }): ScannedDestination | null => {
+    const { contentStart, openParen } = params
     const whitespace = findBareWhitespace(contentStart)
     const matchingParen = findMatchingParen(openParen)
     const endsAtParen = matchingParen !== -1 && matchingParen < whitespace
@@ -558,8 +583,9 @@ const createDestinationReader = (text: string): ((openParen: number) => ScannedL
    *  optional title in `"…"`, `'…'` or `(…)` after at least one whitespace
    *  character, then whitespace and `)`. */
   const scanTitleAndClose = (destination: ScannedDestination): number => {
-    // A bare destination that ends at its `)` closes there. Checking first
-    // keeps its position, which can move backward, out of the cursors.
+    // A bare destination that ends at its `)` closes there. That `)` can sit
+    // before an earlier attempt's destination end (`[b](y)` inside
+    // `[a](x[b](y)z w`), so checking first keeps it out of the cursors.
     if (text[destination.after] === ")") return destination.after + 1
 
     const cursors = formCursors[destination.form]
@@ -587,7 +613,7 @@ const createDestinationReader = (text: string): ((openParen: number) => ScannedL
     const destination =
       text[destinationStart] === "<"
         ? scanAngleDestination(destinationStart)
-        : scanBareDestination(destinationStart, openParen)
+        : scanBareDestination({ contentStart: destinationStart, openParen })
 
     if (!destination) return null
 
@@ -632,35 +658,31 @@ const toMarkdownLinkSpan = (params: {
   if (!storedTarget) return null
 
   // Spaces around the target stay outside it, so a rewrite keeps them.
+  // Encoded spaces (`%20a.md`) stay inside it, though the stored target
+  // trims them.
   const targetStart = contentStart + (content.length - content.trimStart().length)
-  const { headingOffset } = storedTarget
+  const { rawHeadingOffset } = storedTarget
+  const hasHeading = rawHeadingOffset !== null
+  const targetEnd = hasHeading
+    ? contentStart + rawHeadingOffset
+    : contentStart + content.trimEnd().length
+  const headingEnd = hasHeading ? contentEnd : targetEnd
 
-  if (headingOffset === null) {
-    const targetEnd = contentStart + content.trimEnd().length
-    return {
-      start,
-      end,
-      targetStart,
-      targetEnd,
-      destinationForm: form,
-      headingEnd: targetEnd,
-      storedTarget: storedTarget.target,
-    }
-  }
   return {
     start,
     end,
     targetStart,
-    targetEnd: contentStart + headingOffset,
+    targetEnd,
     destinationForm: form,
-    headingEnd: contentEnd,
+    headingEnd,
     storedTarget: storedTarget.target,
   }
 }
 
 /** Calls `visit` for each markdown link `[text](destination "title")` in
  *  `text` that names another note or file, left to right and never
- *  overlapping. The grammar follows Obsidian's:
+ *  overlapping. The grammar follows Obsidian's, except that the link text
+ *  ends at its first `]`, so `[a [b] c](d.md)` holds no link:
  *  - a `[` after an odd run of backslashes opens no link;
  *  - an unescaped `!` directly before the `[` makes the link an embed;
  *  - the destination is `<…>` or bare, after optional whitespace;
@@ -719,14 +741,17 @@ const maskTemplaterExpressions = (text: string): string => {
   let close = 0
   let copiedThrough = 0
 
+  const isCloserAt = (position: number): boolean => {
+    return text[position] === "%" && text[position + 1] === ">"
+  }
+
   for (let start = 0; start < text.length; start++) {
     if (text[start] !== "<" || text[start + 1] !== "%") continue
     close = Math.max(close, start + 2)
-    while (close < text.length && !LINE_TERMINATOR.test(text.charAt(close))) {
-      if (text[close] === "%" && text[close + 1] === ">") break
+    while (close < text.length && !LINE_TERMINATOR.test(text.charAt(close)) && !isCloserAt(close)) {
       close++
     }
-    if (text[close] !== "%" || text[close + 1] !== ">") continue
+    if (!isCloserAt(close)) continue
     const end = close + 2
     pieces.push(text.slice(copiedThrough, start), " ".repeat(end - start))
     copiedThrough = end
@@ -814,12 +839,12 @@ const splitMarkdownLink = (linkText: string): MarkdownLinkParts | null => {
   const path = stripExtension(storedTarget)
   return {
     prefix: linkText.slice(0, targetStart),
-    rawTarget: linkText.slice(targetStart, targetEnd),
+    writtenTarget: linkText.slice(targetStart, targetEnd),
     path,
     extension: storedTarget.slice(path.length),
     heading: linkText.slice(targetEnd, headingEnd),
     suffix: linkText.slice(headingEnd),
-    form: destinationForm,
+    destinationForm,
   }
 }
 
@@ -1092,7 +1117,8 @@ const findSuffixChild = (node: SuffixNode, segment: string): SuffixNode | undefi
   if (node.branches.status === "unsplit") {
     // Map.groupBy keeps each group in list order, so each child's paths stay
     // shortest first. The key is the folder segment `depth` places before
-    // the path's last folder segment, counted from the end.
+    // the path's last folder segment, counted from the end: at depth 1,
+    // `a/b/c/Note.md` is keyed by `b`.
     const pathsBySegment = Map.groupBy(node.branches.longerPaths, (path) => {
       const nextSegment = path.folderSegments.at(-1 - node.depth)
 

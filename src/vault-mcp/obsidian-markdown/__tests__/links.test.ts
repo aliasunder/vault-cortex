@@ -277,12 +277,12 @@ describe("splitMarkdownLink", () => {
       input: "[t](a/b.md)",
       expected: {
         prefix: "[t](",
-        rawTarget: "a/b.md",
+        writtenTarget: "a/b.md",
         path: "a/b",
         extension: ".md",
         heading: "",
         suffix: ")",
-        form: "bare",
+        destinationForm: "bare",
       },
     },
     {
@@ -290,12 +290,12 @@ describe("splitMarkdownLink", () => {
       input: "[t](a/b.md#sec)",
       expected: {
         prefix: "[t](",
-        rawTarget: "a/b.md",
+        writtenTarget: "a/b.md",
         path: "a/b",
         extension: ".md",
         heading: "#sec",
         suffix: ")",
-        form: "bare",
+        destinationForm: "bare",
       },
     },
     {
@@ -303,12 +303,12 @@ describe("splitMarkdownLink", () => {
       input: "[t](My%20Note.md)",
       expected: {
         prefix: "[t](",
-        rawTarget: "My%20Note.md",
+        writtenTarget: "My%20Note.md",
         path: "My Note",
         extension: ".md",
         heading: "",
         suffix: ")",
-        form: "bare",
+        destinationForm: "bare",
       },
     },
     {
@@ -316,12 +316,12 @@ describe("splitMarkdownLink", () => {
       input: "[alt](assets/photo.png)",
       expected: {
         prefix: "[alt](",
-        rawTarget: "assets/photo.png",
+        writtenTarget: "assets/photo.png",
         path: "assets/photo",
         extension: ".png",
         heading: "",
         suffix: ")",
-        form: "bare",
+        destinationForm: "bare",
       },
     },
     {
@@ -329,12 +329,12 @@ describe("splitMarkdownLink", () => {
       input: "[t](Extensionless%20Note)",
       expected: {
         prefix: "[t](",
-        rawTarget: "Extensionless%20Note",
+        writtenTarget: "Extensionless%20Note",
         path: "Extensionless Note",
         extension: "",
         heading: "",
         suffix: ")",
-        form: "bare",
+        destinationForm: "bare",
       },
     },
     {
@@ -342,12 +342,12 @@ describe("splitMarkdownLink", () => {
       input: "[t](dir.v2/note)",
       expected: {
         prefix: "[t](",
-        rawTarget: "dir.v2/note",
+        writtenTarget: "dir.v2/note",
         path: "dir.v2/note",
         extension: "",
         heading: "",
         suffix: ")",
-        form: "bare",
+        destinationForm: "bare",
       },
     },
     {
@@ -355,12 +355,12 @@ describe("splitMarkdownLink", () => {
       input: "[t](archive.tar.gz)",
       expected: {
         prefix: "[t](",
-        rawTarget: "archive.tar.gz",
+        writtenTarget: "archive.tar.gz",
         path: "archive.tar",
         extension: ".gz",
         heading: "",
         suffix: ")",
-        form: "bare",
+        destinationForm: "bare",
       },
     },
     {
@@ -368,12 +368,12 @@ describe("splitMarkdownLink", () => {
       input: "[alt](photo%2Epng)",
       expected: {
         prefix: "[alt](",
-        rawTarget: "photo%2Epng",
+        writtenTarget: "photo%2Epng",
         path: "photo",
         extension: ".png",
         heading: "",
         suffix: ")",
-        form: "bare",
+        destinationForm: "bare",
       },
     },
     {
@@ -381,12 +381,12 @@ describe("splitMarkdownLink", () => {
       input: "[alt](photo.p%6Eg)",
       expected: {
         prefix: "[alt](",
-        rawTarget: "photo.p%6Eg",
+        writtenTarget: "photo.p%6Eg",
         path: "photo",
         extension: ".png",
         heading: "",
         suffix: ")",
-        form: "bare",
+        destinationForm: "bare",
       },
     },
     {
@@ -394,12 +394,12 @@ describe("splitMarkdownLink", () => {
       input: '[t]( < My Note.md > "tip" )',
       expected: {
         prefix: "[t]( < ",
-        rawTarget: "My Note.md",
+        writtenTarget: "My Note.md",
         path: "My Note",
         extension: ".md",
         heading: "",
         suffix: ' > "tip" )',
-        form: "angle",
+        destinationForm: "angle",
       },
     },
     {
@@ -407,12 +407,12 @@ describe("splitMarkdownLink", () => {
       input: "[t](<My Note.md#Head ing>)",
       expected: {
         prefix: "[t](<",
-        rawTarget: "My Note.md",
+        writtenTarget: "My Note.md",
         path: "My Note",
         extension: ".md",
         heading: "#Head ing",
         suffix: ">)",
-        form: "angle",
+        destinationForm: "angle",
       },
     },
     {
@@ -420,12 +420,12 @@ describe("splitMarkdownLink", () => {
       input: "[t](a\\(b\\)c.md 'tip')",
       expected: {
         prefix: "[t](",
-        rawTarget: "a\\(b\\)c.md",
+        writtenTarget: "a\\(b\\)c.md",
         path: "a(b)c",
         extension: ".md",
         heading: "",
         suffix: " 'tip')",
-        form: "bare",
+        destinationForm: "bare",
       },
     },
     {
@@ -433,12 +433,12 @@ describe("splitMarkdownLink", () => {
       input: "[t](Old&num;Heading)",
       expected: {
         prefix: "[t](",
-        rawTarget: "Old",
+        writtenTarget: "Old",
         path: "Old",
         extension: "",
         heading: "&num;Heading",
         suffix: ")",
-        form: "bare",
+        destinationForm: "bare",
       },
     },
     {
@@ -446,12 +446,12 @@ describe("splitMarkdownLink", () => {
       input: "[t](Old\\#Heading)",
       expected: {
         prefix: "[t](",
-        rawTarget: "Old",
+        writtenTarget: "Old",
         path: "Old",
         extension: "",
         heading: "\\#Heading",
         suffix: ")",
-        form: "bare",
+        destinationForm: "bare",
       },
     },
   ]
@@ -479,12 +479,12 @@ describe("splitMarkdownLink", () => {
   it("splits an embed with a malformed percent escape, its marker in the prefix", () => {
     expect(links.splitMarkdownLink("![n](100%.md)")).toEqual({
       prefix: "![n](",
-      rawTarget: "100%.md",
+      writtenTarget: "100%.md",
       path: "100%",
       extension: ".md",
       heading: "",
       suffix: ")",
-      form: "bare",
+      destinationForm: "bare",
     })
   })
 })
@@ -946,7 +946,7 @@ describe("extractFromBody against Obsidian 1.15.1", () => {
       const splits = markdownMatches.map(({ text }) => {
         const parts = links.splitMarkdownLink(text)
         return {
-          rebuilt: parts && `${parts.prefix}${parts.rawTarget}${parts.heading}${parts.suffix}`,
+          rebuilt: parts && `${parts.prefix}${parts.writtenTarget}${parts.heading}${parts.suffix}`,
           storedTarget: parts && `${parts.path}${parts.extension}`,
         }
       })

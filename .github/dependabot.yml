@@ -45,7 +45,7 @@ updates:
       - dependency-name: remark-parse
       # parse-entities is pinned to 2.0.0, the version remark-parse 8.0.3
       # resolves, so markdown link targets decode character references as
-      # Obsidian does. It moves only with remark-parse.
+      # Obsidian does. Bump it only together with remark-parse.
       - dependency-name: parse-entities
 
   # obsidian-headless is installed from its own lockfile into the Docker

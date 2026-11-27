@@ -267,9 +267,11 @@ const rewriteTarget = (
 
 // ── Body rewriting ──────────────────────────────────────────────
 
-/** Characters a backslash keeps literal in both destination forms: `*` and
- *  `$` could otherwise open emphasis or math around the link, and `[`, `]`
- *  could end its text. */
+/** Characters a backslash keeps literal in both destination forms:
+ *  - a raw `*` or `$` pairs with one earlier on the line, and Obsidian then
+ *    reads emphasis or math that hides the link (`*a [x](b*c.md)` holds no
+ *    link);
+ *  - a raw `[` or `]` could end the link's text. */
 const BACKSLASH_ESCAPED_CHARACTERS: ReadonlySet<string> = new Set(["*", "$", "[", "]"])
 
 /** Characters that open emphasis, strikethrough or a highlight only in a run
@@ -343,7 +345,7 @@ const toPathCharacters = (path: string): PathCharacter[] => {
 
 /** Whether a `_`, `~` or equals sign stands alone between two characters
  *  that are not whitespace. */
-const isSingleBetweenWords = ({ character, previous, next }: PathCharacter): boolean => {
+const isSingleBetweenNonWhitespace = ({ character, previous, next }: PathCharacter): boolean => {
   if (!previous || !next) return false
   return (
     previous !== character &&
@@ -361,7 +363,7 @@ const encodeSharedCharacter = (pathCharacter: PathCharacter): string | null => {
   if (PERCENT_ENCODED_CHARACTERS.has(character)) return percentEncode(character)
   if (BACKSLASH_ESCAPED_CHARACTERS.has(character)) return `\\${character}`
   if (RUN_DELIMITER_CHARACTERS.has(character)) {
-    return isSingleBetweenWords(pathCharacter) ? character : `\\${character}`
+    return isSingleBetweenNonWhitespace(pathCharacter) ? character : `\\${character}`
   }
   // A letter after `&` could start a character reference (`&amp;`), and a
   // backslash does not stop Obsidian decoding one, so the letter is encoded.
@@ -409,11 +411,14 @@ const encodeAngleDestination = (path: string): string => {
     .join("")
 }
 
-/** Writes a new path in a markdown link's destination form. Three kinds of
- *  path have no spelling Obsidian stores as the path, and are written by the
- *  same rules: one holding `#` or `:`, which Obsidian forbids in file names,
- *  one with whitespace at its edges, which Obsidian trims, and one holding a
- *  no-break space, which Obsidian reads as a space. */
+/** Writes a new path in a markdown link's destination form, in a spelling
+ *  that Obsidian stores as the path and links.extractFromBody reads back as
+ *  the path. Three
+ *  kinds of path have no such spelling, so a link written to one does not
+ *  reach it:
+ *  - one holding `#` or `:`, which Obsidian forbids in file names;
+ *  - one with whitespace at its edges, which Obsidian trims;
+ *  - one holding a no-break space, which Obsidian reads as a space. */
 const encodeMarkdownDestination = (path: string, form: DestinationForm): string => {
   switch (form) {
     case "bare":
@@ -475,6 +480,7 @@ const rewriteMarkdownLinkText = (linkText: string, rewriteLink: RewriteLink): st
   const parts = links.splitMarkdownLink(linkText)
 
   if (!parts) return null
+  // The link resolves by its target as Obsidian stores it, not as written.
   const newTarget = rewriteLink({
     rawTarget: `${parts.path}${parts.extension}`,
     originalExtension: parts.extension,
@@ -484,7 +490,7 @@ const rewriteMarkdownLinkText = (linkText: string, rewriteLink: RewriteLink): st
   if (newTarget === null) return null
   // prefix runs from the "[" to the target and suffix from the heading's end
   // to the ")", both verbatim, so only the path between them changes.
-  return `${parts.prefix}${encodeMarkdownDestination(newTarget, parts.form)}${parts.heading}${parts.suffix}`
+  return `${parts.prefix}${encodeMarkdownDestination(newTarget, parts.destinationForm)}${parts.heading}${parts.suffix}`
 }
 
 /** Gathers wikilink and markdown-link edits for one line, excluding code spans. */
@@ -825,7 +831,9 @@ const JSON_STRING_ESCAPE = /\\(["\\])/g
  *  text itself and, when it holds a character a link decodes, the text
  *  decoded the way a stored link reads it. A Canvas's JSON string escapes
  *  are undone first, so a text card's `a\_b.md` reads as `a_b.md`. */
-const listSearchableViews = (path: string, content: string): string[] => {
+const listSearchableViews = (params: { path: string; content: string }): string[] => {
+  const { path, content } = params
+
   if (!LINK_DECODED_CHARACTER.test(content)) return [content]
 
   const linkText = isCanvasPath(path) ? content.replace(JSON_STRING_ESCAPE, "$1") : content
@@ -871,7 +879,8 @@ const discoverBacklinksFromFilesystem = async (
         const content = await readFile(fullPath, "utf8")
         // Skip files whose text can't contain a link — a cheap substring
         // pre-filter before the full parse below.
-        const couldContainLink = listSearchableViews(candidatePath, content).some((view) => {
+        const searchableViews = listSearchableViews({ path: candidatePath, content })
+        const couldContainLink = searchableViews.some((view) => {
           const lowercaseView = view.toLowerCase()
           return lowercaseStemSpellings.some((spelling) => lowercaseView.includes(spelling))
         })
