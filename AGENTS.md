@@ -1313,8 +1313,8 @@ Every doc edit follows these rules:
   ("complete a task," "move between lanes," "filter by due date"), never
   implementation vocabulary ("mutate," "atomic write cycle," "composable
   mutations"); ARCHITECTURE.md keeps its engineering terms. Sentences
-  about how the project is built name its technical choices: names used
-  outside this repo for something the project chose (FTS5, RRF,
+  about how the project is built use the standard names for the
+  techniques it chose and the hazards it guards against (FTS5, RRF,
   cross-encoder, per-file mutex, TOCTOU, `link()`). The README and
   SECURITY.md add no gloss to those names, even when a review calls
   them jargon.
