@@ -886,6 +886,34 @@ describe("moveNote — selectivity (must-not-rewrite cases)", () => {
     expect(await readNote("Hub.md")).toBe("Use `[[Foo]]` syntax to link [[Bar]].\n")
   })
 
+  it("rewrites a markdown link that sits between two code spans holding a link opener", async () => {
+    const { writeFixture, moveNote, readNote } = setupVault()
+    await writeFixture("Foo.md", "content\n")
+    await writeFixture("Hub.md", "Type `[a](<` then [b](Foo.md) then `>)` to close.\n")
+
+    await moveNote({
+      oldPath: "Foo.md",
+      newPath: "Bar.md",
+      backlinkSources: ["Hub.md"],
+    })
+
+    expect(await readNote("Hub.md")).toBe("Type `[a](<` then [b](Bar.md) then `>)` to close.\n")
+  })
+
+  it("rewrites a wikilink that sits between two code spans holding wikilink brackets", async () => {
+    const { writeFixture, moveNote, readNote } = setupVault()
+    await writeFixture("Foo.md", "content\n")
+    await writeFixture("Hub.md", "Open with `[[a` then [[Foo]] then close with `]]`.\n")
+
+    await moveNote({
+      oldPath: "Foo.md",
+      newPath: "Bar.md",
+      backlinkSources: ["Hub.md"],
+    })
+
+    expect(await readNote("Hub.md")).toBe("Open with `[[a` then [[Bar]] then close with `]]`.\n")
+  })
+
   it("rewrites only the moved note's escaped pipe link, leaving other escaped pipe links intact", async () => {
     const { writeFixture, moveNote, readNote } = setupVault()
     await writeFixture("Foo.md", "content\n")

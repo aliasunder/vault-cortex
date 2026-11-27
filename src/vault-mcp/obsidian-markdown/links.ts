@@ -72,9 +72,6 @@ type LinkMatch = {
   kind: "wikilink" | "markdown"
 }
 
-/** The half-open character range [start, end) of an inline code span in a line. */
-type CodeSpan = { start: number; end: number }
-
 /** A link a scanner found: [start, end) covers the whole link, and
  *  [targetStart, targetEnd) its target alone, without any `#heading` or `|alias`. */
 type LinkSpan = { start: number; end: number; targetStart: number; targetEnd: number }
@@ -763,7 +760,8 @@ const maskTemplaterExpressions = (text: string): string => {
 }
 
 /** Finds wikilinks, then markdown links (not in text order), with the offsets a rewriter
- *  needs to splice replacements. Links in inline code are kept for each caller to exclude.
+ *  needs to splice replacements. Links in inline code are found too; a caller that
+ *  skips them scans a maskInlineCode copy of the line.
  *  The two kinds can overlap: in `[x](a[[b]])`, the wikilink sits inside the
  *  markdown link's target. */
 const matchLinksInLine = (line: string): LinkMatch[] => {
@@ -777,13 +775,12 @@ const matchLinksInLine = (line: string): LinkMatch[] => {
   return matches
 }
 
-/** Returns the character ranges of inline code spans in a line, so a rewriter can
- *  leave links inside backticks untouched. */
-const inlineCodeSpans = (line: string): CodeSpan[] =>
-  [...line.matchAll(INLINE_CODE_RE)].map((match) => ({
-    start: match.index,
-    end: match.index + match[0].length,
-  }))
+/** Replaces each inline code span in `line` with as many spaces, so a scan
+ *  finds no link inside one and every offset after it stays the same. The
+ *  spaces keep text on either side of a span from joining into a new link. */
+const maskInlineCode = (line: string): string => {
+  return line.replace(INLINE_CODE_RE, (codeSpan) => " ".repeat(codeSpan.length))
+}
 
 // ── Parsing ─────────────────────────────────────────────────────
 
@@ -926,9 +923,7 @@ const extractFromBody = (content: string): string[] => {
   for (const { text, inCode } of classifyLines(content)) {
     if (inCode) continue
 
-    // Spaces keep text on either side of an ignored span from forming a new link.
-    const withoutCode = text.replace(INLINE_CODE_RE, (match) => " ".repeat(match.length))
-    const linkExtractableLine = maskTemplaterExpressions(withoutCode)
+    const linkExtractableLine = maskTemplaterExpressions(maskInlineCode(text))
 
     scanWikilinks(linkExtractableLine, ({ targetStart, targetEnd }) => {
       const rawTarget = linkExtractableLine.slice(targetStart, targetEnd)
@@ -1592,7 +1587,7 @@ const extractAll = (content: string, data: Record<string, unknown>): string[] =>
  *  resolution. Single namespace export so call sites read `links.resolve(...)`. */
 export const links = {
   matchLinksInLine,
-  inlineCodeSpans,
+  maskInlineCode,
   splitWikilink,
   splitMarkdownLink,
   decodeLinkSpellings,

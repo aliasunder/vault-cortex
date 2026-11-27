@@ -500,36 +500,25 @@ const rewriteMarkdownLinkText = (linkText: string, rewriteLink: RewriteLink): st
   return `${parts.prefix}${encodeMarkdownDestination(newTarget, parts.destinationForm)}${parts.heading}${parts.suffix}`
 }
 
-/** Gathers wikilink and markdown-link edits for one line, excluding code spans. */
-const collectLineEdits = (
-  line: string,
-  rewriteLink: RewriteLink,
-  isInsideCode: (position: number) => boolean,
-): LinkEdit[] => {
-  return links.matchLinksInLine(line).flatMap((linkMatch) => {
-    if (isInsideCode(linkMatch.start)) return []
-    const replacement =
-      linkMatch.kind === "wikilink"
-        ? rewriteWikilinkText(linkMatch.text, rewriteLink)
-        : rewriteMarkdownLinkText(linkMatch.text, rewriteLink)
-
-    if (replacement === null) return []
-    return [{ start: linkMatch.start, end: linkMatch.end, replacement }]
-  })
-}
-
 /** Rewrites link targets in a single body line, skipping links inside
  *  inline-code spans. */
 const rewriteBodyLine = (
   line: string,
   rewriteLink: RewriteLink,
 ): { line: string; linksRewritten: number } => {
-  const codeSpans = links.inlineCodeSpans(line)
-  const isInsideCode = (position: number): boolean => {
-    return codeSpans.some((span) => position >= span.start && position < span.end)
-  }
+  // Links are found in a copy with inline code blanked, as links.extractFromBody
+  // reads them, so a link opener inside a code span cannot swallow a link after
+  // it. Offsets match the line, which supplies each link's text.
+  const edits = links.matchLinksInLine(links.maskInlineCode(line)).flatMap((linkMatch) => {
+    const linkText = line.slice(linkMatch.start, linkMatch.end)
+    const replacement =
+      linkMatch.kind === "wikilink"
+        ? rewriteWikilinkText(linkText, rewriteLink)
+        : rewriteMarkdownLinkText(linkText, rewriteLink)
 
-  const edits = collectLineEdits(line, rewriteLink, isInsideCode)
+    if (replacement === null) return []
+    return [{ start: linkMatch.start, end: linkMatch.end, replacement }]
+  })
   return { line: applyLinkEdits(line, edits), linksRewritten: edits.length }
 }
 

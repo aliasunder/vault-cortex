@@ -175,22 +175,19 @@ describe("matchLinksInLine", () => {
   })
 })
 
-// ── inlineCodeSpans ──────────────────────────────────────────────
+// ── maskInlineCode ───────────────────────────────────────────────
 
-describe("inlineCodeSpans", () => {
-  it("returns the character range of an inline code span", () => {
-    expect(links.inlineCodeSpans("use `code` here")).toEqual([{ start: 4, end: 10 }])
+describe("maskInlineCode", () => {
+  it("replaces an inline code span with as many spaces", () => {
+    expect(links.maskInlineCode("use `code` here")).toBe("use        here")
   })
 
-  it("returns every span on the line", () => {
-    expect(links.inlineCodeSpans("`a` and `bb`")).toEqual([
-      { start: 0, end: 3 },
-      { start: 8, end: 12 },
-    ])
+  it("replaces every span on the line, keeping each offset", () => {
+    expect(links.maskInlineCode("`a` and ``bb`` [x](y.md)")).toBe("    and        [x](y.md)")
   })
 
-  it("returns an empty array when the line has no inline code", () => {
-    expect(links.inlineCodeSpans("plain text")).toEqual([])
+  it("returns a line without inline code unchanged", () => {
+    expect(links.maskInlineCode("plain [[text]]")).toBe("plain [[text]]")
   })
 })
 
