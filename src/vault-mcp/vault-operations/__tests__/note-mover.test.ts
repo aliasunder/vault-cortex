@@ -559,6 +559,28 @@ describe("moveNote — link rewriting forms", () => {
     })
   })
 
+  it("keeps a path-form wikilink's folder when the note's name ends in a capital sigma", async () => {
+    const { writeFixture, moveNote, readNote } = setupVault()
+    await writeFixture("F/ΟΣ.md", "content\n")
+    await writeFixture("Hub.md", "See [[F/ΟΣ]].\n")
+
+    const result = await moveNote({
+      oldPath: "F/ΟΣ.md",
+      newPath: "G/ΟΣ.md",
+      backlinkSources: ["Hub.md"],
+    })
+
+    // Σ before "/" lowercases to ς and before ".md" to σ, so the form is read
+    // with the fold on both sides.
+    expect(await readNote("Hub.md")).toBe("See [[G/ΟΣ]].\n")
+    expect(result).toEqual({
+      moved_to: "G/ΟΣ.md",
+      links_updated: 1,
+      updated_notes: ["Hub.md"],
+      pruned_empty_folders: 0,
+    })
+  })
+
   it("rewrites wikilinks that a `]]` inside a code span in the heading or alias closes", async () => {
     const { writeFixture, moveNote, readNote } = setupVault()
     await writeFixture("Foo.md", "content\n")
@@ -866,6 +888,27 @@ describe("moveNote — markdown link destinations", () => {
     expect(await readNote("Hub.md")).toBe("See [x](New&num;Heading).\n")
   })
 
+  it("writes a markdown link's full path when its bare name has a leading space Obsidian trims", async () => {
+    const { writeFixture, moveNote, readNote } = setupVault()
+    await writeFixture("Z/Old.md", "content\n")
+    await writeFixture("Src.md", "See [x](Old.md).\n")
+
+    const result = await moveNote({
+      oldPath: "Z/Old.md",
+      newPath: "A/ b.md",
+      backlinkSources: ["Src.md"],
+    })
+
+    // The bare name ` b.md` resolves but reads back trimmed as `b.md`.
+    expect(await readNote("Src.md")).toBe("See [x](A/%20b.md).\n")
+    expect(result).toEqual({
+      moved_to: "A/ b.md",
+      links_updated: 1,
+      updated_notes: ["Src.md"],
+      pruned_empty_folders: 0,
+    })
+  })
+
   it("leaves a link with a reserved escape alone, since Obsidian reads it as another path", async () => {
     const { writeFixture, moveNote, readNote } = setupVault()
     await writeFixture("Q&A.md", "content\n")
@@ -933,10 +976,18 @@ describe("moveNote — markdown link destinations", () => {
     },
     {
       // Lowercased alone the name ends in ς, and before .md in σ.
-      label: "a capital final sigma before the extension",
+      label: "a capital sigma ending the name before the extension",
       oldPath: "ΟΣ.md",
       link: "[x](ΟΣ.md)",
       rewritten: "[x](New.md)",
+    },
+    {
+      // The link lowercases to a final ς and the stem before .md to σ, so
+      // only the fold on the view side finds the link.
+      label: "a wikilink whose name ends in a capital sigma",
+      oldPath: "ΟΔΟΣ.md",
+      link: "[[ΟΔΟΣ]]",
+      rewritten: "[[New]]",
     },
   ]
 
@@ -1414,7 +1465,7 @@ describe("moveNote — asset link rewriting", () => {
     })
   })
 
-  it("rewrites a moved note's broken asset link to a form that a note with the same name does not take over", async () => {
+  it("rewrites a moved note's file link to its full path when the bare name would reach a note with the same name", async () => {
     const { writeFixture, moveNote, readNote } = setupVault()
     await writeFixture("M/q/B.png", "img")
     await writeFixture("T/q/B.pdf", "pdf")

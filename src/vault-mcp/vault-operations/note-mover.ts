@@ -117,12 +117,14 @@ const classifyLinkForm = (params: {
   const { rawTarget, sourcePath, resolvedTarget } = params
 
   // Links resolve whatever their letter case, so the form is read with case
-  // folded: [[folder/real]] for Folder/Real.md is a path-form link, and its
-  // rewrite keeps the folder. For an asset link, toLowerCase folds more
-  // letters than the asset resolver does. That can only read a bare-name link
-  // as a path form, which costs a longer rewrite, never a broken one.
-  const foldedTarget = rawTarget.toLowerCase()
-  const foldedResolvedTarget = resolvedTarget.toLowerCase()
+  // folded, final sigma included: [[folder/real]] for Folder/Real.md is a
+  // path-form link, and its rewrite keeps the folder. All three folds share
+  // lowercaseLinkName, because a capital Σ lowercases to ς before "/" and to σ
+  // before ".md". For an asset link, the fold covers more letters than the
+  // asset resolver does. That can only read a bare-name link as a path form,
+  // which costs a longer rewrite, never a broken one.
+  const foldedTarget = links.lowercaseLinkName(rawTarget)
+  const foldedResolvedTarget = links.lowercaseLinkName(resolvedTarget)
 
   // The resolved path carries the file's real extension — ".md" for notes,
   // the asset's own otherwise — so one rule covers both kinds (a stem-form
@@ -136,7 +138,7 @@ const classifyLinkForm = (params: {
 
   if (targetWithExtension === foldedResolvedTarget) return "absolute"
 
-  const foldedSourceFolder = posix.dirname(sourcePath).toLowerCase()
+  const foldedSourceFolder = links.lowercaseLinkName(posix.dirname(sourcePath))
 
   if (posix.join(foldedSourceFolder, targetWithExtension) === foldedResolvedTarget) {
     return "relative"
@@ -153,7 +155,8 @@ const wikilinkReadsBackAs = (target: string): boolean => {
 
 /** Builds a replacement target that resolves to desiredTarget from the new
  *  source location, or returns null when none of these spellings does. It
- *  returns the first that resolves there:
+ *  returns the first that both reads back in the link's own text (readsBack)
+ *  and resolves there:
  *  1. the original link form, basename or relative;
  *  2. the vault-absolute path, in the extension state keepExtension asks
  *     for: true keeps desiredTarget's extension (the original link carried
@@ -162,13 +165,12 @@ const wikilinkReadsBackAs = (target: string): boolean => {
  *     since a note named like a file (`B.md` beside `B.png`) takes the
  *     extensionless spelling. A markdown link always keeps its extension
  *     state, so it gets no third spelling.
- *  A note named like the file with its extension (`B.png.md`) takes every
- *  spelling, so the link is left as written. A relative replacement climbs
- *  to the folder that holds the target and then names it, so it always ends
- *  in the target's name: from `A/B/`, `A/B.png`'s stem is `../B`, never the
- *  bare "" that names the folder. writesRelativeStart puts "./" before a
- *  relative replacement that does not climb with "../". The replacement
- *  takes desiredTarget's letter case, not the link's. */
+ *
+ *  - A note named like the file with its extension (`B.png.md`) takes every
+ *    spelling, so the link is left as written.
+ *  - writesRelativeStart puts "./" before a relative replacement that does
+ *    not climb with "../".
+ *  - The replacement takes desiredTarget's letter case, not the link's. */
 const buildReplacementTarget = (params: {
   form: LinkForm
   grammar: LinkGrammar
@@ -177,6 +179,7 @@ const buildReplacementTarget = (params: {
   keepExtension: boolean
   writesRelativeStart: boolean
   resolveFromNewSource: (candidate: string) => string | null
+  readsBack: (candidate: string) => boolean
 }): string | null => {
   const {
     form,
@@ -186,15 +189,12 @@ const buildReplacementTarget = (params: {
     keepExtension,
     writesRelativeStart,
     resolveFromNewSource,
+    readsBack,
   } = params
   const absoluteForm = keepExtension ? desiredTarget : links.stripExtension(desiredTarget)
 
   const resolvesToDesired = (candidate: string): boolean => {
-    // A wikilink's target ends at its first `#`, `|` or `]]`, so a path that
-    // holds one (`q#1/B.png`, `B.txt#draft`) is written as a link to another
-    // target. A markdown destination is checked the same way by readsBackAs.
-    if (grammar === "wikilink" && !wikilinkReadsBackAs(candidate)) return false
-    return resolveFromNewSource(candidate) === desiredTarget
+    return readsBack(candidate) && resolveFromNewSource(candidate) === desiredTarget
   }
 
   if (form === "basename") {
@@ -204,6 +204,9 @@ const buildReplacementTarget = (params: {
   }
 
   if (form === "relative") {
+    // The replacement climbs to the folder that holds the target and then
+    // names it, so it always ends in the target's name: from `A/B/`,
+    // `A/B.png`'s stem is `../B`, never the bare "" that names the folder.
     const folderFromSource = posix.relative(
       posix.dirname(newSourcePath),
       posix.dirname(absoluteForm),
@@ -221,19 +224,13 @@ const buildReplacementTarget = (params: {
 }
 
 /** Returns the replacement target for one link, or null to leave it unchanged.
- *  Null when unresolved, still pointing at the right file, or not affected.
- *  A target matching both a note and an asset resolves to the note. An asset
- *  target never follows the move — only the shift in the source note's
- *  location can break it. */
-const rewriteTarget = (
-  params: {
-    rawTarget: string
-    originalExtension: string
-    grammar: LinkGrammar
-  },
-  context: RewriteContext,
-): string | null => {
-  const { rawTarget, originalExtension, grammar } = params
+ *  Null when unresolved, still pointing at the right file, not affected, or
+ *  when no spelling reaches the target from the new location. A target
+ *  matching both a note and an asset resolves to the note. An asset target
+ *  never follows the move; its link breaks only when the source note moves or
+ *  the moved note's new name takes the link's spelling. */
+const rewriteTarget = (params: RewriteLinkParams, context: RewriteContext): string | null => {
+  const { rawTarget, originalExtension, grammar, readsBack } = params
 
   const resolvedTargetBefore = links.resolveNoteOrAsset({
     target: rawTarget,
@@ -299,9 +296,9 @@ const rewriteTarget = (
   // extension, in any letter case, since ![[Photo.PNG]] resolves to
   // photo.png. As a result:
   // - a markdown link keeps its extension state, with or without one;
-  // - a wikilink to a note never carries ".md";
-  // - a stem-form asset link stays extensionless, except a wikilink whose
-  //   extensionless spelling a note takes (buildReplacementTarget).
+  // - a wikilink to a note and a stem-form asset link stay extensionless,
+  //   except a wikilink whose extensionless spelling does not reach its
+  //   target, which buildReplacementTarget writes with the extension.
   const grammarWritesExtension = targetKind === "asset" || grammar === "markdown"
   const carriesResolvedExtension =
     originalExtension.toLowerCase() === posix.extname(desiredTarget).toLowerCase()
@@ -325,6 +322,7 @@ const rewriteTarget = (
     keepExtension,
     writesRelativeStart,
     resolveFromNewSource,
+    readsBack,
   })
 }
 
@@ -335,19 +333,23 @@ type LinkEdit = { start: number; end: number; replacement: string }
 type LinkMatch = ReturnType<typeof links.matchLinksInLine>[number]
 
 /** Takes a raw link target (with its original extension state and grammar) and
- *  returns its replacement, or null to leave the link unchanged. Created by
- *  binding rewriteTarget to a context. */
-type RewriteLink = (params: {
+ *  returns its replacement, or null to leave the link unchanged. readsBack
+ *  says whether a spelling, written into the link's own text, reads back as
+ *  that spelling. Created by binding rewriteTarget to a context. */
+type RewriteLink = (params: RewriteLinkParams) => string | null
+
+type RewriteLinkParams = {
   rawTarget: string
   originalExtension: string
   grammar: LinkGrammar
-}) => string | null
+  readsBack: (candidate: string) => boolean
+}
 
 /** Splices link replacements into text in start order. Shared by body-line and
  *  frontmatter-string rewriting. */
 const applyLinkEdits = (text: string, edits: LinkEdit[]): string => {
   if (edits.length === 0) return text
-  const orderedEdits = [...edits].sort((left, right) => left.start - right.start)
+  const orderedEdits = edits.toSorted((left, right) => left.start - right.start)
 
   // Splice replacements left-to-right; the cursor state is sequential, so a
   // plain loop.
@@ -376,6 +378,7 @@ const rewriteWikilinkText = (linkText: string, rewriteLink: RewriteLink): string
     rawTarget,
     originalExtension: posix.extname(rawTarget),
     grammar: "wikilink",
+    readsBack: wikilinkReadsBackAs,
   })
 
   if (newTarget === null) return null
@@ -419,35 +422,45 @@ const rewriteMarkdownDestination = (params: {
 
   if (!parts) return null
 
+  const targetStart = parts.prefix.length
+  const headingEnd = targetStart + parts.writtenTarget.length + parts.heading.length
+
+  // The destination this link would write for a target, in its own form or
+  // in angle brackets, or undefined when neither reads back as the target.
+  const findWrittenDestination = (target: string): DestinationCandidate | undefined => {
+    const sameForm = {
+      destination: `${links.encodeMarkdownDestination(target, parts.destinationForm)}${parts.heading}`,
+      suffix: parts.suffix,
+    }
+    const angleForm = {
+      destination: `<${links.encodeMarkdownDestination(target, "angle")}${parts.heading}>`,
+      suffix: `>${parts.suffix}`,
+    }
+    const candidates: DestinationCandidate[] =
+      parts.destinationForm === "bare" ? [sameForm, angleForm] : [sameForm]
+    return candidates.find(({ destination, suffix }) => {
+      const candidateLink = `${linkText.slice(0, targetStart)}${destination}${linkText.slice(headingEnd)}`
+      return readsBackAs(candidateLink, { target, heading: parts.heading, suffix })
+    })
+  }
+
   // The link resolves by its target as Obsidian stores it, not as written,
   // and its extension comes from that target too, since percent-encoding can
-  // hide the dot (photo%2Epng) or span the extension (photo.p%6Eg).
+  // hide the dot (photo%2Epng) or span the extension (photo.p%6Eg). Each
+  // spelling the rewrite tries must read back, so one that cannot (a name
+  // with a leading space, which Obsidian trims) falls through to the next.
   const newTarget = rewriteLink({
     rawTarget: parts.storedTarget,
     originalExtension: posix.extname(parts.storedTarget),
     grammar: "markdown",
+    readsBack: (candidate) => Boolean(findWrittenDestination(candidate)),
   })
 
   if (newTarget === null) return null
+  const written = findWrittenDestination(newTarget)
 
-  const targetStart = parts.prefix.length
-  const headingEnd = targetStart + parts.writtenTarget.length + parts.heading.length
-  const sameForm = {
-    destination: `${links.encodeMarkdownDestination(newTarget, parts.destinationForm)}${parts.heading}`,
-    suffix: parts.suffix,
-  }
-  const angleForm = {
-    destination: `<${links.encodeMarkdownDestination(newTarget, "angle")}${parts.heading}>`,
-    suffix: `>${parts.suffix}`,
-  }
-  const candidates: DestinationCandidate[] =
-    parts.destinationForm === "bare" ? [sameForm, angleForm] : [sameForm]
-  const written = candidates.find(({ destination, suffix }) => {
-    const candidateLink = `${linkText.slice(0, targetStart)}${destination}${linkText.slice(headingEnd)}`
-    return readsBackAs(candidateLink, { target: newTarget, heading: parts.heading, suffix })
-  })
-
-  if (!written) return null
+  // rewriteLink returns only a spelling its readsBack accepted.
+  if (!written) throw new Error("rewriteLink returned a spelling no destination carries")
   return { start: targetStart, end: headingEnd, replacement: written.destination }
 }
 
@@ -744,12 +757,14 @@ const extractLinks = (params: {
 /** Every lowercased spelling a link to a note named `targetStem` can take in a
  *  note's or Canvas's text, for a substring pre-filter before the full parse.
  *  A link that percent-encodes, escapes or references the name's characters
- *  holds the plain stem in the decoded view someSearchableViewHolds tries. */
+ *  holds the plain stem in the decoded view someSearchableViewHolds tries,
+ *  except an embed with a malformed escape, which Obsidian stores with its
+ *  percent text undecoded. */
 const listLowercaseStemSpellings = (targetStem: string): string[] => {
   // Pre-filter stems are lowercased so a case-mismatched link is never
   // skipped before the resolver runs. The fold matches a stem to a link that
-  // writes the name before ".md", where a capital final sigma lowercases
-  // differently.
+  // writes the name before ".md", where a capital sigma ending the name
+  // lowercases to σ rather than ς.
   const lowercaseStem = links.lowercaseLinkName(targetStem)
   // A Canvas stores its links inside JSON strings, which escape `"` and `\`.
   // JSON.stringify applies that escaping; the slice drops the quotes it adds
@@ -774,7 +789,7 @@ const listLowercaseStemSpellings = (targetStem: string): string[] => {
 /** An escape in a JSON string that a link's target can hold: an escaped quote
  *  or backslash, or a `\u` escape of one UTF-16 code unit, which some JSON
  *  writers use for `&` (Go) or for every non-ASCII character (Python's
- *  json.dump). Global — use only with replace. */
+ *  json.dump). Global — use only through replaceAllInBatches, which copies it. */
 const JSON_STRING_ESCAPE = /\\(?:(?<escapedCharacter>["\\])|u(?<codeUnitHex>[0-9A-Fa-f]{4}))/g
 
 /** The character a JSON_STRING_ESCAPE match stands for. */
@@ -786,10 +801,11 @@ const decodeJsonStringEscape = ({ groups }: RegExpExecArray): string => {
 
 /** Whether `holdsSpelling` accepts a view of a file's text a link's target
  *  spelling can appear in. The views are tried in this order, each built only
- *  when the ones before it fail, so a file holds one view at a time:
+ *  when the ones before it fail, so a file found in an early view builds no
+ *  later one:
  *  1. the text itself;
- *  2. for a Canvas, its JSON strings unescaped, as a file card's path and a
- *     wikilink store a name (`Q\u0026A.md` reads as `Q&A.md`);
+ *  2. for a Canvas, its JSON strings unescaped, the form in which a file
+ *     card's path and a wikilink store a name (`Q\u0026A.md` reads as `Q&A.md`);
  *  3. that text decoded the way a stored markdown link reads it, so a text
  *     card's `a\_b.md` reads as `a_b.md`.
  *  A view identical to an earlier one is not tried again. */
@@ -801,7 +817,7 @@ const someSearchableViewHolds = (params: {
   const { path, content, holdsSpelling } = params
 
   if (holdsSpelling(content)) return true
-  const linkText = isCanvasPath(path)
+  const unescapedView = isCanvasPath(path)
     ? replaceAllInBatches({
         text: content,
         pattern: JSON_STRING_ESCAPE,
@@ -809,10 +825,10 @@ const someSearchableViewHolds = (params: {
       })
     : content
 
-  if (linkText !== content && holdsSpelling(linkText)) return true
-  const decodedView = links.decodeLinkSpellings(linkText)
+  if (unescapedView !== content && holdsSpelling(unescapedView)) return true
+  const decodedView = links.decodeLinkSpellings(unescapedView)
 
-  return decodedView !== linkText && decodedView !== content && holdsSpelling(decodedView)
+  return decodedView !== unescapedView && decodedView !== content && holdsSpelling(decodedView)
 }
 
 /** Scans vault notes and Canvas files for links to targetPath, returning the
@@ -1331,7 +1347,7 @@ const moveNote = async (
           result: {
             moved_to: newPath,
             links_updated: linksUpdated,
-            updated_notes: plannedRewrites.map((planned) => planned.source).sort(),
+            updated_notes: plannedRewrites.map((planned) => planned.source).toSorted(),
             pruned_empty_folders: prunedFolderCount,
           },
         }
