@@ -4368,9 +4368,14 @@ describe("moveNote memory on a long backlinking file the index has not read", ()
   it.each(moveCases)(
     "grows the heap at most 20 bytes per character moving the note that $text links",
     async ({ shape }) => {
+      // The test owns the vault folder, so a worker that fails or times out
+      // still leaves nothing behind.
+      const vaultPath = mkdtempSync(join(tmpdir(), "move-memory-"))
+      onTestFinished(() => rm(vaultPath, { recursive: true, force: true }))
+
       const { peakGrowth, ready, done } = await measureWorkerHeapGrowth({
         workerUrl: new URL("./helpers/move-memory-worker.ts", import.meta.url),
-        workerData: shape,
+        workerData: { shape, vaultPath },
       })
 
       expect(readNumberDetail(done, "linksUpdated")).toBe(1)

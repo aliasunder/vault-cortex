@@ -1,13 +1,13 @@
-/** A worker thread that writes a throwaway vault holding `Target.md` and one
- *  10,000,000-character backlinking file the index has not read, reports
- *  "ready", and moves `Target.md` when its parent says "go", so the parent can
- *  sample the worker's heap while the move reads, checks and rewrites that
- *  file. The file each shape names ends in BACKLINK, after:
+/** A worker thread that writes `Target.md` and one 10,000,000-character
+ *  backlinking file the index has not read into the vault folder its parent
+ *  made (and removes), reports "ready", and moves `Target.md` when its parent
+ *  says "go", so the parent can sample the worker's heap while the move reads,
+ *  checks and rewrites that file. The file each shape names ends in BACKLINK,
+ *  after:
  *  - escaped-punctuation-note: a note of `\&` pairs;
  *  - escaped-punctuation-canvas: a Canvas text card of `\&` pairs, which its
  *    JSON stores as `\\&`. */
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
-import { tmpdir } from "node:os"
+import { writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { parentPort, workerData } from "node:worker_threads"
 import { noteMover } from "../../note-mover.js"
@@ -34,37 +34,44 @@ const buildBacklinkingFile = (shape: unknown): { path: string; content: string }
   throw new Error(`unknown file shape: ${String(shape)}`)
 }
 
+/** The file shape and the vault folder the parent passed. */
+const readWorkerData = (data: unknown): { shape: unknown; vaultPath: string } => {
+  const hasVaultPath =
+    typeof data === "object" && data !== null && "vaultPath" in data && "shape" in data
+
+  if (!hasVaultPath || typeof data.vaultPath !== "string") {
+    throw new Error("the move memory worker takes { shape, vaultPath }")
+  }
+  return { shape: data.shape, vaultPath: data.vaultPath }
+}
+
 if (!parentPort) throw new Error("the move memory worker must run in a worker thread")
 
 const port = parentPort
-const vaultPath = mkdtempSync(join(tmpdir(), "move-memory-"))
-const backlinkingFile = buildBacklinkingFile(workerData)
+const { shape, vaultPath } = readWorkerData(workerData)
+const backlinkingFile = buildBacklinkingFile(shape)
 const isCanvas = backlinkingFile.path.endsWith(".canvas")
 
 writeFileSync(join(vaultPath, "Target.md"), "# Target\n")
 writeFileSync(join(vaultPath, backlinkingFile.path), backlinkingFile.content)
 
 port.on("message", async () => {
-  try {
-    const result = await noteMover.moveNote(
-      {
-        vaultPath,
-        oldPath: "Target.md",
-        newPath: "Moved.md",
-        protectedPaths: [],
-        // An empty list makes the move find the file through its own scan.
-        backlinkSources: [],
-        allNotePaths: isCanvas ? ["Target.md"] : ["Target.md", backlinkingFile.path],
-        allAssetPaths: isCanvas ? [backlinkingFile.path] : [],
-        pruneEmptyFolders: false,
-        windowsBindMount: false,
-      },
-      logger,
-    )
-    port.postMessage({ status: "done", linksUpdated: result.links_updated })
-  } finally {
-    rmSync(vaultPath, { recursive: true, force: true })
-  }
+  const result = await noteMover.moveNote(
+    {
+      vaultPath,
+      oldPath: "Target.md",
+      newPath: "Moved.md",
+      protectedPaths: [],
+      // An empty list makes the move find the file through its own scan.
+      backlinkSources: [],
+      allNotePaths: isCanvas ? ["Target.md"] : ["Target.md", backlinkingFile.path],
+      allAssetPaths: isCanvas ? [backlinkingFile.path] : [],
+      pruneEmptyFolders: false,
+      windowsBindMount: false,
+    },
+    logger,
+  )
+  port.postMessage({ status: "done", linksUpdated: result.links_updated })
 })
 // The worker keeps the file's text alive, so the heap it holds when ready
 // stays put while the move reads its own copy.
