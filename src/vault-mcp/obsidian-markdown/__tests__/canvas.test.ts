@@ -1057,3 +1057,130 @@ describe("canvas ownership work and rendering depth", () => {
     )
   })
 })
+
+describe("linearizeCanvas node ids", () => {
+  type IdGrowthMeasurement = { label: string; rendersExpected: boolean; leastMs: number }
+
+  const readIdGrowth = (variant: "text-cards" | "identical-groups"): IdGrowthMeasurement[] => {
+    const helperPath = new URL("./helpers/canvas-id-growth.ts", import.meta.url)
+    const output = execFileSync(
+      process.execPath,
+      ["--expose-gc", "--import", "tsx", helperPath.pathname, variant],
+      {
+        encoding: "utf8",
+        timeout: CHILD_DEADLINE_MS,
+        killSignal: "SIGKILL",
+      },
+    )
+    return JSON.parse(output).measurements
+  }
+
+  it(
+    "renders text cards with long shared-prefix ids in n log n time in the card count",
+    () => {
+      const measurements = readIdGrowth("text-cards")
+      const [small, large] = measurements
+      // Ranking sorts three ids per card (its own and its edge's two endpoints),
+      // so eight times the cards takes about 8 × log(6,000) / log(750) times as long.
+      const sortGrowth = (8 * Math.log(6_000)) / Math.log(750)
+
+      expect(
+        measurements.map(({ label, rendersExpected }) => ({ label, rendersExpected })),
+      ).toEqual([
+        { label: "250", rendersExpected: true },
+        { label: "2000", rendersExpected: true },
+      ])
+      expect(large?.leastMs).toBeLessThanOrEqual(
+        Math.max(TIMING_FLOOR_MS, small?.leastMs ?? 0) * sortGrowth * LINEAR_GROWTH_ALLOWANCE,
+      )
+    },
+    CHILD_TEST_TIMEOUT_MS,
+  )
+
+  it(
+    "nests identical groups with 4,096-character ids in about the time 16-character ids take",
+    () => {
+      const measurements = readIdGrowth("identical-groups")
+      const [shortIds, longIds] = measurements
+
+      expect(
+        measurements.map(({ label, rendersExpected }) => ({ label, rendersExpected })),
+      ).toEqual([
+        { label: "16", rendersExpected: true },
+        { label: "4096", rendersExpected: true },
+      ])
+      // Nesting tests every pair of groups whatever the id length, so the
+      // check compares id lengths at one size instead of two sizes. Parsing and
+      // sorting the ids adds work that grows with their length, so the long ids
+      // may take twice as long.
+      expect(longIds?.leastMs).toBeLessThanOrEqual(
+        Math.max(TIMING_FLOOR_MS, shortIds?.leastMs ?? 0) * 2 * LINEAR_GROWTH_ALLOWANCE,
+      )
+    },
+    CHILD_TEST_TIMEOUT_MS,
+  )
+
+  it("breaks group ties by UTF-16 code unit order of the ids, where locale order would reverse them", () => {
+    const json = canvasJson([
+      { id: "z", type: "group", label: "Zed", x: 0, y: 0, width: 100, height: 100 },
+      // "é" sorts after "z" by UTF-16 code unit, though localeCompare puts it first.
+      { id: "é", type: "group", label: "Acute", x: 0, y: 0, width: 100, height: 100 },
+      textNode({ id: "inside", x: 10, y: 10, width: 10, height: 10, text: "in both" }),
+      { id: "p", type: "group", label: "Pea", x: 1000, y: 0, width: 100, height: 100 },
+      { id: "q", type: "group", label: "Queue", x: 1010, y: 0, width: 100, height: 100 },
+      textNode({ id: "member", x: 1020, y: 10, width: 10, height: 10, text: "shared" }),
+    ])
+
+    expect(linearizeCanvas(json)).toBe(
+      [
+        "# Canvas: 6 nodes, 0 edges",
+        "## Group: Acute",
+        "### Group: Zed",
+        "[text]\nin both",
+        "## Group: Pea",
+        "[text]\nshared",
+        "## Group: Queue",
+      ].join("\n\n"),
+    )
+  })
+
+  it("names the last node in reading order for an edge to a repeated id, whatever the JSON order", () => {
+    const json = canvasJson(
+      [
+        textNode({ id: "dup", x: 0, y: 100, width: 10, height: 10, text: "lower dup" }),
+        textNode({ id: "dup", x: 0, y: 0, width: 10, height: 10, text: "upper dup" }),
+        textNode({ id: "source", x: 0, y: 200, width: 10, height: 10, text: "source" }),
+      ],
+      [{ fromNode: "source", toNode: "dup" }],
+    )
+
+    expect(linearizeCanvas(json)).toBe(
+      [
+        "# Canvas: 3 nodes, 1 edge",
+        "[text]\nupper dup",
+        "[text]\nlower dup",
+        "[text]\nsource",
+        "## Connections\n\nsource → lower dup",
+      ].join("\n\n"),
+    )
+  })
+
+  it("marks an edge endpoint missing when its id sorts between the ids of existing nodes", () => {
+    const json = canvasJson(
+      [
+        textNode({ id: "a", x: 0, y: 0, width: 10, height: 10, text: "first" }),
+        textNode({ id: "c", x: 0, y: 100, width: 10, height: 10, text: "third" }),
+      ],
+      [{ fromNode: "a", toNode: "b" }],
+    )
+
+    expect(linearizeCanvas(json)).toBe(
+      [
+        "# Canvas: 2 nodes, 1 edge",
+        "[text]\nfirst",
+        "[text]\nthird",
+        '## Connections\n\nfirst → (missing node "b")',
+      ].join("\n\n"),
+    )
+  })
+})
