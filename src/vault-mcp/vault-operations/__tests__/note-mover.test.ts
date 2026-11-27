@@ -840,6 +840,12 @@ describe("moveNote — markdown link destinations", () => {
 
   const unindexedCases = [
     {
+      label: "a character reference",
+      oldPath: "A&B.md",
+      link: "[x](A&amp;B.md)",
+      rewritten: "[x](New.md)",
+    },
+    {
       label: "a mixed escape",
       oldPath: "a(b)c.md",
       link: "[x](a%28b\\)c.md)",

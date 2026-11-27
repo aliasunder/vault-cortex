@@ -1073,6 +1073,11 @@ describe("extractFromBody against Obsidian 1.15.1", () => {
       expected: [`${REPLACEMENT_CHARACTER}.md`],
     },
     { input: "[x](<&#65.md>)", obsidian: ["&#65.md"], expected: ["&"] },
+    // A backslash run before a title's opening quote, odd or even, ends the link.
+    { input: '[x](a.md \\"t")', obsidian: [], expected: [] },
+    { input: '[x](a.md \\\\"t")', obsidian: [], expected: [] },
+    { input: '[x](a.md \\\\\\\\"t")', obsidian: [], expected: [] },
+    { input: "[x](a.md \\\\'t')", obsidian: [], expected: [] },
     { input: "[x](<&#;.md>)", obsidian: ["&#;.md"], expected: ["&"] },
     {
       input: "[x](<&amp;and more text.md>)",
@@ -1331,10 +1336,11 @@ describe("link spelling decode memory", () => {
     expect(peakGrowth).toBeLessThan(BYTES_PER_CHARACTER * LINE_LENGTH)
   }, 60_000)
 
-  it("grows the heap at most 8 bytes per character decoding one & before 10,000,000 characters of text", async () => {
+  it("grows the heap at most 8 bytes per character decoding one &amp; before 10,000,000 characters of text", async () => {
     const { peakGrowth, resultLength } = await measureHeapGrowth("ampersand-tail")
 
-    expect(resultLength).toBe(LINE_LENGTH)
+    // `&amp;` decodes to the one character `&`, four fewer than its spelling.
+    expect(resultLength).toBe(LINE_LENGTH - 4)
     expect(peakGrowth).toBeLessThan(BYTES_PER_CHARACTER * LINE_LENGTH)
   }, 60_000)
 

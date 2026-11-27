@@ -30,7 +30,7 @@ const DECODED_SHAPES: ReadonlySet<unknown> = new Set([
  *  - sparse: one parenthesis;
  *  - dense: a parenthesis in every character after the first four;
  *  - ampersands: only `&`;
- *  - ampersand-tail: one `&` before plain text;
+ *  - ampersand-tail: one `&amp;` reference before plain text;
  *  - digit-run: one `&#` reference whose digits are leading zeros before 65;
  *  - long-number: one `&#` reference whose digits name no code point. */
 const buildLine = (shape: unknown): string => {
@@ -41,7 +41,7 @@ const buildLine = (shape: unknown): string => {
   if (shape === "dense") return `[x](${"()".repeat(LINE_LENGTH / 2 - 2)}`
   if (shape === "ampersands") return "&".repeat(LINE_LENGTH)
   if (shape === "ampersand-tail") {
-    return `&${"a b-".repeat(Math.ceil(LINE_LENGTH / 4))}`.slice(0, LINE_LENGTH)
+    return `&amp;${"a b-".repeat(Math.ceil(LINE_LENGTH / 4))}`.slice(0, LINE_LENGTH)
   }
   if (shape === "digit-run") return `&#${"0".repeat(LINE_LENGTH - 5)}65;`
   if (shape === "long-number") return `&#${"1".repeat(LINE_LENGTH - 3)};`
