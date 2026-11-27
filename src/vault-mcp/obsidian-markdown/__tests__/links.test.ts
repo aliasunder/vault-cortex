@@ -2612,4 +2612,17 @@ describe("markdown destination encoder round trip", () => {
 
     expect(failures).toEqual([])
   })
+
+  // A raw tab inside a destination reads back as the same name, so the round
+  // trip alone would pass if the encoder stopped encoding control characters.
+  it.each([
+    { label: "a tab", character: String.fromCharCode(0x09), encoded: "%09" },
+    { label: "a C0 control character", character: String.fromCharCode(0x01), encoded: "%01" },
+    { label: "DEL", character: String.fromCharCode(0x7f), encoded: "%7F" },
+  ])("percent-encodes $label in both destination forms", ({ character, encoded }) => {
+    const name = `a${character}b.md`
+
+    expect(links.encodeMarkdownDestination(name, "angle")).toBe(`a${encoded}b.md`)
+    expect(links.encodeMarkdownDestination(name, "bare")).toBe(`a${encoded}b.md`)
+  })
 })
