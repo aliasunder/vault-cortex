@@ -1116,7 +1116,9 @@ const createSeededRandom = (seed: number): (() => number) => {
 }
 
 /** A small pool, so paths that differ only in letter case or depth, and
- *  targets that hit them, come up often. */
+ *  targets that hit them, come up often. The emoji is one code point but two
+ *  UTF-16 units, so a resolver that measured paths in UTF-16 units would pick
+ *  a different shortest path. */
 const SEGMENT_TOKENS = [
   "a",
   "A",
@@ -1130,6 +1132,7 @@ const SEGMENT_TOKENS = [
   "sub dir",
   "Photo",
   "photo",
+  "😀",
 ]
 const TARGET_ONLY_TOKENS = ["..", ".", ""]
 const ASSET_EXTENSIONS = [".png", ".PNG", ".gif", ".canvas", ".md.png", ""]
@@ -1171,34 +1174,42 @@ const createCorpus = (seed: number) => {
   return { notePaths, assetPaths, lookups }
 }
 
+/** The comparison takes about 2 s on an idle laptop and several times that
+ *  while the full suite runs, which can exceed vitest's 5 s default. */
+const ORACLE_TEST_TIMEOUT_MS = 30_000
+
 describe("resolver oracle", () => {
-  it("resolve, resolveInExactCase and resolveAsset match the scanning resolvers on 10,000 seeded targets", () => {
-    const { notePaths, assetPaths, lookups } = createCorpus(20261126)
+  it(
+    "resolve, resolveInExactCase and resolveAsset match the scanning resolvers on 10,000 seeded targets",
+    () => {
+      const { notePaths, assetPaths, lookups } = createCorpus(20261126)
 
-    const disagreements = lookups.flatMap((lookup) => {
-      const answers = {
-        resolve: [
-          links.resolve({ ...lookup, allPaths: notePaths }),
-          linkResolverOracle.resolve({ ...lookup, allPaths: notePaths }),
-        ],
-        resolveInExactCase: [
-          links.resolveInExactCase({ ...lookup, allPaths: notePaths }),
-          linkResolverOracle.resolveInExactCase({ ...lookup, allPaths: notePaths }),
-        ],
-        resolveAsset: [
-          links.resolveAsset({ ...lookup, allAssetPaths: assetPaths }),
-          linkResolverOracle.resolveAsset({ ...lookup, allAssetPaths: assetPaths }),
-        ],
-      }
-      return Object.entries(answers)
-        .filter(([, [answer, oracleAnswer]]) => answer !== oracleAnswer)
-        .map(([resolver, [answer, oracleAnswer]]) => {
-          return { resolver, ...lookup, answer, oracleAnswer }
-        })
-    })
+      const disagreements = lookups.flatMap((lookup) => {
+        const answers = {
+          resolve: [
+            links.resolve({ ...lookup, allPaths: notePaths }),
+            linkResolverOracle.resolve({ ...lookup, allPaths: notePaths }),
+          ],
+          resolveInExactCase: [
+            links.resolveInExactCase({ ...lookup, allPaths: notePaths }),
+            linkResolverOracle.resolveInExactCase({ ...lookup, allPaths: notePaths }),
+          ],
+          resolveAsset: [
+            links.resolveAsset({ ...lookup, allAssetPaths: assetPaths }),
+            linkResolverOracle.resolveAsset({ ...lookup, allAssetPaths: assetPaths }),
+          ],
+        }
+        return Object.entries(answers)
+          .filter(([, [answer, oracleAnswer]]) => answer !== oracleAnswer)
+          .map(([resolver, [answer, oracleAnswer]]) => {
+            return { resolver, ...lookup, answer, oracleAnswer }
+          })
+      })
 
-    expect(disagreements).toEqual([])
-  })
+      expect(disagreements).toEqual([])
+    },
+    ORACLE_TEST_TIMEOUT_MS,
+  )
 
   it("the seeded corpus resolves 1,000 to 9,000 of its targets in both note and asset modes", () => {
     const { notePaths, assetPaths, lookups } = createCorpus(20261126)
