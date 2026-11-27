@@ -1310,7 +1310,9 @@ Before adding, cutting or moving a passage, name the doc's reader and
 the question the passage answers for them. A passage that answers no
 question of theirs is cut, however true; one written for another doc's
 reader moves there. A term a review flags as unexplained stays when it
-names a design choice; a sentence that explains how a mechanism works
+names a design choice, and so does the one clause that names a
+protection's mechanism ("stages to a temp file, then renames"); a
+sentence that walks through a mechanism's steps beyond that clause
 moves to ARCHITECTURE.md.
 
 **Write-time format decision** — before committing any prose (code
