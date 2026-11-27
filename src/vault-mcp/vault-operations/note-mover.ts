@@ -1,11 +1,12 @@
 /** Moves/renames a note and rewrites every vault-wide link that resolves to it,
  *  mirroring Obsidian's built-in rename. Reuses the link grammar, parsing,
  *  destination encoding and resolution from ../obsidian-markdown/links.ts so
- *  the rewriter and indexer read links alike, with one difference:
- *  - the indexer skips links inside Templater expressions;
- *  - the rewriter rewrites a link inside a Templater expression only in the
- *    moved note and in a note it already rewrites for another link, because
- *    its backlink scan skips Templater expressions as the indexer does.
+ *  the rewriter and indexer read links alike except around Templater
+ *  expressions, which only the indexer blanks:
+ *  - the indexer skips a link inside one;
+ *  - the rewriter rewrites a link inside one only in the moved note and in a
+ *    note that also links to it outside one, because its backlink scan reads
+ *    links as the indexer does.
  *
  *  How it comes together — building blocks first, orchestrator last:
  *    1. Target classification — decides IF a link needs rewriting and what form

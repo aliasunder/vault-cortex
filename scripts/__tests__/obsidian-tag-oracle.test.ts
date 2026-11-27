@@ -2,7 +2,12 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { describe, it, expect, onTestFinished } from "vitest"
-import { listedTagNames, loadObsidianTagOracle, readOracleInputs } from "../obsidian-tag-oracle.js"
+import {
+  listedTagNames,
+  loadObsidianLinkOracle,
+  loadObsidianTagOracle,
+  readOracleInputs,
+} from "../obsidian-tag-oracle.js"
 
 /** A file holding `content` in a temporary folder removed when the test finishes. */
 const writeTempFile = async (fileName: string, content: string): Promise<string> => {
@@ -67,6 +72,36 @@ describe("loadObsidianTagOracle", () => {
 
     expect(() => loadObsidianTagOracle(workerPath)).toThrow(
       new Error(`${workerPath} did not install a message handler`),
+    )
+  })
+})
+
+describe("loadObsidianLinkOracle", () => {
+  it("returns the reply's stored links, then its embeds, in the reply's order", async () => {
+    const workerPath = await writeTempFile("echoing-worker.js", ECHOING_WORKER_SOURCE)
+    const readLinks = loadObsidianLinkOracle(workerPath)
+    const reply = {
+      links: [{ link: "b.md#h" }, { link: "Old" }],
+      embeds: [{ link: "photo.png" }],
+    }
+
+    expect(readLinks(JSON.stringify(reply))).toEqual(["b.md#h", "Old", "photo.png"])
+  })
+
+  it("reads a reply with no links or embeds as no links", async () => {
+    const workerPath = await writeTempFile("echoing-worker.js", ECHOING_WORKER_SOURCE)
+    const readLinks = loadObsidianLinkOracle(workerPath)
+
+    expect(readLinks(JSON.stringify({ tags: [], links: null }))).toEqual([])
+  })
+
+  it("throws on a reply with a link entry without a text link", async () => {
+    const workerPath = await writeTempFile("echoing-worker.js", ECHOING_WORKER_SOURCE)
+    const readLinks = loadObsidianLinkOracle(workerPath)
+    const replyText = JSON.stringify({ embeds: [{ link: 3 }] })
+
+    expect(() => readLinks(replyText)).toThrow(
+      new Error(`unexpected reply from ${workerPath}: ${replyText}`),
     )
   })
 })

@@ -378,7 +378,7 @@ docstring), and calendar-invalid dates are nulled at parse time
 (`calendarValidOrNull` in `tasks.ts`). A behavior change in either is a
 decision, not a drift fix.
 
-### Upgrading remark-parse (body-tag parity)
+### Upgrading remark-parse (body-tag and link parity)
 
 `obsidian-markdown/body-tags.ts` finds a note's `#tags` with
 `remark-parse@8.0.3`, the version Obsidian's metadata cache forked, plus
@@ -415,9 +415,17 @@ Obsidian ships a new release:
 4. When the comparison finds disagreements, `disagreements.json` holds each
    shrunk input as a `{ label, input }` record. Pass that file as the third
    argument to step 2's command, then fix the parser until every row passes.
+5. Re-record the link vectors: the `obsidian` column in `links.test.ts` and
+   `note-mover.test.ts` holds the links Obsidian stored for each row's input.
+   Put those inputs in a JSON array, run
+   `npm run oracle:body-tags -- <dir>/worker.js <inputs.json>`, copy each
+   `storedLinks` answer into its row, and run
+   `npx vitest run src/vault-mcp/obsidian-markdown/__tests__/links.test.ts src/vault-mcp/vault-operations/__tests__/note-mover.test.ts`.
+   A row whose `expected` targets no longer follow from its `obsidian` answer
+   fails, and the scanner is fixed until it passes.
 
 For a one-off question, `npm run oracle:body-tags -- <dir>/worker.js <inputs.json>`
-prints Obsidian's raw tags and listed names for each input.
+prints Obsidian's raw tags, listed names and stored links for each input.
 
 ### Upgrading obsidian-headless
 

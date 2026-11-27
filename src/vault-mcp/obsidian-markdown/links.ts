@@ -107,9 +107,9 @@ type MarkdownLinkSpan = LinkSpan & {
 }
 
 /** The structural parts of a wikilink ![[target#heading|alias]]. heading/alias
- *  keep their leading `#` / `|` (or `\|` for table-escaped pipes) so
- *  reconstruction is plain concatenation; target is not trimmed (the caller
- *  trims). */
+ *  keep their leading `#` / `|`, and the one after the target also holds a
+ *  table-pipe escape the target ended in (`\|`, `\ |`), so reconstruction is
+ *  plain concatenation; target is not trimmed (the caller trims). */
 type WikilinkParts = {
   embed: string
   target: string
@@ -1043,8 +1043,16 @@ const scanBodyLineLinks = (params: {
     const delimiterOffset = line
       .slice(span.targetStart, span.targetEnd)
       .search(WIKILINK_TARGET_DELIMITER)
-    const targetEnd = delimiterOffset === -1 ? span.targetEnd : span.targetStart + delimiterOffset
-    visitWikilink({ ...span, targetEnd })
+
+    if (delimiterOffset === -1) {
+      visitWikilink(span)
+      return
+    }
+    const targetEnd = span.targetStart + delimiterOffset
+    // A `]]` there closes the link, as Obsidian reads ``[[a `]]` b]]`` as
+    // ``[[a `]]``, so the rewriter's match ends where the stored target does.
+    const end = line.startsWith("]]", targetEnd) ? targetEnd + 2 : span.end
+    visitWikilink({ ...span, targetEnd, end })
   }
 
   scanWikilinks(wikilinkLine, visitWikilinkAsWritten)
@@ -1109,19 +1117,25 @@ const pathToLinkName = (path: string): string => {
 }
 
 /** Splits a matched wikilink, or returns null for malformed text.
- *  A trailing backslash moves from the target to the alias to preserve a table-pipe escape. */
+ *  A trailing backslash, with any spaces after it, moves from the target to
+ *  the part after it, so the rebuilt link keeps the table-pipe escape and the
+ *  target reads as the index stores it (`[[a\ |b]]` stores `a`). */
 const splitWikilink = (linkText: string): WikilinkParts | null => {
   const parts = WIKILINK_PARTS.exec(linkText)
 
   if (!parts) return null
-  const [, embed, rawTarget, heading = "", rawAlias = ""] = parts
+  const [, embed, rawTarget, heading = "", alias = ""] = parts
 
   // Both groups take part in every match; the check only narrows their types.
   if (embed === undefined || rawTarget === undefined) return null
-  const hasEscapedPipe = rawTarget.endsWith("\\")
-  const target = stripEscapedPipe(rawTarget)
-  const alias = hasEscapedPipe ? `\\${rawAlias}` : rawAlias
-  return { embed, target, heading, alias }
+  const targetThroughEscape = rawTarget.trimEnd()
+
+  if (!targetThroughEscape.endsWith("\\")) return { embed, target: rawTarget, heading, alias }
+  const target = targetThroughEscape.slice(0, -1)
+  const escape = rawTarget.slice(target.length)
+
+  if (heading) return { embed, target, heading: `${escape}${heading}`, alias }
+  return { embed, target, heading, alias: `${escape}${alias}` }
 }
 
 /** Splits a markdown link's text into its parts with the scanner's grammar,
@@ -1134,7 +1148,8 @@ const splitWikilink = (linkText: string): WikilinkParts | null => {
  *  - `linkText` is scanned with its inline code blanked, as its line was. A
  *    code span that starts inside the link and ends after it must start after
  *    the `(`, since one starting earlier would have hidden the link from the
- *    line scan, and the destination and title are read as written. */
+ *    line scan. It then lies in the destination or title, which are read as
+ *    written, so cutting it off changes nothing. */
 const splitMarkdownLink = (linkText: string): MarkdownLinkParts | null => {
   const spans: MarkdownLinkSpan[] = []
   scanMarkdownLinks({

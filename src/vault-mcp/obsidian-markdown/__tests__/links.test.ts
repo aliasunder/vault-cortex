@@ -36,6 +36,13 @@ describe("matchLinksInLine", () => {
     ])
   })
 
+  // Obsidian 1.15.1 reads ``[[a `]]` b]]`` as the link ``[[a `]]``.
+  it("ends a wikilink at a `]]` inside a code span the link opened", () => {
+    expect(links.matchLinksInLine("[[a `]]` b]]")).toEqual([
+      { text: "[[a `]]", start: 0, end: 7, kind: "wikilink" },
+    ])
+  })
+
   it("returns no wikilink inside a markdown link's title, and keeps one outside it", () => {
     const line = '[[A]] [x](b.md "[[C]]")'
 
@@ -273,6 +280,16 @@ describe("splitWikilink", () => {
       name: "strips a trailing backslash even when there is no alias",
       input: "[[path\\]]",
       expected: { embed: "", target: "path", heading: "", alias: "\\" },
+    },
+    {
+      name: "moves a backslash and the spaces after it into the alias",
+      input: "[[a\\ |b]]",
+      expected: { embed: "", target: "a", heading: "", alias: "\\ |b" },
+    },
+    {
+      name: "moves a trailing backslash into the heading when one follows",
+      input: "[[a\\#h|x]]",
+      expected: { embed: "", target: "a", heading: "\\#h", alias: "|x" },
     },
   ]
 
@@ -758,6 +775,17 @@ describe("extractFromBody", () => {
 
 // ── extractFromBody against Obsidian ─────────────────────────────
 
+/** The sorted, distinct targets of links Obsidian stored, each cut at its
+ *  first `#` and trimmed, without the empty ones. */
+const targetsInStoredLinks = (storedLinks: readonly string[]): string[] => {
+  const targets = storedLinks.map((storedLink) => {
+    const headingStart = storedLink.indexOf("#")
+    const linkpath = headingStart === -1 ? storedLink : storedLink.slice(0, headingStart)
+    return linkpath.trim()
+  })
+  return [...new Set(targets.filter((target) => target.length > 0))].toSorted()
+}
+
 describe("extractFromBody against Obsidian 1.15.1", () => {
   // Splits each markdown link the rewriter finds in `input`, returning the
   // text its parts rebuild and the target its path and extension spell.
@@ -1144,6 +1172,18 @@ describe("extractFromBody against Obsidian 1.15.1", () => {
     expect(links.extractFromBody(input)).toEqual(expected)
   })
 
+  // Each case's `expected` holds the targets of its recorded `obsidian` links:
+  // each link cut at its first `#` and trimmed, without the empty ones. A
+  // re-recorded `obsidian` value that no longer gives `expected` fails here.
+  it.each([
+    ...obsidianCases,
+    ...wikilinkInDestinationCases,
+    ...inlineCodeInDestinationCases,
+    ...wikilinkTargetAsWrittenCases,
+  ])("derives $expected from Obsidian's stored links for $input", ({ obsidian, expected }) => {
+    expect(targetsInStoredLinks(obsidian)).toEqual(expected.toSorted())
+  })
+
   // Each link whose destination holds backticks splits into parts that
   // rebuild it, with the stored target read as written.
   const backtickDestinationSplitCases = [
@@ -1311,22 +1351,24 @@ describe("markdown links against the remark oracle", () => {
 
   const sortedUnique = (targets: readonly string[]): string[] => [...new Set(targets)].toSorted()
 
-  it("leaves at most 15% of the 10,000 token documents out of the comparison", () => {
-    expect(tokenDocuments.length - keptDocuments.length).toBeLessThanOrEqual(1_500)
+  // The seeded generator fixes each count, so a change to the exclusions or
+  // the generator shows in review as a changed number.
+  it("leaves 105 of the 10,000 token documents out of the comparison", () => {
+    expect(tokenDocuments.length - keptDocuments.length).toBe(105)
   })
 
-  it("keeps at least 1,000 token documents that hold a link", () => {
-    expect(keptWithLinks.length).toBeGreaterThanOrEqual(1_000)
+  it("keeps 1,089 token documents that hold a link", () => {
+    expect(keptWithLinks.length).toBe(1_089)
   })
 
-  it("holds at least 100 kept documents that CommonMark's balance rule would read wrongly", () => {
+  it("holds 128 kept documents that CommonMark's balance rule would read wrongly", () => {
     const unbalancedDocuments = keptWithLinks.filter((document) => {
       const masked = maskLikeExtraction(document)
       return referenceMarkdownLinks(document).some(({ start, end }) => {
         return endsAtWhitespaceUnbalanced(masked.slice(start, end))
       })
     })
-    expect(unbalancedDocuments.length).toBeGreaterThanOrEqual(100)
+    expect(unbalancedDocuments.length).toBe(128)
   })
 
   it("extracts the oracle's targets from every kept token document", () => {

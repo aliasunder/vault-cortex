@@ -495,6 +495,26 @@ describe("moveNote — link rewriting forms", () => {
     })
   })
 
+  it("rewrites a wikilink that a `]]` inside a code span closes", async () => {
+    const { writeFixture, moveNote, readNote } = setupVault()
+    await writeFixture("a `.md", "content\n")
+    await writeFixture("Hub.md", "See [[a `]]` b]].\n")
+
+    const result = await moveNote({
+      oldPath: "a `.md",
+      newPath: "Bar.md",
+      backlinkSources: ["Hub.md"],
+    })
+
+    expect(await readNote("Hub.md")).toBe("See [[Bar]]` b]].\n")
+    expect(result).toEqual({
+      moved_to: "Bar.md",
+      links_updated: 1,
+      updated_notes: ["Hub.md"],
+      pruned_empty_folders: 0,
+    })
+  })
+
   it("rewrites a table link with a space before its escaped pipe", async () => {
     const { writeFixture, moveNote, readNote } = setupVault()
     await writeFixture("Foo.md", "content\n")
@@ -510,6 +530,26 @@ describe("moveNote — link rewriting forms", () => {
     expect(result).toEqual({
       moved_to: "Bar.md",
       links_updated: 1,
+      updated_notes: ["Hub.md"],
+      pruned_empty_folders: 0,
+    })
+  })
+
+  it("rewrites a link with a space after its escaped pipe's backslash", async () => {
+    const { writeFixture, moveNote, readNote } = setupVault()
+    await writeFixture("Foo.md", "content\n")
+    await writeFixture("Hub.md", "See [[Foo\\ |display]] and [[Foo\\#h]].\n")
+
+    const result = await moveNote({
+      oldPath: "Foo.md",
+      newPath: "Bar.md",
+      backlinkSources: ["Hub.md"],
+    })
+
+    expect(await readNote("Hub.md")).toBe("See [[Bar\\ |display]] and [[Bar\\#h]].\n")
+    expect(result).toEqual({
+      moved_to: "Bar.md",
+      links_updated: 2,
       updated_notes: ["Hub.md"],
       pruned_empty_folders: 0,
     })
@@ -725,8 +765,9 @@ describe("moveNote — markdown link destinations", () => {
   )
 
   it.each(destinationCases)(
-    "writes links to $newPath that extraction reads back as that path",
-    ({ newPath, written }) => {
+    "writes links to $newPath that Obsidian and extraction both read back as that path",
+    ({ newPath, written, obsidian }) => {
+      expect(obsidian).toEqual([newPath, newPath, newPath])
       expect(links.extractFromBody(written)).toEqual([newPath])
     },
   )
@@ -1033,6 +1074,21 @@ describe("moveNote — selectivity (must-not-rewrite cases)", () => {
       moved_to: "y.md",
       links_updated: 1,
       updated_notes: ["Hub.md"],
+      pruned_empty_folders: 0,
+    })
+  })
+
+  it("rewrites a self-link inside a Templater expression in the moved note", async () => {
+    const { writeFixture, moveNote, readNote } = setupVault()
+    await writeFixture("Old.md", '<% tp.file.include("[[Old]]") %>\n')
+
+    const result = await moveNote({ oldPath: "Old.md", newPath: "New.md" })
+
+    expect(await readNote("New.md")).toBe('<% tp.file.include("[[New]]") %>\n')
+    expect(result).toEqual({
+      moved_to: "New.md",
+      links_updated: 1,
+      updated_notes: [],
       pruned_empty_folders: 0,
     })
   })

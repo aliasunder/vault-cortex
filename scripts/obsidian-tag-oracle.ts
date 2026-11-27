@@ -1,19 +1,21 @@
 /**
- * Asks Obsidian's own metadata worker which body tags a note holds, so the
- * body-tag parser can be checked against Obsidian rather than against itself.
+ * Asks Obsidian's own metadata worker which body tags and links a note holds,
+ * so the body-tag parser and the link scanner can be checked against Obsidian
+ * rather than against themselves.
  *
  * Obsidian computes each note's tags, links and headings in `worker.js`, a
  * bundle inside the app. This script loads a copy of that bundle as a black
  * box: it feeds a note's text in through the worker's message handler and reads
  * back the tags it reports, in the order and spelling Obsidian reports them
- * (`#tag`, a trailing `/` kept). Nothing from the bundle is copied into this
- * repo; the caller supplies the path to a `worker.js` extracted from an
- * installed Obsidian app (CONTRIBUTING.md → "Upgrading remark-parse").
+ * (`#tag`, a trailing `/` kept), and the links it stores. Nothing from the
+ * bundle is copied into this repo; the caller supplies the path to a
+ * `worker.js` extracted from an installed Obsidian app (CONTRIBUTING.md →
+ * "Upgrading remark-parse").
  *
  * Run directly as `tsx scripts/obsidian-tag-oracle.ts <worker.js> <inputs.json>`,
  * it prints, for each input in the file (an array of strings or of
- * `{ label, input }` records), Obsidian's raw tags and the names its Tags view
- * lists for them.
+ * `{ label, input }` records), Obsidian's raw tags, the names its Tags view
+ * lists for them, and the links it stores.
  */
 import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
@@ -21,8 +23,14 @@ import { pathToFileURL } from "node:url"
 
 type WorkerTagEntry = { tag: string }
 
+type WorkerLinkEntry = { link: string }
+
 /** The parts of the worker's reply for one note that this script reads. */
-type WorkerReply = { tags?: ReadonlyArray<WorkerTagEntry> } | null
+type WorkerReply = {
+  tags?: ReadonlyArray<WorkerTagEntry> | null
+  links?: ReadonlyArray<WorkerLinkEntry> | null
+  embeds?: ReadonlyArray<WorkerLinkEntry> | null
+} | null
 
 /** The global the bundle installs its message handler on, as a web worker would. */
 type WorkerScope = {
@@ -36,19 +44,38 @@ const isWorkerTagEntry = (value: unknown): value is WorkerTagEntry => {
   )
 }
 
+const isWorkerLinkEntry = (value: unknown): value is WorkerLinkEntry => {
+  return (
+    typeof value === "object" && value !== null && "link" in value && typeof value.link === "string"
+  )
+}
+
+/** True for a missing or null list, which means none, or for a list whose
+ *  entries all pass `isEntry`. A falsy value such as 0 is malformed. */
+const isEntryListOrNone = (entries: unknown, isEntry: (entry: unknown) => boolean): boolean => {
+  if (entries === undefined || entries === null) return true
+  return Array.isArray(entries) && entries.every(isEntry)
+}
+
 const isWorkerReply = (value: unknown): value is WorkerReply => {
   if (value === null) return true
   if (typeof value !== "object") return false
-  // Only a missing tags field means none; a falsy one such as 0 is malformed
-  if (!("tags" in value) || value.tags === undefined || value.tags === null) return true
-  return Array.isArray(value.tags) && value.tags.every(isWorkerTagEntry)
+
+  const tags = "tags" in value ? value.tags : undefined
+  const links = "links" in value ? value.links : undefined
+  const embeds = "embeds" in value ? value.embeds : undefined
+  return (
+    isEntryListOrNone(tags, isWorkerTagEntry) &&
+    isEntryListOrNone(links, isWorkerLinkEntry) &&
+    isEntryListOrNone(embeds, isWorkerLinkEntry)
+  )
 }
 
 /**
- * Loads a `worker.js` and returns a function giving Obsidian's raw body tags
- * for a note's full text (properties block included, as Obsidian reads it).
+ * Loads a `worker.js` and returns a function giving the worker's reply for a
+ * note's full text (properties block included, as Obsidian reads it).
  */
-export const loadObsidianTagOracle = (workerPath: string): ((noteText: string) => string[]) => {
+const loadObsidianMetadataWorker = (workerPath: string): ((noteText: string) => WorkerReply) => {
   const workerSource = readFileSync(workerPath, "utf8")
 
   // The handler replies synchronously through postMessage, so a mutable slot
@@ -82,7 +109,27 @@ export const loadObsidianTagOracle = (workerPath: string): ((noteText: string) =
     if (!isWorkerReply(lastReply)) {
       throw new Error(`unexpected reply from ${workerPath}: ${JSON.stringify(lastReply)}`)
     }
-    return (lastReply?.tags ?? []).map((entry) => entry.tag)
+    return lastReply
+  }
+}
+
+/** Loads a `worker.js` and returns a function giving Obsidian's raw body tags
+ *  for a note's full text. */
+export const loadObsidianTagOracle = (workerPath: string): ((noteText: string) => string[]) => {
+  const readReply = loadObsidianMetadataWorker(workerPath)
+  return (noteText) => (readReply(noteText)?.tags ?? []).map((entry) => entry.tag)
+}
+
+/** Loads a `worker.js` and returns a function giving the links Obsidian
+ *  stores for a note's full text, links before embeds, each as Obsidian
+ *  stores it (`a.md#heading`), which is what the link vector tables'
+ *  `obsidian` columns hold. */
+export const loadObsidianLinkOracle = (workerPath: string): ((noteText: string) => string[]) => {
+  const readReply = loadObsidianMetadataWorker(workerPath)
+  return (noteText) => {
+    const reply = readReply(noteText)
+    const entries = [...(reply?.links ?? []), ...(reply?.embeds ?? [])]
+    return entries.map((entry) => entry.link)
   }
 }
 
@@ -147,9 +194,11 @@ if (isMainModule) {
   }
 
   const readObsidianTags = loadObsidianTagOracle(workerPath)
+  const readObsidianLinks = loadObsidianLinkOracle(workerPath)
   const results = readOracleInputs(inputsPath).map(({ label, input }) => {
     const rawTags = readObsidianTags(input)
-    return { label, input, rawTags, listedNames: listedTagNames(rawTags) }
+    const storedLinks = readObsidianLinks(input)
+    return { label, input, rawTags, listedNames: listedTagNames(rawTags), storedLinks }
   })
   console.log(JSON.stringify(results, null, 2))
 }
