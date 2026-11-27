@@ -144,6 +144,10 @@ const classifyLinkForm = (params: {
   return "basename"
 }
 
+/** The last segments of a path that names a folder, not a file: the empty
+ *  string, "." and "..". */
+const FOLDER_ONLY_NAMES: ReadonlySet<string> = new Set(["", ".", ".."])
+
 /** Builds a replacement target that resolves to desiredTarget from the new
  *  source location, or returns null when no spelling does. It returns the
  *  first of these that resolves there:
@@ -180,6 +184,11 @@ const buildReplacementTarget = (params: {
   const absoluteForm = keepExtension ? desiredTarget : links.stripExtension(desiredTarget)
 
   const resolvesToDesired = (candidate: string): boolean => {
+    // A spelling that ends in "", "." or ".." names a folder, not the file.
+    // From `A/B/`, the relative spelling of `A/B.png`'s stem is "", which the
+    // resolver joins back to `A/B` and matches by stem, yet `![[]]` names
+    // nothing.
+    if (FOLDER_ONLY_NAMES.has(posix.basename(candidate))) return false
     return resolveFromNewSource(candidate) === desiredTarget
   }
 

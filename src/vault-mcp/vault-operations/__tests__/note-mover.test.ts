@@ -1468,6 +1468,37 @@ describe("moveNote — asset link rewriting", () => {
     })
   })
 
+  it.each([
+    {
+      label: "an empty relative spelling",
+      siblingFile: "A/B/B.png",
+      newPath: "A/B/note.md",
+    },
+    {
+      label: "a relative spelling of only ..",
+      siblingFile: "A/B/C/B.png",
+      newPath: "A/B/C/note.md",
+    },
+  ])(
+    "writes the full path, not $label, when a file link's stem names the moved note's new folder",
+    async ({ siblingFile, newPath }) => {
+      const { writeFixture, moveNote, readNote } = setupVault()
+      await writeFixture("A/B.png", "img")
+      await writeFixture(siblingFile, "img")
+      await writeFixture("A/note.md", "See ![[B]] and ![[B#h|al]].\n")
+
+      const result = await moveNote({ oldPath: "A/note.md", newPath })
+
+      expect(await readNote(newPath)).toBe("See ![[A/B]] and ![[A/B#h|al]].\n")
+      expect(result).toEqual({
+        moved_to: newPath,
+        links_updated: 2,
+        updated_notes: [],
+        pruned_empty_folders: 0,
+      })
+    },
+  )
+
   it("rewrites a relative wikilink embed to an asset when the note moves deeper", async () => {
     const { writeFixture, moveNote, readNote } = setupVault()
     await writeFixture("assets/photo.png", "img")
