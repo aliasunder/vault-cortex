@@ -4,7 +4,7 @@ import { z } from "zod"
 import { getDailyNote } from "../../vault-operations/daily-notes.js"
 import { TOOL_NAMES } from "../tool-registry.js"
 import type { ToolRegistrationContext } from "./tool-helpers.js"
-import { FILESYSTEM_ERROR_ENTRY } from "./tool-helpers.js"
+import { FILESYSTEM_ERROR_ENTRY } from "./tool-description-text.js"
 
 export const registerDailyNoteTools = ({
   registerTool,

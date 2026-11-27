@@ -8,7 +8,7 @@
  * back the tags it reports, in the order and spelling Obsidian reports them
  * (`#tag`, a trailing `/` kept). Nothing from the bundle is copied into this
  * repo; the caller supplies the path to a `worker.js` extracted from an
- * installed Obsidian app (AGENTS.md → "Upgrading remark-parse").
+ * installed Obsidian app (CONTRIBUTING.md → "Upgrading remark-parse").
  *
  * Run directly as `tsx scripts/obsidian-tag-oracle.ts <worker.js> <inputs.json>`,
  * it prints, for each input in the file (an array of strings or of

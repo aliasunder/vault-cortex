@@ -14,7 +14,8 @@ import { z } from "zod"
 import {
   createSafeHandlers,
   createStrictInputObject,
-  describeTextWindow,
+  formatDeleteResult,
+  formatTextWindow,
   formatNoteMetadata,
   toolInputErrorResult,
 } from "../tool-helpers.js"
@@ -562,10 +563,10 @@ describe("createStrictInputObject", () => {
   })
 })
 
-describe("describeTextWindow", () => {
+describe("formatTextWindow", () => {
   it("reports zero lines for an empty rendition", () => {
     expect(
-      describeTextWindow("empty.md", {
+      formatTextWindow("empty.md", {
         startLine: 1,
         endLine: 0,
         totalLines: 0,
@@ -575,7 +576,7 @@ describe("describeTextWindow", () => {
 
   it("reports end of file on the final window", () => {
     expect(
-      describeTextWindow("note.md", {
+      formatTextWindow("note.md", {
         startLine: 3,
         endLine: 5,
         totalLines: 5,
@@ -585,7 +586,7 @@ describe("describeTextWindow", () => {
 
   it("reports the next start_line on a mid-file window", () => {
     expect(
-      describeTextWindow("note.md", {
+      formatTextWindow("note.md", {
         startLine: 1,
         endLine: 20,
         totalLines: 100,
@@ -595,7 +596,7 @@ describe("describeTextWindow", () => {
 
   it("handles a single-line window", () => {
     expect(
-      describeTextWindow("one.md", {
+      formatTextWindow("one.md", {
         startLine: 3,
         endLine: 3,
         totalLines: 10,
@@ -605,7 +606,7 @@ describe("describeTextWindow", () => {
 
   it("handles endLine equal to totalLines as end of file", () => {
     expect(
-      describeTextWindow("full.md", {
+      formatTextWindow("full.md", {
         startLine: 1,
         endLine: 1,
         totalLines: 1,
@@ -652,5 +653,32 @@ describe("formatNoteMetadata", () => {
       tags: ["x"],
       additional_properties: { tags: ["y"] },
     })
+  })
+})
+
+describe("formatDeleteResult", () => {
+  it.each([
+    {
+      label: "a permanent delete",
+      params: { path: "a.png", prunedFolderCount: 0 },
+      expected: "Deleted a.png",
+    },
+    {
+      label: "a trash move",
+      params: { path: "a.png", prunedFolderCount: 0, trashLocation: ".trash/a.png" },
+      expected: "Moved a.png to trash (.trash/a.png)",
+    },
+    {
+      label: "a permanent delete that pruned one folder",
+      params: { path: "x/a.png", prunedFolderCount: 1 },
+      expected: "Deleted x/a.png (removed 1 empty folder)",
+    },
+    {
+      label: "a trash move that pruned two folders",
+      params: { path: "x/y/a.png", prunedFolderCount: 2, trashLocation: ".trash/x/y/a.png" },
+      expected: "Moved x/y/a.png to trash (.trash/x/y/a.png) (removed 2 empty folders)",
+    },
+  ])("formats $label", ({ params, expected }) => {
+    expect(formatDeleteResult(params)).toBe(expected)
   })
 })

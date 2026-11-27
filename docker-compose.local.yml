@@ -45,7 +45,7 @@ services:
       MAX_FILE_BYTES: ${MAX_FILE_BYTES:-52428800}
       MAX_IMAGE_OUTPUT_BYTES: ${MAX_IMAGE_OUTPUT_BYTES:-49152}
       MAX_PDF_RENDER_PAGES: ${MAX_PDF_RENDER_PAGES:-5}
-      # Days a note deleted under Obsidian's default "Move to system trash"
+      # Days a note or file deleted under Obsidian's default "Move to system trash"
       # setting stays in .trash/ before the server cleans it up (none = keep forever).
       TRASH_RETENTION_DAYS: ${TRASH_RETENTION_DAYS:-30}
       # Left empty = the server applies smart defaults

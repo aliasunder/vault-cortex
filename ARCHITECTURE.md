@@ -44,7 +44,7 @@ this repo's own IaC provisions (Lightsail + API Gateway via SST, walkthrough in
 The MCP surface is **tools + prompts** — model-driven tools plus user-initiated prompt workflows (see [MCP Prompts](#mcp-prompts)). Behind it, capabilities fall into three groups with different availability semantics:
 
 - **Base surface — always on:** vault CRUD (read/write, heading-targeted patching, note moving with link rewriting), FTS5 keyword search, property discovery, daily notes, task queries and mutations, and the link graph.
-- **Toggleable feature groups:** the About Me/ memory layer for AI personalization (`MEMORY_ENABLED`) and non-markdown file reading and writing (`FILE_TOOLS_ENABLED`) — images, canvases, PDFs, and data files, each in the form most useful to an agent, with text formats writable. Independent opt-outs — either can be disabled without affecting anything else. A third switch cuts across the groups: `READONLY_MODE` hides every vault-writing tool while leaving all reads, search, and indexing untouched. A fourth, `DISABLED_TOOLS`, subtracts individually named tools for finer control.
+- **Toggleable feature groups:** the About Me/ memory layer for AI personalization (`MEMORY_ENABLED`) and non-markdown file reading, writing and deleting (`FILE_TOOLS_ENABLED`) — images, canvases, PDFs, and data files, each in the form most useful to an agent, with text formats writable and any file deletable. Independent opt-outs — either can be disabled without affecting anything else. A third switch cuts across the groups: `READONLY_MODE` hides every vault-writing tool while leaving all reads, search, and indexing untouched. A fourth, `DISABLED_TOOLS`, subtracts individually named tools for finer control.
 - **Search enhancement ladder:** unlike the toggles above, each rung builds on the previous. Keyword search → sqlite-vec vector similarity fused via RRF (`EMBEDDING_ENABLED`; local ONNX embeddings, no external API) → cross-encoder reranking with position-aware score blending for intent-heavy queries where keywords and vectors both miss (`RERANK_MODE`). Each step is opt-out with graceful fallback to the one below.
 
 ## Design Constraints
@@ -219,7 +219,7 @@ Every tool handles a note's properties block by the same rules, so a write never
 
 Unlike a read that parses the block, such as `vault_read_note` with `properties_only`, the search index accepts a block that is not valid YAML: it reads the note as its body with no properties, as Obsidian's metadata cache does. The note stays in search, tasks and the link graph, titled by its file name; the tags and links in its properties are not indexed, and a warning in the server log names the note as needing repair.
 
-`vault_delete_note` and `vault_move_note` refuse paths under protected folders as a server-side guardrail:
+`vault_delete_note`, `vault_delete_file` and `vault_move_note` refuse paths under protected folders as a server-side guardrail:
 
 - **Default set:** the memory dir plus the daily notes folder, resolved on every delete and move as [Daily notes](#property-discovery--daily-notes) describes; a vault-root or blank folder setting adds no folder
 - **Unreadable `daily-notes.json`:** a file that exists but cannot be read or parsed refuses the delete or move, because the folder to protect is unknown; setting `DAILY_NOTES_FOLDER` skips the file
@@ -234,7 +234,7 @@ To remove a single entry from a memory file, use `vault_delete_memory`.
 - **Minimal rewrites:** a link is rewritten only when leaving it unchanged would break it, or would keep the old letter case after the note's file name changes
 - **Guardrails:** refuses to overwrite an existing destination, and blocks moves out of or into protected folders
 
-Both `vault_delete_note` and `vault_move_note` support `prune_empty_folders` to clean up parent directories left empty by the operation.
+`vault_delete_note`, `vault_delete_file` and `vault_move_note` support `prune_empty_folders` to clean up parent directories left empty by the operation.
 
 ### Search
 
@@ -278,7 +278,7 @@ Every tag input (`tag` on `vault_search_by_tag` and `vault_list_tasks`, the `tag
 
 - **Tags column:** holds the tags Obsidian's Tags view shows for the note, read by `obsidian-markdown/tags.ts` from the first key spelled `tags` in any letter case. A text value is one tag, so `tags: a, b` gives no tags, because a tag name cannot contain `,`. A list keeps its text entries. Each entry loses a leading `#` and a trailing `/`, and only names Obsidian accepts as tags are kept (no spaces, none of the punctuation Obsidian rejects such as `,`, `:` or `+`, and not digits only).
 - **Body tags column:** not a property, but stored beside them. `body_tags` holds every `#tag` written in the body, one entry per occurrence, as Obsidian's Tags view shows it (one trailing `/` removed, then the tags column's name test). Results return it as `body_tags` beside `tags`, each spelling once and absent when there are none, so a caller can tell the property, which `vault_update_properties` edits, from tags written in the text.
-  - **Parser:** `obsidian-markdown/body-tags.ts` walks the tree that `obsidian-remark-parser.ts` builds: [remark-parse 8.0.3](https://github.com/remarkjs/remark/tree/remark-parse%408.0.3/packages/remark-parse), the parser Obsidian's metadata cache forked, with Obsidian's syntax (tags, wikilinks, highlights, `%%` comments, math, footnotes, callouts, block IDs) added as tokenizers. So a `#` inside code, a wikilink, a link destination, a URL or math is not a tag, while one in a Markdown link's text or right after another inline token is. remark-parse is pinned to that version; AGENTS.md → "Upgrading remark-parse" re-checks the parser against Obsidian's own.
+  - **Parser:** `obsidian-markdown/body-tags.ts` walks the tree that `obsidian-remark-parser.ts` builds: [remark-parse 8.0.3](https://github.com/remarkjs/remark/tree/remark-parse%408.0.3/packages/remark-parse), the parser Obsidian's metadata cache forked, with Obsidian's syntax (tags, wikilinks, highlights, `%%` comments, math, footnotes, callouts, block IDs) added as tokenizers. So a `#` inside code, a wikilink, a link destination, a URL or math is not a tag, while one in a Markdown link's text or right after another inline token is. remark-parse is pinned to that version; CONTRIBUTING.md → "Upgrading remark-parse" re-checks the parser against Obsidian's own.
   - **Worker:** remark-parse 8, like Obsidian's parser, slows quadratically on long paragraphs full of `_`, `[` or `=`, so `search/body-tag-parser.ts` runs the parser in a worker thread, one note at a time. A note still parsing after `BODY_TAG_PARSE_TIMEOUT_MS` (2 seconds, in `search/body-tag-parser.ts`) is indexed without body tags and logged as an error; the main thread keeps answering requests while a note parses.
   - **Startup:** the rebuild writes each note with the body tags stored before it ran, and the server starts answering without waiting for the parser. A background pass then parses every note again, one at a time, so a note the watcher parses waits behind at most one note of the pass; it writes only tags that changed, and its `body-tag pass complete` log line counts the outcomes. Until the pass reaches a note, a tag query sees the tags stored for its path before the restart; on a first index, it sees none.
   - **When the parser stops:** the pass stops when the worker cannot start, and on SIGTERM, when the server closes the parser before draining requests. Every note then keeps its stored tags. A note the watcher re-indexes keeps its stored tags too, unless the parser is still open and a fresh worker starts for that note. While the parser is open, a re-indexed note whose body holds no `#` followed by a tag-name character gets no tags: every tag starts that way, and the check needs no worker.
@@ -383,11 +383,12 @@ Link queries use a `links` table populated during indexing:
 
 ### Files
 
-| Tool               | Input                             | Annotation      |
-| ------------------ | --------------------------------- | --------------- |
-| `vault_read_file`  | `path, raw?, start_line?, limit?` | readOnlyHint    |
-| `vault_write_file` | `path, content, overwrite?`       | destructiveHint |
-| `vault_list_files` | `folder?, extensions?, limit?`    | readOnlyHint    |
+| Tool                | Input                             | Annotation      |
+| ------------------- | --------------------------------- | --------------- |
+| `vault_read_file`   | `path, raw?, start_line?, limit?` | readOnlyHint    |
+| `vault_write_file`  | `path, content, overwrite?`       | destructiveHint |
+| `vault_delete_file` | `path, prune_empty_folders?`      | destructiveHint |
+| `vault_list_files`  | `folder?, extensions?, limit?`    | readOnlyHint    |
 
 `vault_read_file` reads non-markdown vault files, dispatching on the file's kind to the most useful representation per type. `obsidian-markdown/file-kinds.ts` maps the lowercased extension to a kind, so `Report.PDF` is a PDF. Reads, writes, indexing, the note mover and the link tools take every non-markdown file's kind from it:
 
@@ -423,6 +424,10 @@ The extension-to-representation routing above is implemented by the `vault-opera
 3. **Inside the fail-fast write lock,** it creates missing parent folders, then refuses an existing file without `overwrite` and a folder or a broken symlink at the path. With `overwrite`, it also refuses an existing file that the read side's item 5 treats as binary.
 4. **The save** is atomic. A path that was missing at the existence check is created exclusively (`atomicWriteFileExclusive`), even with `overwrite`, so outside `WINDOWS_MODE` a file Obsidian Sync delivers between the check and the save is never replaced unchecked. An existing file is overwritten by a rename over the path, so the last writer wins against writers outside the server, as for notes.
 
+`vault_delete_file` deletes any non-markdown file, images and PDFs included, through `vaultFs.deleteAsset`. It and `vault_delete_note` wrap one core, `deleteCanonicalPath` in `vault-filesystem.ts`, so the two tools share one protected-path rule, one fail-fast lock, one trash move with its retention bookkeeping, and one pruning step. Each wrapper checks its own side of the `.md` boundary and canonicalizes the path before calling the core. The file side's refusal runs on the canonical path the delete acts on, in any letter case: `owned.md\` ends in a backslash as sent but canonicalizes to the note, so a check on the input as sent would let it through. Past that boundary, a folder or a broken symlink at the path is reported as not found, as the readers report them.
+
+The file tools stay a bounded set: at most one tool per action Obsidian's file explorer offers on any file, plus at most one in-place edit tool. The partial-edit note tools, the properties tools and the search variants have no file twin, because their mechanisms are markdown. A file tool is a separate tool from its note counterpart (`vault_delete_file` beside `vault_delete_note`) because `FILE_TOOLS_ENABLED` is a registry-group switch (see the tool gating paragraph under [MCP Tools](#mcp-tools)): a single tool serving notes and files would need a branch on that flag inside its handler.
+
 `vault_list_files` is the discovery surface (also `vault-operations/asset-operations.ts`): a filesystem walk (`vaultFs.listAssets` — filesystem truth, deliberately not the index), folder and case-insensitive extension filters, per-extension counts computed over the full filtered set, and byte sizes statted only for the returned slice.
 
 Search indexes file content in the `file_content` + `file_content_fts` tables, cut to 100 KiB before FTS insertion. Each kind is indexed as follows:
@@ -452,7 +457,7 @@ Search indexes file content in the `file_content` + `file_content_fts` tables, c
 
 How extracted text reaches the index, and when, is under [Indexing](#indexing).
 
-**Opt-out:** File tools are opt-out: set `FILE_TOOLS_ENABLED=false` to hide `vault_read_file`, `vault_write_file` and `vault_list_files`, and strip file tool references from server metadata and other tool descriptions. The `vault_get_outgoing_links` tool continues to report file links (it indexes from the links table, not the file tools). File config vars (`MAX_FILE_BYTES`, `MAX_IMAGE_OUTPUT_BYTES`, `MAX_PDF_RENDER_PAGES`) are still parsed when disabled.
+**Opt-out:** File tools are opt-out: set `FILE_TOOLS_ENABLED=false` to hide `vault_read_file`, `vault_write_file`, `vault_delete_file` and `vault_list_files`, and strip file tool references from server metadata and other tool descriptions. The `vault_get_outgoing_links` tool continues to report file links (it indexes from the links table, not the file tools). File config vars (`MAX_FILE_BYTES`, `MAX_IMAGE_OUTPUT_BYTES`, `MAX_PDF_RENDER_PAGES`) are still parsed when disabled.
 
 ### Tasks
 
@@ -1462,15 +1467,15 @@ Docker hardening, and durability seatbelts above.
   so no write silently drops a block's properties.
   [Vault read/write](#vault-readwrite) gives the full rules and the
   repair path.
-- **Trash handling** (`moveNoteToTrash` in `vault-filesystem.ts`,
+- **Trash handling** (`moveToTrash` in `vault-filesystem.ts`,
   `trash-sweeper.ts`): a delete under Obsidian's `system` (default) or
-  `local` trash setting moves the note into `.trash/` and never overwrites
+  `local` trash setting moves the note or file into `.trash/` and never overwrites
   an existing trash copy. The server records `system` moves with the
   trashed file's identity, and its daily retention sweep deletes only
   those recorded files once they pass `TRASH_RETENTION_DAYS`. Before
   deleting, it checks that the file still sits inside `.trash/` and is
   still the unchanged file it trashed, so a corrupted record, a symlink,
-  or a note Obsidian later trashed under the same name is left alone.
+  or an entry Obsidian later trashed under the same name is left alone.
   - A name already taken in `.trash/` gets Obsidian's suffixes (`Plan 1.md`,
     `Plan 2.md`, …); after `TRASH_NAME_SUFFIX_LIMIT` (100) numbered names the
     delete fails.
@@ -1547,8 +1552,8 @@ Docker hardening, and durability seatbelts above.
   daily notes folder, from `DAILY_NOTES_FOLDER`, then
   `.obsidian/daily-notes.json`, then `Daily Notes`; none for a vault-root or
   blank folder setting) blocks deleting
-  notes in, moving notes out of, and moving notes into configured
-  folders. The check (`isProtectedPath()`, shared by delete and move)
+  notes and files in, moving notes out of, and moving notes into
+  configured folders. The check (`isProtectedPath()`, shared by delete and move)
   runs on the canonical vault-relative path with a case-folded
   comparison, so a case-aliased spelling on a case-insensitive
   filesystem is refused too.
@@ -1606,9 +1611,10 @@ Docker hardening, and durability seatbelts above.
   vault-relative path and no Node error code, so the tool boundary adds no
   coded remedy. A read of a file name longer than the filesystem allows
   surfaces under this message, not as `ENAMETOOLONG`.
-- **In-lock existence checks**: `deleteNote` and `moveNote` check file
-  existence inside the lock, so a missing note returns the "note not found"
-  error the tools document instead of Node's ENOENT text.
+- **In-lock existence checks**: `deleteCanonicalPath` (behind `deleteNote` and
+  `deleteAsset`) and `moveNote` check existence inside the lock, so a missing
+  note or file returns the "not found" error the tools document instead of
+  Node's ENOENT text.
 - **Graceful shutdown** (`server.ts`): SIGTERM handler drains in-flight
   requests with a 10-second force-exit fallback, so a write is never
   interrupted mid-rename.

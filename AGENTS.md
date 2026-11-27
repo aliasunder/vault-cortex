@@ -75,7 +75,7 @@ scripts/ # Dev and ops helpers in TypeScript (not shipped in Docker); most open 
   deployment-env.ts # Loads ~/.config/vault-cortex/.env; shell variables override its values
   instance-env.ts # Derives PUBLIC_URL for manual deploys (npm run lightsail:up) the same way sst.config.ts and deploy.yml do, or the Lambda authorizer rejects tokens
   tool-surface-capture.ts # Boots one server per settings combination for the tool-surface snapshot test, size report, and LobeHub manifest; an on/off setting that gates tools goes in its SURFACE_AXES
-  obsidian-tag-oracle.ts, generate-body-tag-vectors.ts, compare-body-tags-random.ts # Check body tags against Obsidian's own parser (see "Upgrading remark-parse")
+  obsidian-tag-oracle.ts, generate-body-tag-vectors.ts, compare-body-tags-random.ts # Check body tags against Obsidian's own parser (see CONTRIBUTING.md → Upgrading remark-parse)
 cli/src/ # npx vault-cortex CLI, run on the host: bin (entry) → main (wiring) → program (Commander), the only loose files; layers under "CLI layering"
   adapters/ # The outside world: docker, prompts, env-file (.env read and write), vault, token
   rules/ # Decisions and text, with no file, Docker or prompt I/O: env-values (.env parse and typed getters), env-edits (.env text edits), ports, bind-address, messages, env-templates, node-version
@@ -94,10 +94,10 @@ src/
   vault-mcp/
     server.ts, config.ts # Entry point and env-var loader, the only loose files here
     obsidian-markdown/ # Pure parsers and transforms with no I/O (pdf-engine excepted): lines, frontmatter, callouts, headings, links, tags, aliases, body-tags + obsidian-remark-parser + remark-ports/, tasks, recurrence, memory-entries, canvas, file-kinds, html, plaintext, pdf + pdf-engine, moment-format
-    vault-operations/ # Vault read, write, and patch: vault-filesystem (base I/O), vault-patcher, note-mover, memory-store, daily-notes, vault-folder-config, task-mutations, task-format-config, trash-config, trash-sweeper, asset-operations, asset-text
+    vault-operations/ # Vault read, write, and patch: vault-filesystem (base I/O), vault-patcher, note-mover, memory-store, daily-notes, delete-options, vault-folder-config, task-mutations, task-format-config, trash-config, trash-sweeper, asset-operations, asset-text
       pdf-extractor.ts, pdf-extraction-child.ts, pdf-extraction-protocol.ts # One shared child owns PDF text reads and deferred indexing; raw page rendering stays in the server
     mcp-core/ # MCP protocol surface: mcp-router, tool-registry, tool-availability, tool-definitions, prompt-definitions, coded-error-remedy
-      tools/ # One <domain>-tools module per data-layer domain (vault-crud, search, task, memory, daily-note, asset), plus tool-helpers
+      tools/ # One <domain>-tools module per data-layer domain (vault-crud, search, task, memory, daily-note, asset), plus tool-helpers (registration plumbing and per-call result text) and tool-description-text (text two or more descriptions share)
       prompts/ # One <name>-prompt module per prompt (vault-orientation, memory-review, daily-review), plus prompt-helpers
     search/ # SQLite FTS5, hybrid search, file watching, embedding: search-index, search-queries, fts-query, hybrid-search, search-helpers, rrf, embedder, reranker, search-models, chunker, file-watcher, body-tag-parser + body-tag-worker (body tags parsed in a worker thread)
     oauth/ # OAuth 2.1: oauth-provider, oauth-routes, authorize-guard, consent-page, unknown-client-page
@@ -178,7 +178,11 @@ A module's folder is decided by **what it depends on**, not just its topic:
   module is self-contained: one register function and its data-layer imports,
   with tool names imported from the registry. Shared helpers
   (`createSafeHandlers`, `formatNoteMetadata`, `ToolRegistrationContext`
-  type) live in `tool-helpers.ts`. Group modules take `safeHandler` and
+  type) live in `tool-helpers.ts`; text that two or more tool descriptions
+  state word for word, and the `describe*` builders for text that depends on
+  the config or the enabled tool set, live in `tool-description-text.ts`.
+  `describe*` names description text built at registration and `format*`
+  names result text built per call. Group modules take `safeHandler` and
   `safeHandlerContent` from the registration context; `createSafeHandlers`
   builds them per server from the enabled tools and the vault path.
   **Tool handlers stay thin**: schema, wire mapping (snake_case ↔ camelCase),
@@ -469,7 +473,25 @@ Before integrating agent command setup, read [Agent command setup](./CONTRIBUTIN
 <!-- distilled from vault Reference/code-standards-* on 2026-11-03; refresh (merges, keeps hand edits): run the sync-code-standards skill -->
 
 These rules are authoring guidance, not a review checklist. Apply them
-while writing, not after. `eslint.config.ts` enforces this subset:
+while writing, not after, and only after the design step they cannot
+replace: before adding to or splitting a function, a module or a doc
+section, read what that unit is responsible for and who it serves (its
+docstring, its header comment, the section's lead), write that sentence
+when it is missing or says only "helpers" or "shared", and judge the
+change against it. A change that does not fit goes to the unit that owns
+it, or the sentence changes and the change says so. The rules below
+constrain a unit's shape once its responsibility is known; none of them,
+DRY included, can say what a unit is for, and a rule or a reviewer's
+finding applied without that answer produces units that exist only to
+satisfy it.
+
+- Wrong: a delete core that switches on which wrapper called it so the
+  two wrappers can share one kind check, and a word table that templates
+  two tools' descriptions because their sentences differ by a noun.
+- Right: each wrapper checks its own kind and the core's docstring says it
+  deletes a canonical path, and each tool states its own description.
+
+`eslint.config.ts` enforces this subset:
 
 - No `function` declarations, and `type` over `interface`.
 - No `any`, `as` casts other than `as const`, or `!` non-null assertions
@@ -930,10 +952,11 @@ Two naming layers — MCP (JSON wire format) and TypeScript (internal):
   handler runs a backlinks lookup before the data-layer `.md`-only check.
 - **`vault_read_file` is the deliberate inverse.** Its `path` names any
   non-markdown file and **must not** end in `.md` (matched exactly, so a
-  `.MD` file reads as text; `vault_write_file` refuses `.md` in any letter
-  case); `vaultFs.readAsset` rejects notes so the `.md` boundary stays one
-  rule with two sides (notes → `vault_read_note`, everything else →
-  `vault_read_file`). Error
+  `.MD` file reads as text; `vault_write_file` and `vault_delete_file` refuse
+  `.md` in any letter case);
+  `vaultFs.readAsset` rejects notes so the `.md` boundary stays one rule with
+  two sides (notes → `vault_read_note`, everything else → `vault_read_file`,
+  and the same split for the write and delete tools). Error
   messages never name tools; routing guidance lives in each tool's
   description.
 
@@ -1082,7 +1105,8 @@ Two naming layers — MCP (JSON wire format) and TypeScript (internal):
   CLI, extract the functions verbatim from its bundle, pin their outputs
   for fixed inputs as test-owned vectors (each commented with its source),
   and keep the live end-to-end run as the final oracle. Obsidian's app
-  code is never read; "Upgrading remark-parse" runs it as a black box.
+  code is never read; CONTRIBUTING.md's "Upgrading remark-parse" runs it
+  as a black box.
 - CI shell snippets are tested under `bash -e` before committing: Actions
   runs `run:` steps with errexit, so use `if/then/fi` over
   `[ test ] && cmd`.
@@ -1234,171 +1258,24 @@ compile under the repo's stricter checks. `.sst/platform` exists only after
 `npx sst install` — CI runs it before the build; run it once locally on a
 fresh clone.
 
-## Upgrading rrule (recurrence parity)
+## Upgrading pinned dependencies
 
-`recurrence.ts` transliterates the Tasks plugin's recurrence logic
-(`Recurrence.ts` + `Occurrence.ts`) and pins `rrule` to the exact version
-the plugin declares, so rule parsing and next-hit computation match the
-plugin by construction. The pin is deliberately excluded from Dependabot.
-On any rrule bump — or when re-verifying against a newer Tasks plugin
-release — re-check each of these against the plugin source before merging:
+Three pins track something outside this repo: `rrule` is the version the
+Tasks plugin declares and `remark-parse` the release Obsidian's metadata
+cache forked (both excluded from Dependabot), and `obsidian-headless` is the
+Sync CLI whose observed behaviour the `:remote` init chain depends on
+(Dependabot opens a PR for each of its releases). Before bumping any of them,
+or merging such a PR, read
+[CONTRIBUTING.md → Upgrading pinned dependencies](./CONTRIBUTING.md#upgrading-pinned-dependencies)
+and run that package's re-verification first.
 
-- The rule grammar split (`/^([a-zA-Z0-9, !]+?)( when done)?$/i`) and the
-  `parseText` try/null handling.
-- Reference-date priority (due → scheduled → start; flipped to due →
-  start → scheduled under `removeScheduledDateOnRecurrence`).
-- The month/year overflow walk-back: the rule's start date (rrule's
-  `dtstart`) moves with each step, and a rule whose text contains `" on "`
-  (an explicit day, "every month on the 31st") skips the walk-back — month
-  rules only.
-- The fields `createNextOccurrence` sets on the next occurrence: block
-  link, 🆔, and ⛔ cleared; created date replaced per `setCreatedDate`,
-  never carried forward.
-- The `recurrence.test.ts` vectors lifted from the plugin's own
-  `Recurrence.test.ts` — refresh them from the new release's tests.
-
-Two deliberate divergences are pinned by tests, each contracted where it
-lives: exhausted finite rules complete without spawning (`recurrence.ts`'s
-docstring), and calendar-invalid dates are nulled at parse time
-(`calendarValidOrNull` in `tasks.ts`). A behavior change in either is a
-decision, not a drift fix.
-
-## Upgrading remark-parse (body-tag parity)
-
-`obsidian-markdown/body-tags.ts` finds a note's `#tags` with
-`remark-parse@8.0.3`, the version Obsidian's metadata cache forked, plus
-Obsidian's syntax as tokenizers in `obsidian-remark-parser.ts`. The pin is
-excluded from Dependabot, and 8.0.3 is the last 8.x release, so an advisory
-anywhere in its dependency tree is answered with an `overrides` entry, as
-`trim` is.
-
-NEVER open, read or copy Obsidian's app code (`worker.js`, `app.js`) when
-editing `obsidian-remark-parser.ts`, `body-tags.ts` or `remark-ports/`.
-Obsidian is proprietary and this repo is MIT, so those files are written
-from Obsidian's observed behaviour only: the scripts below run `worker.js`
-as a black box and print its answers, and nothing else may read it.
-
-Re-check the parser against Obsidian when remark-parse changes and when
-Obsidian ships a new release:
-
-1. Extract `worker.js` from the installed app:
-   `npx -y @electron/asar extract "<app-dir>/obsidian-<version>.asar" <dir>`
-   (on macOS, `<app-dir>` is `~/Library/Application Support/obsidian`).
-2. Regenerate the vectors:
-   `npm run vectors:body-tags -- <dir>/worker.js <version>`. It asks that
-   worker for every input in
-   `src/vault-mcp/obsidian-markdown/__tests__/fixtures/obsidian-body-tag-vectors.json`
-   and rewrites each expected answer.
-3. Run `npx vitest run src/vault-mcp/obsidian-markdown/__tests__/body-tags.test.ts`
-   and `npm run compare:body-tags -- <dir>/worker.js --documents 300000 --out disagreements.json`.
-4. When the comparison finds disagreements, `disagreements.json` holds each
-   shrunk input as a `{ label, input }` record. Pass that file as the third
-   argument to step 2's command, then fix the parser until every row passes.
-
-For a one-off question, `npm run oracle:body-tags -- <dir>/worker.js <inputs.json>`
-prints Obsidian's raw tags and listed names for each input.
-
-## Upgrading obsidian-headless
-
-The Sync CLI's [documentation](https://obsidian.md/help/sync/headless)
-covers usage, not internals, so the `:remote` init chain depends on
-behaviour observed in the pinned `cli.js`. Treat every bump
-of `obsidian-headless/package.json` as a potential regression and
-re-verify each contract against the new source before merging:
-
-- Verbs and flags the scripts call: `login`, `sync-config` (including
-  `--mode` and `--json`), `sync`, `sync --continuous`,
-  `sync-setup --vault --device-name`, `sync-list-remote --json` and
-  `sync-list-local --json`. `sync-config --json` prints `vaultId`
-  and `syncMode` (`bidirectional` when unset), and an unknown `--mode`
-  value exits non-zero, which `init-setup-vault` treats as fatal.
-- Each vault's setup is `obsidian-headless/sync/<vaultId>/config.json`, and
-  every command uses the first setup, in folder-name order, whose
-  `path.resolve(vaultPath)` is the working folder. `check-sync-vault` relies
-  on these outputs, captured as vectors in its test file:
-  - `sync-config --json` exits 3 when no setup matches the folder and 1 when
-    a setup without `vaultPath` sorts first, and it skips a setup file it
-    can't read or parse;
-  - `sync-list-local --json` lists `{ id, path, host }` per setup;
-  - `sync-list-remote --json` lists owned and shared vaults with `id` and
-    `name`, and needs the token;
-  - `sync-setup` resolves `--vault` by ID first, then by a unique name.
-- `sync-setup` rewrites the whole config on every boot without the filter
-  fields or `syncMode`. `sync-config --file-types` / `--excluded-folders` /
-  `--configs` then queue only the recorded server files that the new value
-  allows and the reset defaults block, so some changes queue nothing.
-- `ob sync` creates `<vault>/.obsidian/` and a `.obsidian/.sync.lock`
-  directory before transferring anything. `vault_has_content` in
-  `init-first-sync` therefore treats an `.obsidian/` folder that holds
-  nothing but `.sync.lock` as an empty vault.
-- The device's file record is
-  `obsidian-headless/sync/<vaultId>/state.db` under `$XDG_CONFIG_HOME`,
-  table `local_files`. The engine loads this record at startup and compares
-  it against the files on disk. The deletion-storm guard in `init-first-sync`
-  reads the same table: it stops the container when the record lists files
-  but the vault is empty, because the engine would push each missing file as
-  a deletion.
-- Files delivered by `sync --continuous` are recorded in that same
-  table as they arrive, and a file deleted locally has its row removed at
-  once. The stub's `sync-record` and `sync-forget` verbs mirror the two.
-- `init-first-sync` queues every file the engine knows about but this
-  device has no local record of (its header explains why). That step
-  relies on five engine behaviours. The remote-boot oracle
-  (`fixtures/sync-engine-oracle.ts`) runs the image's own engine on the
-  first; re-check the other four by hand in the new `cli.js`:
-  1. The deletion scan pushes a deletion for a `server_files` row with no
-     `local_files` row, and only two-way sync runs it: `pull-only` and
-     `mirror-remote` return first. The pending loop runs before the scan,
-     and a one-shot `sync` stops at the first failed download, before it.
-  2. `server_files` and `pending_files` rows share one record shape
-     (`addPendingFile` writes `uid, path, data`), and the three tables keep
-     the columns the script's schema check lists.
-  3. `sync --continuous` backs off a failed download and still runs the scan.
-  4. Skipping a superseded queued entry deletes every queued row for that
-     path (`DELETE FROM pending_files WHERE path = ?`).
-  5. The oracle's minified names are unchanged: the closing `x.parse();`
-     call, and `is` as the engine class's name.
-- In `pull-only`, `init-first-sync` also drops a queued download whose
-  `hash` equals the local record's `synchash`, which would replay the synced
-  version over a local edit. The oracle scenarios named in parentheses cover
-  their behaviour; re-check by hand behaviours 1 and 5, the upload half of 3
-  and the cursor half of 4:
-  1. The re-queue in the `sync-setup` bullet above includes files this
-     device already downloaded (`ss()`, `changeFilter`).
-  2. `pull-only` and `mirror-remote` download a queued file over a differing
-     local copy, and two-way sync keeps the copy ("edited, synced version
-     queued" in each of the three modes).
-  3. A download, or an upload, sets `synchash` to the SHA-256 hex of the
-     bytes, equal to the record's `hash`; a local edit leaves it
-     ("downloaded, pull-only", "edited, not queued, pull-only").
-  4. `pull-only` runs neither an upload nor a deletion scan after the
-     pending loop ("edited, not queued, pull-only", "not queued,
-     pull-only"), and the sync cursor is past a dropped row, so the server
-     never sends that row again.
-  5. Pending rows load once, when the engine starts, in `uid` order, and a
-     later row for the same path supersedes an earlier one.
-
-- The setup page's pre-flight (`src/vault-mcp/setup/`) mirrors two calls
-  `ob sync-setup` makes on the next boot: `/vault/list` (an
-  end-to-end encrypted vault comes back with `password: ""`) and
-  `/vault/access` with the key hash — scrypt over the NFKC-normalized
-  password and salt (N 32768, r 8, p 1, 32 bytes), then HKDF-SHA256 with
-  info `ObsidianKeyHash` for `encryption_version` 2 and 3, SHA-256 for 0. The
-  vectors in `vault-key.test.ts` were produced by the pinned CLI's own
-  functions; recompute them on a bump.
-
-The remote-boot scenarios never run the real CLI — they run the stub
-(`src/__tests__/docker/fixtures/ob`), which imitates the behaviour listed
-above. So if a new CLI version behaves differently, those tests still pass,
-because the stub still behaves the old way. Only the sync-engine oracle runs
-the image's real engine. After updating the pinned version:
-
-1. Update the stub to match the new behaviour, and the oracle's minified
-   names if they changed.
-2. Run the remote-boot tests (the oracle among them) and the init-script
-   tests.
-3. Boot the new image once against real Obsidian Sync and confirm the
-   first sync, the guard's file count, and continuous sync in the logs.
+On any edit of `src/vault-mcp/obsidian-markdown/obsidian-remark-parser.ts`,
+`body-tags.ts` or `remark-ports/`, not only an upgrade: NEVER open, read or
+copy Obsidian's app code (`worker.js`, `app.js`). Obsidian is proprietary and
+this repo is MIT, so those files are written from Obsidian's observed
+behaviour only. The only permitted contact is the body-tag scripts in
+CONTRIBUTING.md's "Upgrading remark-parse", which run `worker.js` as a black
+box and print its answers.
 
 ## Operational docs
 
