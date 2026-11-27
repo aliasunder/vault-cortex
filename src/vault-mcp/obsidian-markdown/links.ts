@@ -493,8 +493,8 @@ const compareShortestPathFirst = (leftPath: string, rightPath: string): number =
 
   if (lengthDifference !== 0) return lengthDifference
 
-  // utils/compare-utf8-bytes.ts holds the same comparison, but this leaf layer
-  // cannot import utils, so a change here needs the same change there.
+  // This leaf layer cannot import utils, so it compares the bytes here rather
+  // than calling compareByUtf8Bytes.
   return Buffer.compare(Buffer.from(leftPath), Buffer.from(rightPath))
 }
 
@@ -724,7 +724,7 @@ const createComparablePaths = (params: {
 const keepPath = (path: string): string => path
 
 /** The folded note form lowercases every letter, so `[[éclair]]` reaches
- *  `Éclair.md`; file links fold ASCII letters only (createAssetLookups). */
+ *  `Éclair.md`; file links fold ASCII letters only (assetPathForComparison). */
 const lowercaseNotePath = (path: string): string => path.toLowerCase()
 
 /** The form of a note path or link target that one pass compares. */
@@ -737,7 +737,9 @@ const notePathForComparison = (path: string, letterCase: LetterCase): string => 
   }
 }
 
-/** The form of an asset path or link target that one pass compares. */
+/** The form of an asset path or link target that one pass compares. The
+ *  folded form lowercases ASCII letters only, because folding every letter
+ *  would change which file an existing link names. */
 const assetPathForComparison = (path: string, letterCase: LetterCase): string => {
   switch (letterCase) {
     case "exact":
@@ -786,10 +788,14 @@ type AssetLookups = {
 const pathToBareStem = (path: string): string => stripExtension(posix.basename(path))
 
 const createAssetLookups = (paths: readonly string[]): AssetLookups => {
-  const getExactPaths = createComparablePaths({ paths, toComparablePath: keepPath })
-  // The folded asset form lowercases ASCII letters only. Folding every letter
-  // would change which file an existing link names.
-  const getAsciiFoldedPaths = createComparablePaths({ paths, toComparablePath: foldAsciiCase })
+  const getExactPaths = createComparablePaths({
+    paths,
+    toComparablePath: (path) => assetPathForComparison(path, "exact"),
+  })
+  const getAsciiFoldedPaths = createComparablePaths({
+    paths,
+    toComparablePath: (path) => assetPathForComparison(path, "folded"),
+  })
 
   const createLookupsOverComparablePaths = (
     getComparablePaths: () => readonly ComparablePath[],
@@ -972,7 +978,7 @@ const resolveAssetInLetterCase = (params: {
   // letter case. Folded from the start, a suffix tier could only repeat its
   // miss in the folded pass, so that pass skips it.
   const runsSuffixTiers = letterCase === "exact"
-  const foldedTarget = foldAsciiCase(target)
+  const foldedTarget = assetPathForComparison(target, "folded")
   const fullPathSuffixMatch = runsSuffixTiers ? lookups.foldedPathEndingWith(foldedTarget) : null
 
   if (fullPathSuffixMatch) return fullPathSuffixMatch
