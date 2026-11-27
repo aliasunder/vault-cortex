@@ -701,7 +701,7 @@ const extractLinks = (params: {
 /** Every lowercased spelling a link to a note named `targetStem` can take in a
  *  note's or Canvas's text, for a substring pre-filter before the full parse.
  *  A link that percent-encodes, escapes or references the name's characters
- *  holds the plain stem in the decoded view listSearchableViews adds. */
+ *  holds the plain stem in the decoded view someSearchableViewHolds tries. */
 const listLowercaseStemSpellings = (targetStem: string): string[] => {
   // Pre-filter stems are lowercased so a case-mismatched link is never
   // skipped before the resolver runs. The fold matches a stem to a link that
@@ -741,14 +741,23 @@ const decodeJsonStringEscape = ({ groups }: RegExpExecArray): string => {
   throw new Error("decodeJsonStringEscape takes a JSON_STRING_ESCAPE match")
 }
 
-/** The distinct views of a file's text a link's target spelling can appear in:
- *  - the text itself;
- *  - for a Canvas, its JSON strings unescaped, as a file card's path and a
- *    wikilink store a name (`Q\u0026A.md` reads as `Q&A.md`);
- *  - that text decoded the way a stored markdown link reads it, so a text
- *    card's `a\_b.md` reads as `a_b.md`. */
-const listSearchableViews = (params: { path: string; content: string }): string[] => {
-  const { path, content } = params
+/** Whether `holdsSpelling` accepts a view of a file's text a link's target
+ *  spelling can appear in. The views are tried in this order, each built only
+ *  when the ones before it fail, so a file holds one view at a time:
+ *  1. the text itself;
+ *  2. for a Canvas, its JSON strings unescaped, as a file card's path and a
+ *     wikilink store a name (`Q\u0026A.md` reads as `Q&A.md`);
+ *  3. that text decoded the way a stored markdown link reads it, so a text
+ *     card's `a\_b.md` reads as `a_b.md`.
+ *  A view identical to an earlier one is not tried again. */
+const someSearchableViewHolds = (params: {
+  path: string
+  content: string
+  holdsSpelling: (view: string) => boolean
+}): boolean => {
+  const { path, content, holdsSpelling } = params
+
+  if (holdsSpelling(content)) return true
   const linkText = isCanvasPath(path)
     ? replaceAllInBatches({
         text: content,
@@ -756,9 +765,11 @@ const listSearchableViews = (params: { path: string; content: string }): string[
         replacement: decodeJsonStringEscape,
       })
     : content
-  const views = [content, linkText, links.decodeLinkSpellings(linkText)]
 
-  return views.filter((view, index) => views.indexOf(view) === index)
+  if (linkText !== content && holdsSpelling(linkText)) return true
+  const decodedView = links.decodeLinkSpellings(linkText)
+
+  return decodedView !== linkText && decodedView !== content && holdsSpelling(decodedView)
 }
 
 /** Scans vault notes and Canvas files for links to targetPath, returning the
@@ -782,6 +793,13 @@ const discoverBacklinksFromFilesystem = async (
   const lowercaseStemSpellings = listLowercaseStemSpellings(
     posix.basename(params.targetPath, ".md"),
   )
+  // A view's final sigmas matter only to a spelling holding a sigma, so a
+  // move of any other name lowercases each view without the fold.
+  const foldsSigma = lowercaseStemSpellings.some((spelling) => spelling.includes("σ"))
+  const holdsStemSpelling = (view: string): boolean => {
+    const lowercaseView = foldsSigma ? links.lowercaseLinkName(view) : view.toLowerCase()
+    return lowercaseStemSpellings.some((spelling) => lowercaseView.includes(spelling))
+  }
 
   const candidatePaths = [...params.allNotePaths, ...params.allAssetPaths.filter(isCanvasPath)]
   // The target itself is never its own backlink source: moveNote rewrites the
@@ -800,10 +818,10 @@ const discoverBacklinksFromFilesystem = async (
         const content = await readFile(fullPath, "utf8")
         // Skip files whose text can't contain a link — a cheap substring
         // pre-filter before the full parse below.
-        const searchableViews = listSearchableViews({ path: candidatePath, content })
-        const couldContainLink = searchableViews.some((view) => {
-          const lowercaseView = links.lowercaseLinkName(view)
-          return lowercaseStemSpellings.some((spelling) => lowercaseView.includes(spelling))
+        const couldContainLink = someSearchableViewHolds({
+          path: candidatePath,
+          content,
+          holdsSpelling: holdsStemSpelling,
         })
 
         if (!couldContainLink) return null

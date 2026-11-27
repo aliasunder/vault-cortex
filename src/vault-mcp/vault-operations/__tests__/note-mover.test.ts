@@ -4,6 +4,10 @@ import {
   CHILD_DEADLINE_MS,
   runScriptInChild,
 } from "../../../__tests__/helpers/run-script-in-child.js"
+import {
+  measureWorkerHeapGrowth,
+  readNumberDetail,
+} from "../../../__tests__/helpers/measure-worker-heap.js"
 import { mkdtempSync } from "node:fs"
 import { basename, join, dirname } from "node:path"
 import { tmpdir } from "node:os"
@@ -4346,5 +4350,32 @@ describe("moveNote on over-long paths within a child deadline", () => {
       expect(runPaddedMoveInChild("new path")).toBe("refused")
     },
     CHILD_DEADLINE_MS + 5_000,
+  )
+})
+
+describe("moveNote memory on a long backlinking file the index has not read", () => {
+  /** The move copies the whole text several times: the read, the pre-filter's
+   *  views, the parse, the rewritten text and the write, about 14 bytes per
+   *  character in all. A decode that held a piece per escape measured 39 to
+   *  63. */
+  const BYTES_PER_CHARACTER = 20
+
+  const moveCases = [
+    { shape: "escaped-punctuation-note", text: "a note dense with escapes" },
+    { shape: "escaped-punctuation-canvas", text: "a Canvas text card dense with escapes" },
+  ] as const
+
+  it.each(moveCases)(
+    "grows the heap at most 20 bytes per character moving the note that $text links",
+    async ({ shape }) => {
+      const { peakGrowth, ready, done } = await measureWorkerHeapGrowth({
+        workerUrl: new URL("./helpers/move-memory-worker.ts", import.meta.url),
+        workerData: shape,
+      })
+
+      expect(readNumberDetail(done, "linksUpdated")).toBe(1)
+      expect(peakGrowth).toBeLessThan(BYTES_PER_CHARACTER * readNumberDetail(ready, "fileLength"))
+    },
+    60_000,
   )
 })

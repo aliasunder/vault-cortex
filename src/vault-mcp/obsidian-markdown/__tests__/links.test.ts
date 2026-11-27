@@ -1,9 +1,11 @@
 import { describe, it, expect, vi, onTestFinished } from "vitest"
 import { execFileSync } from "node:child_process"
 import { posix } from "node:path"
-import { setTimeout as sleep } from "node:timers/promises"
-import { Worker } from "node:worker_threads"
 import { links } from "../links.js"
+import {
+  measureWorkerHeapGrowth,
+  readNumberDetail,
+} from "../../../__tests__/helpers/measure-worker-heap.js"
 import { classifyLines } from "../lines.js"
 import {
   assertPathWithinMaxLength,
@@ -1229,19 +1231,9 @@ describe("extractFromBody against Obsidian 1.15.1", () => {
 
 // ── Markdown link memory ─────────────────────────────────────────
 
-/** What the memory worker reports: the line it built, then the length of the
- *  operation's result. */
-type MemoryWorkerMessage =
-  { status: "ready"; parenthesisCount: number } | { status: "done"; resultLength: number }
-
-const isMemoryWorkerMessage = (message: unknown): message is MemoryWorkerMessage => {
-  return typeof message === "object" && message !== null && "status" in message
-}
-
-/** The worker's peak heap growth while it scans or decodes its
- *  10,000,000-character line, over the heap it holds before the operation.
- *  getHeapStatistics reads a worker's heap while it runs one synchronous call,
- *  and its external memory counts typed arrays. */
+/** The memory worker's peak heap growth while it scans, decodes or folds its
+ *  10,000,000-character line, with the line's parenthesis count and the
+ *  length of the operation's result. */
 const measureHeapGrowth = async (
   shape:
     | "sparse"
@@ -1259,54 +1251,14 @@ const measureHeapGrowth = async (
     | "final-sigmas"
     | "capital-greek-words",
 ): Promise<{ peakGrowth: number; parenthesisCount: number; resultLength: number }> => {
-  const workerUrl = new URL("./helpers/link-memory-worker.ts", import.meta.url)
-  const worker = new Worker(workerUrl, { workerData: shape, execArgv: ["--import", "tsx"] })
-  onTestFinished(async () => {
-    await worker.terminate()
+  const { peakGrowth, ready, done } = await measureWorkerHeapGrowth({
+    workerUrl: new URL("./helpers/link-memory-worker.ts", import.meta.url),
+    workerData: shape,
   })
-
-  const nextMessage = (): Promise<MemoryWorkerMessage> => {
-    return new Promise((resolve, reject) => {
-      worker.once("error", reject)
-      worker.once("message", (message: unknown) => {
-        if (isMemoryWorkerMessage(message)) resolve(message)
-        else reject(new Error(`unexpected worker message: ${JSON.stringify(message)}`))
-      })
-    })
-  }
-  const sampleHeap = async (): Promise<number> => {
-    const { used_heap_size, external_memory } = await worker.getHeapStatistics()
-    return used_heap_size + external_memory
-  }
-
-  const ready = await nextMessage()
-
-  if (ready.status !== "ready") throw new Error("the worker ran before it was ready")
-
-  const baseline = await sampleHeap()
-  const operated = nextMessage()
-  // The sampling loop stops once the worker reports the operation's result.
-  let operationFinished = false
-  const finishedOperation = operated.finally(() => {
-    operationFinished = true
-  })
-  const samples: number[] = []
-
-  worker.postMessage("go")
-  // Each sample leaves garbage in the worker's heap, and back-to-back
-  // samples add up to about 1 MB of it to the peak.
-  while (!operationFinished) {
-    samples.push(await sampleHeap())
-    await sleep(1)
-  }
-
-  const done = await finishedOperation
-
-  if (done.status !== "done") throw new Error("the worker reported ready twice")
   return {
-    peakGrowth: Math.max(baseline, ...samples) - baseline,
-    parenthesisCount: ready.parenthesisCount,
-    resultLength: done.resultLength,
+    peakGrowth,
+    parenthesisCount: readNumberDetail(ready, "parenthesisCount"),
+    resultLength: readNumberDetail(done, "resultLength"),
   }
 }
 
