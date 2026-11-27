@@ -3,9 +3,9 @@
 import { z } from "zod"
 import { TOOL_NAMES } from "../tool-registry.js"
 import type { ToolRegistrationContext } from "./tool-helpers.js"
+import { dateFilterSchema } from "./tool-helpers.js"
 import {
   CONCURRENT_WRITE_RETRY_ERROR_ENTRY,
-  dateFilterSchema,
   FILESYSTEM_ERROR_ENTRY,
   HEADING_LIST_CAP_CLAUSE,
   INDEX_ERROR_ENTRY,
@@ -15,7 +15,7 @@ import {
   NOTE_EXTENSION_ERROR_ENTRY,
   OPENING_BLOCK_ERROR_ENTRY,
   PATH_SAFETY_ERROR_ENTRY,
-} from "./tool-helpers.js"
+} from "./tool-description-text.js"
 import { taskMutations } from "../../vault-operations/task-mutations.js"
 
 // Errors entries vault_create_task and vault_update_task share word for word.

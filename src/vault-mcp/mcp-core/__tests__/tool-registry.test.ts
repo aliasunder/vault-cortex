@@ -97,6 +97,15 @@ describe("TOOL_REGISTRY", () => {
     })
   })
 
+  it("vault_delete_file is a destructive, non-idempotent write", () => {
+    expect(TOOL_REGISTRY_BY_NAME.get("vault_delete_file")?.annotations).toEqual({
+      readOnlyHint: false,
+      destructiveHint: true,
+      idempotentHint: false,
+      openWorldHint: false,
+    })
+  })
+
   it("the flag-gated groups contain exactly the memory and asset tools", () => {
     const memoryTools = TOOL_REGISTRY.filter((entry) => entry.group === "memory").map(
       (entry) => entry.name,
@@ -112,6 +121,7 @@ describe("TOOL_REGISTRY", () => {
       "vault_update_memory",
     ])
     expect(assetTools.toSorted()).toEqual([
+      "vault_delete_file",
       "vault_list_files",
       "vault_read_file",
       "vault_write_file",

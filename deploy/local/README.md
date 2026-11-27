@@ -3,7 +3,7 @@
 Run Vault Cortex on your machine against a local Obsidian vault. No cloud, no
 Obsidian Sync — just Docker and a folder of `.md` files.
 
-**Contents** — [Prerequisites](#prerequisites) · [Setup](#setup) · [Connect](#connect-your-mcp-client) · [Verify](#verify) · [Monitoring](#monitoring) · [Updating](#updating) · [Restart](#restart) · [Stop](#stop) · [More than one vault](#run-more-than-one-vault) · [Windows](#windows-docker-desktop) · [Memory](#memory) · [File Tools](#file-tools) · [Read-only](#read-only-mode) · [Deleting notes](#deleting-notes) · [Config](#configuration) · [Troubleshooting](#troubleshooting)
+**Contents** — [Prerequisites](#prerequisites) · [Setup](#setup) · [Connect](#connect-your-mcp-client) · [Verify](#verify) · [Monitoring](#monitoring) · [Updating](#updating) · [Restart](#restart) · [Stop](#stop) · [More than one vault](#run-more-than-one-vault) · [Windows](#windows-docker-desktop) · [Memory](#memory) · [File Tools](#file-tools) · [Read-only](#read-only-mode) · [Deleting](#deleting-notes-and-files) · [Config](#configuration) · [Troubleshooting](#troubleshooting)
 
 ## Prerequisites
 
@@ -366,10 +366,10 @@ and [templates/memory](../../templates/memory/README.md) for the file format.
 
 ## File Tools
 
-File tools (`vault_read_file`, `vault_write_file`, `vault_list_files`) are
-enabled by default. Set `FILE_TOOLS_ENABLED=false` in your `.env` to hide them,
-or `DISABLED_TOOLS=vault_write_file` to keep reading files but turn off writing
-them.
+File tools (`vault_read_file`, `vault_write_file`, `vault_delete_file`,
+`vault_list_files`) are enabled by default. Set `FILE_TOOLS_ENABLED=false` in
+your `.env` to hide them, or `DISABLED_TOOLS=vault_write_file,vault_delete_file`
+to keep reading files but turn off writing and deleting them.
 
 ## Read-only mode
 
@@ -379,32 +379,34 @@ Connected clients can read and search but never edit.
 
 Need finer control? `DISABLED_TOOLS` hides exactly the tools you name,
 comma-separated — e.g. `DISABLED_TOOLS=vault_delete_note,vault_move_note`
-keeps writes on but removes deleting and moving. Names match the Tool column
-in the [README tools table](https://github.com/aliasunder/vault-cortex#tools).
+keeps writes on but removes deleting and moving notes. Names match the Tool
+column in the [README tools table](https://github.com/aliasunder/vault-cortex#tools).
 It only ever takes tools away: it can't bring back one that read-only mode
 or another setting has already hidden.
 
-## Deleting notes
+## Deleting notes and files
 
 Deletes honor the "Deleted files" setting in Obsidian (Settings → Files and
-links):
+links), for notes and for other files alike:
 
 - **"Move to system trash" (Obsidian's default)** — the container has no
-  system trash, so a deleted note moves to the `.trash` folder inside your
-  vault, the same fallback Obsidian itself uses when a system trash isn't
-  available. The server cleans up the notes it put there after 30 days —
+  system trash, so a deleted note or file moves to the `.trash` folder inside
+  your vault, the same fallback Obsidian itself uses when a system trash isn't
+  available. The server cleans up what it put there after 30 days —
   set `TRASH_RETENTION_DAYS` in `.env` to change the window, or
-  `TRASH_RETENTION_DAYS=none` to keep them forever. Only notes the server
-  moved there are cleaned up; anything you or Obsidian put in `.trash` is
-  never touched. Notes the server moved there with version 0.54.11 or
+  `TRASH_RETENTION_DAYS=none` to keep them forever. Only notes and files the
+  server moved there are cleaned up; anything you or Obsidian put in `.trash`
+  is never touched. Notes the server moved there with version 0.54.11 or
   earlier also stay. To reclaim space sooner, or to clear those older
   notes, empty the `.trash` folder yourself (it's hidden — press
   Cmd+Shift+. in Finder, or Ctrl+H in most Linux file managers, to show
   it).
-- **"Move to Obsidian trash (.trash folder)"** — a deleted note moves to
-  the same `.trash` folder and stays there until you empty it, exactly as
-  in Obsidian.
-- **"Permanently delete"** — the note is removed for good.
+- **"Move to Obsidian trash (.trash folder)"** — a deleted note or file
+  moves to the same `.trash` folder and stays there until you empty it,
+  exactly as in Obsidian.
+- **"Permanently delete"** — the note or file is removed for good.
+
+To restore a trashed note or file, move it out of `.trash` by hand.
 
 ## Configuration
 

@@ -60,6 +60,7 @@ const {
   updateProperties,
   replaceProperties,
   deleteNote,
+  deleteAsset,
   listNotes,
   listAssets,
   readAsset,
@@ -1116,6 +1117,28 @@ describe("deleteNote", () => {
     ).rejects.toThrow(new Error('note not found: "ghost.md"'))
   })
 
+  it("reports a folder named like a note as not found and leaves it and its contents in place", async () => {
+    // Under "system" a folder that passed the existence check would be renamed
+    // into .trash/ whole, contents and all.
+    await mkdir(join(vault, "Archive.md"))
+    await writeFile(join(vault, "Archive.md/kept.md"), "kept", "utf8")
+
+    await expect(
+      deleteNote(
+        {
+          vaultPath: vault,
+          path: "Archive.md",
+          protectedPaths: DEFAULT_PROTECTED,
+          pruneEmptyFolders: false,
+          trashOption: "system",
+        },
+        logger,
+      ),
+    ).rejects.toThrow(new Error('note not found: "Archive.md"'))
+    expect(await readFile(join(vault, "Archive.md/kept.md"), "utf8")).toBe("kept")
+    await expect(stat(join(vault, ".trash"))).rejects.toThrow(/ENOENT/)
+  })
+
   it("rejects a traversal path that resolves into a protected folder", async () => {
     // "decoy/../About Me/..." does not literally start with "About Me/" but
     // resolves into it — the guard must normalize before the prefix check.
@@ -1344,6 +1367,181 @@ describe("deleteNote", () => {
         folder: "NotADir",
         error: `[Error]: ENOTDIR: not a directory, scandir '${join(vault, "NotADir")}'`,
       })
+    })
+  })
+})
+
+describe("deleteAsset", () => {
+  const deleteWith = (path: string, options: { pruneEmptyFolders?: boolean } = {}) => {
+    return deleteAsset(
+      {
+        vaultPath: vault,
+        path,
+        protectedPaths: DEFAULT_PROTECTED,
+        pruneEmptyFolders: options.pruneEmptyFolders ?? false,
+        trashOption: "none",
+      },
+      logger,
+    )
+  }
+
+  it.each([
+    { label: "an image", path: "media/photo.png" },
+    { label: "a PDF", path: "papers/paper.pdf" },
+    { label: "a canvas", path: "Boards/board.canvas" },
+    { label: "a Base", path: "Bases/books.base" },
+    { label: "a text file", path: "exports/data.txt" },
+    { label: "an extensionless file", path: "scripts/Makefile" },
+  ])("deletes $label for good under the none setting", async ({ path }) => {
+    // The delete reads no content, so any bytes serve for every kind.
+    await mkdir(join(vault, path, ".."), { recursive: true })
+    await writeFile(join(vault, path), Buffer.from([0x00, 0xff, 0x10]))
+
+    const result = await deleteWith(path)
+
+    expect(result).toEqual({ prunedFolderCount: 0 })
+    await expect(stat(join(vault, path))).rejects.toThrow(/ENOENT/)
+  })
+
+  it('moves the file to .trash/ under the "system" setting and records the landed path', async () => {
+    await mkdir(join(vault, ".trash"), { recursive: true })
+    await writeFile(join(vault, ".trash", "photo.png"), "older copy", "utf8")
+    await writeFile(join(vault, "photo.png"), "fresh", "utf8")
+    const recordTrashEntry = vi.fn()
+
+    const result = await deleteAsset(
+      {
+        vaultPath: vault,
+        path: "photo.png",
+        protectedPaths: DEFAULT_PROTECTED,
+        pruneEmptyFolders: false,
+        trashOption: "system",
+        recordTrashEntry,
+      },
+      logger,
+    )
+
+    // The collision suffix goes before the extension, as Obsidian names it.
+    expect(result).toEqual({ prunedFolderCount: 0, trashLocation: ".trash/photo 1.png" })
+    expect(await readFile(join(vault, ".trash", "photo 1.png"), "utf8")).toBe("fresh")
+    const landedStats = await lstat(join(vault, ".trash", "photo 1.png"), { bigint: true })
+    expect(recordTrashEntry).toHaveBeenCalledTimes(1)
+    expect(recordTrashEntry).toHaveBeenCalledWith({
+      trashPath: ".trash/photo 1.png",
+      fileIdentity: `${landedStats.ino}:${landedStats.size}:${landedStats.mtimeNs}`,
+    })
+  })
+
+  it.each([
+    { label: "as written", path: "Scratch/owned.md" },
+    { label: "in upper case", path: "Scratch/Owned.MD" },
+    { label: "with a trailing backslash", path: "Scratch/owned.md\\" },
+    { label: "with a trailing slash", path: "Scratch/owned.md/" },
+    { label: "with a trailing dot segment", path: "Scratch/owned.md/." },
+  ])("refuses a note spelled $label and leaves it in place", async ({ path }) => {
+    // Every spelling canonicalizes to the note's path, and on a
+    // case-insensitive mount the upper-case one opens the same note. A check on
+    // the input as sent would let the backslash spelling through, because
+    // resolveSafePath leaves backslashes alone and only the canonical form
+    // turns it into "/".
+    await mkdir(join(vault, "Scratch"), { recursive: true })
+    await writeFile(join(vault, "Scratch/owned.md"), "keep", "utf8")
+
+    await expect(deleteWith(path)).rejects.toThrow(
+      new Error(`not a file: "${path}" is a markdown note`),
+    )
+    expect(await readFile(join(vault, "Scratch/owned.md"), "utf8")).toBe("keep")
+  })
+
+  it("deletes a file whose upper-case extension is not .MD", async () => {
+    // Pins that the refusal keys on the markdown extension, not on letter case.
+    await mkdir(join(vault, "Scratch"), { recursive: true })
+    await writeFile(join(vault, "Scratch/owned.TXT"), "text", "utf8")
+
+    const result = await deleteWith("Scratch/owned.TXT")
+
+    expect(result).toEqual({ prunedFolderCount: 0 })
+    await expect(stat(join(vault, "Scratch/owned.TXT"))).rejects.toThrow(/ENOENT/)
+  })
+
+  it.each([
+    { label: "as written", path: "About Me/avatar.png", quotedPath: "About Me/avatar.png" },
+    {
+      label: "through a traversal segment",
+      path: "decoy/../About Me/avatar.png",
+      quotedPath: "About Me/avatar.png",
+    },
+    {
+      label: "with a backslash separator",
+      path: "About Me\\avatar.png",
+      quotedPath: "About Me/avatar.png",
+    },
+  ])("refuses a file under a protected folder $label", async ({ path, quotedPath }) => {
+    await mkdir(join(vault, "About Me"), { recursive: true })
+    await writeFile(join(vault, "About Me/avatar.png"), "protected", "utf8")
+
+    await expect(deleteWith(path)).rejects.toThrow(
+      new Error(`cannot delete protected path "${quotedPath}"`),
+    )
+    expect(await readFile(join(vault, "About Me/avatar.png"), "utf8")).toBe("protected")
+  })
+
+  it("reports a missing file as not found, in the read side's words", async () => {
+    await expect(deleteWith("media/ghost.png")).rejects.toThrow(
+      new Error('file not found: "media/ghost.png"'),
+    )
+  })
+
+  it("reports a folder as not found and leaves it and its contents in place", async () => {
+    await mkdir(join(vault, "media"), { recursive: true })
+    await writeFile(join(vault, "media/kept.png"), "kept", "utf8")
+
+    await expect(deleteWith("media")).rejects.toThrow(new Error('file not found: "media"'))
+    expect(await readFile(join(vault, "media/kept.png"), "utf8")).toBe("kept")
+  })
+
+  it("reports a broken symlink as not found", async () => {
+    await symlink(join(vault, "nowhere.png"), join(vault, "dangling.png"))
+
+    await expect(deleteWith("dangling.png")).rejects.toThrow(
+      new Error('file not found: "dangling.png"'),
+    )
+    expect((await lstat(join(vault, "dangling.png"))).isSymbolicLink()).toBe(true)
+  })
+
+  it("prunes the parent folders the delete empties when asked", async () => {
+    await mkdir(join(vault, "A/B"), { recursive: true })
+    await writeFile(join(vault, "A/B/only.png"), "bytes", "utf8")
+
+    const result = await deleteWith("A/B/only.png", { pruneEmptyFolders: true })
+
+    expect(result).toEqual({ prunedFolderCount: 2 })
+    await expect(stat(join(vault, "A"))).rejects.toThrow(/ENOENT/)
+  })
+
+  it("refuses a second delete while the first holds the file's lock", async () => {
+    await writeFile(join(vault, "busy.png"), "bytes", "utf8")
+    const fullPath = join(vault, "busy.png")
+
+    await withFileLock(fullPath, async () => {
+      await expect(deleteWith("busy.png")).rejects.toThrow(
+        new Error("concurrent write in progress"),
+      )
+    })
+    expect(await readFile(fullPath, "utf8")).toBe("bytes")
+  })
+
+  it("logs the delete as a file, with the trash option", async () => {
+    await writeFile(join(vault, "logged.png"), "bytes", "utf8")
+    const infoSpy = vi.spyOn(logger, "info")
+    onTestFinished(() => infoSpy.mockRestore())
+
+    await deleteWith("logged.png")
+
+    expect(infoSpy).toHaveBeenCalledWith("deleted file", {
+      path: "logged.png",
+      trashOption: "none",
+      prunedFolderCount: 0,
     })
   })
 })

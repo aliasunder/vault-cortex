@@ -84,7 +84,7 @@ export type VaultConfig = Readonly<{
   /** When false, the memory layer is fully disabled — bootstrap is skipped,
    *  memory tools are hidden, and server metadata omits memory references. */
   memoryEnabled: boolean
-  /** When false, file tools (vault_read_file, vault_write_file, vault_list_files) are hidden —
+  /** When false, file tools (vault_read_file, vault_write_file, vault_delete_file, vault_list_files) are hidden —
    *  tool registration is skipped and server metadata omits file tool
    *  references. File config vars are still parsed when disabled. */
   fileToolsEnabled: boolean
@@ -169,7 +169,7 @@ export type VaultConfig = Readonly<{
   /** True when this is a `:remote` deploy with Obsidian Sync. Set by
    *  `ENV OBSIDIAN_SYNC=true` baked into the `:remote` Docker target. */
   obsidianSyncEnabled: boolean
-  /** Days a note this server moved to `.trash/` is kept before the retention
+  /** Days a note or file this server moved to `.trash/` is kept before the retention
    *  sweep removes it; null (TRASH_RETENTION_DAYS=none) keeps entries
    *  forever. Only entries the server itself trashed under the `system`
    *  trash setting are swept — Obsidian's own trash entries are never
@@ -297,6 +297,8 @@ export const loadConfig = (env: Record<string, string | undefined> = process.env
     )
   }
 
+  const obsidianSyncEnabled = envVar.from(env).get("OBSIDIAN_SYNC").default("false").asBool()
+
   return Object.freeze({
     memoryEnabled,
     fileToolsEnabled,
@@ -317,6 +319,6 @@ export const loadConfig = (env: Record<string, string | undefined> = process.env
     maxImageOutputBytes,
     maxPdfRenderPages,
     trashRetentionDays,
-    obsidianSyncEnabled: envVar.from(env).get("OBSIDIAN_SYNC").default("false").asBool(),
+    obsidianSyncEnabled,
   })
 }

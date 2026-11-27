@@ -1,5 +1,30 @@
 # Changelog
 
+## [1.2.0] — 2026-11-27
+
+### Features
+
+- **files:** Vault_delete_file for canvases, Bases, images and other non-markdown files (#837)
+
+### Bug Fixes
+
+- **canvas:** Compare Canvas node ids by rank when rendering (#842)
+
+### Documentation
+
+- **agents:** Move the Upgrading sections to CONTRIBUTING.md (#847)
+
+### CI / Infrastructure
+
+- **release:** Refuse a CLI release whose notes would list nothing (#839)
+- **release:** Lead CLI release notes with breaking changes (#838)
+
+### Maintenance
+
+- **deps:** Bump the github-actions group across 1 directory with 5 updates (#849)
+- **deps:** Bump the production group across 1 directory with 3 updates (#848)
+- **lint:** Enforce complexity 20 and nesting depth 4 (#836)
+
 ## [1.1.0] — 2026-11-25
 
 ### Features

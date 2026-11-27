@@ -56,6 +56,13 @@ type CanvasEdge = Readonly<{
   label?: string | undefined
 }>
 
+/** A node with its id's rank: the id's position in the sorted list of distinct ids
+ *  that the canvas's nodes and edges use (rankCanvasIds). */
+type RankedNode = CanvasNode & Readonly<{ idRank: number }>
+
+/** An edge with the ranks of its two endpoint ids (rankCanvasIds). */
+type RankedEdge = CanvasEdge & Readonly<{ fromRank: number; toRank: number }>
+
 const isRecord = (value: unknown): value is Record<string, unknown> => {
   return typeof value === "object" && value !== null && !Array.isArray(value)
 }
@@ -102,6 +109,75 @@ const parseEdge = (raw: unknown): CanvasEdge | null => {
   return { fromNode, toNode, label: optionalString(raw.label) }
 }
 
+/** Orders ids as JavaScript's `<` orders strings: by UTF-16 code unit. The id sort
+ *  and findIdRank's binary search both use it, because the search must follow the sort. */
+const compareIds = (left: string, right: string): number => {
+  if (left < right) return -1
+  if (left > right) return 1
+  return 0
+}
+
+/** The position of `id` in `rankedIds`, which holds each id once, in compareIds order.
+ *  It searches instead of reading a Map, which slows on long ids as rankCanvasIds describes. */
+const findIdRank = (rankedIds: readonly string[], id: string): number => {
+  // A binary search narrows the half-open range [low, high) to the id's position.
+  let low = 0
+  let high = rankedIds.length
+  while (low < high) {
+    const middle = Math.floor((low + high) / 2)
+    const middleId = rankedIds[middle]
+
+    // middle lies in [low, high), inside the list, so an id is always there.
+    if (middleId === undefined) throw new Error(`no ranked id at position ${middle}`)
+    const order = compareIds(middleId, id)
+
+    if (order === 0) return middle
+    if (order < 0) {
+      low = middle + 1
+      continue
+    }
+    high = middle
+  }
+  throw new Error("a canvas id is missing from the ranked ids")
+}
+
+/**
+ * Gives every node id and edge endpoint a rank: equal ids share a rank, and
+ * ranks follow compareIds order, which smallestContainingGroup's tie-breaks rely
+ * on. An endpoint id that no node has still gets a rank, which no node shares, so
+ * the edge list names that endpoint as missing. Ranks run from 0 to `rankCount - 1`,
+ * so later steps compare numbers and index arrays by rank instead of using ids:
+ * - a crafted canvas can hold thousands of long ids that share a prefix, and
+ *   nesting can compare ids once per group and node pair, so each of those
+ *   comparisons would read the whole prefix;
+ * - V8 hashes a string longer than 16,383 characters by its length alone, so a
+ *   Map or Set keyed by such ids compares each new key with every earlier one.
+ *
+ * Ranking compares ids only in one sort, one pass over the sorted ids and one
+ * binary search per id.
+ */
+const rankCanvasIds = (params: {
+  nodes: readonly CanvasNode[]
+  edges: readonly CanvasEdge[]
+}): { nodes: RankedNode[]; edges: RankedEdge[]; rankCount: number } => {
+  const endpointIds = params.edges.flatMap((edge) => [edge.fromNode, edge.toNode])
+  const sortedIds = [...params.nodes.map((node) => node.id), ...endpointIds].toSorted(compareIds)
+
+  // Sorting puts equal ids side by side, so keeping each id that differs from the
+  // one before it removes duplicates without a Set.
+  const rankedIds = sortedIds.filter((id, index) => index === 0 || id !== sortedIds[index - 1])
+
+  return {
+    nodes: params.nodes.map((node) => ({ ...node, idRank: findIdRank(rankedIds, node.id) })),
+    edges: params.edges.map((edge) => ({
+      ...edge,
+      fromRank: findIdRank(rankedIds, edge.fromNode),
+      toRank: findIdRank(rankedIds, edge.toNode),
+    })),
+    rankCount: rankedIds.length,
+  }
+}
+
 /** True when `inner`'s rectangle lies fully inside `outer`'s — JSON Canvas
  *  group membership is spatial containment, not a structural parent field. */
 const isContainedIn = (inner: CanvasNode, outer: CanvasNode): boolean => {
@@ -117,13 +193,14 @@ const isContainedIn = (inner: CanvasNode, outer: CanvasNode): boolean => {
  *  itself, whose rectangle contains it, edges included (groups nest, so the
  *  smallest container is the innermost). */
 const smallestContainingGroup = (
-  node: CanvasNode,
-  groups: readonly CanvasNode[],
-): CanvasNode | undefined => {
+  node: RankedNode,
+  groups: readonly RankedNode[],
+): RankedNode | undefined => {
   const containing = groups.filter((group) => {
     // The node is compared by object because IDs can repeat, and a card that
     // shares its group's ID still belongs in that group.
     if (group === node || !isContainedIn(node, group)) return false
+
     // Two groups with identical rectangles contain each other; without a
     // tiebreak each would claim the other as parent, neither would be
     // top-level, and both would drop out of the render entirely. Give the
@@ -134,18 +211,19 @@ const smallestContainingGroup = (
     const mutuallyContained = node.type === "group" && isContainedIn(group, node)
 
     if (!mutuallyContained) return true
-    return group.id > node.id
+    return group.idRank > node.idRank
   })
 
   if (containing.length === 0) return undefined
+
   // Equal-area ties break on the lower id so ownership is a property of the
-  // canvas content, not of JSON array order.
+  // canvas content, not of JSON array order, whenever the ids differ.
   return containing.reduce((smallest, candidate) => {
     const candidateArea = candidate.width * candidate.height
     const smallestArea = smallest.width * smallest.height
 
     if (candidateArea < smallestArea) return candidate
-    if (candidateArea === smallestArea && candidate.id < smallest.id) return candidate
+    if (candidateArea === smallestArea && candidate.idRank < smallest.idRank) return candidate
     return smallest
   })
 }
@@ -275,25 +353,25 @@ const renderNestedNodes = ({
   contentNodes,
   groups,
 }: {
-  contentNodes: readonly CanvasNode[]
-  groups: readonly CanvasNode[]
+  contentNodes: readonly RankedNode[]
+  groups: readonly RankedNode[]
 }): string[] => {
   const membersByGroup = groupBy(contentNodes, (node) => smallestContainingGroup(node, groups))
   const childGroupsByParent = groupBy(groups, (group) => smallestContainingGroup(group, groups))
   const ungroupedNodes = membersByGroup.get(undefined) ?? []
   const topLevelGroups = childGroupsByParent.get(undefined) ?? []
   const sections = ungroupedNodes.map(renderNode)
-  const frames = topLevelGroups.toReversed().map((group) => ({ group, depth: 0 }))
+  const groupsToRender = topLevelGroups.toReversed().map((group) => ({ group, depth: 0 }))
 
   // A stack of groups still to render; the last one pushed renders next, so
   // groups are pushed in reverse to come out in reading order.
-  for (let frame = frames.pop(); frame; frame = frames.pop()) {
-    const { group, depth } = frame
+  for (let groupAtDepth = groupsToRender.pop(); groupAtDepth; groupAtDepth = groupsToRender.pop()) {
+    const { group, depth } = groupAtDepth
 
     sections.push(groupHeading(group, depth))
     for (const member of membersByGroup.get(group) ?? []) sections.push(renderNode(member))
     for (const child of (childGroupsByParent.get(group) ?? []).toReversed()) {
-      frames.push({ group: child, depth: depth + 1 })
+      groupsToRender.push({ group: child, depth: depth + 1 })
     }
   }
   return sections
@@ -350,11 +428,12 @@ export const linearizeCanvas = (canvasJson: string): string => {
 
   const rawNodes = isRecord(parsed) && Array.isArray(parsed.nodes) ? parsed.nodes : []
   const rawEdges = isRecord(parsed) && Array.isArray(parsed.edges) ? parsed.edges : []
-  const nodes = rawNodes
-    .map(parseNode)
-    .filter((node) => node !== null)
-    .toSorted(byReadingOrder)
-  const edges = rawEdges.map(parseEdge).filter((edge) => edge !== null)
+  const ranked = rankCanvasIds({
+    nodes: rawNodes.map(parseNode).filter((node) => node !== null),
+    edges: rawEdges.map(parseEdge).filter((edge) => edge !== null),
+  })
+  const nodes = ranked.nodes.toSorted(byReadingOrder)
+  const { edges } = ranked
 
   const groups = nodes.filter((node) => node.type === "group")
   const contentNodes = nodes.filter((node) => node.type !== "group")
@@ -367,16 +446,26 @@ export const linearizeCanvas = (canvasJson: string): string => {
     : nodes.map(renderFlatNode)
 
   // Each node's name is worked out once, because an edge list can name the
-  // same node on every line and a text card's name scans its whole text.
-  // A later node with a repeated ID replaces the earlier one's entry.
-  const edgeNameById = new Map(nodes.map((node) => [node.id, edgeLineName(node)]))
-  const edgeEndpointName = (id: string): string => {
-    return edgeNameById.get(id) ?? `(missing node "${id}")`
+  // same node on every line and a text card's name scans its whole text:
+  // - The names sit in an array indexed by rank, not a Map. V8 hashes integer
+  //   Map keys with a fixed function, so a canvas could pick ids whose ranks
+  //   share one bucket and make each lookup of those ranks walk it.
+  // - The array is filled to its full length first, so V8 keeps it a plain
+  //   array instead of a hash table keyed by index.
+  // - A later node with a repeated ID replaces the earlier one's entry.
+  const edgeNameByRank = Array.from<string | undefined>({ length: ranked.rankCount })
+  for (const node of nodes) {
+    edgeNameByRank[node.idRank] = edgeLineName(node)
+  }
+  const edgeEndpointName = (endpoint: { rank: number; id: string }): string => {
+    return edgeNameByRank[endpoint.rank] ?? `(missing node "${endpoint.id}")`
   }
 
   const edgeLines = edges.map((edge) => {
     const label = edge.label ? ` (${edge.label})` : ""
-    return `${edgeEndpointName(edge.fromNode)} → ${edgeEndpointName(edge.toNode)}${label}`
+    const fromName = edgeEndpointName({ rank: edge.fromRank, id: edge.fromNode })
+    const toName = edgeEndpointName({ rank: edge.toRank, id: edge.toNode })
+    return `${fromName} → ${toName}${label}`
   })
 
   const nodeWord = nodes.length === 1 ? "node" : "nodes"
