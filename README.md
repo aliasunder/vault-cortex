@@ -93,7 +93,7 @@ docker compose up
 
 Your vault on a server, kept current by Obsidian Sync, reachable from any MCP client. This is the setup claude.ai on the web and your phone can reach, and the vault stays reachable when your laptop is closed.
 
-- **One click (Railway or Render):** you give your vault name and timezone (plus the vault password if your vault is encrypted). The platform handles HTTPS, restarts, persistent storage, and a generated MCP token, which each guide's **Your URL and token** section shows how to find. Once deployed, a setup page walks you through signing in to Obsidian Sync in your browser.
+- **One click (Railway or Render):** you give your vault name and timezone (plus the vault password if your vault is encrypted). The platform handles HTTPS, restarts, persistent storage, and a generated MCP token, which each guide's **Your URL and token** section shows how to find.
 - **Your own server:** the CLI asks for the public URL and vault name, captures your Obsidian Sync token for you, and generates the MCP token; [HTTPS](./deploy/remote/#https-access) is yours to set up.
 
 | **Setup**      | Railway                                                                                                                                                                             | Render                                                                                                                                                  | Self-hosted                                                  |
@@ -121,7 +121,7 @@ The [Vault Cortex CLI](./cli/) sets up the same container on any Linux box you r
 npx vault-cortex@latest init --mode remote
 ```
 
-That's it — the CLI walks through the public URL, Obsidian Sync token (it can run [`get-sync-token`](./cli/README.md#get-sync-token) for you), vault name, and the vault password for an encrypted vault, then generates the MCP token and starts the server ([CLI reference →](./cli/)). From then on the CLI manages the server, and a Compose setup updates with Compose, as [under the local setup](#local-2-minutes--docker--your-vault-folder).
+That's it — the CLI walks through the settings above (it can run [`get-sync-token`](./cli/README.md#get-sync-token) for you, and asks for the vault password on an encrypted vault), then starts the server ([CLI reference →](./cli/)).
 
 <details>
 <summary><strong>Manual setup</strong> (no Node.js needed)</summary>
@@ -143,6 +143,8 @@ Obsidian password to the server
 ([full walkthrough →](./deploy/remote/#sign-in-to-obsidian-sync)).
 
 </details>
+
+**Set up with Compose?** Keep updating with Compose, as [under the local setup](#local-2-minutes--docker--your-vault-folder).
 
 ### Connect your MCP client
 
@@ -270,7 +272,7 @@ The task layer handles this so agents don't have to:
 - **Complete** — marking a task done auto-detects the done lane and stamps the completion date, honoring the plugin's "Set done date" setting; reversing it removes the date. Completion also runs the Tasks plugin's own behaviors:
   - a recurring task spawns its next occurrence, dates advanced the way the plugin computes them
   - a task set to delete "On completion" disappears from the note
-- **Both formats** — whichever format you use, [Tasks plugin](https://publish.obsidian.md/tasks/) emoji signifiers or [Dataview](https://blacksmithgu.github.io/obsidian-dataview/) inline fields, the server reads both and writes in the format your Tasks plugin is configured for — read from the plugin's settings when [your vault syncs `.obsidian/`](#daily-notes), with emoji signifiers as the default otherwise
+- **Both formats** — whichever format you use, [Tasks plugin](https://publish.obsidian.md/tasks/) emoji signifiers or [Dataview](https://blacksmithgu.github.io/obsidian-dataview/) inline fields, the server reads both and writes in the format your Tasks plugin is configured for — read from the plugin's settings when [your vault syncs `.obsidian/`](./deploy/remote/README.md#daily-notes), with emoji signifiers as the default otherwise
 
 See [ARCHITECTURE.md → Tasks](./ARCHITECTURE.md#tasks) for the indexing model, date cascade sorting, and Kanban lane detection.
 
@@ -387,7 +389,7 @@ These are conventions, not requirements — Vault Cortex works with any property
 
 ## Configuration
 
-All settings are environment variables with sensible defaults, set in `.env` or in the service's **Variables** tab on Railway and **Environment** tab on Render. The table lists the required settings and the switches most installs change; every setting, with its default and limits, is in the [local](./deploy/local/README.md#configuration) and [remote](./deploy/remote/README.md#configuration) guides' configuration tables, which also cover Obsidian Sync's own settings.
+All settings are environment variables with sensible defaults, set in `.env` or in the service's **Variables** tab on Railway and **Environment** tab on Render. The table lists the required settings and the switches most installs change; every setting, with its default and limits, is in the [local](./deploy/local/README.md#configuration) and [remote](./deploy/remote/README.md#configuration) guides' configuration tables; the remote guide's also covers Obsidian Sync's own settings.
 
 | Variable               | Required for | Default                                              | Description                                                                                                                                                                                                                                             |
 | ---------------------- | ------------ | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -407,7 +409,7 @@ All settings are environment variables with sensible defaults, set in `.env` or 
 
 ### Daily notes
 
-`vault_get_daily_note` and the daily-review prompt find your daily notes using the folder and filename date format set in Obsidian's Daily notes options, read from your vault's `.obsidian/daily-notes.json`. In local mode the server reads the file straight from your vault folder.
+`vault_get_daily_note` and the daily-review prompt find your daily notes using the folder and filename date format set in Obsidian's Daily notes options, read from your vault's `.obsidian/daily-notes.json`. In local mode the server reads the file straight from your vault folder ([local guide's Daily notes section](./deploy/local/README.md#daily-notes)).
 
 In remote mode your devices must send that file: turn on Obsidian Settings → Sync → **Vault configuration sync** on each device. Details: the [remote guide's Daily notes section](./deploy/remote/README.md#daily-notes).
 

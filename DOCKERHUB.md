@@ -137,7 +137,7 @@ Vault Cortex indexes every [property](https://help.obsidian.md/Editing+and+forma
 
 ## Configuration
 
-All settings are environment variables with sensible defaults, set in `.env` or in the service's **Variables** tab on Railway and **Environment** tab on Render. The table lists the required settings and the switches most installs change; every setting, with its default and limits, is in the [local](https://github.com/aliasunder/vault-cortex/tree/main/deploy/local/README.md#configuration) and [remote](https://github.com/aliasunder/vault-cortex/tree/main/deploy/remote/README.md#configuration) guides' configuration tables, which also cover Obsidian Sync's own settings.
+All settings are environment variables with sensible defaults, set in `.env` or in the service's **Variables** tab on Railway and **Environment** tab on Render. The table lists the required settings and the switches most installs change; every setting, with its default and limits, is in the [local](https://github.com/aliasunder/vault-cortex/tree/main/deploy/local/README.md#configuration) and [remote](https://github.com/aliasunder/vault-cortex/tree/main/deploy/remote/README.md#configuration) guides' configuration tables; the remote guide's also covers Obsidian Sync's own settings.
 
 | Variable | Required for | Default | Description |
 | ---------------------- | ------------ | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

@@ -1454,8 +1454,10 @@ pattern:
 3. **Deploy .env.example and Configuration table** (`deploy/local/` and/or
    `deploy/remote/`) — document the var in that folder's `.env.example`
    with a comment and its default, then add its row to the Configuration
-   table in that folder's `README.md`. Step 4 syncs from the
-   `.env.example` files; no drift test checks the table rows.
+   table in that folder's `README.md`. A required var or a switch most
+   installs change also gets a row in the README's Configuration table.
+   Step 4 syncs from the `.env.example` files; no drift test checks the
+   table rows.
 4. **Run `npm run sync:cli-env-blocks`** — syncs the optional sections from
    step 3 into `cli/src/rules/env-templates.ts` (`LOCAL_OPTIONAL_BLOCK` /
    `REMOTE_OPTIONAL_BLOCK`). Always run after editing deploy/ env files.
