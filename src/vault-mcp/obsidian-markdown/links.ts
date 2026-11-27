@@ -1,6 +1,6 @@
 /** The Obsidian/Markdown link domain: recognizing links in text, parsing them
- *  into parts, extracting their targets from a note, and resolving a target to a
- *  vault path. Both the indexer (search/search-index.ts) and the link rewriter
+ *  into parts, extracting their targets from a note, resolving a target to a
+ *  vault path, and writing a path as a markdown link destination. Both the indexer (search/search-index.ts) and the link rewriter
  *  (vault-operations/note-mover.ts) depend on this module as a peer, so the two
  *  read links with one grammar and resolve them by one set of rules.
  *
@@ -78,7 +78,7 @@ type LinkSpan = { start: number; end: number; targetStart: number; targetEnd: nu
 
 /** How a markdown link writes its destination: in angle brackets
  *  (`[x](<My Note.md>)`) or bare (`[x](My%20Note.md)`). */
-export type DestinationForm = "angle" | "bare"
+type DestinationForm = "angle" | "bare"
 
 /** Whether a markdown link is an embed (`![alt](photo.png)`) or a plain link. */
 type MarkdownLinkKind = "embed" | "link"
@@ -340,6 +340,171 @@ const decodeLinkSpellings = (text: string): string => {
   const { decoded } = decodeCharacterReferences(unescaped)
   const percentDecoded = decoded.replace(PERCENT_ESCAPE_RUN, (run) => decodeUriOrNull(run) ?? run)
   return percentDecoded.replaceAll(NO_BREAK_SPACE, " ")
+}
+
+/** Characters a backslash keeps literal in both destination forms:
+ *  - a raw `*` or `$` pairs with one earlier on the line, and Obsidian then
+ *    reads emphasis or math that hides the link (`*a [x](b*c.md)` holds no
+ *    link);
+ *  - a raw `[` or `]` could end the link's text. */
+const BACKSLASH_ESCAPED_CHARACTERS: ReadonlySet<string> = new Set(["*", "$", "[", "]"])
+
+/** Characters that open emphasis, strikethrough or a highlight only in a run
+ *  or at a word's edge, so a single one between two other characters stays
+ *  raw (`meeting_notes.md`). */
+const RUN_DELIMITER_CHARACTERS: ReadonlySet<string> = new Set(["_", "~", "="])
+
+/** A character a destination writes percent-encoded in both forms:
+ *  - `%`, because Obsidian percent-decodes the link;
+ *  - `#`, which would start a heading;
+ *  - `` ` ``, because a backslash before one still opens a code span;
+ *  - `"`, `\`, `^`, `{`, `|`, `}`, which encodeURI escapes too. */
+const PERCENT_ENCODED_CHARACTERS: ReadonlySet<string> = new Set([
+  "%",
+  "#",
+  "`",
+  '"',
+  "\\",
+  "^",
+  "{",
+  "|",
+  "}",
+])
+
+const ASCII_LETTER = /[A-Za-z]/
+
+const ASCII_LETTER_OR_DIGIT = /[A-Za-z0-9]/
+
+/** C0 controls (below U+0020) and DEL (U+007F). */
+const isControlCharacter = (character: string): boolean => {
+  const codeUnit = character.charCodeAt(0)
+  return codeUnit < 0x20 || codeUnit === 0x7f
+}
+
+const percentEncode = (character: string): string => {
+  return [...Buffer.from(character, "utf8")]
+    .map((byte) => `%${byte.toString(16).toUpperCase().padStart(2, "0")}`)
+    .join("")
+}
+
+/** Whether every prefix of `path` closes no more parentheses than it opens,
+ *  and the whole path closes them all, so raw parentheses cannot end a bare
+ *  destination early. */
+const hasBalancedParentheses = (path: string): boolean => {
+  // The walk threads the open-parenthesis depth.
+  let depth = 0
+
+  for (const character of path) {
+    if (character === "(") depth++
+    if (character === ")") depth--
+    if (depth < 0) return false
+  }
+  return depth === 0
+}
+
+/** One character of a new path with its neighbours, which are undefined at
+ *  the path's edges. */
+type PathCharacter = {
+  character: string
+  previous: string | undefined
+  next: string | undefined
+}
+
+const toPathCharacters = (path: string): PathCharacter[] => {
+  const characters = [...path]
+
+  return characters.map((character, index) => {
+    return { character, previous: characters[index - 1], next: characters[index + 1] }
+  })
+}
+
+/** Whether a `_`, `~` or equals sign stands alone between two characters
+ *  that are not whitespace. */
+const isSingleBetweenNonWhitespace = ({ character, previous, next }: PathCharacter): boolean => {
+  if (!previous || !next) return false
+  return (
+    previous !== character &&
+    next !== character &&
+    !WHITESPACE.test(previous) &&
+    !WHITESPACE.test(next)
+  )
+}
+
+/** How one character of a new path is written in a destination, by the
+ *  rules both forms share, or null when the form decides. */
+const encodeSharedCharacter = (pathCharacter: PathCharacter): string | null => {
+  const { character, previous, next } = pathCharacter
+
+  if (PERCENT_ENCODED_CHARACTERS.has(character)) return percentEncode(character)
+  if (BACKSLASH_ESCAPED_CHARACTERS.has(character)) return `\\${character}`
+  // A `_` before anything but an ASCII letter or digit closes emphasis that
+  // an earlier `_` on the line opens, and Obsidian then reads no link
+  // (`snake_case [x](a_(b).md)`). The run rule below escapes a `_` that ends
+  // the path.
+  if (character === "_" && next && !ASCII_LETTER_OR_DIGIT.test(next)) return "\\_"
+  if (RUN_DELIMITER_CHARACTERS.has(character)) {
+    return isSingleBetweenNonWhitespace(pathCharacter) ? character : `\\${character}`
+  }
+  // A letter after `&` could start a character reference (`&amp;`), and a
+  // backslash does not stop Obsidian decoding one, so the letter is encoded.
+  if (ASCII_LETTER.test(character) && previous === "&") return percentEncode(character)
+  return null
+}
+
+/** Writes a new path as a bare destination that Obsidian stores as that
+ *  path: what encodeURI escapes is percent-encoded, `<` and `>` are
+ *  backslash-escaped, and parentheses stay raw when they balance. */
+const encodeBareDestination = (path: string): string => {
+  const keepsParentheses = hasBalancedParentheses(path)
+
+  return toPathCharacters(path)
+    .map((pathCharacter) => {
+      const { character } = pathCharacter
+      const sharedEncoding = encodeSharedCharacter(pathCharacter)
+
+      if (sharedEncoding !== null) return sharedEncoding
+      if (character === "<" || character === ">") return `\\${character}`
+      if (character === "(" || character === ")") {
+        return keepsParentheses ? character : percentEncode(character)
+      }
+      return encodeURI(character)
+    })
+    .join("")
+}
+
+/** Writes a new path as an angle destination that Obsidian stores as that
+ *  path: spaces, parentheses and non-ASCII characters stay raw, control
+ *  characters are percent-encoded, and so are `<` and `>`, since the first
+ *  `>` closes the brackets. */
+const encodeAngleDestination = (path: string): string => {
+  return toPathCharacters(path)
+    .map((pathCharacter) => {
+      const { character } = pathCharacter
+      const sharedEncoding = encodeSharedCharacter(pathCharacter)
+
+      if (sharedEncoding !== null) return sharedEncoding
+      if (character === "<" || character === ">" || isControlCharacter(character)) {
+        return percentEncode(character)
+      }
+      return character
+    })
+    .join("")
+}
+
+/** Writes a new path in a markdown link's destination form, in a spelling
+ *  that Obsidian stores as the path and extractFromBody reads back as the
+ *  path. Three kinds of path have no such spelling, so a link written to one
+ *  does not reach it:
+ *  - one holding `#` or `:`, which Obsidian forbids in file names;
+ *  - one with whitespace at its edges, which Obsidian trims;
+ *  - one holding a no-break space, which Obsidian reads as a space. */
+const encodeMarkdownDestination = (path: string, form: DestinationForm): string => {
+  switch (form) {
+    case "bare":
+      return encodeBareDestination(path)
+    case "angle":
+      return encodeAngleDestination(path)
+  }
 }
 
 /** The first position at or after `from` whose character `accepts` takes
@@ -1591,14 +1756,15 @@ const extractAll = (content: string, data: Record<string, unknown>): string[] =>
   ...new Set([...extractFromBody(content), ...extractFromFrontmatter(data)]),
 ]
 
-/** The link domain — grammar recognition, traversal, parsing, extraction, and
- *  resolution. Single namespace export so call sites read `links.resolve(...)`. */
+/** The link domain — grammar recognition, traversal, parsing, destination
+ *  encoding, extraction, and resolution. Single namespace export so call sites read `links.resolve(...)`. */
 export const links = {
   matchLinksInLine,
   maskInlineCode,
   splitWikilink,
   splitMarkdownLink,
   decodeLinkSpellings,
+  encodeMarkdownDestination,
   extractFromBody,
   extractFromFrontmatter,
   extractAll,
