@@ -142,7 +142,7 @@ All settings are environment variables with sensible defaults, set in `.env` or 
 | Variable | Required for | Default | Description |
 | ---------------------- | ------------ | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `MCP_AUTH_TOKEN` | All | — | Bearer token for authentication (also the JWT signing key) |
-| `VAULT_PATH` | Local | — | Host path to your vault. Must not contain `*`, `?`, or `[` — rejected at startup. |
+| `VAULT_PATH` | Local | — | Host path to your vault. Must not contain `*`, `?`, or `[`. |
 | `PUBLIC_URL` | Remote | — | Public URL clients connect to, used for OAuth discovery. Filled in automatically on Render and Railway when left unset |
 | `VAULT_NAME` | Remote | — | Exact name of your Obsidian vault (case-sensitive) |
 | `EMBEDDING_ENABLED` | — | `true` | Set `false` for keyword-only search: no model download, no vector index, no hybrid search. |

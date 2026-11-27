@@ -1474,8 +1474,9 @@ pattern:
    the remote guide's table. A PR that edits the Railway table says so in its
    description; the maintainer re-publishes the template at merge time.
 
-CI drift tests in `cli/src/rules/__tests__/templates.test.ts` catch omissions across
-steps 2–4 after the fact and pin the committed hosted templates (step 8);
+CI drift tests in `cli/src/rules/__tests__/templates.test.ts` catch omissions in
+the compose files, `.env.example` files and CLI templates (steps 2–4) after the
+fact and pin the committed hosted templates (step 8);
 following the checklist avoids the omissions in the first place.
 
 Not every PR touches these. A new tool in an existing category updates
