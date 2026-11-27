@@ -1992,7 +1992,7 @@ describe("file watcher — obsolete events and embedding queues", () => {
     expect(errorSpy).not.toHaveBeenCalled()
   })
 
-  it("embeds nothing for a note deleted while its newest content waits behind another note's held job", async () => {
+  it("drops a deleted note's waiting content without embedding it", async () => {
     const vector = new Float32Array(384).fill(0.1)
     const blockerEntered = Promise.withResolvers<undefined>()
     const releaseBlocker = Promise.withResolvers<Float32Array>()
@@ -2008,13 +2008,13 @@ describe("file watcher — obsolete events and embedding queues", () => {
       embedBatch: vi.fn(async (texts: readonly string[]) => texts.map(() => vector)),
     }
     const { testVault, database, search, fire } = await createControlledWatcher(embedder)
-    const waitingEmbedFinished = Promise.withResolvers<undefined>()
+    const firstEditEmbedFinished = Promise.withResolvers<undefined>()
     const realNoteEmbed = search.embedNote
     const embedNoteSpy = vi
       .spyOn(search, "embedNote")
       .mockImplementation(async (params, requestLogger) => {
         await realNoteEmbed(params, requestLogger)
-        if (params.rawContent === "secondedit") waitingEmbedFinished.resolve(undefined)
+        if (params.rawContent === "firstedit") firstEditEmbedFinished.resolve(undefined)
       })
 
     await writeFile(join(testVault, "blocker.md"), "heldtopaz")
@@ -2031,13 +2031,16 @@ describe("file watcher — obsolete events and embedding queues", () => {
     await fire("unlink", "note.md")
     expect(search.fullTextSearch({ query: "secondedit" }, logger)).toEqual([])
     releaseBlocker.resolve(vector)
-    await waitingEmbedFinished.promise
+    await firstEditEmbedFinished.promise
+    // The second edit's job runs once the first settles, and finds its content gone
+    await new Promise((resolve) => setImmediate(resolve))
+    await new Promise((resolve) => setImmediate(resolve))
 
     // Source versions are symbols the index mints, so only their type is known
-    expect(embedNoteSpy).toHaveBeenCalledTimes(3)
+    expect(embedNoteSpy).toHaveBeenCalledTimes(2)
     expect(embedNoteSpy).toHaveBeenNthCalledWith(
-      3,
-      { notePath: "note.md", rawContent: "secondedit", sourceVersion: expect.any(Symbol) },
+      2,
+      { notePath: "note.md", rawContent: "firstedit", sourceVersion: expect.any(Symbol) },
       logger,
     )
     expect(embedder.embedText).toHaveBeenCalledExactlyOnceWith("blocker\n\nheldtopaz")

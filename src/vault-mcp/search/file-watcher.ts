@@ -620,6 +620,9 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
     // "superseded", so that read cannot re-add the file removed here.
     currentEvents.delete(relativePath)
     abortPendingBodyTagParse(relativePath)
+    // A deleted note's waiting content would only be dropped as obsolete once
+    // its job's turn came, so it is released now instead
+    pendingNoteEmbedRequests.delete(relativePath)
 
     if (!filePath.endsWith(".md")) {
       const removeAssetRow = (): boolean => {
