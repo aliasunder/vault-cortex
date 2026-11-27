@@ -317,6 +317,10 @@ const readStoredTarget = (params: {
 /** A run of percent escapes. Global — use only with replace. */
 const PERCENT_ESCAPE_RUN = /(?:%[0-9A-Fa-f]{2})+/g
 
+/** A character a link's destination decodes: an escape backslash, a percent
+ *  escape's `%`, a character reference's `&`, or a no-break space. */
+const LINK_DECODED_CHARACTER = /[\\%&\u00a0]/
+
 /** Decodes a whole file's text the way a stored markdown link decodes its
  *  destination, so a substring search for a target finds the links that
  *  store it:
@@ -325,8 +329,13 @@ const PERCENT_ESCAPE_RUN = /(?:%[0-9A-Fa-f]{2})+/g
  *    run stays as written, so one bad escape leaves the file's other links
  *    decoded;
  *  - no-break spaces become spaces.
- *  It neither trims nor drops URLs, because it reads many links at once. */
+ *  It neither trims nor drops URLs, because it reads many links at once, and
+ *  it returns text with none of those characters unchanged. */
 const decodeLinkSpellings = (text: string): string => {
+  // Most files hold none of the characters a link decodes, so they skip the
+  // passes below.
+  if (!LINK_DECODED_CHARACTER.test(text)) return text
+
   const unescaped = text.replace(ESCAPED_PUNCTUATION, "$1")
   const { decoded } = decodeCharacterReferences(unescaped)
   const percentDecoded = decoded.replace(PERCENT_ESCAPE_RUN, (run) => decodeUriOrNull(run) ?? run)

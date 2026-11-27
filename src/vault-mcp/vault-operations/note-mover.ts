@@ -816,24 +816,20 @@ const listLowercaseStemSpellings = (targetStem: string): string[] => {
   ]
 }
 
-/** A character a link's destination decodes: an escape backslash, a percent
- *  escape's `%`, a character reference's `&`, or a no-break space. */
-const LINK_DECODED_CHARACTER = /[\\%&\u00a0]/
-
 /** An escaped quote or backslash in a JSON string. Global — use only with replace. */
 const JSON_STRING_ESCAPE = /\\(["\\])/g
 
 /** The views of a file's text a link's target spelling can appear in: the
- *  text itself and, when it holds a character a link decodes, the text
- *  decoded the way a stored link reads it. A Canvas's JSON string escapes
- *  are undone first, so a text card's `a\_b.md` reads as `a_b.md`. */
+ *  text itself and, when decoding changes it, the text decoded the way a
+ *  stored link reads it. A Canvas's JSON string escapes are undone first, so
+ *  a text card's `a\_b.md` reads as `a_b.md`. */
 const listSearchableViews = (params: { path: string; content: string }): string[] => {
   const { path, content } = params
-
-  if (!LINK_DECODED_CHARACTER.test(content)) return [content]
-
   const linkText = isCanvasPath(path) ? content.replace(JSON_STRING_ESCAPE, "$1") : content
-  return [content, links.decodeLinkSpellings(linkText)]
+  const decodedView = links.decodeLinkSpellings(linkText)
+
+  if (decodedView === content) return [content]
+  return [content, decodedView]
 }
 
 /** Scans vault notes and Canvas files for links to targetPath, returning the
