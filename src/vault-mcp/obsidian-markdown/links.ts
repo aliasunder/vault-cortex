@@ -534,17 +534,21 @@ const findUnescaped = (params: {
  *  character. */
 type ParenRecords = { positions: Int32Array; matches: Int32Array }
 
-const isParenthesis = (character: string): boolean => character === "(" || character === ")"
-
+/** Calls `visit` with each unescaped parenthesis's position. It walks the
+ *  line itself rather than calling findUnescaped once per parenthesis, so a
+ *  parenthesis-dense line allocates nothing per parenthesis. */
 const forEachUnescapedParenthesis = (text: string, visit: (position: number) => void): void => {
-  // Each search starts at the line's start or just past the last parenthesis
-  // found. The character before it is then never a backslash, and the
-  // searches together read the line once.
-  let position = findUnescaped({ text, from: 0, accepts: isParenthesis })
+  // Whether a character is escaped depends on the backslash run before it,
+  // so the walk threads that run's length.
+  let backslashRun = 0
 
-  while (position < text.length) {
-    visit(position)
-    position = findUnescaped({ text, from: position + 1, accepts: isParenthesis })
+  for (let position = 0; position < text.length; position++) {
+    const character = text[position]
+    const isUnescapedParenthesis =
+      (character === "(" || character === ")") && backslashRun % 2 === 0
+
+    if (isUnescapedParenthesis) visit(position)
+    backslashRun = character === "\\" ? backslashRun + 1 : 0
   }
 }
 
