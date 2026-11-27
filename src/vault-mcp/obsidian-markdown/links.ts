@@ -342,24 +342,44 @@ const decodeLinkSpellings = (text: string): string => {
   return percentDecoded.replaceAll(NO_BREAK_SPACE, " ")
 }
 
+/** The first position at or after `from` whose character `accepts` takes
+ *  with an even run of backslashes before it, or text.length. The character
+ *  before `from` must not be a backslash. */
+const findUnescaped = (params: {
+  text: string
+  from: number
+  accepts: (character: string) => boolean
+}): number => {
+  const { text, from, accepts } = params
+  // The backslash run before each character decides whether it is escaped.
+  let backslashRun = 0
+
+  for (let position = from; position < text.length; position++) {
+    const character = text.charAt(position)
+
+    if (backslashRun % 2 === 0 && accepts(character)) return position
+    backslashRun = character === "\\" ? backslashRun + 1 : 0
+  }
+  return text.length
+}
+
 /** Each unescaped parenthesis of a line, in order. matches holds the record
  *  index of each `(`'s matching `)`, or -1 for a `)` and for a `(` without
  *  one. The two arrays take 8 bytes per parenthesis and nothing per other
  *  character. */
 type ParenRecords = { positions: Int32Array; matches: Int32Array }
 
+const isParenthesis = (character: string): boolean => character === "(" || character === ")"
+
 const forEachUnescapedParenthesis = (text: string, visit: (position: number) => void): void => {
-  // Whether a character is escaped depends on the backslash run before it,
-  // so the walk threads that run's length.
-  let backslashRun = 0
+  // Each search starts at the line's start or just past the last parenthesis
+  // found. The character before it is then never a backslash, and the
+  // searches together read the line once.
+  let position = findUnescaped({ text, from: 0, accepts: isParenthesis })
 
-  for (let position = 0; position < text.length; position++) {
-    const character = text[position]
-    const isUnescapedParenthesis =
-      (character === "(" || character === ")") && backslashRun % 2 === 0
-
-    if (isUnescapedParenthesis) visit(position)
-    backslashRun = character === "\\" ? backslashRun + 1 : 0
+  while (position < text.length) {
+    visit(position)
+    position = findUnescaped({ text, from: position + 1, accepts: isParenthesis })
   }
 }
 
@@ -406,27 +426,6 @@ const buildParenRecords = (text: string): ParenRecords => {
     openRecord = recordBelow
   }
   return { positions, matches }
-}
-
-/** The first position at or after `from` whose character `accepts` takes
- *  with an even run of backslashes before it, or text.length. The character
- *  before `from` must not be a backslash. */
-const findUnescaped = (params: {
-  text: string
-  from: number
-  accepts: (character: string) => boolean
-}): number => {
-  const { text, from, accepts } = params
-  // The backslash run before each character decides whether it is escaped.
-  let backslashRun = 0
-
-  for (let position = from; position < text.length; position++) {
-    const character = text.charAt(position)
-
-    if (backslashRun % 2 === 0 && accepts(character)) return position
-    backslashRun = character === "\\" ? backslashRun + 1 : 0
-  }
-  return text.length
 }
 
 const findNonWhitespace = (text: string, from: number): number => {
