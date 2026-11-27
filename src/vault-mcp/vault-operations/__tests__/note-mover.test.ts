@@ -660,8 +660,13 @@ describe("moveNote — markdown link destinations", () => {
     },
     {
       newPath: "_draft_.md",
-      written: '[a](<\\_draft_.md>) [b](\\_draft_.md "tip") [c](\\_draft_.md) and `code`',
+      written: '[a](<\\_draft\\_.md>) [b](\\_draft\\_.md "tip") [c](\\_draft\\_.md) and `code`',
       obsidian: ["_draft_.md", "_draft_.md", "_draft_.md"],
+    },
+    {
+      newPath: "Plan_(v2).md",
+      written: '[a](<Plan\\_(v2).md>) [b](Plan\\_(v2).md "tip") [c](Plan\\_(v2).md) and `code`',
+      obsidian: ["Plan_(v2).md", "Plan_(v2).md", "Plan_(v2).md"],
     },
     {
       newPath: "a<b>c.md",

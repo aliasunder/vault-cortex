@@ -300,6 +300,8 @@ const WHITESPACE = /\s/
 
 const ASCII_LETTER = /[A-Za-z]/
 
+const ASCII_LETTER_OR_DIGIT = /[A-Za-z0-9]/
+
 /** C0 controls (below U+0020) and DEL (U+007F). */
 const isControlCharacter = (character: string): boolean => {
   const codeUnit = character.charCodeAt(0)
@@ -358,10 +360,15 @@ const isSingleBetweenNonWhitespace = ({ character, previous, next }: PathCharact
 /** How one character of a new path is written in a destination, by the
  *  rules both forms share, or null when the form decides. */
 const encodeSharedCharacter = (pathCharacter: PathCharacter): string | null => {
-  const { character, previous } = pathCharacter
+  const { character, previous, next } = pathCharacter
 
   if (PERCENT_ENCODED_CHARACTERS.has(character)) return percentEncode(character)
   if (BACKSLASH_ESCAPED_CHARACTERS.has(character)) return `\\${character}`
+  // A `_` before anything but an ASCII letter or digit closes emphasis that
+  // an earlier `_` on the line opens, and Obsidian then reads no link
+  // (`snake_case [x](a_(b).md)`). The run rule below escapes a `_` that ends
+  // the path.
+  if (character === "_" && next && !ASCII_LETTER_OR_DIGIT.test(next)) return "\\_"
   if (RUN_DELIMITER_CHARACTERS.has(character)) {
     return isSingleBetweenNonWhitespace(pathCharacter) ? character : `\\${character}`
   }
