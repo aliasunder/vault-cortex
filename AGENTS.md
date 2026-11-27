@@ -1304,10 +1304,10 @@ Five rules follow:
 - **Every passage answers a question its doc's readers ask.** A passage
   that answers none is cut; one written for another doc's reader moves
   to that doc.
-- **Terms that name a technical choice stay unglossed in the README and
-  SECURITY.md**, even when a review calls them jargon. Such a term is a
-  name used outside this repo for something the project chose (FTS5,
-  RRF, cross-encoder, per-file mutex, TOCTOU, `link()`).
+- **Terms that name a technical choice get no added gloss in the README
+  and SECURITY.md**, even when a review calls them jargon. Such a term
+  is a name used outside this repo for something the project chose
+  (FTS5, RRF, cross-encoder, per-file mutex, TOCTOU, `link()`).
 - **Features are stated as what the Obsidian user can do**, in their
   vocabulary ("complete a task," "move between lanes," "filter by due
   date"), never implementation vocabulary ("mutate," "atomic write
@@ -1320,8 +1320,9 @@ Five rules follow:
   clause saying how it works ("stages to a temp file, then renames").
 - **One home per fact; other docs link to it**, because a second copy
   goes stale when the first is edited. Windows setup lives in
-  `deploy/local/`, and the README links there. Registry descriptions and
-  the generated DOCKERHUB.md are deliberate copies.
+  `deploy/local/`, and the README links there. Registry descriptions,
+  the generated DOCKERHUB.md, settings tables and the recovery path
+  beside a destructive-outcome claim are deliberate copies.
 
 **Write-time format decision** — before committing any prose (code
 comments, JSDoc, README sections, PR descriptions, env-file comments):
