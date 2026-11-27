@@ -104,9 +104,9 @@ Flags:
 - `--dir <path>` — directory to write config files into (default
   `./vault-cortex`)
 - `--instance-name <name>` — name for this install's container and data
-  (default `vault-cortex`); lowercase letters, digits, `-` and `_`. Naming an
-  install that already exists reuses its data, so use it only for the same
-  vault set up again
+  (default `vault-cortex`); two or more lowercase letters, digits, `-` and `_`,
+  starting with a letter or digit. Naming an install that already exists
+  reuses its data, so use it only for the same vault set up again
 - `--port <port>` — host port for this install (default `8000`); a port
   another container already publishes is refused
 - `--yes` — non-interactive local setup with defaults; requires `--vault-path`,
