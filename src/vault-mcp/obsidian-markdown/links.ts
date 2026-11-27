@@ -37,6 +37,21 @@ const LONGEST_REFERENCE_NAME = 31
  *  options: a reference counts only when a `;` ends it. */
 const REFERENCE_OPTIONS = { nonTerminated: false }
 
+/** Matches the numeric reference a text opens with: `&#`, then an `x` and hex
+ *  digits or decimal digits, then an optional `;`. */
+const NUMERIC_REFERENCE =
+  /^&#(?:(?<hexMarker>[xX])(?<hexDigits>[0-9A-Fa-f]*)|(?<decimalDigits>[0-9]*))(?<semicolon>;?)/
+
+/** Matches the zeros a digit run opens with, short of its last digit. */
+const LEADING_ZEROS = /^0+(?=.)/
+
+/** The most digits a code point takes past its leading zeros: U+10FFFF is
+ *  1,114,111, seven decimal digits or six hex digits. */
+const CODE_POINT_DIGITS = { decimal: 7, hex: 6 }
+
+/** parse-entities decodes a numeric reference past U+10FFFF as U+FFFD. */
+const REPLACEMENT_CHARACTER = String.fromCodePoint(0xfffd)
+
 /** How many decoded pieces the reference decoder holds before it joins them.
  *  A text dense with `&` has one piece per character, and one string per piece
  *  costs about 90 bytes of heap per character; a batch this size stays under a
@@ -182,8 +197,33 @@ const scanWikilinks = (text: string, visit: (span: LinkSpan) => void): void => {
 
 // ── Markdown link destinations ──────────────────────────────────
 
+/** Decodes the numeric reference a piece opens with and keeps the rest of the
+ *  piece as written. parse-entities decodes one only when a `;` ends a
+ *  nonempty digit run, and it reads the run whole, so a long run reaches it
+ *  without its leading zeros, which do not change the code point
+ *  (`&#0000065;` is `A`). */
+const decodeNumericReference = (piece: string): string => {
+  const reference = NUMERIC_REFERENCE.exec(piece)
+
+  // The pattern matches every text that opens with `&#`, as each piece here does.
+  if (!reference?.groups) throw new Error("decodeNumericReference takes a piece that opens with &#")
+  const { hexMarker = "", hexDigits, decimalDigits, semicolon } = reference.groups
+  const digits = hexDigits ?? decimalDigits
+
+  if (!digits || !semicolon) return piece
+  const significantDigits = digits.replace(LEADING_ZEROS, "")
+  const longestDigits = hexMarker ? CODE_POINT_DIGITS.hex : CODE_POINT_DIGITS.decimal
+  const rest = piece.slice(reference[0].length)
+
+  if (significantDigits.length > longestDigits) return `${REPLACEMENT_CHARACTER}${rest}`
+  return `${parseEntities(`&#${hexMarker}${significantDigits};`, REFERENCE_OPTIONS)}${rest}`
+}
+
 /** Decodes the character references in one piece of text that holds no `&`
  *  after its first character.
+ *  - Only the reference the piece opens with reaches parse-entities, which
+ *    copies the text after a reference one character at a time; the rest of
+ *    the piece is appended as written.
  *  - Legacy names are the HTML references that may omit their `;`, such as
  *    `&not`. In a longer name that a `;` ends, parse-entities decodes the
  *    longest legacy name it starts with: `&notit;` becomes `¬it;`.
@@ -193,14 +233,19 @@ const scanWikilinks = (text: string, visit: (span: LinkSpan) => void): void => {
  *    decides the output. */
 const decodeReferencePiece = (piece: string): string => {
   if (!piece.startsWith("&")) return piece
+  if (piece[1] === "#") return decodeNumericReference(piece)
 
   // The name's length is counted with a forward walk, so a long run is read once.
   let nameEnd = 1
   while (nameEnd < piece.length && REFERENCE_NAME_CHARACTER.test(piece.charAt(nameEnd))) nameEnd++
   const nameLength = nameEnd - 1
 
-  if (nameLength <= LONGEST_REFERENCE_NAME) return parseEntities(piece, REFERENCE_OPTIONS)
+  // With REFERENCE_OPTIONS, a name no `;` ends decodes to itself.
   if (piece[nameEnd] !== ";") return piece
+  if (nameLength <= LONGEST_REFERENCE_NAME) {
+    const referenceEnd = nameEnd + ";".length
+    return `${parseEntities(piece.slice(0, referenceEnd), REFERENCE_OPTIONS)}${piece.slice(referenceEnd)}`
+  }
 
   // The head keeps `&` and one name character more than the longest name, so
   // the appended `;` cannot complete a whole name. Only a legacy prefix

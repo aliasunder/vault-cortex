@@ -775,6 +775,8 @@ const targetsInStoredLinks = (storedLinks: readonly string[]): string[] => {
 }
 
 describe("extractFromBody against Obsidian 1.15.1", () => {
+  const REPLACEMENT_CHARACTER = String.fromCodePoint(0xfffd)
+
   // Splits each markdown link the rewriter finds in `input`, returning the
   // text its parts rebuild and the target its path and extension spell.
   const splitMarkdownLinksIn = (input: string) => {
@@ -1055,6 +1057,28 @@ describe("extractFromBody against Obsidian 1.15.1", () => {
       obsidian: ["a&notXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX.b;c.md"],
       expected: ["a&notXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX.b;c.md"],
     },
+    // A numeric reference's leading zeros keep its code point, a code point
+    // past U+10FFFF decodes to U+FFFD, and a reference no `;` ends stays as
+    // written.
+    { input: "[x](<&#0000000065;.md>)", obsidian: ["A.md"], expected: ["A.md"] },
+    { input: "[x](<&#x00000041;.md>)", obsidian: ["A.md"], expected: ["A.md"] },
+    {
+      input: "[x](<&#00001114112;.md>)",
+      obsidian: [`${REPLACEMENT_CHARACTER}.md`],
+      expected: [`${REPLACEMENT_CHARACTER}.md`],
+    },
+    {
+      input: "[x](<&#x0110000;.md>)",
+      obsidian: [`${REPLACEMENT_CHARACTER}.md`],
+      expected: [`${REPLACEMENT_CHARACTER}.md`],
+    },
+    { input: "[x](<&#65.md>)", obsidian: ["&#65.md"], expected: ["&"] },
+    { input: "[x](<&#;.md>)", obsidian: ["&#;.md"], expected: ["&"] },
+    {
+      input: "[x](<&amp;and more text.md>)",
+      obsidian: ["&and more text.md"],
+      expected: ["&and more text.md"],
+    },
   ]
 
   it.each(obsidianCases)("extracts $expected from $input", ({ input, expected }) => {
@@ -1214,7 +1238,7 @@ const isMemoryWorkerMessage = (message: unknown): message is MemoryWorkerMessage
  *  getHeapStatistics reads a worker's heap while it runs one synchronous call,
  *  and its external memory counts typed arrays. */
 const measureHeapGrowth = async (
-  shape: "sparse" | "dense" | "ampersands",
+  shape: "sparse" | "dense" | "ampersands" | "ampersand-tail" | "digit-run" | "long-number",
 ): Promise<{ peakGrowth: number; parenthesisCount: number; resultLength: number }> => {
   const workerUrl = new URL("./helpers/link-memory-worker.ts", import.meta.url)
   const worker = new Worker(workerUrl, { workerData: shape, execArgv: ["--import", "tsx"] })
@@ -1304,6 +1328,29 @@ describe("link spelling decode memory", () => {
     const { peakGrowth, resultLength } = await measureHeapGrowth("ampersands")
 
     expect(resultLength).toBe(LINE_LENGTH)
+    expect(peakGrowth).toBeLessThan(BYTES_PER_CHARACTER * LINE_LENGTH)
+  }, 60_000)
+
+  it("grows the heap at most 8 bytes per character decoding one & before 10,000,000 characters of text", async () => {
+    const { peakGrowth, resultLength } = await measureHeapGrowth("ampersand-tail")
+
+    expect(resultLength).toBe(LINE_LENGTH)
+    expect(peakGrowth).toBeLessThan(BYTES_PER_CHARACTER * LINE_LENGTH)
+  }, 60_000)
+
+  it("grows the heap at most 8 bytes per character decoding one &# reference with 10,000,000 digits", async () => {
+    const { peakGrowth, resultLength } = await measureHeapGrowth("digit-run")
+
+    // The leading zeros do not change the code point, so the line decodes to "A".
+    expect(resultLength).toBe(1)
+    expect(peakGrowth).toBeLessThan(BYTES_PER_CHARACTER * LINE_LENGTH)
+  }, 60_000)
+
+  it("grows the heap at most 8 bytes per character decoding one &# reference with a 10,000,000-digit number", async () => {
+    const { peakGrowth, resultLength } = await measureHeapGrowth("long-number")
+
+    // A number past U+10FFFF decodes to the one character U+FFFD.
+    expect(resultLength).toBe(1)
     expect(peakGrowth).toBeLessThan(BYTES_PER_CHARACTER * LINE_LENGTH)
   }, 60_000)
 })

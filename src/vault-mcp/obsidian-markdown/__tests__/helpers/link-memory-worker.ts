@@ -18,9 +18,21 @@ const countParentheses = (text: string): number => {
   return parenthesisCount
 }
 
-/** A sparse line holds one parenthesis, a dense one holds a parenthesis in
- *  every character after its first four, and an ampersands line holds only
- *  `&`. */
+/** The shapes decoded with decodeLinkSpellings rather than scanned. */
+const DECODED_SHAPES: ReadonlySet<unknown> = new Set([
+  "ampersands",
+  "ampersand-tail",
+  "digit-run",
+  "long-number",
+])
+
+/** The line each shape names:
+ *  - sparse: one parenthesis;
+ *  - dense: a parenthesis in every character after the first four;
+ *  - ampersands: only `&`;
+ *  - ampersand-tail: one `&` before plain text;
+ *  - digit-run: one `&#` reference whose digits are leading zeros before 65;
+ *  - long-number: one `&#` reference whose digits name no code point. */
 const buildLine = (shape: unknown): string => {
   if (shape === "sparse") {
     const filler = `ab c"d'e<f `
@@ -28,13 +40,18 @@ const buildLine = (shape: unknown): string => {
   }
   if (shape === "dense") return `[x](${"()".repeat(LINE_LENGTH / 2 - 2)}`
   if (shape === "ampersands") return "&".repeat(LINE_LENGTH)
+  if (shape === "ampersand-tail") {
+    return `&${"a b-".repeat(Math.ceil(LINE_LENGTH / 4))}`.slice(0, LINE_LENGTH)
+  }
+  if (shape === "digit-run") return `&#${"0".repeat(LINE_LENGTH - 5)}65;`
+  if (shape === "long-number") return `&#${"1".repeat(LINE_LENGTH - 3)};`
   throw new Error(`unknown line shape: ${String(shape)}`)
 }
 
 /** Returns how many matches a scan found, or how many characters a decode
  *  returned. */
 const runOperation = (line: string): number => {
-  if (workerData === "ampersands") return links.decodeLinkSpellings(line).length
+  if (DECODED_SHAPES.has(workerData)) return links.decodeLinkSpellings(line).length
   return links.matchLinksInLine(line).length
 }
 
