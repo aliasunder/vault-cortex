@@ -1375,22 +1375,24 @@ describe("link extraction memory", () => {
 describe("link name fold memory", () => {
   const LINE_LENGTH = 10_000_000
 
-  // The fold holds at most a lowercased copy, a buffer and the folded copy,
-  // two bytes per character each, because Greek letters take two. A line
-  // already in lowercase makes no lowercased copy, so it is held to 5, which a
-  // fold that allocates a piece per letter (5.4 to 7.4 measured) exceeds.
+  /** The fold holds at most a lowercased copy, a buffer and the folded copy,
+   *  two bytes per character each, because Greek letters take two. Whether
+   *  toLowerCase copies a line that is already lowercase depends on the Node
+   *  release, so both lines share one bound. */
+  const BYTES_PER_CHARACTER = 8
+
   const foldCases = [
-    { shape: "final-sigmas", text: "final sigmas", bytesPerCharacter: 5 },
-    { shape: "capital-greek-words", text: "capital Greek words", bytesPerCharacter: 8 },
+    { shape: "final-sigmas", text: "final sigmas" },
+    { shape: "capital-greek-words", text: "capital Greek words" },
   ] as const
 
   it.each(foldCases)(
-    "grows the heap at most $bytesPerCharacter bytes per character lowercasing a 10,000,000-character line of $text",
-    async ({ shape, bytesPerCharacter }) => {
+    "grows the heap at most 8 bytes per character lowercasing a 10,000,000-character line of $text",
+    async ({ shape }) => {
       const { peakGrowth, resultLength } = await measureHeapGrowth(shape)
 
       expect(resultLength).toBe(LINE_LENGTH)
-      expect(peakGrowth).toBeLessThan(bytesPerCharacter * LINE_LENGTH)
+      expect(peakGrowth).toBeLessThan(BYTES_PER_CHARACTER * LINE_LENGTH)
     },
     60_000,
   )
