@@ -678,19 +678,18 @@ describe("resolve", () => {
     expect(links.resolve({ target: "Note", allPaths: equalLengthPaths })).toBe("aaa/Note.md")
   })
 
-  it("measures shortest by code points, matching the SQL resolver's length()", () => {
+  it("measures shortest by code points, so a non-BMP character counts as one", () => {
     // "📚/a.md" is 6 code points but 7 UTF-16 units — under a String.length
-    // metric it ties with "ab/a.md" and loses the tie, diverging from
-    // SQLite's ORDER BY length(path), which counts code points.
+    // metric it ties with "ab/a.md" and loses the tie.
     const paths = ["ab/a.md", "📚/a.md"]
     expect(links.resolve({ target: "a", allPaths: paths })).toBe("📚/a.md")
   })
 
-  it("breaks equal-length ties in UTF-8 byte order, matching BINARY collation", () => {
+  it("breaks equal-length ties in UTF-8 byte order, not UTF-16 order", () => {
     // Both paths hold the same two characters in opposite order, so both
     // length metrics tie. UTF-16 code units put the emoji (surrogates,
     // 0xD83D…) before U+FFFD, but UTF-8 bytes put U+FFFD (0xEF…) before
-    // the emoji (0xF0…) — SQLite's BINARY collation compares bytes.
+    // the emoji (0xF0…).
     const paths = ["😀�/a.md", "�😀/a.md"]
     expect(links.resolve({ target: "a", allPaths: paths })).toBe("�😀/a.md")
   })
@@ -1085,8 +1084,8 @@ describe("resolveAsset", () => {
   })
 
   it("breaks same-length stem ties lexicographically", () => {
-    // Matches the SQL resolver's ORDER BY length(path), path — deterministic
-    // regardless of array order.
+    // Shortest first, then byte order, so the winner does not depend on the
+    // array's order.
     const paths = ["a/photo.png", "a/photo.jpg"]
     expect(links.resolveAsset({ target: "photo", allAssetPaths: paths })).toBe("a/photo.jpg")
   })
