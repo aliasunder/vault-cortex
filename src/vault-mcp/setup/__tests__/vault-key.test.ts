@@ -7,7 +7,7 @@ const SALT = "vault-salt-1"
 // Not secrets: the key hashes the pinned obsidian-headless CLI's own
 // derivation functions produce for the inputs above. The test owns the values
 // so the module under test cannot be its own oracle; recompute them from the
-// CLI on a version bump (AGENTS.md → Upgrading obsidian-headless).
+// CLI on a version bump (CONTRIBUTING.md → Upgrading obsidian-headless).
 // PASSWORD + SALT at encryption version 3 (also the version 2 result):
 const KEY_HASH_V3 = "60aa76a8ebdc3bd3fff0670081c08bc8056407f765a1c7b0918cc7077639a398" // gitleaks:allow
 // PASSWORD + SALT at encryption version 0:

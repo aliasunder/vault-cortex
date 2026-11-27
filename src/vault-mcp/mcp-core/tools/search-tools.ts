@@ -11,11 +11,9 @@ import {
   MAX_INDEXED_HTML_OR_SCRIPT_BYTES,
 } from "../../search/search-index.js"
 import { SEARCH_LEG_ROW_CAP } from "../../search/hybrid-search.js"
+import { createStrictInputObject, dateFilterSchema, formatNoteMetadata } from "./tool-helpers.js"
 import {
-  createStrictInputObject,
   describeNoteMetadataResult,
-  formatNoteMetadata,
-  dateFilterSchema,
   formatServedSentencesLine,
   INDEX_ENGINE_ERROR_ENTRY,
   INDEX_ERROR_ENTRY,
@@ -23,7 +21,7 @@ import {
   INDEX_LAG_LEAD,
   LIMIT_TRUNCATION_CLAUSE,
   SEARCHED_FILE_KINDS_TEXT,
-} from "./tool-helpers.js"
+} from "./tool-description-text.js"
 
 /** The link-graph tools accept a canvas as well as a note. */
 const LINK_GRAPH_EXTENSION_ERROR_ENTRY = '- "path must end in …" — add the .md or .canvas extension'

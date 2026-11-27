@@ -48,7 +48,7 @@
 - **[Structured memory](https://github.com/aliasunder/vault-cortex#memory)** — dated, append-only entries accumulate into a personal knowledge layer, auto-initialized for AI personalization. Topic recall answers "what do I think about X?" with the current take and the dated history behind it — evolution included.
 - **[Tasks](https://github.com/aliasunder/vault-cortex#tasks)** — Kanban-aware task queries and updates: triage by status, dates, or priority, then complete, reprioritize, or move tasks between lanes in one call. Completing a recurring task spawns its next occurrence. Parses both [Tasks plugin](https://publish.obsidian.md/tasks/) emoji and [Dataview](https://blacksmithgu.github.io/obsidian-dataview/) inline-field formats.
 - **[Link graph](https://github.com/aliasunder/vault-cortex#tools)** — backlinks, outgoing links, and orphan detection across the vault
-- **[Files](https://github.com/aliasunder/vault-cortex#files)** — read the vault's non-markdown files too: images arrive as actual images (shrunk to fit when needed), PDFs as structured text or rendered pages, canvases as readable outlines, data files, HTML pages, and scripts as text. Canvases, Bases, and other text files can be written back
+- **[Files](https://github.com/aliasunder/vault-cortex#files)** — read the vault's non-markdown files too: images arrive as actual images (shrunk to fit when needed), PDFs as structured text or rendered pages, canvases as readable outlines, data files, HTML pages, and scripts as text. Canvases, Bases, and other text files can be written back, and any non-markdown file can be deleted
 - **[Obsidian-native](https://github.com/aliasunder/vault-cortex#properties)** — understands frontmatter, wikilinks, tags, headings, and daily notes
 - **[Guided workflows](https://github.com/aliasunder/vault-cortex#prompts)** — built-in prompts for vault health, memory review, and daily reconciliation — assembled from live vault data each time
 
@@ -64,7 +64,7 @@ See the [full Quick Start guide](https://github.com/aliasunder/vault-cortex#quic
 ## Tools
 
 | Category | Tool | Description |
-| --------------- | ---------------------------- | --------------------------------------------------------------------------------------------------- |
+| --------------- | ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
 | **Vault CRUD** | `vault_read_note` | Read a note — full body, properties, outline, or a section |
 |  | `vault_write_note` | Create a note (fails if it already exists; set `overwrite` to replace) |
 |  | `vault_patch_note` | Heading-targeted edit (append, prepend, replace with `include_children` guard, insert) |
@@ -73,7 +73,7 @@ See the [full Quick Start guide](https://github.com/aliasunder/vault-cortex#quic
 |  | `vault_replace_span` | Replace a block of lines by short anchors with new content |
 |  | `vault_insert_at_anchor` | Insert content before or after a line identified by a short anchor |
 |  | `vault_list_notes` | List notes with optional glob/folder filter |
-|  | `vault_delete_note` | Delete a note — trashed per the vault's setting, permanent under Sync (protected paths enforced) |
+|  | `vault_delete_note` | Delete a note — trashed per Obsidian's "Deleted files" setting, permanent under Sync (protected paths enforced) |
 |  | `vault_move_note` | Move or rename a note, rewriting links across the vault |
 | **Search** | `vault_search` | Hybrid search with tag/folder/property/date filters |
 |  | `vault_search_by_tag` | Find notes by tag, including the tags nested under it |
@@ -97,6 +97,7 @@ See the [full Quick Start guide](https://github.com/aliasunder/vault-cortex#quic
 |  | `vault_find_orphans` | Notes with no incoming links |
 | **Files** | `vault_read_file` | Read a non-markdown file — images delivered as images, canvases as readable outlines |
 |  | `vault_write_file` | Create or replace a canvas, Base, or other text file, checked for valid JSON or YAML first |
+|  | `vault_delete_file` | Delete a non-markdown file — trashed per Obsidian's "Deleted files" setting, permanent under Sync (protected paths enforced) |
 |  | `vault_list_files` | Browse the vault's non-markdown files with sizes and per-extension counts |
 | **Daily Notes** | `vault_get_daily_note` | Today's (or any date's) daily note |
 
@@ -135,7 +136,7 @@ Vault Cortex indexes every [property](https://help.obsidian.md/Editing+and+forma
 All settings are environment variables with sensible defaults. Some defaults derive from other settings — the Default column shows each derivation, and a value you set replaces the whole derived default. Remote deployments also forward Obsidian Sync's own settings — `DEVICE_NAME`, `SYNC_MODE`, `CONFLICT_STRATEGY`, `SYNC_CONFIGS`, `SYNC_EXCLUDED_FOLDERS`, `SYNC_FILE_TYPES` — documented in the [remote guide's configuration table](https://github.com/aliasunder/vault-cortex/tree/main/deploy/remote/README.md#configuration).
 
 | Variable | Required for | Default | Description |
-| --------------------------- | ------------ | -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| --------------------------- | ------------ | -------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `MCP_AUTH_TOKEN` | All | — | Bearer token for authentication (also the JWT signing key) |
 | `VAULT_PATH` | Local | — | Host path to your vault (bind mount source; remote uses a named volume). Must not contain `*`, `?`, or `[` — rejected at startup. |
 | `PUBLIC_URL` | Remote | — | Public URL for OAuth discovery metadata. Filled in automatically on Render and Railway (from `RENDER_EXTERNAL_URL` or `RAILWAY_PUBLIC_DOMAIN`) when left unset |
@@ -146,11 +147,11 @@ All settings are environment variables with sensible defaults. Some defaults der
 | `EMBEDDING_ENABLED` | — | `true` | Set `false` to disable the embedding pipeline — skips model download, vector tables, embedding passes, and hybrid search. Search falls back to FTS5 keyword matching. |
 | `RERANK_MODE` | — | `blended` | Cross-encoder reranking mode: `blended` applies position-aware score blending after RRF fusion (~200ms added latency), `none` skips reranking. Only takes effect when `EMBEDDING_ENABLED` is true. |
 | `MEMORY_ENABLED` | — | `true` | Set `false` to fully disable the memory layer — hides memory tools, skips bootstrap, omits memory from server metadata. `MEMORY_DIR` still supplies the defaults for `PROTECTED_PATHS` and `ORPHAN_EXCLUDE_FOLDERS` when `false`. |
-| `FILE_TOOLS_ENABLED` | — | `true` | Set `false` to hide file tools (`vault_read_file`, `vault_write_file`, `vault_list_files`). To keep reading files but turn off writing them, set `DISABLED_TOOLS=vault_write_file` instead. |
+| `FILE_TOOLS_ENABLED` | — | `true` | Set `false` to hide file tools (`vault_read_file`, `vault_write_file`, `vault_delete_file`, `vault_list_files`). To keep reading files but turn off writing and deleting them, set `DISABLED_TOOLS=vault_write_file,vault_delete_file` instead. |
 | `READONLY_MODE` | — | `false` | Set `true` to hide every tool that changes the vault and skip memory folder auto-creation — connected clients can read and search but never edit. |
 | `DISABLED_TOOLS` | — | — | Hide individual tools by name, comma-separated (e.g. `vault_delete_note,vault_move_note`). Names match the Tool column in the [tools table](https://github.com/aliasunder/vault-cortex#tools). Subtractive only — it cannot re-enable a tool another setting hides. An unknown tool name stops the server at startup, so typos surface immediately. |
 | `MEMORY_DIR` | — | `About Me` | Vault folder for structured memory files |
-| `PROTECTED_PATHS` | — | `MEMORY_DIR`, daily notes folder | Folders whose notes can't be deleted or moved, and that no note can be moved into; their notes stay editable. The default daily notes folder is read from `DAILY_NOTES_FOLDER` or `.obsidian/daily-notes.json` (default `Daily Notes`); see [Daily notes](https://github.com/aliasunder/vault-cortex#daily-notes) for root and empty settings. A value you set replaces both default folders. |
+| `PROTECTED_PATHS` | — | `MEMORY_DIR`, daily notes folder | Folders whose notes and files can't be deleted, whose notes can't be moved, and that no note can be moved into; their notes stay editable. The default daily notes folder is read from `DAILY_NOTES_FOLDER` or `.obsidian/daily-notes.json` (default `Daily Notes`); see [Daily notes](https://github.com/aliasunder/vault-cortex#daily-notes) for root and empty settings. A value you set replaces both default folders. |
 | `ORPHAN_EXCLUDE_FOLDERS` | — | daily notes folder, `Templates`, `MEMORY_DIR` | Folders excluded from orphan detection. The daily notes folder is read from `DAILY_NOTES_FOLDER` or `.obsidian/daily-notes.json` (default `Daily Notes`); see [Daily notes](https://github.com/aliasunder/vault-cortex#daily-notes) for root and empty settings. Set a list to replace all defaults, or `ORPHAN_EXCLUDE_FOLDERS=,` to exclude nothing. An empty value uses the defaults. |
 | `DAILY_NOTES_FOLDER` | — | from `daily-notes.json` | Sets the folder your daily notes live in. When unset, read from `.obsidian/daily-notes.json`; `Daily Notes` when that file is missing or unreadable. See [Daily notes](https://github.com/aliasunder/vault-cortex#daily-notes). |
 | `DAILY_NOTES_FORMAT` | — | from `daily-notes.json` | Sets the daily note filename format — same tokens as Obsidian's daily note date format setting. When unset, read from `.obsidian/daily-notes.json`, falling back to `YYYY-MM-DD`. See [Daily notes](https://github.com/aliasunder/vault-cortex#daily-notes). |
@@ -164,7 +165,7 @@ All settings are environment variables with sensible defaults. Some defaults der
 | `MAX_FILE_BYTES` | — | `52428800` (50 MiB) | Maximum file size `vault_read_file` will read (in bytes). Files exceeding this are rejected before reading, and a larger PDF is searchable by its name only. Raise for vaults with very large individual files. |
 | `MAX_IMAGE_OUTPUT_BYTES` | — | `49152` (48 KiB) | Byte budget for images delivered by `vault_read_file`, in binary bytes before base64 encoding. Images exceeding this are downscaled and recompressed to fit. Sized for the tightest mainstream MCP client cap; raise for clients that accept larger responses. |
 | `MAX_PDF_RENDER_PAGES` | — | `5` | Maximum PDF pages to render as images when `raw: true` is set on `vault_read_file`. The per-page byte budget is `MAX_IMAGE_OUTPUT_BYTES` divided evenly across the rendered pages — fewer pages means higher quality each. |
-| `TRASH_RETENTION_DAYS` | — | `30` | Days a note deleted under Obsidian's default "Move to system trash" setting stays in `.trash/` before the server cleans it up. Set `none` to keep those notes forever. Only notes the server itself moved there are cleaned up. Unused with Obsidian Sync (the remote image), whose deletes are permanent and recoverable from Sync's version history. |
+| `TRASH_RETENTION_DAYS` | — | `30` | Days a note or file deleted under Obsidian's default "Move to system trash" setting stays in `.trash/` before the server cleans it up. Set `none` to keep them forever. Only the notes and files the server itself moved there are cleaned up. Unused with Obsidian Sync (the remote image), whose deletes are permanent and recoverable from Sync's version history. |
 | `TRUST_PROXY_HOPS` | — | `0` | Number of trusted reverse-proxy hops used to derive the client IP from `X-Forwarded-For` (OAuth rate limiting, request logs). Set `1` when exactly one proxy you control sits in front of the server (Caddy, nginx, Cloudflare Tunnel) and nothing else can reach the server's port. With `0`, injected forwarding headers are ignored. |
 | `TRUST_FORWARDED_HOPS` | — | `0` | How many trailing `for=` entries in the [RFC 7239](https://www.rfc-editor.org/rfc/rfc7239) `Forwarded` header belong to proxies you control. `0` ignores the header; `1` when the proxy in front writes it (e.g. AWS API Gateway) and is the only way to reach the server; `2` when a CDN fronts that proxy and is the only way to reach it. |
 

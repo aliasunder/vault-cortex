@@ -52,11 +52,11 @@ MAX_IMAGE_OUTPUT_BYTES=49152
 # divided evenly across the rendered pages. Fewer pages = higher quality each.
 MAX_PDF_RENDER_PAGES=5
 
-# Days a note deleted under Obsidian's default "Move to system trash" setting
-# stays in the vault's .trash folder before the server cleans it up
-# (default: 30). Set none to keep those notes forever. Only notes this server
-# moved to .trash under that setting are cleaned up — notes you or Obsidian
-# put there are never touched. The server tracks its trashed notes even while
+# Days a note or file deleted under Obsidian's default "Move to system trash"
+# setting stays in the vault's .trash folder before the server cleans it up
+# (default: 30). Set none to keep them forever. Only notes and files this
+# server moved to .trash under that setting are cleaned up — anything you or
+# Obsidian put there is never touched. The server tracks its trash moves even while
 # this is none, so switching none to a number cleans up the older backlog on
 # the next restart. Notes trashed by version 0.54.11 or earlier are kept;
 # empty .trash by hand to remove them.
@@ -86,10 +86,10 @@ RERANK_MODE=blended
 # Set to false to hide memory tools and skip memory-folder creation.
 # MEMORY_DIR still supplies default protected folders and orphan exclusions when false.
 MEMORY_ENABLED=true
-# Enable or disable file tools — vault_read_file, vault_write_file and
-# vault_list_files (default: true).
-# To keep reading files but turn off writing them, set
-# DISABLED_TOOLS=vault_write_file.
+# Enable or disable file tools — vault_read_file, vault_write_file,
+# vault_delete_file and vault_list_files (default: true).
+# To keep reading files but turn off writing and deleting them, set
+# DISABLED_TOOLS=vault_write_file,vault_delete_file.
 FILE_TOOLS_ENABLED=true
 # Run the server in read-only mode (default: false).
 # Set to true to hide every tool that changes the vault — clients can only
@@ -269,10 +269,10 @@ MAX_PDF_RENDER_PAGES=5
 # Set to false to hide memory tools and skip memory-folder creation.
 # MEMORY_DIR still supplies default protected folders and orphan exclusions when false.
 MEMORY_ENABLED=true
-# Enable or disable file tools — vault_read_file, vault_write_file and
-# vault_list_files (default: true).
-# To keep reading files but turn off writing them, set
-# DISABLED_TOOLS=vault_write_file.
+# Enable or disable file tools — vault_read_file, vault_write_file,
+# vault_delete_file and vault_list_files (default: true).
+# To keep reading files but turn off writing and deleting them, set
+# DISABLED_TOOLS=vault_write_file,vault_delete_file.
 FILE_TOOLS_ENABLED=true
 # Run the server in read-only mode (default: false).
 # Set to true to hide every tool that changes the vault — clients can only
