@@ -93,7 +93,7 @@ docker compose up
 
 Your vault on a server, kept current by Obsidian Sync, reachable from any MCP client. This is the setup claude.ai on the web and your phone can reach, and the vault stays reachable when your laptop is closed.
 
-- **One click (Railway or Render):** you give your vault name and timezone (plus the vault password if your vault is encrypted). The platform handles HTTPS, restarts, persistent storage, and a generated MCP token, which each guide's **Your URL and token** section shows how to find.
+- **One click (Railway or Render):** you give your vault name and timezone (plus the vault password if your vault is encrypted). The platform handles HTTPS, restarts and persistent storage, and generates the MCP token; the **Your URL and token** section of the Railway or Render guide shows where to find it.
 - **Your own server:** the CLI asks for the public URL and vault name, captures your Obsidian Sync token for you, and generates the MCP token; [HTTPS](./deploy/remote/#https-access) is yours to set up.
 
 | **Setup**      | Railway                                                                                                                                                                             | Render                                                                                                                                                  | Self-hosted                                                  |
@@ -121,7 +121,7 @@ The [Vault Cortex CLI](./cli/) sets up the same container on any Linux box you r
 npx vault-cortex@latest init --mode remote
 ```
 
-That's it — the CLI walks through the settings above (it can run [`get-sync-token`](./cli/README.md#get-sync-token) for you, and asks for the vault password on an encrypted vault), then starts the server ([CLI reference →](./cli/)).
+That's it — the CLI walks through the settings listed under **Your own server** above (it can run [`get-sync-token`](./cli/README.md#get-sync-token) for you, and asks for the vault password on an encrypted vault), then starts the server ([CLI reference →](./cli/)).
 
 <details>
 <summary><strong>Manual setup</strong> (no Node.js needed)</summary>
@@ -272,7 +272,7 @@ The task layer handles this so agents don't have to:
 - **Complete** — marking a task done auto-detects the done lane and stamps the completion date, honoring the plugin's "Set done date" setting; reversing it removes the date. Completion also runs the Tasks plugin's own behaviors:
   - a recurring task spawns its next occurrence, dates advanced the way the plugin computes them
   - a task set to delete "On completion" disappears from the note
-- **Both formats** — whichever format you use, [Tasks plugin](https://publish.obsidian.md/tasks/) emoji signifiers or [Dataview](https://blacksmithgu.github.io/obsidian-dataview/) inline fields, the server reads both and writes in the format your Tasks plugin is configured for — read from the plugin's settings when [your vault syncs `.obsidian/`](./deploy/remote/README.md#daily-notes), with emoji signifiers as the default otherwise
+- **Both formats** — whichever format you use, [Tasks plugin](https://publish.obsidian.md/tasks/) emoji signifiers or [Dataview](https://blacksmithgu.github.io/obsidian-dataview/) inline fields, the server reads both and writes in the format your Tasks plugin is configured for — read from the plugin's settings in the vault's `.obsidian/` folder ([synced to the server](./deploy/remote/README.md#daily-notes) in remote mode), with emoji signifiers as the default when they aren't there
 
 See [ARCHITECTURE.md → Tasks](./ARCHITECTURE.md#tasks) for the indexing model, date cascade sorting, and Kanban lane detection.
 
@@ -381,7 +381,7 @@ Vault Cortex indexes every [property](https://help.obsidian.md/Editing+and+forma
 
 **All other properties** are still fully queryable — use `vault_search` with `filters.properties` for combined text + metadata queries, or `vault_search_by_property` for metadata-only lookups. `vault_list_property_keys` and `vault_list_property_values` discover what properties exist across your vault.
 
-These are conventions, not requirements — Vault Cortex works with any property schema.
+The five promoted names are conventions, not requirements — Vault Cortex works with any property schema.
 
 **Leading callouts** are promoted too. When a note's first body content is an Obsidian [callout](https://help.obsidian.md/Editing+and+formatting/Callouts) (`> [!type]`) — either right after frontmatter or right after the title heading — it's indexed and surfaced alongside discovery results. This makes notes self-describing: an agent scanning results can see what each note is _for_ before deciding which to read. The memory templates use `> [!info] Scope of this file` callouts for this, and any note in your vault can use the same pattern.
 
@@ -389,7 +389,7 @@ These are conventions, not requirements — Vault Cortex works with any property
 
 ## Configuration
 
-All settings are environment variables with sensible defaults, set in `.env` or in the service's **Variables** tab on Railway and **Environment** tab on Render. The table lists the required settings and the switches most installs change; every setting, with its default and limits, is in the [local](./deploy/local/README.md#configuration) and [remote](./deploy/remote/README.md#configuration) guides' configuration tables; the remote guide's also covers Obsidian Sync's own settings.
+All settings are environment variables with sensible defaults, set in `.env`, or in the service's **Variables** tab on Railway or **Environment** tab on Render. The table lists the required settings and the switches most installs change. Every setting, with its default and limits, is in the [local](./deploy/local/README.md#configuration) and [remote](./deploy/remote/README.md#configuration) guides' Configuration tables; the remote guide's table also covers Obsidian Sync's own settings.
 
 | Variable               | Required for | Default                                              | Description                                                                                                                                                                                                                                             |
 | ---------------------- | ------------ | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -411,11 +411,11 @@ All settings are environment variables with sensible defaults, set in `.env` or 
 
 `vault_get_daily_note` and the daily-review prompt find your daily notes using the folder and filename date format set in Obsidian's Daily notes options, read from your vault's `.obsidian/daily-notes.json`. In local mode the server reads the file straight from your vault folder ([local guide's Daily notes section](./deploy/local/README.md#daily-notes)).
 
-In remote mode your devices must send that file: turn on Obsidian Settings → Sync → **Vault configuration sync** on each device. Details: the [remote guide's Daily notes section](./deploy/remote/README.md#daily-notes).
+In remote mode your devices must send that file: turn on Obsidian Settings → Sync → **Vault configuration sync** on each device ([remote guide's Daily notes section](./deploy/remote/README.md#daily-notes)).
 
 If the file isn't available, or you use the Periodic Notes plugin, set `DAILY_NOTES_FOLDER` or `DAILY_NOTES_FORMAT`; a set value always wins over the config file. Both are in the [local](./deploy/local/README.md#configuration) and [remote](./deploy/remote/README.md#configuration) guides' configuration tables.
 
-`PROTECTED_PATHS` doesn't cover daily notes in the vault root, or in the **Default location for new notes** folder that Obsidian uses when the Daily notes folder setting is empty: protecting that folder would also protect every other note in it.
+The `PROTECTED_PATHS` default doesn't cover daily notes in the vault root, or in the **Default location for new notes** folder that Obsidian uses when Daily notes' **New file location** is empty: protecting that folder would also protect every other note in it.
 
 ---
 
@@ -423,7 +423,7 @@ If the file isn't available, or you use the Periodic Notes plugin, set `DAILY_NO
 
 Vault Cortex writes to personal notes — the file safety layer is built to prevent corruption, not just errors.
 
-- **Atomic writes** — every file write stages to a temp file, then renames. Readers never see a partial note, and never an empty one except on Windows (`WINDOWS_MODE=true`). Exclusive creates use `link()` (POSIX no-clobber; on Windows, a reserved `'wx'` create) to close the TOCTOU window on note moves.
+- **Atomic writes** — every file write stages to a temp file, then renames. Readers never see a partial note. They never see an empty one either, except on Windows (`WINDOWS_MODE=true`), where the file a note move or `vault_write_file` is creating is empty for a moment. Exclusive creates use `link()` (POSIX no-clobber; on Windows, a reserved `'wx'` create) to close the TOCTOU window on note moves.
 - **Per-file mutex** — concurrent MCP tool calls serialize or fail-fast per file. Moves lock the source, destination, and every backlink source as one unit.
 - **Body edits keep properties as written** — editing a note's body leaves its properties (the `---` block Obsidian shows as Properties) as they were, comments included.
 - **Property rewrites keep every value or refuse** — `vault_update_properties`, a `vault_write_note` overwrite, the task tools and a move that changes a link inside the block rewrite the block: every property and value stays, YAML comments are dropped, and the formatting may change. A rewrite is refused, leaving the note unchanged, when the block is invalid YAML, is a list or a single value instead of `key: value` properties, or holds a value with an explicit tag such as `!!str`; the error says how to repair it.
@@ -483,7 +483,7 @@ Every path runs the same image, `ghcr.io/aliasunder/vault-cortex` — `:latest` 
 
 > **Also on Docker Hub:** the same images are mirrored to [`aliasunder/vault-cortex`](https://hub.docker.com/r/aliasunder/vault-cortex). GHCR is the primary source; Hub tags are identical.
 
-**Instance size:** 2 GiB handles semantic search for a typical vault; 4 GiB adds headroom for concurrent search and larger vaults; skip semantic search to go smaller still.
+**Instance size:** 2 GiB handles semantic search for a typical vault; 4 GiB adds headroom for concurrent search and larger vaults; set `EMBEDDING_ENABLED=false` (keyword-only search) to go smaller still.
 
 **More than one vault?** Each vault runs as its own install, with its own container, data and connector. On your own machine or server, give each install its own name: see **Run more than one vault** in the [local](./deploy/local/README.md#run-more-than-one-vault) and [remote](./deploy/remote/README.md#run-more-than-one-vault) guides. On Render or Railway, deploy a separate service for each vault.
 

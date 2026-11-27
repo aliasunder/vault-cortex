@@ -1455,7 +1455,7 @@ pattern:
    `deploy/remote/`) — document the var in that folder's `.env.example`
    with a comment and its default, then add its row to the Configuration
    table in that folder's `README.md`. A required var or a switch most
-   installs change also gets a row in the README's Configuration table.
+   installs change also gets a row in the root `README.md`'s Configuration table.
    Step 4 syncs from the `.env.example` files; no drift test checks the
    table rows.
 4. **Run `npm run sync:cli-env-blocks`** — syncs the optional sections from
