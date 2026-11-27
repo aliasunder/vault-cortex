@@ -487,13 +487,14 @@ const foldAsciiCase = (path: string): string => {
 
 /** Orders same-tier resolution matches, winner first: the path with fewer
  *  code points, then the one earlier in UTF-8 byte order, so the winner never
- *  depends on the order of the path list. The Buffer.compare tie-break is
- *  inline because this leaf layer cannot import utils, so it must stay in
- *  lockstep with utils/compare-utf8-bytes.ts. */
+ *  depends on the order of the path list. */
 const compareShortestPathFirst = (leftPath: string, rightPath: string): number => {
   const lengthDifference = codePointLength(leftPath) - codePointLength(rightPath)
 
   if (lengthDifference !== 0) return lengthDifference
+
+  // utils/compare-utf8-bytes.ts holds the same comparison, but this leaf layer
+  // cannot import utils, so a change here needs the same change there.
   return Buffer.compare(Buffer.from(leftPath), Buffer.from(rightPath))
 }
 
