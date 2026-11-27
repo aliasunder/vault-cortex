@@ -1284,36 +1284,44 @@ deployment walkthrough lives in [`DEPLOY.md`](./DEPLOY.md); the local and
 Obsidian-Sync quickstarts live under [`deploy/`](./deploy/). Keep this
 file focused on conventions; don't duplicate procedure here.
 
-**Write for each doc's reader.** The README has two: an Obsidian user
-deciding whether to run this (what can the agent do in my vault, does
-it work with my client and my phone, will it damage my notes, what does
-it cost, how do I start) and an engineering reader evaluating the
-project (clear framing, sound technical choices named in their real
-terms, a disciplined project). ARCHITECTURE.md serves a contributor,
-the deploy guides a self-hoster at a terminal or a deploy button,
-SECURITY.md a vulnerability reporter, and cli/README.md someone who
-found the npm package first. Three rules follow:
+**Write for each doc's reader.** The main docs serve these readers:
 
-- **Vocabulary stays; mechanism goes to ARCHITECTURE.md.** FTS5, RRF,
-  cross-encoder, per-file mutex, TOCTOU and `link()` name the choices
-  the engineering reader evaluates, so the README and SECURITY.md keep
-  them unglossed. How a mechanism works (blend weights, RRF's rank
-  constant, chunk prefixes) is the contributor's reading.
-- **Features are stated as what the reader can now do**, in the
-  reader's vocabulary ("complete a task," "move between lanes," "filter
-  by due date"), never implementation vocabulary ("mutate," "atomic
-  write cycle," "composable mutations").
-- **One home per fact; other docs point.** Caveats and platform gotchas
-  live in the deploy guides. A fact stated twice goes stale once.
+- **README.md** (and DOCKERHUB.md, generated from it) has two:
+  - an Obsidian user deciding whether to run this: what can the agent
+    do in my vault, does it work with my client and my phone, will it
+    damage my notes, what does it cost, how do I start
+  - an engineering reader evaluating the project: what problem does it
+    solve, which technical choices does it make, how is it tested,
+    secured and versioned
+- **ARCHITECTURE.md**: a contributor.
+- **DEPLOY.md and the `deploy/` guides**: a self-hoster at a terminal or
+  a deploy button.
+- **SECURITY.md**: a vulnerability reporter.
+- **cli/README.md**: someone who found the npm package first.
 
-Before adding, cutting or moving a passage, name the doc's reader and
-the question the passage answers for them. A passage that answers no
-question of theirs is cut, however true; one written for another doc's
-reader moves there. A term a review flags as unexplained stays when it
-names a design choice, and so does the one clause that names a
-protection's mechanism ("stages to a temp file, then renames"); a
-sentence that walks through a mechanism's steps beyond that clause
-moves to ARCHITECTURE.md.
+Five rules follow:
+
+- **Every passage answers a question its doc's readers ask.** A passage
+  that answers none is cut; one written for another doc's reader moves
+  to that doc.
+- **Terms that name a technical choice stay unglossed in the README and
+  SECURITY.md**, even when a review calls them jargon. Such a term is a
+  name used outside this repo for something the project chose (FTS5,
+  RRF, cross-encoder, per-file mutex, TOCTOU, `link()`).
+- **Features are stated as what the Obsidian user can do**, in their
+  vocabulary ("complete a task," "move between lanes," "filter by due
+  date"), never implementation vocabulary ("mutate," "atomic write
+  cycle," "composable mutations"). A choice's name belongs in sentences
+  about how the project is built.
+- **How a mechanism works goes to ARCHITECTURE.md**: RRF's rank
+  constant, blend weights, chunk prefixes, temp-file naming. Detail
+  ARCHITECTURE.md already holds is cut instead. Each protection against
+  data loss or attack (atomic writes, the per-file mutex) keeps one
+  clause saying how it works ("stages to a temp file, then renames").
+- **One home per fact; other docs link to it**, because a second copy
+  goes stale when the first is edited. Windows setup lives in
+  `deploy/local/`, and the README links there. Registry descriptions and
+  the generated DOCKERHUB.md are deliberate copies.
 
 **Write-time format decision** — before committing any prose (code
 comments, JSDoc, README sections, PR descriptions, env-file comments):
@@ -1325,11 +1333,10 @@ match their siblings' length and shape.
 
 **Doc quality rules:**
 
-- Before calling a doc done, pick each reader the doc serves (the
-  README's Obsidian user and engineering reader, a self-hoster deploying
-  it, a contributor) and walk the entire document start to finish —
-  line-level fact-checking cannot validate a doc; each sentence can be
-  true while the doc as a whole misleads.
+- Before calling a doc done, pick each reader the doc serves (listed
+  under "Write for each doc's reader") and walk the entire document
+  start to finish — line-level fact-checking cannot validate a doc; each
+  sentence can be true while the doc as a whole misleads.
 - When a doc offers multiple paths (install methods, tools, runtimes),
   every operational section (update, restart, verify, troubleshoot)
   serves every offered path — or explicitly scopes itself.
