@@ -7661,6 +7661,41 @@ describe("links table schema", () => {
   })
 })
 
+describe("non-markdown file table schema", () => {
+  it("drops the file-path indexes an earlier release created on the table", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "old-non-md-files-"))
+    onTestFinished(() => rm(directory, { recursive: true, force: true }))
+    const dbPath = join(directory, "index.db")
+    const oldDb = new Database(dbPath)
+    oldDb.exec(`
+      CREATE TABLE non_md_files (
+        path TEXT PRIMARY KEY, base_path TEXT NOT NULL, basename TEXT NOT NULL, bytes INTEGER
+      );
+      CREATE INDEX idx_non_md_base_path ON non_md_files(base_path);
+      CREATE INDEX idx_non_md_basename ON non_md_files(basename);
+      CREATE INDEX idx_non_md_path_nocase ON non_md_files(path COLLATE NOCASE);
+      CREATE INDEX idx_non_md_base_path_nocase ON non_md_files(base_path COLLATE NOCASE);
+      CREATE INDEX idx_non_md_basename_nocase ON non_md_files(basename COLLATE NOCASE);
+    `)
+    oldDb.close()
+
+    createSearchIndex(dbPath)
+
+    const inspect = new Database(dbPath)
+    onTestFinished(() => {
+      inspect.close()
+    })
+    const indexes = inspect
+      .prepare<[], { name: string }>(
+        "SELECT name FROM pragma_index_list('non_md_files') ORDER BY name",
+      )
+      .all()
+    expect(indexes.map((tableIndex) => tableIndex.name)).toEqual([
+      "sqlite_autoindex_non_md_files_1",
+    ])
+  })
+})
+
 describe("link rows", () => {
   /** sub/source.md reaches the root B.md through two spellings. */
   const seedTwoSpellings = (search: SearchIndex): void => {
@@ -10923,8 +10958,11 @@ describe("path lists links resolve against", () => {
   }
   const INJECTED_FAILURE = "injected failure"
 
-  // In each test below, an edit of an existing note resolves a link first, which
-  // fills the path lists, so a write that kept a stale list would be caught.
+  // Each test fills the path lists before the change under test, so a write
+  // that kept a stale list would be caught:
+  // - most fill them through an edit of an existing note;
+  // - the rebuild tests fill them through a save before the rebuild, or
+  //   through the rebuild's own link pass.
 
   it("a new note resolves a link to itself and claims a stored link that named it", () => {
     const search = createSearchIndex(":memory:")
@@ -11075,6 +11113,62 @@ describe("path lists links resolve against", () => {
     saveNote(search, "other.md", "![[photo.png]]")
 
     expect(outgoingPaths(search, "other.md")).toEqual(["assets/photo.png"])
+  })
+
+  /** A vault holding source.md, which links to photo.png, and assets/photo.png. */
+  const createPhotoVault = async (): Promise<string> => {
+    const directory = await mkdtemp(join(tmpdir(), "path-lists-rebuild-"))
+    onTestFinished(() => rm(directory, { recursive: true, force: true }))
+    await mkdir(join(directory, "assets"))
+    await writeFile(join(directory, "source.md"), "![[photo.png]]")
+    await writeFile(join(directory, "assets/photo.png"), "binary")
+    return directory
+  }
+  const rebuildParams = (vaultPath: string) => {
+    return {
+      vaultPath,
+      bodyTagParser: inProcessBodyTagParser,
+      pdfExtractor: createInProcessPdfExtractor(vaultPath),
+      maxFileBytes: 10_000_000,
+    }
+  }
+
+  it("a rebuild resolves file links against the files it indexes, not a list read before it", async () => {
+    const vaultPath = await createPhotoVault()
+    const search = createSearchIndex(":memory:")
+    search.upsertNonMdFile("old/photo.png", 100)
+    saveNote(search, "source.md", "![[photo.png]]")
+    expect(outgoingPaths(search, "source.md")).toEqual(["old/photo.png"])
+
+    const rebuilt = await search.rebuildFromVault(rebuildParams(vaultPath), logger)
+    await rebuilt.embedding
+    await rebuilt.pdfPass
+
+    expect(outgoingPaths(search, "source.md")).toEqual(["assets/photo.png"])
+  })
+
+  it("a link saved after a rebuild rolls back does not resolve to a file the rollback removed", async () => {
+    const vaultPath = await createPhotoVault()
+    // The canvas is indexed after the rebuild's link pass has read the file
+    // list, and its failure rolls the whole rebuild back.
+    await writeFile(join(vaultPath, "failed.canvas"), JSON.stringify({ nodes: [], edges: [] }))
+    const search = createSearchIndex(":memory:", undefined, undefined, { fileToolsEnabled: true })
+    const rebuildLogger = logger.child({ operation: "controlled-rebuild" })
+    vi.spyOn(rebuildLogger, "debug").mockImplementation((message) => {
+      if (message === "indexed file content") throw new Error(INJECTED_FAILURE)
+    })
+    vi.spyOn(rebuildLogger, "warn").mockImplementation(() => {
+      throw new Error(INJECTED_FAILURE)
+    })
+
+    await expect(search.rebuildFromVault(rebuildParams(vaultPath), rebuildLogger)).rejects.toThrow(
+      new Error(INJECTED_FAILURE),
+    )
+    expect(indexedNotePaths(search)).toEqual([])
+
+    saveNote(search, "other.md", "![[photo.png]]")
+
+    expect(outgoingPaths(search, "other.md")).toEqual(["photo.png"])
   })
 })
 
