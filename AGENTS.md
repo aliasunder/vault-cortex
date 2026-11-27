@@ -1299,25 +1299,23 @@ file focused on conventions; don't duplicate procedure here.
 - **SECURITY.md**: a vulnerability reporter.
 - **cli/README.md**: someone who found the npm package first.
 
-Five rules follow:
+Every doc edit follows these rules:
 
 - **Every passage answers a question its doc's readers ask.** A passage
-  that answers none is cut; one written for another doc's reader moves
-  to that doc.
-- **Terms that name a technical choice get no added gloss in the README
-  and SECURITY.md**, even when a review calls them jargon. Such a term
-  is a name used outside this repo for something the project chose
-  (FTS5, RRF, cross-encoder, per-file mutex, TOCTOU, `link()`).
+  that answers none is cut. One written for another doc's reader moves
+  to that doc: how a mechanism works (RRF's rank constant, blend
+  weights, chunk prefixes, temp-file naming) goes to ARCHITECTURE.md.
+  Each protection against data loss or attack (atomic writes, the
+  per-file mutex) keeps one clause saying how it works ("stages to a
+  temp file, then renames").
 - **Features are stated as what the Obsidian user can do**, in their
   vocabulary ("complete a task," "move between lanes," "filter by due
   date"), never implementation vocabulary ("mutate," "atomic write
-  cycle," "composable mutations"). A choice's name belongs in sentences
-  about how the project is built.
-- **How a mechanism works goes to ARCHITECTURE.md**: RRF's rank
-  constant, blend weights, chunk prefixes, temp-file naming. Detail
-  ARCHITECTURE.md already holds is cut instead. Each protection against
-  data loss or attack (atomic writes, the per-file mutex) keeps one
-  clause saying how it works ("stages to a temp file, then renames").
+  cycle," "composable mutations"). Sentences about how the project is
+  built name its technical choices: names used outside this repo for
+  something the project chose (FTS5, RRF, cross-encoder, per-file
+  mutex, TOCTOU, `link()`). The README and SECURITY.md add no gloss to
+  those names, even when a review calls them jargon.
 - **One home per fact; other docs link to it**, because a second copy
   goes stale when the first is edited. Windows setup lives in
   `deploy/local/`, and the README links there. Registry descriptions,
@@ -1336,9 +1334,9 @@ match their siblings' length and shape.
 
 - Before calling a doc done, pick each reader the doc serves (for the
   main docs, listed under "Write for each doc's reader") and walk the
-  entire document
-  start to finish — line-level fact-checking cannot validate a doc; each
-  sentence can be true while the doc as a whole misleads.
+  entire document start to finish — line-level fact-checking cannot
+  validate a doc; each sentence can be true while the doc as a whole
+  misleads.
 - When a doc offers multiple paths (install methods, tools, runtimes),
   every operational section (update, restart, verify, troubleshoot)
   serves every offered path — or explicitly scopes itself.
