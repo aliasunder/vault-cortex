@@ -1,7 +1,9 @@
 /** Moves/renames a note and rewrites every vault-wide link that resolves to it,
  *  mirroring Obsidian's built-in rename. Reuses the link grammar, parsing,
  *  destination encoding and resolution from ../obsidian-markdown/links.ts so
- *  the rewriter and indexer always agree.
+ *  the rewriter and indexer read links alike. They differ in one place: the
+ *  indexer skips Templater expressions, while the rewriter, like Obsidian's
+ *  rename, rewrites links inside them.
  *
  *  How it comes together — building blocks first, orchestrator last:
  *    1. Target classification — decides IF a link needs rewriting and what form
@@ -143,7 +145,7 @@ const classifyLinkForm = (params: {
  *  shorter form would resolve elsewhere after the move. keepExtension controls
  *  the extension state: true keeps desiredTarget's extension (the original
  *  link carried it), false strips it back to the stem/extensionless form.
- *  relativeStart ("./" or "") opens a relative replacement that does not
+ *  writesRelativeStart puts "./" before a relative replacement that does not
  *  climb with "../". The replacement takes desiredTarget's letter case, not
  *  the link's. */
 const buildReplacementTarget = (params: {
@@ -151,11 +153,17 @@ const buildReplacementTarget = (params: {
   desiredTarget: string
   newSourcePath: string
   keepExtension: boolean
-  relativeStart: string
+  writesRelativeStart: boolean
   resolveFromNewSource: (candidate: string) => string | null
 }): string => {
-  const { form, desiredTarget, newSourcePath, keepExtension, relativeStart, resolveFromNewSource } =
-    params
+  const {
+    form,
+    desiredTarget,
+    newSourcePath,
+    keepExtension,
+    writesRelativeStart,
+    resolveFromNewSource,
+  } = params
   const absoluteForm = keepExtension ? desiredTarget : links.stripExtension(desiredTarget)
 
   const resolvesToDesired = (candidate: string): boolean => {
@@ -169,9 +177,10 @@ const buildReplacementTarget = (params: {
 
   if (form === "relative") {
     const pathFromSource = posix.relative(posix.dirname(newSourcePath), absoluteForm)
-    const relative = pathFromSource.startsWith("../")
-      ? pathFromSource
-      : `${relativeStart}${pathFromSource}`
+    const relative =
+      writesRelativeStart && !pathFromSource.startsWith("../")
+        ? `./${pathFromSource}`
+        : pathFromSource
     return resolvesToDesired(relative) ? relative : absoluteForm
   }
 
@@ -258,9 +267,10 @@ const rewriteTarget = (
   const carriesResolvedExtension =
     originalExtension.toLowerCase() === posix.extname(desiredTarget).toLowerCase()
   const keepExtension = grammarWritesExtension && carriesResolvedExtension
-  // Obsidian reads a markdown link holding a ":", in its heading for one, as a
-  // URL unless it starts with "./" or "../", so a markdown link written that
-  // way keeps a relative start.
+
+  // A markdown link that starts with "./" or "../" keeps a relative start,
+  // because Obsidian reads a markdown link holding a ":", such as one in its
+  // heading, as a URL without one.
   const writesRelativeStart =
     grammar === "markdown" && (rawTarget.startsWith("./") || rawTarget.startsWith("../"))
 
@@ -273,7 +283,7 @@ const rewriteTarget = (
     desiredTarget,
     newSourcePath: context.newSourcePath,
     keepExtension,
-    relativeStart: writesRelativeStart ? "./" : "",
+    writesRelativeStart,
     resolveFromNewSource,
   })
 }
@@ -281,6 +291,9 @@ const rewriteTarget = (
 // ── Body rewriting ──────────────────────────────────────────────
 
 type LinkEdit = { start: number; end: number; replacement: string }
+
+/** One link links.matchLinksInLine found in a body line. */
+type LinkMatch = ReturnType<typeof links.matchLinksInLine>[number]
 
 /** Takes a raw link target (with its original extension state and grammar) and
  *  returns its replacement, or null to leave the link unchanged. Created by
@@ -329,13 +342,13 @@ const rewriteWikilinkText = (linkText: string, rewriteLink: RewriteLink): string
  *  and the suffix the link must then read back with. */
 type DestinationCandidate = { destination: string; suffix: string }
 
-/** Whether `linkText`, read with inline code blanked as links.extractFromBody
- *  reads it, is one whole markdown link with this target, heading and suffix. */
+/** Whether `linkText` is one whole markdown link with this target, heading
+ *  and suffix, read as links.extractFromBody reads it. */
 const readsBackAs = (
   linkText: string,
   expected: { target: string; heading: string; suffix: string },
 ): boolean => {
-  const parts = links.splitMarkdownLink(links.maskInlineCode(linkText))
+  const parts = links.splitMarkdownLink(linkText)
 
   if (!parts) return false
   return (
@@ -346,39 +359,21 @@ const readsBackAs = (
 }
 
 /** Rewrites one matched markdown link's destination, keeping the link text,
- *  the heading as written, the title, the spacing and the original extension
- *  state. Returns the edit with offsets in the link, or null when the target
- *  needs no change or no candidate reads back as the new target:
- *  - the parts come from `maskedLinkText`, as links.extractFromBody reads the
- *    link, and the heading is copied from `linkText`;
+ *  the heading, the title, the spacing and the original extension state.
+ *  Returns the edit with offsets in the link, or null when the target needs
+ *  no change or no candidate reads back as the new target:
  *  - a bare destination that does not read back is tried in angle brackets,
  *    which keep a heading's `)` and an embed's undecoded text;
  *  - the edit covers only the target and heading, so the link text and the
  *    title stay byte for byte. */
 const rewriteMarkdownDestination = (params: {
   linkText: string
-  maskedLinkText: string
   rewriteLink: RewriteLink
 }): LinkEdit | null => {
-  const { linkText, maskedLinkText, rewriteLink } = params
-  const parts = links.splitMarkdownLink(maskedLinkText)
+  const { linkText, rewriteLink } = params
+  const parts = links.splitMarkdownLink(linkText)
 
   if (!parts) return null
-
-  const start = parts.prefix.length
-  const headingStart = start + parts.writtenTarget.length
-  const end = headingStart + parts.heading.length
-  const heading = linkText.slice(headingStart, end)
-
-  // Obsidian reads backticks in a destination as written, so a target read
-  // with a code span blanked (`` `draft`Old.md `` as `Old.md`) can name
-  // another file, and the link is left as it is. The check starts after the
-  // `(`, because a blanked span before the target reads as whitespace.
-  const destinationStart = parts.prefix.lastIndexOf("(") + 1
-  const destinationWasBlanked =
-    linkText.slice(destinationStart, end) !== maskedLinkText.slice(destinationStart, end)
-
-  if (destinationWasBlanked) return null
 
   // The link resolves by its target as Obsidian stores it, not as written.
   const newTarget = rewriteLink({
@@ -388,27 +383,52 @@ const rewriteMarkdownDestination = (params: {
   })
 
   if (newTarget === null) return null
+
+  const targetStart = parts.prefix.length
+  const headingEnd = targetStart + parts.writtenTarget.length + parts.heading.length
   const sameForm = {
-    destination: `${links.encodeMarkdownDestination(newTarget, parts.destinationForm)}${heading}`,
+    destination: `${links.encodeMarkdownDestination(newTarget, parts.destinationForm)}${parts.heading}`,
     suffix: parts.suffix,
   }
+  const angleForm = {
+    destination: `<${links.encodeMarkdownDestination(newTarget, "angle")}${parts.heading}>`,
+    suffix: `>${parts.suffix}`,
+  }
   const candidates: DestinationCandidate[] =
-    parts.destinationForm === "bare"
-      ? [
-          sameForm,
-          {
-            destination: `<${links.encodeMarkdownDestination(newTarget, "angle")}${heading}>`,
-            suffix: `>${parts.suffix}`,
-          },
-        ]
-      : [sameForm]
+    parts.destinationForm === "bare" ? [sameForm, angleForm] : [sameForm]
   const written = candidates.find(({ destination, suffix }) => {
-    const candidateLink = `${linkText.slice(0, start)}${destination}${linkText.slice(end)}`
+    const candidateLink = `${linkText.slice(0, targetStart)}${destination}${linkText.slice(headingEnd)}`
     return readsBackAs(candidateLink, { target: newTarget, heading: parts.heading, suffix })
   })
 
   if (!written) return null
-  return { start, end, replacement: written.destination }
+  return { start: targetStart, end: headingEnd, replacement: written.destination }
+}
+
+/** The edits one matched link needs, offset into its line: none, or one. */
+const rewriteLinkMatch = (params: {
+  linkMatch: LinkMatch
+  rewriteLink: RewriteLink
+}): LinkEdit[] => {
+  const { linkMatch, rewriteLink } = params
+
+  if (linkMatch.kind === "wikilink") {
+    const replacement = rewriteWikilinkText(linkMatch.text, rewriteLink)
+
+    if (replacement === null) return []
+    return [{ start: linkMatch.start, end: linkMatch.end, replacement }]
+  }
+
+  const destinationEdit = rewriteMarkdownDestination({ linkText: linkMatch.text, rewriteLink })
+
+  if (!destinationEdit) return []
+  return [
+    {
+      start: linkMatch.start + destinationEdit.start,
+      end: linkMatch.start + destinationEdit.end,
+      replacement: destinationEdit.replacement,
+    },
+  ]
 }
 
 /** Rewrites link targets in a single body line, skipping links inside
@@ -417,34 +437,11 @@ const rewriteBodyLine = (
   line: string,
   rewriteLink: RewriteLink,
 ): { line: string; linksRewritten: number } => {
-  // Links are found with inline code blanked, as links.extractFromBody reads
-  // them, so a link opener inside a code span cannot swallow a link after it.
-  // Offsets match the line, which supplies each link's text as written.
-  const edits = links.matchLinksInLine(line).flatMap((linkMatch) => {
-    const linkText = line.slice(linkMatch.start, linkMatch.end)
-
-    if (linkMatch.kind === "wikilink") {
-      const replacement = rewriteWikilinkText(linkText, rewriteLink)
-      return replacement === null
-        ? []
-        : [{ start: linkMatch.start, end: linkMatch.end, replacement }]
-    }
-
-    const destinationEdit = rewriteMarkdownDestination({
-      linkText,
-      maskedLinkText: linkMatch.text,
-      rewriteLink,
-    })
-
-    if (!destinationEdit) return []
-    return [
-      {
-        start: linkMatch.start + destinationEdit.start,
-        end: linkMatch.start + destinationEdit.end,
-        replacement: destinationEdit.replacement,
-      },
-    ]
-  })
+  // Links are found as links.extractFromBody reads them, so a link opener
+  // inside a code span cannot swallow a link after it.
+  const edits = links
+    .matchLinksInLine(line)
+    .flatMap((linkMatch) => rewriteLinkMatch({ linkMatch, rewriteLink }))
   return { line: applyLinkEdits(line, edits), linksRewritten: edits.length }
 }
 

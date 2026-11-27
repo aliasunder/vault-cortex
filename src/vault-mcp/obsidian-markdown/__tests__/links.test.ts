@@ -29,6 +29,13 @@ import { linkResolverOracle } from "./helpers/link-resolver-oracle.js"
 // ── matchLinksInLine ─────────────────────────────────────────────
 
 describe("matchLinksInLine", () => {
+  it("skips links in inline code and returns each match's text as written", () => {
+    expect(links.matchLinksInLine("`[[A]]` [`x`](b.md) [[D]]")).toEqual([
+      { text: "[[D]]", start: 20, end: 25, kind: "wikilink" },
+      { text: "[`x`](b.md)", start: 8, end: 19, kind: "markdown" },
+    ])
+  })
+
   it("returns no wikilink inside a markdown link's title, and keeps one outside it", () => {
     const line = '[[A]] [x](b.md "[[C]]")'
 
@@ -983,6 +990,8 @@ describe("extractFromBody against Obsidian 1.15.1", () => {
     { input: "[a](#[b](c.md))", obsidian: ["#[b](c.md)"], expected: [] },
     // An escaped closer, a prose bracket, and the spellings a move writes.
     { input: "[a\\](b.md)", obsidian: [], expected: [] },
+    { input: "[a\\\\](b.md)", obsidian: ["b.md"], expected: ["b.md"] },
+    { input: "[a\\\\\\](b.md)", obsidian: [], expected: [] },
     {
       input: "Type [ to open, `]` to close, or read [the guide](Old.md).",
       obsidian: ["Old.md"],
@@ -1058,10 +1067,32 @@ describe("extractFromBody against Obsidian 1.15.1", () => {
     expect(links.extractFromBody(input)).toEqual(expected)
   })
 
-  it("keeps a wikilink in a title that only blanking inline code completes", () => {
-    // Obsidian 1.15.1 stores only `Old`: the code span ends the link it reads.
-    // `b.md` comes from reading the destination with that span blanked.
-    expect(links.extractFromBody('See [x](b.md `foo` "[[Old]]")')).toEqual(["Old", "b.md"])
+  // Obsidian reads a markdown link's destination and title with any backticks
+  // as written, so a code span there is part of the path or the title, or
+  // ends the link when it leaves no valid title.
+  const inlineCodeInDestinationCases = [
+    { input: 'See [x](b.md `foo` "[[Old]]")', obsidian: ["Old"], expected: ["Old"] },
+    { input: "[x](b.md `foo`) [[Old]]", obsidian: ["Old"], expected: ["Old"] },
+    { input: '[x](`c` b.md "[[d]]")', obsidian: ["d"], expected: ["d"] },
+    { input: '[x](`c` https://x "[[d]]")', obsidian: ["d"], expected: ["d"] },
+    { input: "[x](<`draft`Old.md>)", obsidian: ["`draft`Old.md"], expected: ["`draft`Old.md"] },
+    { input: "[x](`draft`Old.md)", obsidian: ["`draft`Old.md"], expected: ["`draft`Old.md"] },
+    {
+      input: "[x](<Report `draft` [[Old]].md>)",
+      obsidian: ["Report `draft` [[Old]].md"],
+      expected: ["Report `draft` [[Old]].md"],
+    },
+    { input: '[x](<a b.md> "`t` [[Old]]")', obsidian: ["a b.md"], expected: ["a b.md"] },
+    { input: '[x](b.md "<% tp.x %> [[Old]]")', obsidian: ["b.md"], expected: ["b.md"] },
+    { input: "[x](Old.md`v2`)", obsidian: ["Old.md`v2`"], expected: ["Old.md`v2`"] },
+    { input: '[x](b.md "[[c") [[Old]]', obsidian: ["b.md", "Old"], expected: ["Old", "b.md"] },
+    { input: '[x](Old.md#[[Old]] "`c`")', obsidian: ["Old.md#[[Old]]"], expected: ["Old.md"] },
+    { input: "[x](Old.md#`h`)", obsidian: ["Old.md#`h`"], expected: ["Old.md"] },
+    { input: "[x](<Old.md#a `b` c>)", obsidian: ["Old.md#a `b` c"], expected: ["Old.md"] },
+  ]
+
+  it.each(inlineCodeInDestinationCases)("extracts $expected from $input", ({ input, expected }) => {
+    expect(links.extractFromBody(input)).toEqual(expected)
   })
 })
 
