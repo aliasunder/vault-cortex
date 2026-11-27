@@ -968,8 +968,8 @@ export const createSearchIndex = (
    *    again as a new array.
    *  - A write that adds or removes a note clears the list inside its transaction, before
    *    anything resolves against it; an edit of an existing note keeps it.
-   *  - A write that fails clears both path lists (clearPathListCaches), since its
-   *    transaction may have read a path that the rollback removed. */
+   *  - A failed write that could have changed either list clears both (clearPathListCaches),
+   *    since its transaction may have read a list holding a change the rollback undid. */
   let cachedNotePaths: readonly string[] | undefined
   const getNotePaths = (): readonly string[] => {
     cachedNotePaths ??= selectAllNotePathsStmt.all().map((note) => note.path)

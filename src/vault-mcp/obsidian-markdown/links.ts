@@ -475,8 +475,8 @@ const extractFromFrontmatter = (data: Record<string, unknown>): string[] => {
 // ── Resolution ──────────────────────────────────────────────────
 
 /** Code-point count of a path, not the UTF-16 code-unit count that
- *  String.length reports, so a path with an emoji or another non-BMP
- *  character is as long as the characters it shows. */
+ *  String.length reports, so a non-BMP character, which takes two UTF-16
+ *  units, counts as one. */
 const codePointLength = (path: string): number => [...path].length
 
 /** Lowercases ASCII letters only, the fold resolveAsset compares
