@@ -271,7 +271,8 @@ const stripExtension = (filePath: string): string => {
 
 /** The key that pairs a link's text with the files it could name. A link and
  *  a file a resolver could match must share a key; a key shared more widely
- *  costs only an extra re-resolve in the search index. The key is:
+ *  costs only an extra re-resolve of the search index's links rows, which
+ *  store it as link_name. The key is:
  *  - the last path segment, minus one trailing ".md" (case-sensitive, as
  *    noteTargetWithExtension adds it), lowercased;
  *  - "ς" folded to "σ", because toLowerCase turns a capital "Σ" into either one depending
@@ -363,8 +364,8 @@ const countLeadingParentSegments = (segments: readonly string[]): number => {
  *    current file.
  *
  *  Two steps cost more than linear time on a longer crafted target:
- *  - normalizing it with posix.join;
- *  - deduplicating it, because V8 hashes a string longer than 16,383
+ *  - normalizing it with posix.join in joinToSourceFolder;
+ *  - deduplicating it in the extractors' Sets, because V8 hashes a string longer than 16,383
  *    characters by its length alone, so a Set of many such targets of one
  *    length compares each new target with all of them. */
 const isWithinLinkTargetLimit = (target: string): boolean => {
@@ -478,7 +479,8 @@ const extractFromFrontmatter = (data: Record<string, unknown>): string[] => {
  *  character is as long as the characters it shows. */
 const codePointLength = (path: string): number => [...path].length
 
-/** Lowercases ASCII letters only, the fold file links resolve with. */
+/** Lowercases ASCII letters only, the fold resolveAsset compares
+ *  non-markdown paths with. */
 const foldAsciiCase = (path: string): string => {
   return path.replace(/[A-Z]/g, (letter) => letter.toLowerCase())
 }
@@ -486,8 +488,8 @@ const foldAsciiCase = (path: string): string => {
 /** Orders same-tier resolution matches, winner first: the path with fewer
  *  code points, then the one earlier in UTF-8 byte order, so the winner never
  *  depends on the order of the path list. The Buffer.compare tie-break is
- *  deliberately inline: this leaf layer cannot import utils, so it must
- *  stay in lockstep with utils/compare-utf8-bytes.ts. */
+ *  the order of compareByUtf8Bytes in utils/compare-utf8-bytes.ts, written
+ *  inline because this leaf layer cannot import utils. */
 const compareShortestPathFirst = (leftPath: string, rightPath: string): number => {
   const lengthDifference = codePointLength(leftPath) - codePointLength(rightPath)
 
@@ -512,7 +514,10 @@ const buildOnFirstCall = <Built>(build: () => Built): (() => Built) => {
  *  nothing, so a link that resolves with its own letter case keeps its target. */
 type LetterCase = "exact" | "folded"
 
-/** A stored path beside the form of it that one lookup compares. */
+/** A stored path beside its comparable path, the path in one pass's letter
+ *  case. A lookup's form is what its `toForm` derives from the comparable
+ *  path: the path itself, the path without its extension, or the file name
+ *  without its extension. */
 type ComparablePath = { storedPath: string; comparablePath: string }
 
 /** The shortest stored path whose form equals `form`, or null. */
@@ -520,7 +525,7 @@ type FormLookup = (form: string) => string | null
 
 /** The shortest stored path whose form ends with "/" followed by
  *  `formSuffix`, or null. A path whose form equals `formSuffix` does not
- *  count, as `endsWith("/" + formSuffix)` would not count it. */
+ *  count, because the resolver's equality tiers match that case. */
 type SuffixLookup = (formSuffix: string) => string | null
 
 /** Builds a map from each form of a list's paths to the shortest stored path
@@ -554,18 +559,20 @@ const createFormLookup = (params: {
  *  its last one. */
 type FolderedPath = { storedPath: string; folderSegments: readonly string[] }
 
-/** A node's paths stay in one list until a walk first goes past the node. The
- *  walk then splits them into child nodes by their next folder segment, and
- *  the node drops the list. */
+/** A node's paths stay in one list until a lookup first walks to one of the
+ *  node's children. The lookup then splits the list into child nodes by each
+ *  path's next folder segment toward the start of the path, and the node
+ *  drops the list. */
 type SuffixBranches =
   | { status: "unsplit"; longerPaths: readonly FolderedPath[] }
-  | { status: "split"; childrenBySegment: ReadonlyMap<string | undefined, SuffixNode> }
+  | { status: "split"; childrenBySegment: ReadonlyMap<string, SuffixNode> }
 
-/** A node of one last segment's suffix tree, `depth` folder segments back from
- *  that last segment. Its paths all end with the segments walked to reach it. */
+/** A node of one last segment's suffix tree. Its paths all end with the last
+ *  segment and the `depth` folder segments walked to reach the node, and each
+ *  has at least one more folder segment before them. */
 type SuffixNode = {
   depth: number
-  /** The shortest path with at least one more folder segment past the node. */
+  /** The node's shortest path, or null when the node holds none. */
   shortestLongerPath: string | null
   branches: SuffixBranches
 }
@@ -576,8 +583,9 @@ const createSuffixNode = (params: {
   depth: number
 }): SuffixNode => {
   const { paths, depth } = params
-  // A path with no folder segment past the node has a form equal to the
-  // target that walked here, which a suffix match excludes.
+  // A path with exactly `depth` folder segments has a form equal to the
+  // suffix that walked here, which a suffix lookup excludes, so the node
+  // keeps only the paths longer than that suffix.
   const longerPaths = paths.filter((path) => path.folderSegments.length > depth)
 
   return {
@@ -587,16 +595,21 @@ const createSuffixNode = (params: {
   }
 }
 
-/** The child of `node` one folder segment further back, or undefined when no
- *  path continues with `segment`. The first call splits the node in place:
- *  the tree then holds each path once, plus only the nodes walks reached. */
+/** The child of `node` whose paths have `segment` as their next folder segment
+ *  toward the start of the path, or undefined when no path does. The first
+ *  call splits the node in place, so the tree holds each path once and has
+ *  nodes only for the children of nodes a lookup walked through. */
 const findSuffixChild = (node: SuffixNode, segment: string): SuffixNode | undefined => {
   if (node.branches.status === "unsplit") {
     // Map.groupBy keeps each group in list order, so each child's paths stay
-    // shortest first. Every longer path has a segment at this depth, so no
-    // key is undefined.
+    // shortest first. The key is the folder segment `depth` places before
+    // the path's last folder segment, counted from the end.
     const pathsBySegment = Map.groupBy(node.branches.longerPaths, (path) => {
-      return path.folderSegments.at(-1 - node.depth)
+      const nextSegment = path.folderSegments.at(-1 - node.depth)
+
+      // createSuffixNode kept only paths with a folder segment at this depth.
+      if (nextSegment === undefined) throw new Error("suffix node holds a path too short for it")
+      return nextSegment
     })
     const childrenBySegment = new Map(
       [...pathsBySegment].map(([nextSegment, nextPaths]) => {
@@ -608,12 +621,17 @@ const findSuffixChild = (node: SuffixNode, segment: string): SuffixNode | undefi
   return node.branches.childrenBySegment.get(segment)
 }
 
+/** The text after a form's last "/", the last element of `form.split("/")`,
+ *  so it always agrees with the folder segments a lookup walks.
+ *  posix.basename would drop a trailing "/" and name the segment before it. */
 const getLastSegment = (form: string): string => form.slice(form.lastIndexOf("/") + 1)
 
-/** Builds, on the first lookup, a map from the last segment of each form of a
- *  list's paths to those paths, and on the first lookup of each last segment
- *  that segment's suffix tree. A lookup then walks the suffix's own folder
- *  segments, so its cost does not grow with the list. */
+/** Answers suffix lookups over a list's paths, building its parts on demand:
+ *  - the first lookup groups the list's paths by the last segment of their form;
+ *  - the first lookup of each last segment sorts that group and builds its
+ *    suffix tree's root;
+ *  - every lookup then walks one node per folder segment of the suffix, so a
+ *    lookup's walk does not grow with the list. */
 const createSuffixLookup = (params: {
   getComparablePaths: () => readonly ComparablePath[]
   toForm: (comparablePath: string) => string
@@ -652,23 +670,25 @@ const createSuffixLookup = (params: {
 
     if (!root) return null
 
-    // Walks from the last segment's root back through the suffix's folder
-    // segments, nearest the last segment first.
-    const node = formSuffix
-      .split("/")
-      .slice(0, -1)
-      .reduceRight<SuffixNode | undefined>(
-        (currentNode, segment) => currentNode && findSuffixChild(currentNode, segment),
-        root,
-      )
+    // Walks from the last segment's root through the suffix's folder
+    // segments, nearest the last segment first; a segment no path has ends
+    // the lookup.
+    const suffixFolderSegments = formSuffix.split("/").slice(0, -1)
+    // The node the walk has reached so far.
+    let node = root
+    for (const segment of suffixFolderSegments.toReversed()) {
+      const child = findSuffixChild(node, segment)
 
-    return node?.shortestLongerPath ?? null
+      if (!child) return null
+      node = child
+    }
+    return node.shortestLongerPath
   }
 }
 
 /** Builds one set of lookups per path list, on the list's first resolve. The
  *  cache is keyed by the list itself, so a caller must not change a list after
- *  passing it in. */
+ *  passing it in; passing a new array builds new lookups. */
 const createLookupsCache = <Lookups>(
   createLookups: (paths: readonly string[]) => Lookups,
 ): ((paths: readonly string[]) => Lookups) => {
@@ -685,7 +705,8 @@ const createLookupsCache = <Lookups>(
   }
 }
 
-/** Pairs each path of a list with its form in one pass, on the first call. */
+/** Pairs each path of a list with its comparable path in one pass, on the
+ *  first call. */
 const createComparablePaths = (params: {
   paths: readonly string[]
   toComparablePath: (path: string) => string
@@ -701,8 +722,8 @@ const createComparablePaths = (params: {
 
 const keepPath = (path: string): string => path
 
-/** The folded note form lowercases every letter, because note resolution runs
- *  only in memory, so nothing narrows it to ASCII. */
+/** The folded note form lowercases every letter, so `[[éclair]]` reaches
+ *  `Éclair.md`; file links fold ASCII letters only (createAssetLookups). */
 const lowercaseNotePath = (path: string): string => path.toLowerCase()
 
 /** The form of a note path or link target that one pass compares. */
@@ -725,7 +746,7 @@ const assetPathForComparison = (path: string, letterCase: LetterCase): string =>
   }
 }
 
-/** One letter case's note lookups, over paths in the pass's form. */
+/** One letter case's note lookups, over its comparable paths. */
 type NoteLookups = { pathWithForm: FormLookup; pathEndingWith: SuffixLookup }
 
 const createNoteLookups = (paths: readonly string[]): Record<LetterCase, NoteLookups> => {
@@ -746,7 +767,7 @@ const createNoteLookups = (paths: readonly string[]): Record<LetterCase, NoteLoo
 
 const getNoteLookups = createLookupsCache(createNoteLookups)
 
-/** One letter case's asset lookups, over paths in the pass's form. */
+/** One letter case's asset lookups, over its comparable paths. */
 type AssetLookupsInLetterCase = {
   pathWithForm: FormLookup
   pathWithStem: FormLookup
@@ -754,14 +775,14 @@ type AssetLookupsInLetterCase = {
 }
 
 /** The asset lookups. The two suffix lookups compare ASCII-folded forms and
- *  serve the exact pass only. */
+ *  serve the exact pass only, as resolveAssetInLetterCase explains. */
 type AssetLookups = {
   inLetterCase: Record<LetterCase, AssetLookupsInLetterCase>
   foldedPathEndingWith: SuffixLookup
   foldedStemEndingWith: SuffixLookup
 }
 
-const stemOfBasename = (path: string): string => stripExtension(posix.basename(path))
+const pathToBareStem = (path: string): string => stripExtension(posix.basename(path))
 
 const createAssetLookups = (paths: readonly string[]): AssetLookups => {
   const getExactPaths = createComparablePaths({ paths, toComparablePath: keepPath })
@@ -769,20 +790,20 @@ const createAssetLookups = (paths: readonly string[]): AssetLookups => {
   // would change which file an existing link names.
   const getAsciiFoldedPaths = createComparablePaths({ paths, toComparablePath: foldAsciiCase })
 
-  const createLookupsInLetterCase = (
+  const createLookupsOverComparablePaths = (
     getComparablePaths: () => readonly ComparablePath[],
   ): AssetLookupsInLetterCase => {
     return {
       pathWithForm: createFormLookup({ getComparablePaths, toForm: keepPath }),
       pathWithStem: createFormLookup({ getComparablePaths, toForm: stripExtension }),
-      pathWithBareStem: createFormLookup({ getComparablePaths, toForm: stemOfBasename }),
+      pathWithBareStem: createFormLookup({ getComparablePaths, toForm: pathToBareStem }),
     }
   }
 
   return {
     inLetterCase: {
-      exact: createLookupsInLetterCase(getExactPaths),
-      folded: createLookupsInLetterCase(getAsciiFoldedPaths),
+      exact: createLookupsOverComparablePaths(getExactPaths),
+      folded: createLookupsOverComparablePaths(getAsciiFoldedPaths),
     },
     foldedPathEndingWith: createSuffixLookup({
       getComparablePaths: getAsciiFoldedPaths,
@@ -836,6 +857,8 @@ const resolveNoteInLetterCase = (params: {
   return lookups.pathEndingWith(comparableTarget)
 }
 
+/** Adds ".md" unless the target already ends with it in lowercase, so
+ *  `[[x.MD]]` looks for `x.MD.md`. pathToLinkName strips the same ending. */
 const noteTargetWithExtension = (target: string): string => {
   return target.endsWith(".md") ? target : `${target}.md`
 }
@@ -854,7 +877,9 @@ const joinToOptionalSourceFolder = (
 
 /** Resolves a link target the way `resolve` does, but only in the link's own
  *  letter case, so `[[real]]` misses `Folder/Real.md`. A match means the link
- *  already spells the path in that path's letter case. */
+ *  already spells the path in that path's letter case. The move rewriter
+ *  asks it whether a link still reaches a note whose file name the move
+ *  changes. */
 const resolveInExactCase = (params: {
   target: string
   allPaths: readonly string[]
@@ -941,10 +966,11 @@ const resolveAssetInLetterCase = (params: {
     if (relativeMatch) return relativeMatch
   }
 
-  // The suffix tiers fold ASCII case already in the exact pass, so
-  // ![[photo.png]] reaches the shorter of A/Photo.PNG and B/sub/photo.png,
-  // while the other tiers compare in the pass's letter case. Folded from the
-  // start, a suffix tier could only repeat its miss in the folded pass.
+  // The suffix tiers compare ASCII-folded paths in the exact pass, so the
+  // shortest path wins whatever its letter case: ![[photo.png]] reaches
+  // A/Photo.PNG over B/sub/photo.png. The other tiers compare in the pass's
+  // letter case. Folded from the start, a suffix tier could only repeat its
+  // miss in the folded pass, so that pass skips it.
   const runsSuffixTiers = letterCase === "exact"
   const foldedTarget = foldAsciiCase(target)
   const fullPathSuffixMatch = runsSuffixTiers ? lookups.foldedPathEndingWith(foldedTarget) : null
@@ -963,44 +989,40 @@ const resolveAssetInLetterCase = (params: {
     if (relativeStemMatch) return relativeStemMatch
   }
 
-  // A target with folder segments keeps them in the match (suffix on the
-  // stem, case folded like the other suffix tier); a bare name matches the
-  // filename stem in the pass's letter case. Either way this is the pass's
-  // last tier: a miss ends the pass with null.
+  // The pass's last tier. A target with folder segments matches the stem
+  // that ends with it, ASCII-folded and in the exact pass only, like the
+  // full-path suffix tier.
   if (target.includes("/")) {
-    if (!runsSuffixTiers) return null
-
-    return lookups.foldedStemEndingWith(foldedTarget)
+    return runsSuffixTiers ? lookups.foldedStemEndingWith(foldedTarget) : null
   }
+  // A bare name matches a file name's stem in the pass's letter case.
   return pathWithBareStem(comparableTarget)
 }
 
 /** Resolves a link target to a known non-markdown vault file, or null when no
  *  match exists. The index (search/search-index.ts) and the move rewriter both
  *  resolve file links with it, so they agree on where an asset link points.
- *  Handles both extensionless targets ([[Trip Route]] →
- *  Trip Route.canvas) and explicit-extension targets ([[photo.png]],
- *  ![img](../assets/photo.png)) in every form Obsidian resolves — exact path,
- *  relative to the source note, and basename/shortest path.
+ *  The tiers run in this order, and the first match wins:
+ *  1. Full file name: the exact path, the path joined to the source note's
+ *     folder, then the shortest path ending with the target ([[photo.png]],
+ *     ![img](../assets/photo.png), [[LICENSE]]).
+ *  2. Stem, the path without its extension: the exact stem, the stem joined
+ *     to the source note's folder, then the shortest stem ending with a
+ *     target that has folders, or the shortest path whose file name's stem
+ *     equals a bare target ([[Trip Route]] → Trip Route.canvas).
+ *  3. Tiers 1 and 2 again with ASCII letter case folded, without the two
+ *     suffix tiers, so `![[Photo.PNG]]` reaches `photo.png` only when no file
+ *     matches it exactly.
  *
- *  The full-filename tiers all run before any stem tier (extension-stripped
- *  paths): the families are NOT disjoint — a multi-dot filename's stem
- *  retains its inner dots ("photo.png.canvas" → stem "photo.png"), so a
- *  with-extension target can stem-match a different file. Family ordering
- *  makes the full-filename match win, while the stem tiers stay the fallback
- *  so [[photo.png]] with only photo.png.canvas in the vault still resolves —
- *  mirroring Obsidian's stem matching. An extensionless target can match in
- *  both families: the full-filename tiers hit an extensionless file
- *  (LICENSE, Dockerfile) by exact path or path suffix, and the stem tiers
- *  hit any file whose extension-stripped name matches.
- *
- *  The exact, relative and stem tiers run with exact letter case first, then
- *  again with ASCII letter case folded, so `![[Photo.PNG]]` reaches
- *  `photo.png` only when no file matches it exactly. The two path-suffix
- *  tiers fold ASCII case in the first pass too, so `![[photo.png]]` reaches
- *  the shorter of `A/Photo.PNG` and `B/sub/photo.png`. The lookups built over
- *  `allAssetPaths` are cached by the array, so the caller must not change it
- *  after the call. A target over the link-target limit resolves to null. */
+ *  - Full file names run first because a multi-dot file name's stem keeps its
+ *    inner dots: [[photo.png]] prefers photo.png over photo.png.canvas, whose
+ *    stem is "photo.png", and still reaches photo.png.canvas when no
+ *    photo.png exists, as Obsidian's stem matching does.
+ *  - The two suffix tiers fold ASCII letter case already in tiers 1 and 2, so
+ *    `![[photo.png]]` reaches the shorter of `A/Photo.PNG` and `B/sub/photo.png`.
+ *  - A target over the link-target limit resolves to null.
+ *  - The lookups built over `allAssetPaths` are cached by the array, so the
+ *    caller must not change it after the call. */
 const resolveAsset = (params: {
   target: string
   allAssetPaths: readonly string[]

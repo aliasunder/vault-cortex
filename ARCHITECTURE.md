@@ -363,10 +363,10 @@ Link queries use a `links` table populated during indexing:
 - **Resolution:** Each target other than a Canvas file card is resolved against all known note paths covering Obsidian's three "New link format" modes:
   1. Exact vault-relative path (path from vault folder)
   2. Path relative to the linking note (path from current file, including upward `../`)
-  3. Basename (shortest-path-first for ambiguous basenames)
+  3. Shortest path: the shortest path that ends with the target, folders included, so `[[sub/Note]]` reaches `A/sub/Note.md`
 - **Lookups:** `obsidian-markdown/links.ts` answers each tier from lookups it builds over a path list on that list's first resolve and keeps with the list:
-  - a map from each spelling a tier compares (the path itself, the path without its extension, the file name without its extension, each also in folded letter case) to the shortest path with that spelling;
-  - for each file name, a tree of that name's paths keyed by folder segments from the end, built when a link first asks for that name.
+  - a map from each spelling a tier compares to the shortest path with that spelling: the path itself, and for a non-markdown file also the path and the file name without the extension, each also in folded letter case;
+  - for each last path segment a suffix tier compares, a tree of the paths ending in it, keyed by folder segments from the end, built when a link first asks for that segment.
 - **Letter case:** Obsidian resolves a link whatever its letter case, so `[[real]]` and `[[folder/real]]` reach `Folder/Real.md`. Resolution walks the three tiers in the link's own letter case first, and walks them again with letter case folded only when every tier misses. A folded match returns the stored path, and backlinks, orphans and `vault_move_note` all follow it.
   - Note links fold every letter (`toLowerCase`), so `[[éclair]]` reaches `Éclair.md`. Notes are tried before files, so `[[photo]]` reaches `Photo.md` rather than `photo.png`.
   - File links fold ASCII letters only, so `![[éclair.png]]` stays broken beside `Éclair.png`. Their path-suffix tiers fold ASCII letter case in the first walk too: `![[photo.png]]` reaches the shorter `A/Photo.PNG` rather than `B/sub/photo.png`.

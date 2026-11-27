@@ -394,7 +394,7 @@ export type OutgoingLinkEntry = {
 //      blocks and inline code spans); links.extractFromFrontmatter() adds
 //      [[wikilinks]] from frontmatter property values (e.g. related:).
 //   2. links.resolve() maps each raw target to a note path by trying
-//      exact match → relative-to-source match → basename/shortest-path heuristic,
+//      exact match → relative-to-source match → shortest path ending with the target,
 //      first in the link's own letter case, then with letter case folded. A
 //      target no note matches goes to links.resolveAsset() over the
 //      non_md_files paths, the resolver the note mover uses for file links.
@@ -638,6 +638,8 @@ export const createSearchIndex = (
     CREATE INDEX IF NOT EXISTS idx_links_target ON links(target);
     CREATE INDEX IF NOT EXISTS idx_links_name ON links(link_name);
 
+    -- basename holds the file name without its extension, which backlinks
+    -- show as a file's title.
     CREATE TABLE IF NOT EXISTS non_md_files (
       path      TEXT PRIMARY KEY,
       base_path TEXT NOT NULL,
@@ -962,7 +964,8 @@ export const createSearchIndex = (
   )
 
   /** The note paths every link resolves against, read from the notes table on first use.
-   *  - links.resolve caches its lookups by list, so they last until the set of notes changes.
+   *  - links.resolve caches its lookups by array, so they last until a cleared list is read
+   *    again as a new array.
    *  - A write that adds or removes a note clears the list inside its transaction, before
    *    anything resolves against it; an edit of an existing note keeps it.
    *  - A write that fails clears both path lists (clearPathListCaches), since its
@@ -1458,12 +1461,13 @@ export const createSearchIndex = (
       // The key joins the folder and the link text with a NUL:
       // - A vault path holds no NUL, so the first NUL ends the folder and two
       //   pairs never share a key.
-      // - The folder (at most 4,095 bytes), the NUL and the link text (at most
-      //   10,236 bytes) total at most 14,332 characters, since a string has
-      //   no more UTF-16 units than UTF-8 bytes. V8 hashes a string
-      //   longer than 16,383 characters by its length alone, and a Map of such
-      //   keys compares each new key with every key of that length.
-      // - JSON quoting would grow control characters six-fold, past that bound.
+      // - The folder is a vault path and the link text passed
+      //   links.isWithinLinkTargetLimit, so the key stays under 16,384
+      //   characters, since a string has no more UTF-16 units than UTF-8
+      //   bytes. V8 hashes a longer string by its length alone, and a Map of
+      //   such keys compares each new key with every key of that length.
+      // - The parts go in unescaped: JSON quoting grows a control character
+      //   to six, which could pass that bound.
       const memoKey = `${posix.dirname(source)}\u0000${linkText}`
       const resolvedTarget =
         resolvedTargets.get(memoKey) ?? resolveLinkTarget({ linkText, sourcePath: source })
@@ -1477,6 +1481,7 @@ export const createSearchIndex = (
   /** Re-resolves the "link" rows that name a file new to the index: those can
    *  newly resolve to it, or move to it from a longer path with the same name. */
   const reResolveLinksNaming = (linkNames: readonly string[]): void => {
+    // The statement reads the names as one JSON array, through json_each.
     reResolveLinks(selectLinksByNameStmt.all(JSON.stringify(linkNames)))
   }
 
@@ -1490,7 +1495,9 @@ export const createSearchIndex = (
    *  - The caller owns entry filtering and stat (fs work stays out of the
    *    write transaction); this just writes the rows.
    *  - rebuildFromVault calls it after clearing the links table, so no stored
-   *    link needs re-resolving. */
+   *    link needs re-resolving.
+   *  - It runs inside rebuildFromVault's transaction, whose catch clears both
+   *    path lists when the transaction rolls back. */
   const indexNonMarkdownFiles = (
     files: ReadonlyArray<{ relativePath: string; bytes: number }>,
   ): number => {
@@ -1510,7 +1517,7 @@ export const createSearchIndex = (
     const baseFilename = links.stripExtension(basename(filePath))
 
     // The wrap is immediate because it reads whether the path is new before
-    // its first write (see the busy_timeout comment above).
+    // its first write (see the busy_timeout comment where the database opens).
     const upsertNonMdFileRow = db.transaction(() => {
       const isNewFile = !selectNonMdPathStmt.get(filePath)
       upsertNonMdFileStmt.run(filePath, basePath, baseFilename, bytes)
@@ -1520,9 +1527,10 @@ export const createSearchIndex = (
       cachedNonMarkdownPaths = undefined
 
       // A link names the file by its full filename ([[photo.png]]) or by its
-      // stem ([[Trip Route]] for Trip Route.canvas), the basename column.
-      // pathToLinkName strips only a lowercase ".md" ending, so each name
-      // gives two keys. For the stem `x.MD` of `x.MD.png`:
+      // stem ([[Trip Route]] for Trip Route.canvas). A link's key drops a
+      // trailing ".md" only when the link spells it in lowercase, yet the
+      // folded pass can match either spelling, so each name gives two keys.
+      // For the stem `x.MD` of `x.MD.png`:
       // - lowercased first, it keys as `x`, like the link [[x.md]], which the
       //   folded pass matches to this file;
       // - with ".md" added, it keys as `x.md`, like the link [[x.MD]].
@@ -1989,7 +1997,9 @@ export const createSearchIndex = (
       insertTypedLinks({ source: note.path, linkTexts: links.extractAll(noteBody, frontmatter) })
 
       // An edit leaves the set of paths, and so every other link's answer,
-      // unchanged; a new path can claim the links that name it.
+      // unchanged; a new path can claim the links that name it. A note path
+      // ends in a lowercase ".md", so every link that can reach the note
+      // shares this one key.
       if (isNewNote) reResolveLinksNaming([links.pathToLinkName(note.path)])
     }).immediate
 
@@ -2919,8 +2929,9 @@ export const createSearchIndex = (
         // Pass 2: re-extract links now that all paths are in the notes table,
         // resolving targets that the per-note upsertNote pass may have missed
         // (e.g. Note A links to Note B, but Note B was indexed after Note A).
-        // Each link resolves as in upsertNote's link step.
-        cachedNotePaths = selectAllNotePathsStmt.all().map((row) => row.path)
+        // Each link resolves as in upsertNote's link step, and the first one
+        // reads the complete path list.
+        cachedNotePaths = undefined
 
         // No source write may run during a rebuild, so this second clear
         // normally finds nothing. It stays so that a link written during the
