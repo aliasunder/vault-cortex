@@ -946,6 +946,21 @@ describe("moveNote — selectivity (must-not-rewrite cases)", () => {
     })
   })
 
+  it("rewrites a markdown link whose heading holds a wikilink as one link", async () => {
+    const { writeFixture, moveNote, readNote } = setupVault()
+    await writeFixture("x.md", "content\n")
+    await writeFixture("Hub.md", "See [x](x.md#[[x]]) here\n")
+
+    const result = await moveNote({
+      oldPath: "x.md",
+      newPath: "y.md",
+      backlinkSources: ["Hub.md"],
+    })
+
+    expect(await readNote("Hub.md")).toBe("See [x](y.md#[[x]]) here\n")
+    expect(result.links_updated).toBe(1)
+  })
+
   it("keeps the ./ that lets a markdown link with a colon in its heading count", async () => {
     const { writeFixture, moveNote, readNote } = setupVault()
     await writeFixture("Old.md", "content\n")

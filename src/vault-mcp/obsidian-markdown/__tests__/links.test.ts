@@ -2245,3 +2245,69 @@ describe("link-target limits", () => {
     CHILD_TEST_TIMEOUT_MS,
   )
 })
+
+// ── Destination encoder round trip ───────────────────────────────
+
+/** Characters the destination encoder treats specially, between plain ones.
+ *  `#`, `:` and a no-break space are left out, and so is whitespace at a
+ *  name's edges: encodeMarkdownDestination's docstring lists them as having
+ *  no spelling. */
+const NAME_CHARACTERS = [
+  "a",
+  "B",
+  "1",
+  " ",
+  "\t",
+  "_",
+  "~",
+  "=",
+  "&",
+  '"',
+  "'",
+  "(",
+  ")",
+  "<",
+  ">",
+  "%",
+  "\\",
+  "[",
+  "]",
+  "*",
+  "$",
+  "`",
+  "!",
+  ".",
+  "é",
+  "😀",
+]
+
+/** How many names the round trip draws, enough to reach the neighbour rules
+ *  (a `_` before punctuation, a letter after `&`, runs of `~` or `=`) often. */
+const ROUND_TRIP_NAME_COUNT = 20_000
+
+const drawName = (random: () => number): string => {
+  const length = 1 + Math.floor(random() * 12)
+  const characters = Array.from({ length }, () => {
+    return NAME_CHARACTERS[Math.floor(random() * NAME_CHARACTERS.length)] ?? "a"
+  })
+  return `${characters.join("").trim() || "a"}.md`
+}
+
+describe("markdown destination encoder round trip", () => {
+  it("writes 20,000 seeded names in both destination forms that extractFromBody reads back", () => {
+    const random = createSeededRandom(845)
+    const names = Array.from({ length: ROUND_TRIP_NAME_COUNT }, () => drawName(random))
+    const destinationForms = ["bare", "angle"] as const
+    const failures = names.flatMap((name) => {
+      return destinationForms.flatMap((destinationForm) => {
+        const encoded = links.encodeMarkdownDestination(name, destinationForm)
+        // The encoder writes what goes between an angle destination's brackets.
+        const written = destinationForm === "angle" ? `[x](<${encoded}>)` : `[x](${encoded})`
+        const readBack = links.extractFromBody(written)
+        return readBack.length === 1 && readBack[0] === name ? [] : [{ name, written, readBack }]
+      })
+    })
+
+    expect(failures).toEqual([])
+  })
+})
