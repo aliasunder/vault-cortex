@@ -1334,8 +1334,9 @@ match their siblings' length and shape.
 
 **Doc quality rules:**
 
-- Before calling a doc done, pick each reader the doc serves (listed
-  under "Write for each doc's reader") and walk the entire document
+- Before calling a doc done, pick each reader the doc serves (for the
+  main docs, listed under "Write for each doc's reader") and walk the
+  entire document
   start to finish — line-level fact-checking cannot validate a doc; each
   sentence can be true while the doc as a whole misleads.
 - When a doc offers multiple paths (install methods, tools, runtimes),
