@@ -91,7 +91,10 @@ docker compose up
 
 ### Remote (access from anywhere)
 
-Your vault on a server, kept current by Obsidian Sync, reachable from your phone, claude.ai, or any MCP client. The one-click options ask for your vault name and timezone (plus the vault password if your vault is encrypted), then handle HTTPS, restarts, a generated MCP token, and persistent storage. Once deployed, a setup page walks you through signing in to Obsidian Sync in your browser. On your own server the CLI asks for the public URL and vault name, captures the Sync token for you, and generates the MCP token; HTTPS is yours to set up.
+Your vault on a server, kept current by Obsidian Sync, reachable from any MCP client. This is the setup claude.ai on the web and your phone can reach, and the vault stays reachable when your laptop is closed.
+
+- **One click (Railway or Render):** you give your vault name and timezone (plus the vault password if your vault is encrypted); the platform handles HTTPS, restarts, a generated MCP token, and persistent storage, and once deployed a setup page walks you through signing in to Obsidian Sync in your browser.
+- **Your own server:** the CLI asks for the public URL and vault name, captures the Sync token for you, and generates the MCP token; HTTPS is yours to set up.
 
 |                | Railway                                                                                                                                                                             | Render                                                                                                                                                  | Self-hosted                                                  |
 | -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
@@ -101,9 +104,9 @@ Your vault on a server, kept current by Obsidian Sync, reachable from your phone
 | **Pick it if** | You want the easier start — the template lands you in a configured project                                                                                                          | A predictable bill matters more than setup polish                                                                                                       | You already run a server or want full control                |
 | **Guide**      | **[Railway guide →](./deploy/railway/)**                                                                                                                                            | **[Render guide →](./deploy/render/)**                                                                                                                  | **[Remote guide →](./deploy/remote/)**                       |
 
-All three need an [Obsidian Sync](https://obsidian.md/sync) subscription. Whichever you pick, the server is replaceable and your vault isn't — it stays in plain Markdown in Obsidian Sync and on your devices; the container only holds a copy.
+All three need an [Obsidian Sync](https://obsidian.md/sync) subscription ($4 USD/mo). Whichever you pick, your vault stays in plain Markdown in Obsidian Sync and on your devices; the container only holds a copy.
 
-**The setup page.** Deploy without an Obsidian Sync token and the server starts in setup mode: opening its URL in a browser lands on a sign-in page at `/setup`. Enter your Obsidian account credentials once (two-factor supported) — you sign in with Obsidian directly; the server keeps only the Sync token from that sign-in, restarts, and downloads your vault.
+**The setup page.** Deploy without an Obsidian Sync token and the server starts in setup mode: opening its URL in a browser lands on a sign-in page at `/setup`. Enter your Obsidian account credentials once (two-factor supported) — you sign in with your Obsidian account through the server, which keeps only the Sync token from that sign-in, restarts, and downloads your vault.
 
 <p align="center"><img src="./deploy/img/setup-sign-in.jpg" width="440" alt="The Connect Obsidian Sync setup page with MCP token, email, and password fields"></p>
 
@@ -118,11 +121,7 @@ The [Vault Cortex CLI](./cli/) sets up the same container on any Linux box you r
 npx vault-cortex@latest init --mode remote
 ```
 
-That's it — the CLI walks through the public URL, Obsidian Sync token (it can run [`get-sync-token`](./cli/README.md#get-sync-token) for you), vault name, the vault password for an encrypted vault, and auth config, then starts the server ([CLI reference →](./cli/)).
-
-**Set up with the CLI?** It manages the server from here on — `configure`, `upgrade`, `start`, `restart`, `logs`, `down` ([CLI reference →](./cli/)).
-
-**Set up with Compose?** Stick with Compose for updates too (`docker compose pull && docker compose up -d`) — the CLI and Compose manage the container independently.
+That's it — the CLI walks through the public URL, Obsidian Sync token (it can run [`get-sync-token`](./cli/README.md#get-sync-token) for you), vault name, the vault password for an encrypted vault, and auth config, then starts the server ([CLI reference →](./cli/)). The [CLI and Compose notes under the local setup](#local-2-minutes--docker--your-vault-folder) apply here too.
 
 <details>
 <summary><strong>Manual setup</strong> (no Node.js needed)</summary>
