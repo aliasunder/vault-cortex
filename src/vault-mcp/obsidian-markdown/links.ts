@@ -457,6 +457,9 @@ const encodeSharedCharacter = (pathCharacter: PathCharacter): string | null => {
   // (`snake_case [x](a_(b).md)`). The run rule below escapes a `_` that ends
   // the path.
   if (character === "_" && next && !ASCII_LETTER_OR_DIGIT.test(next)) return "\\_"
+  // A heading written after the path can complete a reference that a final
+  // `&` opens (`R&D&` before `#35;`), so that `&` is written as a reference.
+  if (character === "&" && !next) return "&amp;"
   if (RUN_DELIMITER_CHARACTERS.has(character)) {
     return isSingleBetweenNonWhitespace(pathCharacter) ? character : `\\${character}`
   }
@@ -871,8 +874,9 @@ const toMarkdownLinkSpan = (params: {
 /** Calls `visit` for each markdown link `[text](destination "title")` in
  *  `text` that names another note or file, left to right and never
  *  overlapping. The grammar follows Obsidian's, except that the link text
- *  ends at its first `]`, so `[a [b] c](d.md)` holds no link:
- *  - a `[` after an odd run of backslashes opens no link;
+ *  ends at its first unescaped `]`, so `[a [b] c](d.md)` holds no link:
+ *  - a `[` or `]` after an odd run of backslashes is text, so `[a\](b.md)`
+ *    holds no link;
  *  - an unescaped `!` directly before the `[` makes the link an embed;
  *  - the destination is `<…>` or bare, after optional whitespace;
  *  - a title in `"…"`, `'…'` or `(…)` may follow after whitespace;
@@ -887,7 +891,11 @@ const scanMarkdownLinks = (text: string, visit: (span: MarkdownLinkSpan) => void
 
   const findLinkTextEnd = (start: number): number => {
     textEnd = Math.max(textEnd, start + 1)
-    while (textEnd < text.length && text[textEnd] !== "]") textEnd++
+    // Each `]` is checked once, and the backslash runs before different
+    // closers do not overlap, so the walk stays linear.
+    while (textEnd < text.length && (text[textEnd] !== "]" || isEscapedAt(text, textEnd))) {
+      textEnd++
+    }
     return textEnd
   }
 
@@ -951,18 +959,60 @@ const maskTemplaterExpressions = (text: string): string => {
   return pieces.join("")
 }
 
-/** Finds wikilinks, then markdown links (not in text order), with the offsets a rewriter
- *  needs to splice replacements. Links in inline code are found too; a caller that
- *  skips them scans a maskInlineCode copy of the line.
- *  The two kinds can overlap: in `[x](a[[b]])`, the wikilink sits inside the
- *  markdown link's target. */
+/** Calls the visitors for each link in a body line, wikilinks first and then
+ *  markdown links. A wikilink inside a markdown link's destination or title is
+ *  no link of its own, as Obsidian reads `[x](a.md "[[b]]")`, so no two links
+ *  the visitors receive overlap. */
+const scanBodyLineLinks = (params: {
+  line: string
+  visitWikilink: (span: LinkSpan) => void
+  visitMarkdownLink: (span: MarkdownLinkSpan) => void
+}): void => {
+  const { line, visitWikilink, visitMarkdownLink } = params
+  const markdownSpans: MarkdownLinkSpan[] = []
+  scanMarkdownLinks(line, (span) => markdownSpans.push(span))
+  // Wikilinks arrive in start order, so one index walks the markdown spans
+  // forward, past each span that ends before the wikilink starts.
+  let spanIndex = 0
+
+  const isInsideDestination = (wikilinkStart: number): boolean => {
+    while ((markdownSpans[spanIndex]?.end ?? Infinity) <= wikilinkStart) spanIndex++
+    const enclosingSpan = markdownSpans[spanIndex]
+
+    if (!enclosingSpan) return false
+    return wikilinkStart >= enclosingSpan.targetStart
+  }
+
+  scanWikilinks(line, (span) => {
+    if (!isInsideDestination(span.start)) visitWikilink(span)
+  })
+  for (const span of markdownSpans) visitMarkdownLink(span)
+}
+
+/** Finds a body line's wikilinks, then its markdown links (not in text order),
+ *  with the offsets a rewriter needs to splice replacements. Links in inline
+ *  code are found too; a caller that skips them scans a maskInlineCode copy of
+ *  the line. No two matches overlap. */
 const matchLinksInLine = (line: string): LinkMatch[] => {
   const matches: LinkMatch[] = []
-  scanWikilinks(line, ({ start, end }) => {
-    matches.push({ text: line.slice(start, end), start, end, kind: "wikilink" })
+  scanBodyLineLinks({
+    line,
+    visitWikilink: ({ start, end }) => {
+      matches.push({ text: line.slice(start, end), start, end, kind: "wikilink" })
+    },
+    visitMarkdownLink: ({ start, end }) => {
+      matches.push({ text: line.slice(start, end), start, end, kind: "markdown" })
+    },
   })
-  scanMarkdownLinks(line, ({ start, end }) => {
-    matches.push({ text: line.slice(start, end), start, end, kind: "markdown" })
+  return matches
+}
+
+/** Finds every wikilink in `text`, such as a frontmatter value, where
+ *  markdown links are not read. */
+const matchWikilinks = (text: string): LinkMatch[] => {
+  const matches: LinkMatch[] = []
+  scanWikilinks(text, ({ start, end }) => {
+    matches.push({ text: text.slice(start, end), start, end, kind: "wikilink" })
   })
   return matches
 }
@@ -1117,14 +1167,17 @@ const extractFromBody = (content: string): string[] => {
 
     const linkExtractableLine = maskTemplaterExpressions(maskInlineCode(text))
 
-    scanWikilinks(linkExtractableLine, ({ targetStart, targetEnd }) => {
-      const rawTarget = linkExtractableLine.slice(targetStart, targetEnd)
-      const target = stripEscapedPipe(rawTarget.trim())
+    scanBodyLineLinks({
+      line: linkExtractableLine,
+      visitWikilink: ({ targetStart, targetEnd }) => {
+        const rawTarget = linkExtractableLine.slice(targetStart, targetEnd)
+        const target = stripEscapedPipe(rawTarget.trim())
 
-      if (isExtractableTarget(target)) targets.add(target)
-    })
-    scanMarkdownLinks(linkExtractableLine, ({ storedTarget }) => {
-      if (isExtractableTarget(storedTarget)) targets.add(storedTarget)
+        if (isExtractableTarget(target)) targets.add(target)
+      },
+      visitMarkdownLink: ({ storedTarget }) => {
+        if (isExtractableTarget(storedTarget)) targets.add(storedTarget)
+      },
     })
   }
   return [...targets]
@@ -1779,6 +1832,7 @@ const extractAll = (content: string, data: Record<string, unknown>): string[] =>
  *  encoding, extraction, and resolution. Single namespace export so call sites read `links.resolve(...)`. */
 export const links = {
   matchLinksInLine,
+  matchWikilinks,
   maskInlineCode,
   splitWikilink,
   splitMarkdownLink,

@@ -143,15 +143,19 @@ const classifyLinkForm = (params: {
  *  shorter form would resolve elsewhere after the move. keepExtension controls
  *  the extension state: true keeps desiredTarget's extension (the original
  *  link carried it), false strips it back to the stem/extensionless form.
- *  The replacement takes desiredTarget's letter case, not the link's. */
+ *  relativeStart ("./" or "") opens a relative replacement that does not
+ *  climb with "../". The replacement takes desiredTarget's letter case, not
+ *  the link's. */
 const buildReplacementTarget = (params: {
   form: LinkForm
   desiredTarget: string
   newSourcePath: string
   keepExtension: boolean
+  relativeStart: string
   resolveFromNewSource: (candidate: string) => string | null
 }): string => {
-  const { form, desiredTarget, newSourcePath, keepExtension, resolveFromNewSource } = params
+  const { form, desiredTarget, newSourcePath, keepExtension, relativeStart, resolveFromNewSource } =
+    params
   const absoluteForm = keepExtension ? desiredTarget : links.stripExtension(desiredTarget)
 
   const resolvesToDesired = (candidate: string): boolean => {
@@ -164,7 +168,10 @@ const buildReplacementTarget = (params: {
   }
 
   if (form === "relative") {
-    const relative = posix.relative(posix.dirname(newSourcePath), absoluteForm)
+    const pathFromSource = posix.relative(posix.dirname(newSourcePath), absoluteForm)
+    const relative = pathFromSource.startsWith("../")
+      ? pathFromSource
+      : `${relativeStart}${pathFromSource}`
     return resolvesToDesired(relative) ? relative : absoluteForm
   }
 
@@ -251,6 +258,11 @@ const rewriteTarget = (
   const carriesResolvedExtension =
     originalExtension.toLowerCase() === posix.extname(desiredTarget).toLowerCase()
   const keepExtension = grammarWritesExtension && carriesResolvedExtension
+  // Obsidian reads a markdown link holding a ":", in its heading for one, as a
+  // URL unless it starts with "./" or "../", so a markdown link written that
+  // way keeps a relative start.
+  const writesRelativeStart =
+    grammar === "markdown" && (rawTarget.startsWith("./") || rawTarget.startsWith("../"))
 
   return buildReplacementTarget({
     form: classifyLinkForm({
@@ -261,6 +273,7 @@ const rewriteTarget = (
     desiredTarget,
     newSourcePath: context.newSourcePath,
     keepExtension,
+    relativeStart: writesRelativeStart ? "./" : "",
     resolveFromNewSource,
   })
 }
@@ -312,13 +325,46 @@ const rewriteWikilinkText = (linkText: string, rewriteLink: RewriteLink): string
   return `${parts.embed}[[${newTarget}${parts.heading}${parts.alias}]]`
 }
 
-/** Rewrites one matched markdown link, preserving the link text, the
- *  destination's form, the heading as written, the title, the spacing and
- *  the original extension state; null when the target needs no change. */
-const rewriteMarkdownLinkText = (linkText: string, rewriteLink: RewriteLink): string | null => {
-  const parts = links.splitMarkdownLink(linkText)
+/** A destination to write in place of a markdown link's target and heading,
+ *  and the suffix the link must then read back with. */
+type DestinationCandidate = { destination: string; suffix: string }
+
+/** Whether `linkText`, read with inline code blanked as links.extractFromBody
+ *  reads it, is one whole markdown link with this target, heading and suffix. */
+const readsBackAs = (
+  linkText: string,
+  expected: { target: string; heading: string; suffix: string },
+): boolean => {
+  const parts = links.splitMarkdownLink(links.maskInlineCode(linkText))
+
+  if (!parts) return false
+  return (
+    `${parts.path}${parts.extension}` === expected.target &&
+    parts.heading === expected.heading &&
+    parts.suffix === expected.suffix
+  )
+}
+
+/** Rewrites one matched markdown link's destination, keeping the link text,
+ *  the heading as written, the title, the spacing and the original extension
+ *  state. Returns the edit with offsets in the link, or null when the target
+ *  needs no change or no candidate reads back as the new target:
+ *  - the parts come from `maskedLinkText`, as links.extractFromBody reads the
+ *    link, and the heading is copied from `linkText`;
+ *  - a bare destination that does not read back is tried in angle brackets,
+ *    which keep a heading's `)` and an embed's undecoded text;
+ *  - the edit covers only the target and heading, so the link text and the
+ *    title stay byte for byte. */
+const rewriteMarkdownDestination = (params: {
+  linkText: string
+  maskedLinkText: string
+  rewriteLink: RewriteLink
+}): LinkEdit | null => {
+  const { linkText, maskedLinkText, rewriteLink } = params
+  const parts = links.splitMarkdownLink(maskedLinkText)
 
   if (!parts) return null
+
   // The link resolves by its target as Obsidian stores it, not as written.
   const newTarget = rewriteLink({
     rawTarget: `${parts.path}${parts.extension}`,
@@ -327,9 +373,32 @@ const rewriteMarkdownLinkText = (linkText: string, rewriteLink: RewriteLink): st
   })
 
   if (newTarget === null) return null
-  // prefix runs from the "[" to the target and suffix from the heading's end
-  // to the ")", both verbatim, so only the path between them changes.
-  return `${parts.prefix}${links.encodeMarkdownDestination(newTarget, parts.destinationForm)}${parts.heading}${parts.suffix}`
+
+  const start = parts.prefix.length
+  const headingStart = start + parts.writtenTarget.length
+  const end = headingStart + parts.heading.length
+  const heading = linkText.slice(headingStart, end)
+  const sameForm = {
+    destination: `${links.encodeMarkdownDestination(newTarget, parts.destinationForm)}${heading}`,
+    suffix: parts.suffix,
+  }
+  const candidates: DestinationCandidate[] =
+    parts.destinationForm === "bare"
+      ? [
+          sameForm,
+          {
+            destination: `<${links.encodeMarkdownDestination(newTarget, "angle")}${heading}>`,
+            suffix: `>${parts.suffix}`,
+          },
+        ]
+      : [sameForm]
+  const written = candidates.find(({ destination, suffix }) => {
+    const candidateLink = `${linkText.slice(0, start)}${destination}${linkText.slice(end)}`
+    return readsBackAs(candidateLink, { target: newTarget, heading: parts.heading, suffix })
+  })
+
+  if (!written) return null
+  return { start, end, replacement: written.destination }
 }
 
 /** Rewrites link targets in a single body line, skipping links inside
@@ -343,13 +412,28 @@ const rewriteBodyLine = (
   // it. Offsets match the line, which supplies each link's text.
   const edits = links.matchLinksInLine(links.maskInlineCode(line)).flatMap((linkMatch) => {
     const linkText = line.slice(linkMatch.start, linkMatch.end)
-    const replacement =
-      linkMatch.kind === "wikilink"
-        ? rewriteWikilinkText(linkText, rewriteLink)
-        : rewriteMarkdownLinkText(linkText, rewriteLink)
 
-    if (replacement === null) return []
-    return [{ start: linkMatch.start, end: linkMatch.end, replacement }]
+    if (linkMatch.kind === "wikilink") {
+      const replacement = rewriteWikilinkText(linkText, rewriteLink)
+      return replacement === null
+        ? []
+        : [{ start: linkMatch.start, end: linkMatch.end, replacement }]
+    }
+
+    const destinationEdit = rewriteMarkdownDestination({
+      linkText,
+      maskedLinkText: linkMatch.text,
+      rewriteLink,
+    })
+
+    if (!destinationEdit) return []
+    return [
+      {
+        start: linkMatch.start + destinationEdit.start,
+        end: linkMatch.start + destinationEdit.end,
+        replacement: destinationEdit.replacement,
+      },
+    ]
   })
   return { line: applyLinkEdits(line, edits), linksRewritten: edits.length }
 }
@@ -392,9 +476,7 @@ const totalLinksRewritten = (rewrites: ReadonlyArray<FrontmatterRewrite>): numbe
 const rewriteFrontmatterValue = (value: unknown, rewriteLink: RewriteLink): FrontmatterRewrite => {
   if (typeof value === "string") {
     // Frontmatter has no code fences/spans, so every wikilink match is live.
-    // Markdown links are body-only, so non-wikilink matches are skipped.
-    const edits = links.matchLinksInLine(value).flatMap((linkMatch) => {
-      if (linkMatch.kind !== "wikilink") return []
+    const edits = links.matchWikilinks(value).flatMap((linkMatch) => {
       const replacement = rewriteWikilinkText(linkMatch.text, rewriteLink)
 
       if (replacement === null) return []

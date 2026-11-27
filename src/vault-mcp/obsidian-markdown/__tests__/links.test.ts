@@ -29,6 +29,15 @@ import { linkResolverOracle } from "./helpers/link-resolver-oracle.js"
 // ── matchLinksInLine ─────────────────────────────────────────────
 
 describe("matchLinksInLine", () => {
+  it("returns no wikilink inside a markdown link's title, and keeps one outside it", () => {
+    const line = '[[A]] [x](b.md "[[C]]")'
+
+    expect(links.matchLinksInLine(line)).toEqual([
+      { text: "[[A]]", start: 0, end: 5, kind: "wikilink" },
+      { text: '[x](b.md "[[C]]")', start: 6, end: 23, kind: "markdown" },
+    ])
+  })
+
   it.each([{ variant: "wiki" }, { variant: "markdown" }, { variant: "templater" }])(
     "bounds repeated failing $variant openers in an externally killed child",
     ({ variant }) => {
@@ -971,6 +980,32 @@ describe("extractFromBody against Obsidian 1.15.1", () => {
     { input: '[a](< [b](x.md "t") > "x', obsidian: ["x.md"], expected: ["x.md"] },
     { input: "[a](h:[a](h:a))", obsidian: [], expected: [] },
     { input: "[a](#[b](c.md))", obsidian: ["#[b](c.md)"], expected: [] },
+    // An escaped closer, a prose bracket, and the spellings a move writes.
+    { input: "[a\\](b.md)", obsidian: [], expected: [] },
+    {
+      input: "Type [ to open, `]` to close, or read [the guide](Old.md).",
+      obsidian: ["Old.md"],
+      expected: ["Old.md"],
+    },
+    { input: "[x](R&D&amp;#35;)", obsidian: ["R&D&#35;"], expected: ["R&D&"] },
+    { input: "[x](R&D&#35;)", obsidian: ["R&D#"], expected: ["R&D"] },
+    { input: "[x](<A(B.md#h)c>)", obsidian: ["A(B.md#h)c"], expected: ["A(B.md"] },
+    { input: "[x](A(B.md#h)c)", obsidian: ["A(B.md#h)c"], expected: ["A(B.md"] },
+    {
+      input: "![n](<New Plan.md#100%>)",
+      obsidian: ["New Plan.md#100%"],
+      expected: ["New Plan.md"],
+    },
+    {
+      input: "[x](./Old.md#Step%201:%20Setup)",
+      obsidian: ["./Old.md#Step 1: Setup"],
+      expected: ["./Old.md"],
+    },
+    {
+      input: "[x](a&notXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX.b;c.md)",
+      obsidian: ["a&notXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX.b;c.md"],
+      expected: ["a&notXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX.b;c.md"],
+    },
   ]
 
   it.each(obsidianCases)("extracts $expected from $input", ({ input, expected }) => {
@@ -993,13 +1028,32 @@ describe("extractFromBody against Obsidian 1.15.1", () => {
         }
       })
       expect(splits).toEqual(
-        markdownMatches.map(({ text }, index) => ({
-          rebuilt: text,
-          storedTarget: expected[index],
+        expected.map((storedTarget, index) => ({
+          rebuilt: markdownMatches[index]?.text,
+          storedTarget,
         })),
       )
     },
   )
+
+  // Obsidian reads a wikilink inside a markdown link's destination or title
+  // as part of that link, not as a link of its own.
+  const wikilinkInDestinationCases = [
+    { input: "[x](x.md#[[x]])", obsidian: ["x.md#[[x]]"], expected: ["x.md"] },
+    { input: '[x](b.md "see [[Old]]")', obsidian: ["b.md"], expected: ["b.md"] },
+    { input: "[x](b.md 'see [[Old]]')", obsidian: ["b.md"], expected: ["b.md"] },
+    { input: "[x](b.md (see [[Old]]))", obsidian: ["b.md"], expected: ["b.md"] },
+    { input: '![x](b.png "[[Old]]")', obsidian: ["b.png"], expected: ["b.png"] },
+    {
+      input: '[[Old]] and [x](b.md "[[Other]]")',
+      obsidian: ["Old", "b.md"],
+      expected: ["Old", "b.md"],
+    },
+  ]
+
+  it.each(wikilinkInDestinationCases)("extracts $expected from $input", ({ input, expected }) => {
+    expect(links.extractFromBody(input)).toEqual(expected)
+  })
 })
 
 // ── Markdown link memory ─────────────────────────────────────────

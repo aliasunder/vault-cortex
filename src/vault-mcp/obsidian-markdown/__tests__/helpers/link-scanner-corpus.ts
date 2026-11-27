@@ -70,9 +70,12 @@ export const referenceMarkdownLinks = (document: string): ReferenceLink[] => {
   return found
 }
 
+/** A character with a meaning in a regular expression. Global — use only with replace. */
+const REGEX_METACHARACTER = /[.*+?^${}()|[\]\\]/g
+
 /** A pair of `delimiter` with a markdown link opener between them. */
 const surroundingLink = (delimiter: string): RegExp => {
-  const escapedDelimiter = delimiter.replace(/[$*=~]/g, "\\$&")
+  const escapedDelimiter = delimiter.replace(REGEX_METACHARACTER, "\\$&")
   return new RegExp(`${escapedDelimiter}.*\\]\\(.*${escapedDelimiter}`)
 }
 
@@ -98,7 +101,6 @@ type ExcludedConstruct =
  *  the remark oracle disagrees with Obsidian 1.15.1. */
 const EXCLUDED_CONSTRUCTS: ReadonlyArray<ExcludedConstruct> = [
   { label: "a bracket inside the link text", pattern: /\[[^\]]*\[[^\]]*\]\(/ },
-  { label: "an escaped bracket inside the link text", pattern: /\[[^\]]*\\\]/ },
   { label: "a reference form before the `(`", pattern: /\]\[[^\]]*\]\(/ },
   { label: "an indented code line", pattern: /^(?:\t| {4})/ },
   { label: "an inline footnote opener before the `[`", pattern: /\^\[/ },

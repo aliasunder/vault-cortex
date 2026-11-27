@@ -914,6 +914,108 @@ describe("moveNote — selectivity (must-not-rewrite cases)", () => {
     expect(await readNote("Hub.md")).toBe("Open with `[[a` then [[Bar]] then close with `]]`.\n")
   })
 
+  it("rewrites a markdown link after a prose bracket whose closer sits in a code span", async () => {
+    const { writeFixture, moveNote, readNote } = setupVault()
+    await writeFixture("Old.md", "content\n")
+    await writeFixture("Hub.md", "Type [ to open, `]` to close, or read [the guide](Old.md).\n")
+
+    await moveNote({ oldPath: "Old.md", newPath: "New.md", backlinkSources: ["Hub.md"] })
+
+    expect(await readNote("Hub.md")).toBe(
+      "Type [ to open, `]` to close, or read [the guide](New.md).\n",
+    )
+  })
+
+  it("rewrites a markdown link's destination and leaves a wikilink in its title as text", async () => {
+    const { writeFixture, moveNote, readNote } = setupVault()
+    await writeFixture("Old.md", "content\n")
+    await writeFixture("Hub.md", 'See [x](<Old.md> "[[Old]]") here.\n')
+
+    const result = await moveNote({
+      oldPath: "Old.md",
+      newPath: "New.md",
+      backlinkSources: ["Hub.md"],
+    })
+
+    expect(await readNote("Hub.md")).toBe('See [x](<New.md> "[[Old]]") here.\n')
+    expect(result).toEqual({
+      moved_to: "New.md",
+      links_updated: 1,
+      updated_notes: ["Hub.md"],
+      pruned_empty_folders: 0,
+    })
+  })
+
+  it("keeps the ./ that lets a markdown link with a colon in its heading count", async () => {
+    const { writeFixture, moveNote, readNote } = setupVault()
+    await writeFixture("Old.md", "content\n")
+    await writeFixture("Hub.md", "See [x](./Old.md#Step%201:%20Setup).\n")
+
+    await moveNote({ oldPath: "Old.md", newPath: "New.md", backlinkSources: ["Hub.md"] })
+
+    expect(await readNote("Hub.md")).toBe("See [x](./New.md#Step%201:%20Setup).\n")
+  })
+
+  it("writes ./ when a markdown link that climbed with ../ now names its own folder", async () => {
+    const { writeFixture, moveNote, readNote } = setupVault()
+    await writeFixture("Old.md", "content\n")
+    await writeFixture("Sub/Hub.md", "See [x](../Old.md#a:b).\n")
+
+    await moveNote({ oldPath: "Old.md", newPath: "Sub/Old.md", backlinkSources: ["Sub/Hub.md"] })
+
+    expect(await readNote("Sub/Hub.md")).toBe("See [x](./Old.md#a:b).\n")
+  })
+
+  it("writes angle brackets when an embed's malformed escape would leave the new path undecoded", async () => {
+    const { writeFixture, moveNote, readNote } = setupVault()
+    await writeFixture("Old.md", "content\n")
+    await writeFixture("Hub.md", "Progress: ![n](Old.md#100%)\n")
+
+    await moveNote({ oldPath: "Old.md", newPath: "New Plan.md", backlinkSources: ["Hub.md"] })
+
+    expect(await readNote("Hub.md")).toBe("Progress: ![n](<New Plan.md#100%>)\n")
+  })
+
+  it("writes angle brackets when the old path's ( kept a heading's ) inside the link", async () => {
+    const { writeFixture, moveNote, readNote } = setupVault()
+    await writeFixture("A(B.md", "content\n")
+    await writeFixture("Hub.md", "See [x](A(B.md#h)c) here.\n")
+
+    await moveNote({ oldPath: "A(B.md", newPath: "New.md", backlinkSources: ["Hub.md"] })
+
+    expect(await readNote("Hub.md")).toBe("See [x](<New.md#h)c>) here.\n")
+  })
+
+  it("writes a final & as a reference so a numeric heading cannot complete it", async () => {
+    const { writeFixture, moveNote, readNote } = setupVault()
+    await writeFixture("Old.md", "content\n")
+    await writeFixture("Hub.md", "See [x](Old#35;) here.\n")
+
+    await moveNote({ oldPath: "Old.md", newPath: "R&D&.md", backlinkSources: ["Hub.md"] })
+
+    expect(await readNote("Hub.md")).toBe("See [x](R&%44&amp;#35;) here.\n")
+  })
+
+  it("leaves a markdown link unchanged when no spelling reads back as the new name", async () => {
+    const { writeFixture, moveNote, readNote } = setupVault()
+    await writeFixture("Old.md", "content\n")
+    await writeFixture("Hub.md", "See [x](Old.md) here.\n")
+
+    const result = await moveNote({
+      oldPath: "Old.md",
+      newPath: "a#b.md",
+      backlinkSources: ["Hub.md"],
+    })
+
+    expect(await readNote("Hub.md")).toBe("See [x](Old.md) here.\n")
+    expect(result).toEqual({
+      moved_to: "a#b.md",
+      links_updated: 0,
+      updated_notes: [],
+      pruned_empty_folders: 0,
+    })
+  })
+
   it("rewrites only the moved note's escaped pipe link, leaving other escaped pipe links intact", async () => {
     const { writeFixture, moveNote, readNote } = setupVault()
     await writeFixture("Foo.md", "content\n")
