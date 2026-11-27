@@ -43,6 +43,10 @@ updates:
       # last 8.x release; a bump is a parity re-verification (see "Upgrading
       # remark-parse" in CONTRIBUTING.md), not routine dependency churn.
       - dependency-name: remark-parse
+      # parse-entities is pinned to 2.0.0, the version remark-parse 8.0.3
+      # resolves, so markdown link targets decode character references as
+      # Obsidian does. Bump it only together with remark-parse.
+      - dependency-name: parse-entities
 
   # obsidian-headless is installed from its own lockfile into the Docker
   # remote target — not in the root package.json. Dependabot needs a

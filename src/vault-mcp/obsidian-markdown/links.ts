@@ -1,13 +1,16 @@
 /** The Obsidian/Markdown link domain: recognizing links in text, parsing them
- *  into parts, extracting their targets from a note, and resolving a target to a
- *  vault path. Both the indexer (search/search-index.ts) and the link rewriter
+ *  into parts, extracting their targets from a note, resolving a target to a
+ *  vault path, and writing a path as a markdown link destination. Both the indexer (search/search-index.ts) and the link rewriter
  *  (vault-operations/note-mover.ts) depend on this module as a peer, so the two
- *  can never disagree about what a link is or where it points.
+ *  read links with one grammar and resolve them by one set of rules.
  *
  *  Recognition stays private so callers share the grammar and receive
  *  position-safe matches through the methods on `links`. */
 
+import { Buffer } from "node:buffer"
 import { posix } from "node:path"
+import parseEntities from "parse-entities"
+import { createTextJoiner, replaceAllInBatches } from "./batched-text.js"
 import { classifyLines } from "./lines.js"
 
 // ── Grammar (private) ───────────────────────────────────────────
@@ -15,50 +18,85 @@ import { classifyLines } from "./lines.js"
 /** JavaScript whitespace also includes non-ASCII spaces and line terminators. */
 const WHITESPACE = /\s/
 
-/** A URI scheme begins with an ASCII letter. */
-const SCHEME_START = /[a-zA-Z]/
+/** One of CommonMark's ASCII punctuation characters
+ *  (https://spec.commonmark.org/0.31.2/#ascii-punctuation-character). */
+const ASCII_PUNCTUATION = /[!-/:-@[-`{-~]/
 
-/** RFC 3986 permits these characters after a URI scheme's first letter. */
-const SCHEME_CHARACTER = /[a-zA-Z0-9+.-]/
+/** A backslash before ASCII punctuation, which Obsidian drops from a stored
+ *  markdown link. Global — use only through replaceAllInBatches, which copies it. */
+const ESCAPED_PUNCTUATION = new RegExp(String.raw`\\(${ASCII_PUNCTUATION.source})`, "g")
+
+/** An ASCII letter or digit, the characters parse-entities reads as part of a
+ *  character reference's name. */
+const REFERENCE_NAME_CHARACTER = /[0-9A-Za-z]/
+
+/** The longest named character reference, `CounterClockwiseContourIntegral`,
+ *  has 31 characters. */
+const LONGEST_REFERENCE_NAME = 31
+
+/** Obsidian reads links with a fork of remark-parse 8, which decodes a link
+ *  destination's character references through parse-entities with these
+ *  options: a reference counts only when a `;` ends it. */
+const REFERENCE_OPTIONS = { nonTerminated: false }
+
+/** Matches the numeric reference a text opens with: `&#`, then an `x` and hex
+ *  digits or decimal digits, then an optional `;`. */
+const NUMERIC_REFERENCE =
+  /^&#(?:(?<hexMarker>[xX])(?<hexDigits>[0-9A-Fa-f]*)|(?<decimalDigits>[0-9]*))(?<semicolon>;?)/
+
+/** Matches the zeros a digit run opens with, short of its last digit. */
+const LEADING_ZEROS = /^0+(?=.)/
+
+/** The most digits a code point takes past its leading zeros: U+10FFFF is
+ *  1,114,111, seven decimal digits or six hex digits. */
+const CODE_POINT_DIGITS = { decimal: 7, hex: 6 }
+
+/** parse-entities decodes a numeric reference past U+10FFFF as U+FFFD. */
+const REPLACEMENT_CHARACTER = String.fromCodePoint(0xfffd)
+
+const NO_BREAK_SPACE = "\u00a0"
+
+/** Every no-break space. Global — use only through replaceAllInBatches, which copies it. */
+const NO_BREAK_SPACES = new RegExp(NO_BREAK_SPACE, "g")
+
+/** Keeps the character an ESCAPED_PUNCTUATION match escapes. */
+const keepEscapedCharacter = (match: RegExpExecArray): string => match[0].slice("\\".length)
+
+/** Drops each backslash before ASCII punctuation, as a stored markdown link does. */
+const dropEscapeBackslashes = (text: string): string => {
+  return replaceAllInBatches({
+    text,
+    pattern: ESCAPED_PUNCTUATION,
+    replacement: keepEscapedCharacter,
+  })
+}
+
+/** Turns each no-break space into a space, as a stored markdown link does. */
+const replaceNoBreakSpaces = (text: string): string => {
+  return replaceAllInBatches({ text, pattern: NO_BREAK_SPACES, replacement: () => " " })
+}
+
+/** A link that starts in the linking note's folder (`./`) or its parent
+ *  (`../`), which Obsidian keeps as a vault link even when it holds a `:`. */
+const RELATIVE_LINK_START = /^\.\.?\//
 
 /** JavaScript's line terminators: LF, CR, the line separator (U+2028) and
  *  the paragraph separator (U+2029). */
 const LINE_TERMINATOR = /[\n\r\u2028\u2029]/
 
 /** Matches inline code spans so links inside backticks (e.g. `[[Note]]`) can be
- *  ignored. Global — use only with matchAll/replaceAll. */
+ *  ignored. Global — use only through replaceAllInBatches, which copies it. */
 const INLINE_CODE_RE = /`+[^`\n]*`+/g
-
-/** Splits a matched wikilink into capture groups 1–4: embed `!`, target,
- *  `#heading`, `|alias`. Anchored and non-global — safe for .exec().
- *  scanWikilinks finds the links this parses, so the two must accept the same
- *  grammar. */
-const WIKILINK_PARTS = /^(!?)\[\[([^\]#|]+)(#[^\]|]*)?(\|[^\]]+)?\]\]$/
-
-/** Splits a matched markdown link into capture groups 1–5: `[text](`,
- *  path-without-ext, extension-with-dot, `#heading`, `)`. Any extension is captured
- *  ([text](Note.md), ![alt](image.png), [doc](file.pdf)); an extensionless
- *  target ([text](Extensionless%20Note)) parses with extension "". The
- *  extension group excludes "/" so a dot in a folder name is never misread
- *  as the extension. Anchored and non-global — safe for .exec().
- *  scanMarkdownLinks finds the links this parses: the two must agree on the
- *  target and `#heading` grammar. The scanner alone skips URLs; neither
- *  accepts a heading-only target (`[a](#Heading)`). */
-const MD_LINK_PARTS = /^(\[[^\]]*\]\()([^)#\s]+?)(\.[^/.#\s]+)?(#[^)\s]*)?(\))$/
-
-/** Safely decodes a URI component, falling back to the raw string if the
- *  percent-encoding is malformed (e.g. "100%complete"). */
-const safeDecodeURIComponent = (encoded: string): string => {
-  try {
-    return decodeURIComponent(encoded)
-  } catch {
-    return encoded
-  }
-}
 
 /** Treats a trailing backslash as Obsidian's table-pipe escape (`[[path\|alias]]`), even
  *  outside a table, because Obsidian does not allow a backslash in a file name. */
 const stripEscapedPipe = (target: string): string => target.replace(/\\$/, "")
+
+/** Trims a wikilink's target and drops a table-pipe escape, then trims the
+ *  space before that escape too, as Obsidian stores `[[Note \|Alias]]` as `Note`. */
+const readStoredWikilinkTarget = (rawTarget: string): string => {
+  return stripEscapedPipe(rawTarget.trim()).trimEnd()
+}
 
 // ── Types ───────────────────────────────────────────────────────
 
@@ -71,15 +109,32 @@ type LinkMatch = {
   kind: "wikilink" | "markdown"
 }
 
-/** The half-open character range [start, end) of an inline code span in a line. */
-type CodeSpan = { start: number; end: number }
-
 /** A link a scanner found: [start, end) covers the whole link, and
  *  [targetStart, targetEnd) its target alone, without any `#heading` or `|alias`. */
 type LinkSpan = { start: number; end: number; targetStart: number; targetEnd: number }
 
+/** How a markdown link writes its destination: in angle brackets
+ *  (`[x](<My Note.md>)`) or bare (`[x](My%20Note.md)`). */
+type DestinationForm = "angle" | "bare"
+
+/** Whether a markdown link is an embed (`![alt](photo.png)`) or a plain link. */
+type MarkdownLinkKind = "embed" | "link"
+
+/** A markdown link a scanner found:
+ *  - [start, end) starts at an embed's `!`, as a wikilink embed's span does;
+ *  - [targetEnd, headingEnd) holds the raw `#heading`, empty without one;
+ *  - storedTarget is the target as Obsidian stores it, decoded and without
+ *    the heading. */
+type MarkdownLinkSpan = LinkSpan & {
+  destinationForm: DestinationForm
+  headingEnd: number
+  storedTarget: string
+}
+
 /** The structural parts of a wikilink ![[target#heading|alias]]. heading/alias
- *  keep their leading `#` / `|` (or `\|` for table-escaped pipes) so
+ *  keep their leading `#` / `|`, and whichever follows the target also starts
+ *  with a backslash the target ended in, with the whitespace after it
+ *  (`[[a\ |b]]` gives alias `\ |b`, `[[a\#h]]` heading `\#h`), so
  *  reconstruction is plain concatenation; target is not trimmed (the caller
  *  trims). */
 type WikilinkParts = {
@@ -89,17 +144,21 @@ type WikilinkParts = {
   alias: string
 }
 
-/** The structural parts of a markdown link [text](path.ext#heading). path and
- *  extension are both DECODED — path is the target without its extension;
- *  extension keeps its leading dot ("" for an extensionless target);
- *  prefix/closeParen/heading are verbatim literals for lossless
- *  reconstruction. */
+/** The parts of a markdown link `[text](<path.ext#heading> "title")`.
+ *  prefix + writtenTarget + heading + suffix is the link's text:
+ *  - prefix: everything before the target (`[text](`, spaces, `<`);
+ *  - writtenTarget: the target as written;
+ *  - storedTarget: the target as Obsidian stores it, decoded;
+ *  - heading: the raw `#heading`, "" without one;
+ *  - suffix: everything after (spaces, `>`, the title, `)`);
+ *  - destinationForm: how the destination is written. */
 type MarkdownLinkParts = {
   prefix: string
-  path: string
-  extension: string
+  writtenTarget: string
+  storedTarget: string
   heading: string
-  closeParen: string
+  suffix: string
+  destinationForm: DestinationForm
 }
 
 // ── Line scanning ───────────────────────────────────────────────
@@ -146,64 +205,808 @@ const scanWikilinks = (text: string, visit: (span: LinkSpan) => void): void => {
   }
 }
 
-/** Calls `visit` for each markdown link `[text](target#heading)` in `text`,
- *  left to right and never overlapping. The heading may be empty, and
- *  whitespace ends the attempt. Skipped targets:
- *  - a heading alone (`[a](#Heading)`), which points into the same note;
- *  - one that opens with a URI scheme (`https:`, `mailto:`), an external link. */
-// eslint-disable-next-line complexity -- this function is over the limit; split it before adding a branch
-const scanMarkdownLinks = (text: string, visit: (span: LinkSpan) => void): void => {
-  // Each cursor outlives a failed opener and only moves forward, which keeps
-  // the scan linear on a line where many `[` never close:
-  // - a later opener reaches the same `]` or a later one, so its target never
-  //   starts further left;
-  // - a scheme run holds no `]`, so after the same `]` the earlier run is the
-  //   one to reuse, and after a later `]` it ended before the new target.
-  let textEnd = 0
-  let targetEnd = 0
-  let fragmentEnd = 0
-  let schemeEnd = 0
+// ── Markdown link destinations ──────────────────────────────────
 
-  for (let start = 0; start < text.length; start++) {
-    if (text[start] !== "[") continue
-    textEnd = Math.max(textEnd, start + 1)
-    while (textEnd < text.length && text[textEnd] !== "]") textEnd++
-    if (text[textEnd + 1] !== "(") continue
-    const targetStart = textEnd + 2
+/** Decodes the numeric reference a piece opens with and keeps the rest of the
+ *  piece as written. parse-entities decodes one only when a `;` ends a
+ *  nonempty digit run, and it reads the run whole, so:
+ *  - a run reaches it without its leading zeros, which do not change the
+ *    code point (`&#0000065;` is `A`);
+ *  - a run with more significant digits than CODE_POINT_DIGITS allows
+ *    decodes to REPLACEMENT_CHARACTER without reaching it. */
+const decodeNumericReference = (piece: string): string => {
+  const reference = NUMERIC_REFERENCE.exec(piece)
 
-    if (text[targetStart] === "#") continue
-    // A URI scheme is a letter, then letters, digits, `+`, `.` or `-`, then `:` (RFC 3986).
-    if (SCHEME_START.test(text.charAt(targetStart))) {
-      schemeEnd = Math.max(schemeEnd, targetStart + 1)
-      while (schemeEnd < text.length && SCHEME_CHARACTER.test(text.charAt(schemeEnd))) schemeEnd++
-      if (text[schemeEnd] === ":") continue
-    }
-    targetEnd = Math.max(targetEnd, targetStart)
-    while (
-      targetEnd < text.length &&
-      text[targetEnd] !== ")" &&
-      text[targetEnd] !== "#" &&
-      !WHITESPACE.test(text.charAt(targetEnd))
-    ) {
-      targetEnd++
-    }
-    if (targetEnd === targetStart) continue
-    let end = targetEnd
+  // The pattern matches every text that opens with `&#`, as each piece here does.
+  if (!reference?.groups) throw new Error("decodeNumericReference takes a piece that opens with &#")
+  const { hexMarker = "", hexDigits, decimalDigits, semicolon } = reference.groups
+  const digits = hexDigits ?? decimalDigits
 
-    if (text[end] === "#") {
-      fragmentEnd = Math.max(fragmentEnd, end + 1)
-      while (
-        fragmentEnd < text.length &&
-        text[fragmentEnd] !== ")" &&
-        !WHITESPACE.test(text.charAt(fragmentEnd))
-      ) {
-        fragmentEnd++
+  if (!digits || !semicolon) return piece
+  const significantDigits = digits.replace(LEADING_ZEROS, "")
+  const maxSignificantDigits = hexMarker ? CODE_POINT_DIGITS.hex : CODE_POINT_DIGITS.decimal
+  const rest = piece.slice(reference[0].length)
+
+  if (significantDigits.length > maxSignificantDigits) return `${REPLACEMENT_CHARACTER}${rest}`
+  return `${parseEntities(`&#${hexMarker}${significantDigits};`, REFERENCE_OPTIONS)}${rest}`
+}
+
+/** Decodes the character references in one piece of text that holds no `&`
+ *  after its first character.
+ *  - Only the reference the piece opens with reaches parse-entities, which
+ *    copies the text after a reference one character at a time; the rest of
+ *    the piece is appended as written.
+ *  - Legacy names are the HTML references that may omit their `;`, such as
+ *    `&not`. In a longer name that a `;` ends, parse-entities decodes the
+ *    longest legacy name it starts with: `&notit;` becomes `¬it;`.
+ *  - parse-entities checks every prefix of a name for a legacy one, which
+ *    costs quadratic time on a long run of letters. A name longer than any
+ *    reference can only decode through a legacy prefix, so its head alone
+ *    decides the output. */
+const decodeReferencePiece = (piece: string): string => {
+  if (!piece.startsWith("&")) return piece
+  if (piece[1] === "#") return decodeNumericReference(piece)
+
+  // The name's length is counted with a forward walk, so a long run is read once.
+  let nameEnd = 1
+  while (nameEnd < piece.length && REFERENCE_NAME_CHARACTER.test(piece.charAt(nameEnd))) nameEnd++
+  const nameLength = nameEnd - 1
+
+  // With REFERENCE_OPTIONS, a name no `;` ends decodes to itself.
+  if (piece[nameEnd] !== ";") return piece
+  if (nameLength <= LONGEST_REFERENCE_NAME) {
+    const referenceEnd = nameEnd + ";".length
+    return `${parseEntities(piece.slice(0, referenceEnd), REFERENCE_OPTIONS)}${piece.slice(referenceEnd)}`
+  }
+
+  // The head keeps `&` and one name character more than the longest name, so
+  // the appended `;` cannot complete a whole name. Only a legacy prefix
+  // decodes, as in the whole piece, and the `;` survives for the slice to drop.
+  const headEnd = LONGEST_REFERENCE_NAME + 2
+  const decodedHead = parseEntities(`${piece.slice(0, headEnd)};`, REFERENCE_OPTIONS)
+  return `${decodedHead.slice(0, -";".length)}${piece.slice(headEnd)}`
+}
+
+/** The offset in `piece` of the source of the first `#` in `decodedPiece`, or
+ *  -1 without one. A piece that opens with `&` decodes its reference first and
+ *  keeps the rest as written, so a `#` at the start came from the reference
+ *  (`&num;`) and any later `#` keeps its distance from the piece's end. */
+const findHashSource = (params: { piece: string; decodedPiece: string }): number => {
+  const { piece, decodedPiece } = params
+  const hashIndex = decodedPiece.indexOf("#")
+
+  if (hashIndex === -1) return -1
+  if (hashIndex === 0) return 0
+
+  const hashDistanceFromEnd = decodedPiece.length - hashIndex
+  return piece.length - hashDistanceFromEnd
+}
+
+/** Decodes character references as Obsidian does in a link destination, and
+ *  finds where the first `#` of the output came from.
+ *  - A reference never holds an `&` after its first character, so the text
+ *    decodes piece by piece, each piece after the first starting at an `&`.
+ *    One parse-entities call over the whole text would repeat its last
+ *    reference for a later `&` that decodes to nothing (`&lt;&gt.md` as
+ *    `<<.md`), which Obsidian does not.
+ *  - hashSource is the offset in `text` of that `#`, or of the reference that
+ *    produced it, or -1 without one. */
+const decodeCharacterReferences = (text: string): { decoded: string; hashSource: number } => {
+  if (!text.includes("&")) return { decoded: text, hashSource: text.indexOf("#") }
+
+  // A text dense with `&` has one piece per character.
+  const joiner = createTextJoiner()
+  // The walk threads each piece's offset, and keeps the first `#` it finds.
+  let pieceStart = 0
+  let hashSource = -1
+
+  while (pieceStart < text.length) {
+    const nextAmpersand = text.indexOf("&", pieceStart + 1)
+    const pieceEnd = nextAmpersand === -1 ? text.length : nextAmpersand
+    const piece = text.slice(pieceStart, pieceEnd)
+    const decodedPiece = decodeReferencePiece(piece)
+    const hashInPiece = hashSource === -1 ? findHashSource({ piece, decodedPiece }) : -1
+
+    if (hashInPiece !== -1) hashSource = pieceStart + hashInPiece
+    joiner.push(decodedPiece)
+    pieceStart = pieceEnd
+  }
+  return { decoded: joiner.join(), hashSource }
+}
+
+const isEscapePairAt = (text: string, position: number): boolean => {
+  return text[position] === "\\" && ASCII_PUNCTUATION.test(text.charAt(position + 1))
+}
+
+/** Maps `unescapedOffset`, an offset in `content` with its escape backslashes
+ *  dropped, back to an offset in `content`. An escaped character maps to its
+ *  backslash. */
+const findRawOffset = (content: string, unescapedOffset: number): number => {
+  // Each step reads one character of the unescaped text: an escape pair or a
+  // single character.
+  let rawOffset = 0
+
+  for (let unescapedIndex = 0; unescapedIndex < unescapedOffset; unescapedIndex++) {
+    rawOffset += isEscapePairAt(content, rawOffset) ? 2 : 1
+  }
+  return rawOffset
+}
+
+const decodeUriOrNull = (encoded: string): string | null => {
+  try {
+    return decodeURI(encoded)
+  } catch {
+    // The text holds a malformed escape; each caller decides what that means.
+    return null
+  }
+}
+
+/** A destination's target as Obsidian stores it. rawHeadingOffset is where the
+ *  raw `#heading` starts in the destination's content, or null without one. */
+type StoredTarget = { target: string; rawHeadingOffset: number | null }
+
+/** Reads a markdown link destination's content the way Obsidian stores the
+ *  link, or returns null for a destination that names no other note or file:
+ *  1. drop each backslash before ASCII punctuation;
+ *  2. decode character references (`&amp;`, `&#35;`);
+ *  3. percent-decode like `decodeURI`, which keeps reserved escapes such as
+ *     `%26` and `%23`. A malformed escape drops a plain link, while an embed
+ *     keeps its text undecoded (`![i](100%.png)` stores `100%.png`);
+ *  4. replace each no-break space with a space, and trim;
+ *  5. drop a link holding a `:`, which Obsidian reads as a URL, unless step
+ *     2's output starts with `./` or `../`;
+ *  6. split at the first `#`, and drop a link with no target before it (a
+ *     heading in the same note). */
+const readStoredTarget = (params: {
+  content: string
+  linkKind: MarkdownLinkKind
+}): StoredTarget | null => {
+  const { content, linkKind } = params
+  const unescaped = dropEscapeBackslashes(content)
+  const { decoded, hashSource } = decodeCharacterReferences(unescaped)
+  const decodedLink = decodeUriOrNull(decoded) ?? (linkKind === "embed" ? decoded : null)
+
+  if (decodedLink === null) return null
+
+  const storedLink = replaceNoBreakSpaces(decodedLink).trim()
+  // Obsidian checks how the link starts before percent-decoding and trimming, so
+  // `%2E%2E/a:b.md` and `< ../a:b.md>` are still URLs.
+  const readsAsUrl = storedLink.includes(":") && !RELATIVE_LINK_START.test(decoded)
+
+  if (readsAsUrl) return null
+
+  const hashIndex = storedLink.indexOf("#")
+  const linkpath = hashIndex === -1 ? storedLink : storedLink.slice(0, hashIndex)
+  // A space before the `#` (`<a.md #h>`) stays out of the target.
+  const target = linkpath.trim()
+
+  if (!target) return null
+
+  // The stored link's first `#` is the first one references produced:
+  // percent-decoding keeps `%23` encoded, and trimming removes only whitespace.
+  const rawHeadingOffset = hashSource === -1 ? null : findRawOffset(content, hashSource)
+  return { target, rawHeadingOffset }
+}
+
+/** A run of percent escapes. Global — use only through replaceAllInBatches, which copies it. */
+const PERCENT_ESCAPE_RUN = /(?:%[0-9A-Fa-f]{2})+/g
+
+/** A character a link's destination decodes: an escape backslash, a percent
+ *  escape's `%`, a character reference's `&`, or a no-break space. */
+const LINK_DECODED_CHARACTER = /[\\%&\u00a0]/
+
+/** Decodes a whole file's text the way a stored markdown link decodes its
+ *  destination, so a substring search for a target finds the links that
+ *  store it:
+ *  - escape backslashes are dropped and character references decoded;
+ *  - each run of percent escapes is decoded like decodeURI, and a malformed
+ *    run stays as written, so one bad escape leaves the file's other links
+ *    decoded;
+ *  - no-break spaces become spaces.
+ *  It neither trims nor drops URLs, because it reads many links at once, and
+ *  it returns text with none of those characters unchanged. */
+const decodeLinkSpellings = (text: string): string => {
+  // Most files hold none of the characters a link decodes, so they skip the
+  // passes below.
+  if (!LINK_DECODED_CHARACTER.test(text)) return text
+
+  const unescaped = dropEscapeBackslashes(text)
+  const { decoded } = decodeCharacterReferences(unescaped)
+  const percentDecoded = replaceAllInBatches({
+    text: decoded,
+    pattern: PERCENT_ESCAPE_RUN,
+    replacement: ([run]) => decodeUriOrNull(run) ?? run,
+  })
+  return replaceNoBreakSpaces(percentDecoded)
+}
+
+/** Characters a backslash keeps literal in both destination forms:
+ *  - a raw `*` or `$` pairs with one earlier on the line, and Obsidian then
+ *    reads emphasis or math that hides the link (`*a [x](b*c.md)` holds no
+ *    link);
+ *  - a raw `[` or `]` could end the link's text. */
+const BACKSLASH_ESCAPED_CHARACTERS: ReadonlySet<string> = new Set(["*", "$", "[", "]"])
+
+/** Characters that open emphasis, strikethrough or a highlight only in a run
+ *  or at a word's edge, so a single one between two other characters stays
+ *  raw (`meeting_notes.md`). */
+const RUN_DELIMITER_CHARACTERS: ReadonlySet<string> = new Set(["_", "~", "="])
+
+/** A character a destination writes percent-encoded in both forms:
+ *  - `%`, because Obsidian percent-decodes the link;
+ *  - `#`, which would start a heading;
+ *  - `` ` ``, because a backslash before one still opens a code span;
+ *  - `"`, `\`, `^`, `{`, `|`, `}`, which encodeURI escapes too. */
+const PERCENT_ENCODED_CHARACTERS: ReadonlySet<string> = new Set([
+  "%",
+  "#",
+  "`",
+  '"',
+  "\\",
+  "^",
+  "{",
+  "|",
+  "}",
+])
+
+const ASCII_LETTER = /[A-Za-z]/
+
+const ASCII_LETTER_OR_DIGIT = /[A-Za-z0-9]/
+
+/** C0 controls (below U+0020) and DEL (U+007F). */
+const isControlCharacter = (character: string): boolean => {
+  const codeUnit = character.charCodeAt(0)
+  return codeUnit < 0x20 || codeUnit === 0x7f
+}
+
+const percentEncode = (character: string): string => {
+  return [...Buffer.from(character, "utf8")]
+    .map((byte) => `%${byte.toString(16).toUpperCase().padStart(2, "0")}`)
+    .join("")
+}
+
+/** Whether every prefix of `path` closes no more parentheses than it opens,
+ *  and the whole path closes them all, so raw parentheses cannot end a bare
+ *  destination early. */
+const hasBalancedParentheses = (path: string): boolean => {
+  // The walk threads the open-parenthesis depth.
+  let depth = 0
+
+  for (const character of path) {
+    if (character === "(") depth++
+    if (character === ")") depth--
+    if (depth < 0) return false
+  }
+  return depth === 0
+}
+
+/** One character of a new path with its neighbours, which are undefined at
+ *  the path's edges. */
+type PathCharacter = {
+  character: string
+  previous: string | undefined
+  next: string | undefined
+}
+
+const toPathCharacters = (path: string): PathCharacter[] => {
+  const characters = [...path]
+
+  return characters.map((character, index) => {
+    return { character, previous: characters[index - 1], next: characters[index + 1] }
+  })
+}
+
+/** Whether a `_`, `~` or equals sign stands alone between two characters
+ *  that are not whitespace. */
+const isSingleBetweenNonWhitespace = ({ character, previous, next }: PathCharacter): boolean => {
+  if (!previous || !next) return false
+  return (
+    previous !== character &&
+    next !== character &&
+    !WHITESPACE.test(previous) &&
+    !WHITESPACE.test(next)
+  )
+}
+
+/** How one character of a new path is written in a destination, by the
+ *  rules both forms share, or null when the form decides. */
+const encodeSharedCharacter = (pathCharacter: PathCharacter): string | null => {
+  const { character, previous, next } = pathCharacter
+
+  if (PERCENT_ENCODED_CHARACTERS.has(character)) return percentEncode(character)
+  if (BACKSLASH_ESCAPED_CHARACTERS.has(character)) return `\\${character}`
+  // A `_` before anything but an ASCII letter or digit closes emphasis that
+  // an earlier `_` on the line opens, and Obsidian then reads no link
+  // (`snake_case [x](a_(b).md)`). The run rule below escapes a `_` that ends
+  // the path.
+  if (character === "_" && next && !ASCII_LETTER_OR_DIGIT.test(next)) return "\\_"
+  // A heading written after the path can complete a reference that a final
+  // `&` opens (`R&D&` before `#35;`), so that `&` is written as a reference.
+  if (character === "&" && !next) return "&amp;"
+  if (RUN_DELIMITER_CHARACTERS.has(character)) {
+    return isSingleBetweenNonWhitespace(pathCharacter) ? character : `\\${character}`
+  }
+  // A letter after `&` could start a character reference (`&amp;`), and a
+  // backslash does not stop Obsidian decoding one, so the letter is encoded.
+  if (ASCII_LETTER.test(character) && previous === "&") return percentEncode(character)
+  return null
+}
+
+/** Writes a new path as a bare destination that Obsidian stores as that
+ *  path: what encodeURI escapes is percent-encoded, `<` and `>` are
+ *  backslash-escaped, and parentheses stay raw when they balance. */
+const encodeBareDestination = (path: string): string => {
+  const keepsParentheses = hasBalancedParentheses(path)
+
+  return toPathCharacters(path)
+    .map((pathCharacter) => {
+      const { character } = pathCharacter
+      const sharedEncoding = encodeSharedCharacter(pathCharacter)
+
+      if (sharedEncoding !== null) return sharedEncoding
+      if (character === "<" || character === ">") return `\\${character}`
+      if (character === "(" || character === ")") {
+        return keepsParentheses ? character : percentEncode(character)
       }
-      end = fragmentEnd
+      return encodeURI(character)
+    })
+    .join("")
+}
+
+/** Writes a new path as an angle destination that Obsidian stores as that
+ *  path: spaces, parentheses and non-ASCII characters stay raw, control
+ *  characters are percent-encoded, and so are `<` and `>`, since the first
+ *  `>` closes the brackets. */
+const encodeAngleDestination = (path: string): string => {
+  return toPathCharacters(path)
+    .map((pathCharacter) => {
+      const { character } = pathCharacter
+      const sharedEncoding = encodeSharedCharacter(pathCharacter)
+
+      if (sharedEncoding !== null) return sharedEncoding
+      if (character === "<" || character === ">" || isControlCharacter(character)) {
+        return percentEncode(character)
+      }
+      return character
+    })
+    .join("")
+}
+
+/** Writes a new path in a markdown link's destination form, in a spelling
+ *  that Obsidian stores as the path and extractFromBody reads back as the
+ *  path. Three kinds of path have no such spelling, so a link written to one
+ *  does not reach it:
+ *  - one holding `#` or `:`, which Obsidian forbids in file names;
+ *  - one with whitespace at its edges, which Obsidian trims;
+ *  - one holding a no-break space, which Obsidian reads as a space. */
+const encodeMarkdownDestination = (path: string, form: DestinationForm): string => {
+  switch (form) {
+    case "bare":
+      return encodeBareDestination(path)
+    case "angle":
+      return encodeAngleDestination(path)
+  }
+}
+
+/** The first position at or after `from` whose character `accepts` takes
+ *  with an even run of backslashes before it, or text.length. The character
+ *  before `from` must not be a backslash. */
+const findUnescaped = (params: {
+  text: string
+  from: number
+  accepts: (character: string) => boolean
+}): number => {
+  const { text, from, accepts } = params
+  // The backslash run before each character decides whether it is escaped.
+  let backslashRun = 0
+
+  for (let position = from; position < text.length; position++) {
+    const character = text.charAt(position)
+
+    if (backslashRun % 2 === 0 && accepts(character)) return position
+    backslashRun = character === "\\" ? backslashRun + 1 : 0
+  }
+  return text.length
+}
+
+/** Each unescaped parenthesis of a line, in order. matches holds the record
+ *  index of each `(`'s matching `)`, or -1 for a `)` and for a `(` without
+ *  one. The two arrays take 8 bytes per parenthesis and nothing per other
+ *  character. */
+type ParenRecords = { positions: Int32Array; matches: Int32Array }
+
+/** Calls `visit` with each unescaped parenthesis's position. It walks the
+ *  line itself rather than calling findUnescaped once per parenthesis, so a
+ *  parenthesis-dense line allocates nothing per parenthesis. */
+const forEachUnescapedParenthesis = (text: string, visit: (position: number) => void): void => {
+  // Whether a character is escaped depends on the backslash run before it,
+  // so the walk threads that run's length.
+  let backslashRun = 0
+
+  for (let position = 0; position < text.length; position++) {
+    const character = text[position]
+    const isUnescapedParenthesis =
+      (character === "(" || character === ")") && backslashRun % 2 === 0
+
+    if (isUnescapedParenthesis) visit(position)
+    backslashRun = character === "\\" ? backslashRun + 1 : 0
+  }
+}
+
+/** Every caller passes an index in range, so the -1 fallback only narrows
+ *  the typed array's element type. */
+const readRecord = (records: Int32Array, recordIndex: number): number => {
+  return records[recordIndex] ?? -1
+}
+
+const buildParenRecords = (text: string): ParenRecords => {
+  // A first pass counts the parentheses, so the arrays are sized to them.
+  let parenthesisCount = 0
+  forEachUnescapedParenthesis(text, () => {
+    parenthesisCount++
+  })
+
+  const positions = new Int32Array(parenthesisCount)
+  const matches = new Int32Array(parenthesisCount)
+  // While a `(` is open, its slot in matches holds the record of the open `(`
+  // below it, so the stack of open parentheses needs no array of its own.
+  let openRecord = -1
+  let recordIndex = 0
+
+  forEachUnescapedParenthesis(text, (position) => {
+    positions[recordIndex] = position
+    matches[recordIndex] = -1
+
+    if (text[position] === "(") {
+      matches[recordIndex] = openRecord
+      openRecord = recordIndex
+    } else if (openRecord !== -1) {
+      const recordBelow = readRecord(matches, openRecord)
+      matches[openRecord] = recordIndex
+      openRecord = recordBelow
     }
-    if (text[end] !== ")") continue
-    visit({ start, end: end + 1, targetStart, targetEnd })
-    start = end
+    recordIndex++
+  })
+
+  // A `(` still open at the line's end has no match, but its slot holds the
+  // record below it, which would read as a match. Each such slot is reset.
+  while (openRecord !== -1) {
+    const recordBelow = readRecord(matches, openRecord)
+    matches[openRecord] = -1
+    openRecord = recordBelow
+  }
+  return { positions, matches }
+}
+
+const findNonWhitespace = (text: string, from: number): number => {
+  // A caller that can revisit a run wraps this walk in a forward cursor.
+  let position = from
+
+  while (position < text.length && WHITESPACE.test(text.charAt(position))) position++
+  return position
+}
+
+/** Wraps a search for the first match at or after a position as a cursor:
+ *  while a search starts at or before the last match, that match is still
+ *  the first one, so the cursor returns it without scanning. The caller's
+ *  search starts must never move backward, which keeps each stretch of the
+ *  line scanned at most once. */
+const createForwardCursor = (search: (from: number) => number): ((from: number) => number) => {
+  // The last match found, reused while later searches start at or before it.
+  let lastMatch = -1
+
+  return (from) => {
+    if (lastMatch < from) lastMatch = search(from)
+    return lastMatch
+  }
+}
+
+/** The characters that close a link title opened by `"`, `'` or `(`. */
+type TitleCloser = '"' | "'" | ")"
+
+const TITLE_CLOSERS: ReadonlyMap<string, TitleCloser> = new Map([
+  ['"', '"'],
+  ["'", "'"],
+  ["(", ")"],
+])
+
+/** One destination form's cursors after the destination:
+ *  - the end of the whitespace run that follows it;
+ *  - per title closer, the closer and the end of the whitespace run after it.
+ *    Each closer kind keeps its own cursors, because a later title closed by
+ *    `'` can end before an earlier one closed by `"`. */
+type FormCursors = {
+  skipAfterDestination: (from: number) => number
+  findTitleCloser: Record<TitleCloser, (from: number) => number>
+  skipAfterTitle: Record<TitleCloser, (from: number) => number>
+}
+
+const createFormCursors = (text: string): FormCursors => {
+  const createTitleCloserCursor = (closer: TitleCloser): ((from: number) => number) => {
+    return createForwardCursor((from) => {
+      return findUnescaped({ text, from, accepts: (character) => character === closer })
+    })
+  }
+  const createWhitespaceSkip = (): ((from: number) => number) => {
+    return createForwardCursor((from) => findNonWhitespace(text, from))
+  }
+
+  return {
+    skipAfterDestination: createWhitespaceSkip(),
+    findTitleCloser: {
+      '"': createTitleCloserCursor('"'),
+      "'": createTitleCloserCursor("'"),
+      ")": createTitleCloserCursor(")"),
+    },
+    skipAfterTitle: {
+      '"': createWhitespaceSkip(),
+      "'": createWhitespaceSkip(),
+      ")": createWhitespaceSkip(),
+    },
+  }
+}
+
+/** A destination's content [contentStart, contentEnd), and where the scan
+ *  reads on after it. */
+type ScannedDestination = {
+  form: DestinationForm
+  contentStart: number
+  contentEnd: number
+  after: number
+}
+
+/** A complete markdown link destination, from its `(` to the `)` at `end - 1`. */
+type ScannedLink = ScannedDestination & { end: number }
+
+/** Builds the reader that scans the destination after one `](`, for every
+ *  `](` of a line in left-to-right order. It holds the line's parenthesis
+ *  records and one cursor per search, and each cursor only moves forward,
+ *  so the line costs linear time:
+ *  - the bare whitespace and angle cursors serve destination starts, which
+ *    only move forward;
+ *  - each form's cursors after the destination serve positions that only
+ *    move forward within that form. A bare destination that starts inside
+ *    an earlier one either closes at its own `)` or shares that one's first
+ *    whitespace: in `[a](x[b](y z)`, both `x[b](y` and `y` end at the space
+ *    before `z`. The forms keep separate cursors because a bare title can
+ *    start before a failed angle title: `[a](< [b](x.md "t") > "x`.
+ *
+ *  Openers whose link text ends at the same `]` read one destination, so the
+ *  last result, a rejection included, is cached by its `(`. */
+const createDestinationReader = (text: string): ((openParen: number) => ScannedLink | null) => {
+  const parens = buildParenRecords(text)
+  const findBareWhitespace = createForwardCursor((from) => {
+    return findUnescaped({ text, from, accepts: (character) => WHITESPACE.test(character) })
+  })
+  const findAngleCloser = createForwardCursor((from) => {
+    const closer = text.indexOf(">", from)
+    return closer === -1 ? text.length : closer
+  })
+  const findLineBreak = createForwardCursor((from) => {
+    // A plain walk: the cursor keeps each stretch from being walked twice.
+    let position = from
+
+    while (position < text.length && text[position] !== "\n" && text[position] !== "\r") position++
+    return position
+  })
+  const formCursors: Record<DestinationForm, FormCursors> = {
+    angle: createFormCursors(text),
+    bare: createFormCursors(text),
+  }
+  // The paren record index serves `(` positions, which only move forward.
+  let parenOrdinal = 0
+  // The last `(` read and its result, reused by the openers that share it.
+  let cachedOpenParen = -1
+  let cachedLink: ScannedLink | null = null
+
+  /** The position of the `)` that matches the `(` at openParen, or -1. The
+   *  `(` of `](` follows a `]`, so it is unescaped and has a record. */
+  const findMatchingParen = (openParen: number): number => {
+    while ((parens.positions[parenOrdinal] ?? text.length) < openParen) parenOrdinal++
+    const matchRecord = readRecord(parens.matches, parenOrdinal)
+    return matchRecord === -1 ? -1 : readRecord(parens.positions, matchRecord)
+  }
+
+  /** `<…>`: the first `>` closes it, and an LF or CR before that `>` fails
+   *  it. U+2028 and U+2029 stay inside it, as in Obsidian. */
+  const scanAngleDestination = (openBracket: number): ScannedDestination | null => {
+    const contentStart = openBracket + 1
+    const closeBracket = findAngleCloser(contentStart)
+
+    if (closeBracket === text.length || findLineBreak(contentStart) < closeBracket) return null
+    return { form: "angle", contentStart, contentEnd: closeBracket, after: closeBracket + 1 }
+  }
+
+  /** A bare destination runs to its first unescaped whitespace, or to the `)`
+   *  that matches the link's own `(`, whichever comes first. Without either,
+   *  it fails. */
+  const scanBareDestination = (params: {
+    contentStart: number
+    openParen: number
+  }): ScannedDestination | null => {
+    const { contentStart, openParen } = params
+    const whitespace = findBareWhitespace(contentStart)
+    const matchingParen = findMatchingParen(openParen)
+    const endsAtParen = matchingParen !== -1 && matchingParen < whitespace
+    const contentEnd = endsAtParen ? matchingParen : whitespace
+
+    if (contentEnd === text.length) return null
+    return { form: "bare", contentStart, contentEnd, after: contentEnd }
+  }
+
+  /** The end of the link after its destination, or -1: whitespace, then an
+   *  optional title in `"…"`, `'…'` or `(…)` after at least one whitespace
+   *  character, then whitespace and `)`. */
+  const scanTitleAndClose = (destination: ScannedDestination): number => {
+    // A bare destination that ends at its `)` closes there. That `)` can sit
+    // before an earlier attempt's destination end (`[b](y)` inside
+    // `[a](x[b](y)z w`), so checking first keeps it out of the cursors.
+    if (text[destination.after] === ")") return destination.after + 1
+
+    const cursors = formCursors[destination.form]
+    const titleStart = cursors.skipAfterDestination(destination.after)
+
+    if (text[titleStart] === ")") return titleStart + 1
+
+    const closer = TITLE_CLOSERS.get(text.charAt(titleStart))
+    const followsWhitespace = titleStart > destination.after
+
+    if (!closer || !followsWhitespace) return -1
+
+    const titleEnd = cursors.findTitleCloser[closer](titleStart + 1)
+
+    if (titleEnd === text.length) return -1
+
+    const closeParen = cursors.skipAfterTitle[closer](titleEnd + 1)
+    return text[closeParen] === ")" ? closeParen + 1 : -1
+  }
+
+  const scanLink = (openParen: number): ScannedLink | null => {
+    // Each `(` is read once, and its leading whitespace ends before the next
+    // `](`, so this walk needs no cursor.
+    const destinationStart = findNonWhitespace(text, openParen + 1)
+    const destination =
+      text[destinationStart] === "<"
+        ? scanAngleDestination(destinationStart)
+        : scanBareDestination({ contentStart: destinationStart, openParen })
+
+    if (!destination) return null
+
+    const end = scanTitleAndClose(destination)
+    return end === -1 ? null : { ...destination, end }
+  }
+
+  return (openParen) => {
+    if (openParen !== cachedOpenParen) {
+      cachedLink = scanLink(openParen)
+      cachedOpenParen = openParen
+    }
+    return cachedLink
+  }
+}
+
+/** Whether the character at `position` (a `[` or `]`, or the `!` before a
+ *  `[`) is escaped by an odd run of backslashes. A backslash run sits
+ *  directly before one character, which the scan checks at most once, so a
+ *  line's walks add up to its length. */
+const isEscapedAt = (text: string, position: number): boolean => {
+  // The walk counts the backslashes directly before the character.
+  let backslashStart = position
+
+  while (backslashStart > 0 && text[backslashStart - 1] === "\\") backslashStart--
+  return (position - backslashStart) % 2 === 1
+}
+
+/** The span of a scanned link with a stored target, or null for one without.
+ *  start is the link's `[`, or an embed's `!`. */
+const toMarkdownLinkSpan = (params: {
+  text: string
+  start: number
+  link: ScannedLink
+  linkKind: MarkdownLinkKind
+}): MarkdownLinkSpan | null => {
+  const { text, start, link, linkKind } = params
+  const { form, contentStart, contentEnd, end } = link
+  const content = text.slice(contentStart, contentEnd)
+  const storedTarget = readStoredTarget({ content, linkKind })
+
+  if (!storedTarget) return null
+
+  // Spaces around the target stay outside it, so a rewrite keeps them.
+  // Encoded spaces (`%20a.md`) stay inside it, though the stored target
+  // trims them.
+  const targetStart = contentStart + (content.length - content.trimStart().length)
+  const { rawHeadingOffset } = storedTarget
+  const hasHeading = rawHeadingOffset !== null
+  const targetEnd = hasHeading
+    ? contentStart + rawHeadingOffset
+    : contentStart + content.trimEnd().length
+  const headingEnd = hasHeading ? contentEnd : targetEnd
+
+  return {
+    start,
+    end,
+    targetStart,
+    targetEnd,
+    destinationForm: form,
+    headingEnd,
+    storedTarget: storedTarget.target,
+  }
+}
+
+/** Calls `visit` for each markdown link `[text](destination "title")` that
+ *  names another note or file, left to right and never overlapping. The
+ *  grammar follows Obsidian's, except that the link text ends at its first
+ *  unescaped `]`, so `[a [b] c](d.md)` holds no link:
+ *  - openers and link-text brackets are found in `maskedText`, where a caller
+ *    may blank inline code and other spans it skips, keeping every offset;
+ *  - destinations and titles are read from `destinationText`, the same text
+ *    as written, because Obsidian reads backticks there as part of the
+ *    destination (``[x](<a`b`.md>)`` stores ``a`b`.md``);
+ *  - a `[` or `]` after an odd run of backslashes is text, so `[a\](b.md)`
+ *    holds no link;
+ *  - an unescaped `!` directly before the `[` makes the link an embed;
+ *  - the destination is `<…>` or bare, after optional whitespace;
+ *  - a title in `"…"`, `'…'` or `(…)` may follow after whitespace;
+ *  - a complete link is used up even when it names nothing (a URL, a heading
+ *    in the same note), so the scan resumes after its `)`;
+ *  - `visitDestinationAndTitle` receives each complete link's destination and
+ *    title, from the character after its `(` to its end. */
+const scanMarkdownLinks = (params: {
+  maskedText: string
+  destinationText: string
+  visit: (span: MarkdownLinkSpan) => void
+  visitDestinationAndTitle?: (region: { start: number; end: number }) => void
+}): void => {
+  const { maskedText, destinationText, visit, visitDestinationAndTitle } = params
+  // The link text cursor outlives a failed opener and only moves forward: a
+  // later opener reaches the same `]` or a later one.
+  let textEnd = 0
+  // Built at the line's first `](`, so a line without one allocates nothing.
+  let readLink: ((openParen: number) => ScannedLink | null) | undefined
+
+  // The position the cursor last stopped at, an unescaped `]` or the line's
+  // end. Openers that reach it again return it without walking the backslash
+  // run before it, so each `]` is checked once and the scan stays linear on
+  // `[[[…\\\\…]`.
+  let checkedTextEnd = -1
+
+  const isUnescapedAt = (position: number, character: string): boolean => {
+    return maskedText[position] === character && !isEscapedAt(maskedText, position)
+  }
+
+  const findLinkTextEnd = (start: number): number => {
+    textEnd = Math.max(textEnd, start + 1)
+
+    if (textEnd === checkedTextEnd) return textEnd
+    while (textEnd < maskedText.length && !isUnescapedAt(textEnd, "]")) textEnd++
+    checkedTextEnd = textEnd
+    return textEnd
+  }
+
+  for (let start = 0; start < maskedText.length; start++) {
+    if (!isUnescapedAt(start, "[")) continue
+
+    const openParen = findLinkTextEnd(start) + 1
+
+    if (maskedText[openParen] !== "(") continue
+
+    readLink ??= createDestinationReader(destinationText)
+    const link = readLink(openParen)
+
+    if (!link) continue
+
+    // An unescaped `!` directly before the `[` makes the link an embed.
+    const markerStart = start - 1
+    const opensEmbed = isUnescapedAt(markerStart, "!")
+    const span = opensEmbed
+      ? toMarkdownLinkSpan({ text: destinationText, start: markerStart, link, linkKind: "embed" })
+      : toMarkdownLinkSpan({ text: destinationText, start, link, linkKind: "link" })
+
+    if (span) visit(span)
+    visitDestinationAndTitle?.({ start: openParen + 1, end: link.end })
+    // end - 1 is the link's `)`, and the loop's start++ moves past it.
+    start = link.end - 1
   }
 }
 
@@ -215,52 +1018,141 @@ const scanMarkdownLinks = (text: string, visit: (span: LinkSpan) => void): void 
  *  - An expression must close before the next line terminator, so a CR or a
  *    Unicode line separator inside `text` ends it too. */
 const maskTemplaterExpressions = (text: string): string => {
-  const pieces: string[] = []
+  const joiner = createTextJoiner()
   // The closer cursor outlives a failed opener: a later opener finds no `%>`
   // or line terminator before it.
   let close = 0
+  // How much of the text the joiner already holds; 0 means no expression.
   let copiedThrough = 0
+
+  const isCloserAt = (position: number): boolean => {
+    return text[position] === "%" && text[position + 1] === ">"
+  }
 
   for (let start = 0; start < text.length; start++) {
     if (text[start] !== "<" || text[start + 1] !== "%") continue
     close = Math.max(close, start + 2)
-    while (close < text.length && !LINE_TERMINATOR.test(text.charAt(close))) {
-      if (text[close] === "%" && text[close + 1] === ">") break
+    while (close < text.length && !LINE_TERMINATOR.test(text.charAt(close)) && !isCloserAt(close)) {
       close++
     }
-    if (text[close] !== "%" || text[close + 1] !== ">") continue
+    if (!isCloserAt(close)) continue
     const end = close + 2
-    pieces.push(text.slice(copiedThrough, start), " ".repeat(end - start))
+    joiner.push(text.slice(copiedThrough, start))
+    joiner.push(" ".repeat(end - start))
     copiedThrough = end
     start = end - 1
   }
-  if (pieces.length === 0) return text
-  pieces.push(text.slice(copiedThrough))
-  return pieces.join("")
+  if (copiedThrough === 0) return text
+  joiner.push(text.slice(copiedThrough))
+  return joiner.join()
 }
 
-/** Finds wikilinks, then markdown links (not in text order), with the offsets a rewriter
- *  needs to splice replacements. Links in inline code are kept for each caller to exclude.
- *  The two kinds can overlap: in `[x](a[[b]])`, the wikilink sits inside the
- *  markdown link's target. */
+/** Matches what ends a wikilink's target as Obsidian reads it: `#`, `|` or
+ *  `]]`, but not a lone `]`. */
+const WIKILINK_TARGET_DELIMITER = /[#|]|\]\]/
+
+/** Calls the visitors for each link in a body line, markdown links as the scan
+ *  finds them and then wikilinks, so the line's links are never all held at
+ *  once:
+ *  - `maskedLine` is `line` with the spans a caller skips blanked to spaces;
+ *    markdown links are found in it and their destinations and titles read
+ *    from `line`, as scanMarkdownLinks describes;
+ *  - a wikilink inside a markdown link's destination or title is part of that
+ *    link, as Obsidian reads `[x](a.md "[[b]]")` and
+ *    `[x](https://example.com "[[b]]")`, so wikilinks are found with every
+ *    complete destination and title blanked too;
+ *  - a wikilink's target ends at its first `#`, `|` or `]]` in `line`, and the
+ *    link at its first `]]` after the target, inside a code span or a
+ *    Templater expression too, as Obsidian stores ``[[a `|` b]]`` as ``a ` ``. */
+const scanBodyLineLinks = (params: {
+  maskedLine: string
+  line: string
+  visitWikilink: (span: LinkSpan) => void
+  visitMarkdownLink: (span: MarkdownLinkSpan) => void
+}): void => {
+  const { maskedLine, line, visitWikilink, visitMarkdownLink } = params
+  // The masked line with each destination and title blanked, built as the
+  // first scan reports them in text order. A wikilink cannot cross a link's
+  // `](`, so the blanking removes only wikilinks that start inside a
+  // destination or title.
+  const wikilinkLineJoiner = createTextJoiner()
+  // How much of the masked line the joiner already holds; it stays 0 on a
+  // line with no complete markdown link, which is scanned as it is.
+  let copiedThrough = 0
+
+  scanMarkdownLinks({
+    maskedText: maskedLine,
+    destinationText: line,
+    visit: visitMarkdownLink,
+    visitDestinationAndTitle: ({ start, end }) => {
+      wikilinkLineJoiner.push(maskedLine.slice(copiedThrough, start))
+      wikilinkLineJoiner.push(" ".repeat(end - start))
+      copiedThrough = end
+    },
+  })
+
+  const blankedAnySpan = copiedThrough > 0
+
+  if (blankedAnySpan) wikilinkLineJoiner.push(maskedLine.slice(copiedThrough))
+  const wikilinkLine = blankedAnySpan ? wikilinkLineJoiner.join() : maskedLine
+
+  // Masking only blanks characters, so each delimiter found in `line` is never
+  // after the one the masked scan stopped at, and both searches stay inside
+  // the span.
+  const visitWikilinkAsWritten = (span: LinkSpan): void => {
+    const delimiterOffset = line
+      .slice(span.targetStart, span.targetEnd)
+      .search(WIKILINK_TARGET_DELIMITER)
+    const targetEnd = delimiterOffset === -1 ? span.targetEnd : span.targetStart + delimiterOffset
+    // The first `]]` after the target closes the link, in a heading or an alias
+    // too, as Obsidian reads ``[[a#h `]]` c]]`` as ``[[a#h `]]``, so a rewrite
+    // keeps the text after it.
+    const end = line.indexOf("]]", targetEnd) + "]]".length
+    visitWikilink({ ...span, targetEnd, end })
+  }
+
+  scanWikilinks(wikilinkLine, visitWikilinkAsWritten)
+}
+
+/** Finds a body line's markdown links, then its wikilinks (not in text order),
+ *  outside inline code, as links.extractFromBody reads them. Unlike
+ *  extractFromBody, it also finds links inside Templater expressions.
+ *  Offsets and each match's `text` come from `line` as written. */
 const matchLinksInLine = (line: string): LinkMatch[] => {
   const matches: LinkMatch[] = []
-  scanWikilinks(line, ({ start, end }) => {
-    matches.push({ text: line.slice(start, end), start, end, kind: "wikilink" })
-  })
-  scanMarkdownLinks(line, ({ start, end }) => {
-    matches.push({ text: line.slice(start, end), start, end, kind: "markdown" })
+  scanBodyLineLinks({
+    maskedLine: maskInlineCode(line),
+    line,
+    visitWikilink: ({ start, end }) => {
+      matches.push({ text: line.slice(start, end), start, end, kind: "wikilink" })
+    },
+    visitMarkdownLink: ({ start, end }) => {
+      matches.push({ text: line.slice(start, end), start, end, kind: "markdown" })
+    },
   })
   return matches
 }
 
-/** Returns the character ranges of inline code spans in a line, so a rewriter can
- *  leave links inside backticks untouched. */
-const inlineCodeSpans = (line: string): CodeSpan[] =>
-  [...line.matchAll(INLINE_CODE_RE)].map((match) => ({
-    start: match.index,
-    end: match.index + match[0].length,
-  }))
+/** Finds every wikilink in `text`, such as a frontmatter value, where
+ *  markdown links are not read. */
+const matchWikilinks = (text: string): LinkMatch[] => {
+  const matches: LinkMatch[] = []
+  scanWikilinks(text, ({ start, end }) => {
+    matches.push({ text: text.slice(start, end), start, end, kind: "wikilink" })
+  })
+  return matches
+}
+
+/** Replaces each inline code span in `line` with as many spaces, so a scan
+ *  finds no link inside one and every offset after it stays the same. The
+ *  spaces keep text on either side of a span from joining into a new link. */
+const maskInlineCode = (line: string): string => {
+  return replaceAllInBatches({
+    text: line,
+    pattern: INLINE_CODE_RE,
+    replacement: ([codeSpan]) => " ".repeat(codeSpan.length),
+  })
+}
 
 // ── Parsing ─────────────────────────────────────────────────────
 
@@ -269,64 +1161,115 @@ const stripExtension = (filePath: string): string => {
   return filePath.slice(0, filePath.length - extension.length)
 }
 
+const FINAL_SIGMA_CODE_UNIT = "ς".charCodeAt(0)
+const SIGMA_CODE_UNIT = "σ".charCodeAt(0)
+
+/** Lowercases text with "ς" folded to "σ":
+ *  - toLowerCase turns a capital "Σ" into either one depending on what follows
+ *    it, so one name could otherwise lowercase two ways (`ΟΣ` alone as `ος`,
+ *    before `.md` as `οσ`);
+ *  - the fold copies the code units into one buffer, since a replace, even in
+ *    batches, allocates a piece per "ς", about 30 bytes of heap per character on
+ *    a long text dense with them; a lone surrogate is copied as it is. */
+const lowercaseLinkName = (text: string): string => {
+  const lowercase = text.toLowerCase()
+
+  if (!lowercase.includes("ς")) return lowercase
+  const codeUnits = new Uint16Array(lowercase.length)
+  for (let index = 0; index < lowercase.length; index++) {
+    const codeUnit = lowercase.charCodeAt(index)
+    codeUnits[index] = codeUnit === FINAL_SIGMA_CODE_UNIT ? SIGMA_CODE_UNIT : codeUnit
+  }
+  return Buffer.from(codeUnits.buffer).toString("utf16le")
+}
+
 /** The key that pairs a link's text with the files it could name. A link and
  *  a file a resolver could match must share a key; a key shared more widely
  *  costs only an extra re-resolve of the search index's links rows, which
- *  store it as link_name. The key is:
- *  - the last path segment, minus one trailing ".md" (case-sensitive, as
- *    noteTargetWithExtension adds it), lowercased;
- *  - "ς" folded to "σ", because toLowerCase turns a capital "Σ" into either one depending
- *    on what follows it, so one name could otherwise lowercase two ways. */
+ *  store it as link_name. The key is the last path segment, minus one
+ *  trailing ".md" (case-sensitive, as noteTargetWithExtension adds it),
+ *  through lowercaseLinkName. */
 const pathToLinkName = (path: string): string => {
   const lastSegment = posix.basename(path)
   const name = lastSegment.endsWith(".md") ? lastSegment.slice(0, -".md".length) : lastSegment
-  return name.toLowerCase().replaceAll("ς", "σ")
+  return lowercaseLinkName(name)
 }
 
-/** Splits a matched wikilink, or returns null for malformed text.
- *  A trailing backslash moves from the target to the alias to preserve a table-pipe escape. */
+/** Splits a matched wikilink into its embed `!`, target, `#heading` and
+ *  `|alias`, or returns null for text that does not open with `[[` or `![[`
+ *  and close at its first `]]`, or whose target is empty.
+ *  - The target ends at its first `#` or `|`, the heading at the next `|`, and
+ *    the alias holds the rest. scanBodyLineLinks reports links whose parts
+ *    hold a lone `]` from a code span it hid (``[[a `]` b]]``), and links
+ *    whose alias is empty because a `]]` in a code span closed them
+ *    (``[[a#h `|]]`` from ``[[a#h `|]]` c]]``).
+ *  - A trailing backslash, with any whitespace after it, moves from the target
+ *    into the heading, or into the alias when there is no heading, so the
+ *    rebuilt link keeps it and the target reads as the index stores it
+ *    (`[[a\ |b]]` stores `a`).
+ *  - The parts are found with string searches, because a pattern that tests
+ *    each `]` with a lookahead runs out of regex stack on a part of millions
+ *    of characters. */
 const splitWikilink = (linkText: string): WikilinkParts | null => {
-  const parts = WIKILINK_PARTS.exec(linkText)
+  const embed = linkText.startsWith("!") ? "!" : ""
+  const opener = `${embed}[[`
 
-  if (!parts) return null
-  const [, embed, rawTarget, heading = "", rawAlias = ""] = parts
+  if (!linkText.startsWith(opener) || !linkText.endsWith("]]")) return null
+  const bracketContent = linkText.slice(opener.length, -"]]".length)
 
-  // Both groups take part in every match; the check only narrows their types.
-  if (embed === undefined || rawTarget === undefined) return null
-  const hasEscapedPipe = rawTarget.endsWith("\\")
-  const target = stripEscapedPipe(rawTarget)
-  const alias = hasEscapedPipe ? `\\${rawAlias}` : rawAlias
-  return { embed, target, heading, alias }
+  // A `]]` inside, or a `]` just before the closing pair, means the text runs
+  // past the link's first `]]`.
+  if (bracketContent.includes("]]") || bracketContent.endsWith("]")) return null
+  const delimiterIndex = bracketContent.search(WIKILINK_TARGET_DELIMITER)
+  const rawTarget = delimiterIndex === -1 ? bracketContent : bracketContent.slice(0, delimiterIndex)
+
+  if (!rawTarget) return null
+  const afterTarget = bracketContent.slice(rawTarget.length)
+  const aliasIndex = afterTarget.indexOf("|")
+  const heading = aliasIndex === -1 ? afterTarget : afterTarget.slice(0, aliasIndex)
+  const alias = afterTarget.slice(heading.length)
+  const trimmedTarget = rawTarget.trimEnd()
+
+  if (!trimmedTarget.endsWith("\\")) return { embed, target: rawTarget, heading, alias }
+  const target = trimmedTarget.slice(0, -1)
+
+  // An escape alone (`[[\|x]]`) leaves no target, which the index skips too.
+  if (!target) return null
+  const escape = rawTarget.slice(target.length)
+
+  if (heading) return { embed, target, heading: `${escape}${heading}`, alias }
+  return { embed, target, heading, alias: `${escape}${alias}` }
 }
 
-/** Splits a matched markdown link into its parts (target decoded, extension
- *  captured separately), or null when the text is not a well-formed markdown
- *  link. Any vault target parses — notes, assets, and extensionless targets —
- *  so moveNote can rewrite all of them. The full target is decoded before the
- *  path/extension split: percent-encoding can hide the dot (photo%2Epng) or
- *  span the extension (photo.p%6Eg), so a split on the raw text would disagree
- *  with how extraction and Obsidian read the same link. */
+/** Splits a markdown link's text into its parts with the scanner's grammar,
+ *  or returns null when the text is not one whole link that names a note or
+ *  file:
+ *  - any vault target parses (notes, assets and extensionless targets), so
+ *    moveNote can rewrite all of them;
+ *  - `linkText` is scanned with its inline code blanked, as its line was. A
+ *    code span that starts inside the link and ends after it must start after
+ *    the `(`, since one starting earlier would have hidden the link from the
+ *    line scan. It then lies in the destination or title, which are read as
+ *    written, so cutting it off changes nothing. */
 const splitMarkdownLink = (linkText: string): MarkdownLinkParts | null => {
-  const parts = MD_LINK_PARTS.exec(linkText)
+  const spans: MarkdownLinkSpan[] = []
+  scanMarkdownLinks({
+    maskedText: maskInlineCode(linkText),
+    destinationText: linkText,
+    visit: (span) => spans.push(span),
+  })
+  const wholeSpan = spans.find(({ start, end }) => start === 0 && end === linkText.length)
 
-  if (!parts) return null
-  const prefix = parts[1]
-  const encodedPath = parts[2]
-  const encodedExtension = parts[3] ?? ""
-  const heading = parts[4] ?? ""
-  const closeParen = parts[5]
-  const hasRequiredGroups =
-    prefix !== undefined && encodedPath !== undefined && closeParen !== undefined
+  if (!wholeSpan) return null
 
-  if (!hasRequiredGroups) return null
-  const decodedTarget = safeDecodeURIComponent(`${encodedPath}${encodedExtension}`)
-  const path = stripExtension(decodedTarget)
+  const { targetStart, targetEnd, headingEnd, storedTarget, destinationForm } = wholeSpan
   return {
-    prefix,
-    path,
-    extension: decodedTarget.slice(path.length),
-    heading,
-    closeParen,
+    prefix: linkText.slice(0, targetStart),
+    writtenTarget: linkText.slice(targetStart, targetEnd),
+    storedTarget,
+    heading: linkText.slice(targetEnd, headingEnd),
+    suffix: linkText.slice(headingEnd),
+    destinationForm,
   }
 }
 
@@ -399,30 +1342,31 @@ const joinToSourceFolder = (sourcePath: string, target: string): string | null =
 
 // ── Extraction ──────────────────────────────────────────────────
 
-/** Extracts link targets from a note body, skipping fenced code blocks and inline
- *  code spans. Returns deduplicated raw targets (pre-resolution) within the
- *  link-target limit. */
+/** Extracts link targets from a note body, skipping links inside fenced code
+ *  blocks, inline code spans and Templater expressions. Returns deduplicated
+ *  raw targets (pre-resolution) within the link-target limit. */
 const extractFromBody = (content: string): string[] => {
   const targets = new Set<string>()
 
   for (const { text, inCode } of classifyLines(content)) {
     if (inCode) continue
 
-    // Spaces keep text on either side of an ignored span from forming a new link.
-    const withoutCode = text.replace(INLINE_CODE_RE, (match) => " ".repeat(match.length))
-    const linkExtractableLine = maskTemplaterExpressions(withoutCode)
+    const linkExtractableLine = maskTemplaterExpressions(maskInlineCode(text))
 
-    scanWikilinks(linkExtractableLine, ({ targetStart, targetEnd }) => {
-      const rawTarget = linkExtractableLine.slice(targetStart, targetEnd)
-      const target = stripEscapedPipe(rawTarget.trim())
+    scanBodyLineLinks({
+      maskedLine: linkExtractableLine,
+      line: text,
+      visitWikilink: ({ targetStart, targetEnd }) => {
+        // Obsidian reads a wikilink's target as written, backticks and
+        // Templater expressions included (``[[a `b` c]]`` stores ``a `b` c``).
+        const rawTarget = text.slice(targetStart, targetEnd)
+        const target = readStoredWikilinkTarget(rawTarget)
 
-      if (isExtractableTarget(target)) targets.add(target)
-    })
-    scanMarkdownLinks(linkExtractableLine, ({ targetStart, targetEnd }) => {
-      const rawTarget = linkExtractableLine.slice(targetStart, targetEnd)
-      const target = safeDecodeURIComponent(rawTarget.trim())
-
-      if (isExtractableTarget(target)) targets.add(target)
+        if (isExtractableTarget(target)) targets.add(target)
+      },
+      visitMarkdownLink: ({ storedTarget }) => {
+        if (isExtractableTarget(storedTarget)) targets.add(storedTarget)
+      },
     })
   }
   return [...targets]
@@ -448,7 +1392,7 @@ const extractFromFrontmatter = (data: Record<string, unknown>): string[] => {
     if (typeof frontmatterValue === "string") {
       scanWikilinks(frontmatterValue, ({ targetStart, targetEnd }) => {
         const rawTarget = frontmatterValue.slice(targetStart, targetEnd)
-        const target = stripEscapedPipe(rawTarget.trim())
+        const target = readStoredWikilinkTarget(rawTarget)
 
         if (isExtractableTarget(target)) targets.add(target)
       })
@@ -602,7 +1546,8 @@ const findSuffixChild = (node: SuffixNode, segment: string): SuffixNode | undefi
   if (node.branches.status === "unsplit") {
     // Map.groupBy keeps each group in list order, so each child's paths stay
     // shortest first. The key is the folder segment `depth` places before
-    // the path's last folder segment, counted from the end.
+    // the path's last folder segment, counted from the end: at depth 1,
+    // `a/b/c/Note.md` is keyed by `b`.
     const pathsBySegment = Map.groupBy(node.branches.longerPaths, (path) => {
       const nextSegment = path.folderSegments.at(-1 - node.depth)
 
@@ -1072,13 +2017,15 @@ const extractAll = (content: string, data: Record<string, unknown>): string[] =>
   ...new Set([...extractFromBody(content), ...extractFromFrontmatter(data)]),
 ]
 
-/** The link domain — grammar recognition, traversal, parsing, extraction, and
- *  resolution. Single namespace export so call sites read `links.resolve(...)`. */
+/** The link domain — grammar recognition, traversal, parsing, destination
+ *  encoding, extraction, and resolution. Single namespace export so call sites read `links.resolve(...)`. */
 export const links = {
   matchLinksInLine,
-  inlineCodeSpans,
+  matchWikilinks,
   splitWikilink,
   splitMarkdownLink,
+  decodeLinkSpellings,
+  encodeMarkdownDestination,
   extractFromBody,
   extractFromFrontmatter,
   extractAll,
@@ -1087,6 +2034,7 @@ export const links = {
   resolveInExactCase,
   stripExtension,
   pathToLinkName,
+  lowercaseLinkName,
   resolveAsset,
   resolveNoteOrAsset,
 }

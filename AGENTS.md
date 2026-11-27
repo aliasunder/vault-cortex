@@ -75,7 +75,7 @@ scripts/ # Dev and ops helpers in TypeScript (not shipped in Docker); most open 
   deployment-env.ts # Loads ~/.config/vault-cortex/.env; shell variables override its values
   instance-env.ts # Derives PUBLIC_URL for manual deploys (npm run lightsail:up) the same way sst.config.ts and deploy.yml do, or the Lambda authorizer rejects tokens
   tool-surface-capture.ts # Boots one server per settings combination for the tool-surface snapshot test, size report, and LobeHub manifest; an on/off setting that gates tools goes in its SURFACE_AXES
-  obsidian-tag-oracle.ts, generate-body-tag-vectors.ts, compare-body-tags-random.ts # Check body tags against Obsidian's own parser (see CONTRIBUTING.md → Upgrading remark-parse)
+  obsidian-tag-oracle.ts, generate-body-tag-vectors.ts, compare-body-tags-random.ts # Check body tags and stored links against Obsidian's own parser (see CONTRIBUTING.md → Upgrading remark-parse)
 cli/src/ # npx vault-cortex CLI, run on the host: bin (entry) → main (wiring) → program (Commander), the only loose files; layers under "CLI layering"
   adapters/ # The outside world: docker, prompts, env-file (.env read and write), vault, token
   rules/ # Decisions and text, with no file, Docker or prompt I/O: env-values (.env parse and typed getters), env-edits (.env text edits), ports, bind-address, messages, env-templates, node-version
@@ -93,7 +93,7 @@ src/
   __tests__/docker/ # :remote image boot tests (npm run test:remote-boot): docker-harness, helpers/remote-boot-global-setup (builds the run's image unless REMOTE_IMAGE names one, and removes what the run created), and fixtures/ob, a stub of the obsidian-headless CLI
   vault-mcp/
     server.ts, config.ts # Entry point and env-var loader, the only loose files here
-    obsidian-markdown/ # Pure parsers and transforms with no I/O (pdf-engine excepted): lines, frontmatter, callouts, headings, links, tags, aliases, body-tags + obsidian-remark-parser + remark-ports/, tasks, recurrence, memory-entries, canvas, file-kinds, html, plaintext, pdf + pdf-engine, moment-format
+    obsidian-markdown/ # Pure parsers and transforms with no I/O (pdf-engine excepted): lines, frontmatter, callouts, headings, links, tags, aliases, body-tags + obsidian-remark-parser + remark-ports/, tasks, recurrence, memory-entries, canvas, file-kinds, html, plaintext, pdf + pdf-engine, moment-format, batched-text
     vault-operations/ # Vault read, write, and patch: vault-filesystem (base I/O), vault-patcher, note-mover, memory-store, daily-notes, delete-options, vault-folder-config, task-mutations, task-format-config, trash-config, trash-sweeper, asset-operations, asset-text
       pdf-extractor.ts, pdf-extraction-child.ts, pdf-extraction-protocol.ts # One shared child owns PDF text reads and deferred indexing; raw page rendering stays in the server
     mcp-core/ # MCP protocol surface: mcp-router, tool-registry, tool-availability, tool-definitions, prompt-definitions, coded-error-remedy
@@ -301,8 +301,8 @@ exists.
   neither is an operation surface.
 - **`links.ts` is the deliberate edge case** — a pure parser that nonetheless
   exports a single `links` namespace to keep link recognition private behind
-  position-safe methods. Its scanners own their cursors per call; the remaining
-  `/g` inline-code regex is used through `matchAll` and `replace`.
+  position-safe methods. Its scanners own their cursors per call; its `/g`
+  regexes reach text only through `replaceAllInBatches`, which copies them.
 
 `vault-filesystem.ts` illustrates the nuance within one module: its high-level
 data API is grouped under `vaultFs`, but its low-level shared primitives
@@ -1260,9 +1260,10 @@ fresh clone.
 
 ## Upgrading pinned dependencies
 
-Three pins track something outside this repo: `rrule` is the version the
-Tasks plugin declares and `remark-parse` the release Obsidian's metadata
-cache forked (both excluded from Dependabot), and `obsidian-headless` is the
+Four pins track something outside this repo: `rrule` is the version the
+Tasks plugin declares, `remark-parse` the release Obsidian's metadata cache
+forked and `parse-entities` the version remark-parse 8 calls (all three
+excluded from Dependabot), and `obsidian-headless` is the
 Sync CLI whose observed behaviour the `:remote` init chain depends on
 (Dependabot opens a PR for each of its releases). Before bumping any of them,
 or merging such a PR, read
@@ -1270,12 +1271,12 @@ or merging such a PR, read
 and run that package's re-verification first.
 
 On any edit of `src/vault-mcp/obsidian-markdown/obsidian-remark-parser.ts`,
-`body-tags.ts` or `remark-ports/`, not only an upgrade: NEVER open, read or
-copy Obsidian's app code (`worker.js`, `app.js`). Obsidian is proprietary and
-this repo is MIT, so those files are written from Obsidian's observed
-behaviour only. The only permitted contact is the body-tag scripts in
-CONTRIBUTING.md's "Upgrading remark-parse", which run `worker.js` as a black
-box and print its answers.
+`body-tags.ts`, `remark-ports/`, or the markdown link grammar and destination
+encoder in `links.ts`, not only an upgrade: NEVER open, read or copy Obsidian's app code (`worker.js`, `app.js`).
+Obsidian is proprietary and this repo is MIT, so that code is written from
+Obsidian's observed behaviour only. The only permitted contact is running
+`worker.js` as a black box and reading its answers, as the body-tag scripts in
+CONTRIBUTING.md's "Upgrading remark-parse" do.
 
 ## Operational docs
 

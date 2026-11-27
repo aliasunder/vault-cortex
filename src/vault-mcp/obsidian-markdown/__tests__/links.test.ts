@@ -2,6 +2,10 @@ import { describe, it, expect, vi, onTestFinished } from "vitest"
 import { execFileSync } from "node:child_process"
 import { posix } from "node:path"
 import { links } from "../links.js"
+import {
+  measureWorkerHeapGrowth,
+  readNumberDetail,
+} from "../../../__tests__/helpers/measure-worker-heap.js"
 import { classifyLines } from "../lines.js"
 import {
   assertPathWithinMaxLength,
@@ -14,17 +18,58 @@ import {
   TIMING_FLOOR_MS,
 } from "./helpers/linear-timing.js"
 import {
+  createLinkTokenDocuments,
   createScannerDocuments,
+  findExcludedConstruct,
+  maskLikeExtraction,
+  referenceMarkdownLinks,
   scannerCorpora,
   legacyWiki,
-  legacyMarkdown,
-  legacyTemplater,
 } from "./helpers/link-scanner-corpus.js"
 import { linkResolverOracle } from "./helpers/link-resolver-oracle.js"
 
 // ── matchLinksInLine ─────────────────────────────────────────────
 
 describe("matchLinksInLine", () => {
+  it("skips links in inline code and returns each match's text as written", () => {
+    expect(links.matchLinksInLine("`[[A]]` [`x`](b.md) [[D]]")).toEqual([
+      { text: "[`x`](b.md)", start: 8, end: 19, kind: "markdown" },
+      { text: "[[D]]", start: 20, end: 25, kind: "wikilink" },
+    ])
+  })
+
+  // Obsidian 1.15.1 reads ``[[a `]]` b]]`` as the link ``[[a `]]``.
+  it("ends a wikilink at a `]]` inside a code span the link opened", () => {
+    expect(links.matchLinksInLine("[[a `]]` b]]")).toEqual([
+      { text: "[[a `]]", start: 0, end: 7, kind: "wikilink" },
+    ])
+  })
+
+  // Obsidian 1.15.1 reads ``[[a#h `]]` c]]`` as ``[[a#h `]]`` and
+  // ``[[a|x `]]` c]]`` as ``[[a|x `]]``.
+  it("ends a wikilink at a `]]` inside a code span in its heading or alias", () => {
+    expect(links.matchLinksInLine("[[a#h `]]` c]] [[a|x `]]` c]]")).toEqual([
+      { text: "[[a#h `]]", start: 0, end: 9, kind: "wikilink" },
+      { text: "[[a|x `]]", start: 15, end: 24, kind: "wikilink" },
+    ])
+  })
+
+  it("ends a wikilink at its own `]]` when a `|` or `#` inside a code span ends its target", () => {
+    expect(links.matchLinksInLine("[[a `|` b]] [[c `#h` d]]")).toEqual([
+      { text: "[[a `|` b]]", start: 0, end: 11, kind: "wikilink" },
+      { text: "[[c `#h` d]]", start: 12, end: 24, kind: "wikilink" },
+    ])
+  })
+
+  it("returns no wikilink inside a markdown link's title, and keeps one outside it", () => {
+    const line = '[[A]] [x](b.md "[[C]]")'
+
+    expect(links.matchLinksInLine(line)).toEqual([
+      { text: '[x](b.md "[[C]]")', start: 6, end: 23, kind: "markdown" },
+      { text: "[[A]]", start: 0, end: 5, kind: "wikilink" },
+    ])
+  })
+
   it.each([{ variant: "wiki" }, { variant: "markdown" }, { variant: "templater" }])(
     "bounds repeated failing $variant openers in an externally killed child",
     ({ variant }) => {
@@ -56,47 +101,74 @@ describe("matchLinksInLine", () => {
     35_000,
   )
 
-  it.each(scannerCorpora.slice(0, 3))(
-    "preserves every legacy match, capture and UTF-16 offset in 10,000 $label documents",
+  // The child builds each family at 20,000, 40,000 and 80,000 characters and
+  // checks its exact output.
+  it.each([
+    { family: "unclosed bare parentheses" },
+    { family: "unclosed angle brackets" },
+    { family: "unclosed double-quoted titles" },
+    { family: "unclosed single-quoted titles" },
+    { family: "unclosed parenthesized titles" },
+    { family: "whitespace and no-break spaces after one shared `](`" },
+    { family: "bare destinations sharing one whitespace run" },
+    { family: "parenthesized titles sharing one closer and whitespace run" },
+    { family: "angle destinations sharing one closer and whitespace run" },
+    { family: "backslash runs before parentheses" },
+    { family: "nested URL openers" },
+    { family: "nested heading openers" },
+    { family: "openers before one long rejected destination" },
+    { family: "openers before one closer after an even backslash run" },
+    { family: "outer angle links failing after an inner link's title" },
+  ])(
+    "scans markdown destinations with $family in linear time in an externally killed child",
+    ({ family }) => {
+      const fixturePath = new URL("./helpers/link-scanner-adversary.ts", import.meta.url)
+      const output = execFileSync(
+        process.execPath,
+        ["--import", "tsx", fixturePath.pathname, family],
+        {
+          encoding: "utf8",
+          timeout: CHILD_DEADLINE_MS,
+          killSignal: "SIGKILL",
+        },
+      )
+      const result = JSON.parse(output)
+
+      expect(result.variant).toBe(family)
+      for (const [index, measurement] of result.measurements.entries()) {
+        expect(measurement.median).toBeLessThan(1_000)
+        const previous = result.measurements[index - 1]
+
+        if (previous?.median > TIMING_FLOOR_MS) {
+          expect(measurement.median / previous.median).toBeLessThan(3)
+        }
+      }
+    },
+    CHILD_TEST_TIMEOUT_MS,
+  )
+
+  // Neither alphabet holds a `(`, so no markdown link forms in these documents.
+  it.each(scannerCorpora.slice(0, 2))(
+    "preserves every legacy wikilink match, capture and UTF-16 offset in 10,000 $label documents",
     ({ alphabet }) => {
       for (const document of createScannerDocuments(alphabet, 10_000)) {
-        const expected = [
-          ...[...document.matchAll(legacyWiki)].map((match) => ({
-            text: match[0],
-            start: match.index,
-            end: match.index + match[0].length,
-            kind: "wikilink",
-          })),
-          ...[...document.matchAll(legacyMarkdown)].map((match) => ({
-            text: match[0],
-            start: match.index,
-            end: match.index + match[0].length,
-            kind: "markdown",
-          })),
-        ]
+        const expected = [...document.matchAll(legacyWiki)].map((match) => ({
+          text: match[0],
+          start: match.index,
+          end: match.index + match[0].length,
+          kind: "wikilink",
+        }))
         expect(links.matchLinksInLine(document)).toEqual(expected)
         const expectedTargets = new Set<string>()
 
         for (const { text, inCode } of classifyLines(document)) {
           if (inCode) continue
-          const masked = text
-            .replace(/`+[^`\n]*`+/g, (match) => " ".repeat(match.length))
-            .replace(legacyTemplater, (match) => " ".repeat(match.length))
-
-          for (const match of masked.matchAll(legacyWiki)) {
-            const target = (match[1] ?? "").trim().replace(/\\$/, "")
+          for (const match of maskLikeExtraction(text).matchAll(legacyWiki)) {
+            // Obsidian also drops the space before an escaped pipe
+            // (`[[Note \|Alias]]` stores `Note`).
+            const target = (match[1] ?? "").trim().replace(/\\$/, "").trimEnd()
 
             if (target) expectedTargets.add(target)
-          }
-          for (const match of masked.matchAll(legacyMarkdown)) {
-            const target = (match[1] ?? "").trim()
-
-            if (!target) continue
-            try {
-              expectedTargets.add(decodeURIComponent(target))
-            } catch {
-              expectedTargets.add(target)
-            }
           }
         }
         expect(links.extractFromBody(document)).toEqual([...expectedTargets])
@@ -118,8 +190,8 @@ describe("matchLinksInLine", () => {
 
   it("finds both link kinds in one line", () => {
     expect(links.matchLinksInLine("[[A]] and [x](b.md)")).toEqual([
-      { text: "[[A]]", start: 0, end: 5, kind: "wikilink" },
       { text: "[x](b.md)", start: 10, end: 19, kind: "markdown" },
+      { text: "[[A]]", start: 0, end: 5, kind: "wikilink" },
     ])
   })
 
@@ -134,29 +206,16 @@ describe("matchLinksInLine", () => {
     )
   })
 
-  it("finds a markdown asset embed with kind markdown, offsets excluding the embed marker", () => {
+  it("finds a markdown asset embed with kind markdown, offsets including the embed marker", () => {
     expect(links.matchLinksInLine("see ![alt](image.png) end")).toEqual([
-      { text: "[alt](image.png)", start: 5, end: 21, kind: "markdown" },
-    ])
-  })
-})
-
-// ── inlineCodeSpans ──────────────────────────────────────────────
-
-describe("inlineCodeSpans", () => {
-  it("returns the character range of an inline code span", () => {
-    expect(links.inlineCodeSpans("use `code` here")).toEqual([{ start: 4, end: 10 }])
-  })
-
-  it("returns every span on the line", () => {
-    expect(links.inlineCodeSpans("`a` and `bb`")).toEqual([
-      { start: 0, end: 3 },
-      { start: 8, end: 12 },
+      { text: "![alt](image.png)", start: 4, end: 21, kind: "markdown" },
     ])
   })
 
-  it("returns an empty array when the line has no inline code", () => {
-    expect(links.inlineCodeSpans("plain text")).toEqual([])
+  it("starts a markdown link after an escaped embed marker at its bracket", () => {
+    expect(links.matchLinksInLine("see \\![alt](image.png) end")).toEqual([
+      { text: "[alt](image.png)", start: 6, end: 22, kind: "markdown" },
+    ])
   })
 })
 
@@ -224,14 +283,76 @@ describe("splitWikilink", () => {
       input: "[[path\\]]",
       expected: { embed: "", target: "path", heading: "", alias: "\\" },
     },
+    {
+      name: "moves a backslash and the spaces after it into the alias",
+      input: "[[a\\ |b]]",
+      expected: { embed: "", target: "a", heading: "", alias: "\\ |b" },
+    },
+    {
+      name: "moves a trailing backslash into the heading when one follows",
+      input: "[[a\\#h|x]]",
+      expected: { embed: "", target: "a", heading: "\\#h", alias: "|x" },
+    },
+    {
+      name: "keeps the spaces at the end of a target with no escape",
+      input: "[[a |b]]",
+      expected: { embed: "", target: "a ", heading: "", alias: "|b" },
+    },
+    {
+      name: "keeps a lone `]` in each part",
+      input: "[[a `]` b#h `]` c|x `]` d]]",
+      expected: { embed: "", target: "a `]` b", heading: "#h `]` c", alias: "|x `]` d" },
+    },
+    {
+      name: "keeps `#` and `|` after the first `|` in the alias",
+      input: "[[a|x#y|z]]",
+      expected: { embed: "", target: "a", heading: "", alias: "|x#y|z" },
+    },
+    {
+      name: "splits a link whose alias is empty",
+      input: "[[a#h `|]]",
+      expected: { embed: "", target: "a", heading: "#h `", alias: "|" },
+    },
   ]
 
   it.each(scenarios)("$name", ({ input, expected }) => {
     expect(links.splitWikilink(input)).toEqual(expected)
   })
 
-  it("returns null for text that is not a well-formed wikilink", () => {
-    expect(links.splitWikilink("[[A")).toBeNull()
+  it.each([
+    { label: "an unclosed link", input: "[[A" },
+    { label: "text before the opener", input: "x[[A]]" },
+    { label: "a `]]` before the closing pair", input: "[[a]]b]]" },
+    { label: "a `]` just before the closing pair", input: "[[a]]]" },
+    { label: "an empty target before a heading", input: "[[#h]]" },
+    { label: "an empty target before an alias", input: "[[|x]]" },
+    { label: "an escape alone before an alias", input: "[[\\|x]]" },
+  ])("returns null for $label", ({ input }) => {
+    expect(links.splitWikilink(input)).toBeNull()
+  })
+
+  // Past about 8,390,000 characters, where a pattern that tests each `]` with
+  // a lookahead runs out of V8's regex stack.
+  const LONG_PART = "a".repeat(8_400_000)
+
+  it.each([
+    {
+      label: "target",
+      input: `[[${LONG_PART}]]`,
+      expected: { embed: "", target: LONG_PART, heading: "", alias: "" },
+    },
+    {
+      label: "heading",
+      input: `[[a#${LONG_PART}]]`,
+      expected: { embed: "", target: "a", heading: `#${LONG_PART}`, alias: "" },
+    },
+    {
+      label: "alias",
+      input: `[[a|${LONG_PART}]]`,
+      expected: { embed: "", target: "a", heading: "", alias: `|${LONG_PART}` },
+    },
+  ])("splits a link whose $label holds 8,400,000 characters", ({ input, expected }) => {
+    expect(links.splitWikilink(input)).toEqual(expected)
   })
 })
 
@@ -244,10 +365,11 @@ describe("splitMarkdownLink", () => {
       input: "[t](a/b.md)",
       expected: {
         prefix: "[t](",
-        path: "a/b",
-        extension: ".md",
+        writtenTarget: "a/b.md",
+        storedTarget: "a/b.md",
         heading: "",
-        closeParen: ")",
+        suffix: ")",
+        destinationForm: "bare",
       },
     },
     {
@@ -255,32 +377,23 @@ describe("splitMarkdownLink", () => {
       input: "[t](a/b.md#sec)",
       expected: {
         prefix: "[t](",
-        path: "a/b",
-        extension: ".md",
+        writtenTarget: "a/b.md",
+        storedTarget: "a/b.md",
         heading: "#sec",
-        closeParen: ")",
+        suffix: ")",
+        destinationForm: "bare",
       },
     },
     {
-      name: "decodes a percent-encoded path",
+      name: "decodes a percent-encoded path and keeps the raw target",
       input: "[t](My%20Note.md)",
       expected: {
         prefix: "[t](",
-        path: "My Note",
-        extension: ".md",
+        writtenTarget: "My%20Note.md",
+        storedTarget: "My Note.md",
         heading: "",
-        closeParen: ")",
-      },
-    },
-    {
-      name: "falls back to the raw path when percent-encoding is malformed",
-      input: "[t](100%zzcomplete.md)",
-      expected: {
-        prefix: "[t](",
-        path: "100%zzcomplete",
-        extension: ".md",
-        heading: "",
-        closeParen: ")",
+        suffix: ")",
+        destinationForm: "bare",
       },
     },
     {
@@ -288,10 +401,11 @@ describe("splitMarkdownLink", () => {
       input: "[alt](assets/photo.png)",
       expected: {
         prefix: "[alt](",
-        path: "assets/photo",
-        extension: ".png",
+        writtenTarget: "assets/photo.png",
+        storedTarget: "assets/photo.png",
         heading: "",
-        closeParen: ")",
+        suffix: ")",
+        destinationForm: "bare",
       },
     },
     {
@@ -299,10 +413,11 @@ describe("splitMarkdownLink", () => {
       input: "[t](Extensionless%20Note)",
       expected: {
         prefix: "[t](",
-        path: "Extensionless Note",
-        extension: "",
+        writtenTarget: "Extensionless%20Note",
+        storedTarget: "Extensionless Note",
         heading: "",
-        closeParen: ")",
+        suffix: ")",
+        destinationForm: "bare",
       },
     },
     {
@@ -310,10 +425,11 @@ describe("splitMarkdownLink", () => {
       input: "[t](dir.v2/note)",
       expected: {
         prefix: "[t](",
-        path: "dir.v2/note",
-        extension: "",
+        writtenTarget: "dir.v2/note",
+        storedTarget: "dir.v2/note",
         heading: "",
-        closeParen: ")",
+        suffix: ")",
+        destinationForm: "bare",
       },
     },
     {
@@ -321,10 +437,11 @@ describe("splitMarkdownLink", () => {
       input: "[t](archive.tar.gz)",
       expected: {
         prefix: "[t](",
-        path: "archive.tar",
-        extension: ".gz",
+        writtenTarget: "archive.tar.gz",
+        storedTarget: "archive.tar.gz",
         heading: "",
-        closeParen: ")",
+        suffix: ")",
+        destinationForm: "bare",
       },
     },
     {
@@ -332,10 +449,11 @@ describe("splitMarkdownLink", () => {
       input: "[alt](photo%2Epng)",
       expected: {
         prefix: "[alt](",
-        path: "photo",
-        extension: ".png",
+        writtenTarget: "photo%2Epng",
+        storedTarget: "photo.png",
         heading: "",
-        closeParen: ")",
+        suffix: ")",
+        destinationForm: "bare",
       },
     },
     {
@@ -343,10 +461,95 @@ describe("splitMarkdownLink", () => {
       input: "[alt](photo.p%6Eg)",
       expected: {
         prefix: "[alt](",
-        path: "photo",
-        extension: ".png",
+        writtenTarget: "photo.p%6Eg",
+        storedTarget: "photo.png",
         heading: "",
-        closeParen: ")",
+        suffix: ")",
+        destinationForm: "bare",
+      },
+    },
+    {
+      name: "keeps an angle destination's brackets, spaces and title outside the target",
+      input: '[t]( < My Note.md > "tip" )',
+      expected: {
+        prefix: "[t]( < ",
+        writtenTarget: "My Note.md",
+        storedTarget: "My Note.md",
+        heading: "",
+        suffix: ' > "tip" )',
+        destinationForm: "angle",
+      },
+    },
+    {
+      name: "keeps an angle destination's heading as written",
+      input: "[t](<My Note.md#Head ing>)",
+      expected: {
+        prefix: "[t](<",
+        writtenTarget: "My Note.md",
+        storedTarget: "My Note.md",
+        heading: "#Head ing",
+        suffix: ">)",
+        destinationForm: "angle",
+      },
+    },
+    {
+      name: "keeps parentheses and escapes in a bare target as written",
+      input: "[t](a\\(b\\)c.md 'tip')",
+      expected: {
+        prefix: "[t](",
+        writtenTarget: "a\\(b\\)c.md",
+        storedTarget: "a(b)c.md",
+        heading: "",
+        suffix: " 'tip')",
+        destinationForm: "bare",
+      },
+    },
+    {
+      name: "starts the heading at the character reference that makes its #",
+      input: "[t](Old&num;Heading)",
+      expected: {
+        prefix: "[t](",
+        writtenTarget: "Old",
+        storedTarget: "Old",
+        heading: "&num;Heading",
+        suffix: ")",
+        destinationForm: "bare",
+      },
+    },
+    {
+      name: "starts the heading at the escape pair that makes its #",
+      input: "[t](Old\\#Heading)",
+      expected: {
+        prefix: "[t](",
+        writtenTarget: "Old",
+        storedTarget: "Old",
+        heading: "\\#Heading",
+        suffix: ")",
+        destinationForm: "bare",
+      },
+    },
+    {
+      name: "keeps a character reference before the heading inside the written target",
+      input: "[t](A&amp;B.md#h)",
+      expected: {
+        prefix: "[t](",
+        writtenTarget: "A&amp;B.md",
+        storedTarget: "A&B.md",
+        heading: "#h",
+        suffix: ")",
+        destinationForm: "bare",
+      },
+    },
+    {
+      name: "keeps escape pairs and references before the heading inside the written target",
+      input: "[t](a\\_b&amp;c\\_d.md#h)",
+      expected: {
+        prefix: "[t](",
+        writtenTarget: "a\\_b&amp;c\\_d.md",
+        storedTarget: "a_b&c_d.md",
+        heading: "#h",
+        suffix: ")",
+        destinationForm: "bare",
       },
     },
   ]
@@ -357,6 +560,29 @@ describe("splitMarkdownLink", () => {
 
   it("returns null for malformed link text (missing closing paren)", () => {
     expect(links.splitMarkdownLink("[t](path.md")).toBeNull()
+  })
+
+  it("returns null for a link that does not cover the whole text", () => {
+    expect(links.splitMarkdownLink("[t](a.md) tail")).toBeNull()
+  })
+
+  it("returns null for a link whose destination names no note or file", () => {
+    expect(links.splitMarkdownLink("[t](https://example.com/a.md)")).toBeNull()
+  })
+
+  it("returns null for a destination with a malformed percent escape", () => {
+    expect(links.splitMarkdownLink("[t](100%zzcomplete.md)")).toBeNull()
+  })
+
+  it("splits an embed with a malformed percent escape, its marker in the prefix", () => {
+    expect(links.splitMarkdownLink("![n](100%.md)")).toEqual({
+      prefix: "![n](",
+      writtenTarget: "100%.md",
+      storedTarget: "100%.md",
+      heading: "",
+      suffix: ")",
+      destinationForm: "bare",
+    })
   })
 })
 
@@ -496,7 +722,7 @@ describe("extractFromBody", () => {
     const targets = links.extractFromBody(
       "![photo](pics/photo.png), [doc](papers/report.pdf), and [[Caption]]",
     )
-    expect(targets).toEqual(["Caption", "pics/photo.png", "papers/report.pdf"])
+    expect(targets).toEqual(["pics/photo.png", "papers/report.pdf", "Caption"])
   })
 
   it("extracts extensionless markdown links, percent-decoded", () => {
@@ -529,9 +755,9 @@ describe("extractFromBody", () => {
     expect(targets).toEqual(["papers/report.pdf"])
   })
 
-  it("falls back to raw target when percent-encoding is malformed", () => {
-    const targets = links.extractFromBody("[done](100%zzcomplete.md)")
-    expect(targets).toEqual(["100%zzcomplete.md"])
+  it("drops a markdown link with a malformed percent escape, as Obsidian does", () => {
+    const targets = links.extractFromBody("[done](100%zzcomplete.md) and [[Control]]")
+    expect(targets).toEqual(["Control"])
   })
 
   it("strips the escaped pipe backslash from wikilink targets in table cells", () => {
@@ -543,6 +769,12 @@ describe("extractFromBody", () => {
     ].join("\n")
     const targets = links.extractFromBody(content)
     expect(targets).toEqual(["sessions/log-a", "sessions/log-b"])
+  })
+
+  // Obsidian 1.15.1 stores `[[Note \|Alias]]` in a table as `Note`.
+  it("drops the space before an escaped pipe in a table cell", () => {
+    const targets = links.extractFromBody("| [[Note \\|Alias]] | Topic |")
+    expect(targets).toEqual(["Note"])
   })
 
   it("strips the escaped pipe backslash from aliased wikilinks outside tables", () => {
@@ -575,6 +807,731 @@ describe("extractFromBody", () => {
   it("keeps wikilinks with explicit .md extension", () => {
     const targets = links.extractFromBody("[[Projects/plan.md]]")
     expect(targets).toEqual(["Projects/plan.md"])
+  })
+})
+
+// ── extractFromBody against Obsidian ─────────────────────────────
+
+/** The sorted, distinct targets of links Obsidian stored, each cut at its
+ *  first `#` and trimmed, without the empty ones. */
+const targetsInStoredLinks = (storedLinks: readonly string[]): string[] => {
+  const targets = storedLinks.map((storedLink) => {
+    const headingStart = storedLink.indexOf("#")
+    const linkpath = headingStart === -1 ? storedLink : storedLink.slice(0, headingStart)
+    return linkpath.trim()
+  })
+  return [...new Set(targets.filter((target) => target.length > 0))].toSorted()
+}
+
+describe("extractFromBody against Obsidian 1.15.1", () => {
+  const REPLACEMENT_CHARACTER = String.fromCodePoint(0xfffd)
+
+  // Splits each markdown link the rewriter finds in `input`, returning the
+  // text its parts rebuild and the target its path and extension spell.
+  const splitMarkdownLinksIn = (input: string) => {
+    return links
+      .matchLinksInLine(input)
+      .filter((linkMatch) => linkMatch.kind === "markdown")
+      .map(({ text }) => {
+        const parts = links.splitMarkdownLink(text)
+        return {
+          rebuilt: parts && `${parts.prefix}${parts.writtenTarget}${parts.heading}${parts.suffix}`,
+          storedTarget: parts && parts.storedTarget,
+        }
+      })
+  }
+
+  // Each case holds the links Obsidian 1.15.1's metadata cache stored for its
+  // input, recorded by running the app's worker as a black box, and the
+  // targets extraction returns: each link with its heading removed and
+  // trimmed, without the heading-only ones.
+  const obsidianCases = [
+    // The plan's vector table.
+    { input: "[x](<My Note.md>)", obsidian: ["My Note.md"], expected: ["My Note.md"] },
+    { input: "[x](<New (Draft).md>)", obsidian: ["New (Draft).md"], expected: ["New (Draft).md"] },
+    {
+      input: "[x](<Folder/Sub Note>)",
+      obsidian: ["Folder/Sub Note"],
+      expected: ["Folder/Sub Note"],
+    },
+    { input: "[x](<MyNote.md>)", obsidian: ["MyNote.md"], expected: ["MyNote.md"] },
+    { input: "[x](<My%20Note.md>)", obsidian: ["My Note.md"], expected: ["My Note.md"] },
+    { input: "[x](New%20(Draft).md)", obsidian: ["New (Draft).md"], expected: ["New (Draft).md"] },
+    { input: "[x](a(b)c.md)", obsidian: ["a(b)c.md"], expected: ["a(b)c.md"] },
+    { input: "[x](a((b)).md)", obsidian: ["a((b)).md"], expected: ["a((b)).md"] },
+    { input: "[x](a(b.md)", obsidian: [], expected: [] },
+    { input: "[x](a)b).md)", obsidian: ["a"], expected: ["a"] },
+    { input: "[x](a\\)b.md)", obsidian: ["a)b.md"], expected: ["a)b.md"] },
+    { input: "[x](a\\(b.md)", obsidian: ["a(b.md"], expected: ["a(b.md"] },
+    { input: '[x](My%20Note.md "title")', obsidian: ["My Note.md"], expected: ["My Note.md"] },
+    { input: "[x](My%20Note.md 'title')", obsidian: ["My Note.md"], expected: ["My Note.md"] },
+    { input: "[x](My%20Note.md (title))", obsidian: ["My Note.md"], expected: ["My Note.md"] },
+    { input: "[x](<a.md> 't')", obsidian: ["a.md"], expected: ["a.md"] },
+    { input: '[x](a.md "ti)tle")', obsidian: ["a.md"], expected: ["a.md"] },
+    { input: '[x](a(b)c.md "t(1)")', obsidian: ["a(b)c.md"], expected: ["a(b)c.md"] },
+    { input: "[x]( <My Note.md> )", obsidian: ["My Note.md"], expected: ["My Note.md"] },
+    { input: "[x]( My%20Note.md )", obsidian: ["My Note.md"], expected: ["My Note.md"] },
+    { input: "[x](< My Note.md >)", obsidian: ["My Note.md"], expected: ["My Note.md"] },
+    { input: "[x](\t<My Note.md>\t)", obsidian: ["My Note.md"], expected: ["My Note.md"] },
+    { input: "[x](a.md\t)", obsidian: ["a.md"], expected: ["a.md"] },
+    { input: "[x](<a.md>  )", obsidian: ["a.md"], expected: ["a.md"] },
+    {
+      input: "[x](<My Note.md#Head ing>)",
+      obsidian: ["My Note.md#Head ing"],
+      expected: ["My Note.md"],
+    },
+    { input: "[x](a(b)c.md#h(1))", obsidian: ["a(b)c.md#h(1)"], expected: ["a(b)c.md"] },
+    {
+      input: "[a](<x y.md>) and [b](z(1).md)",
+      obsidian: ["x y.md", "z(1).md"],
+      expected: ["x y.md", "z(1).md"],
+    },
+    { input: '[x](a.md"title")', obsidian: ['a.md"title"'], expected: ['a.md"title"'] },
+    { input: '[x](<a.md>"t")', obsidian: [], expected: [] },
+    { input: "[x](<a.md>x)", obsidian: [], expected: [] },
+    { input: "[x](a.md x)", obsidian: [], expected: [] },
+    { input: '[x](a.md "t" x)', obsidian: [], expected: [] },
+    { input: '[x](a.md "title)', obsidian: [], expected: [] },
+    { input: "[x](<a>b.md>)", obsidian: [], expected: [] },
+    { input: "[x](<a\\>b.md>)", obsidian: [], expected: [] },
+    { input: "[x](<a\\>.md>)", obsidian: [], expected: [] },
+    { input: "[x](<>)", obsidian: [], expected: [] },
+    { input: "[x](<a.md>", obsidian: [], expected: [] },
+    { input: "[x](<a.md\\>)", obsidian: ["a.md\\"], expected: ["a.md\\"] },
+    { input: "[x](<a<b.md>)", obsidian: ["a<b.md"], expected: ["a<b.md"] },
+    { input: "[x](<a(b.md>)", obsidian: ["a(b.md"], expected: ["a(b.md"] },
+    { input: "[x](<a\tb.md>)", obsidian: ["a\tb.md"], expected: ["a\tb.md"] },
+    { input: "[x](a\\ b.md)", obsidian: ["a\\ b.md"], expected: ["a\\ b.md"] },
+    { input: "[x](a\\(b c.md)", obsidian: [], expected: [] },
+    { input: "[x](a\\#b.md)", obsidian: ["a#b.md"], expected: ["a"] },
+    { input: "[x](a\\_b.md)", obsidian: ["a_b.md"], expected: ["a_b.md"] },
+    { input: "[x](a\\&b.md)", obsidian: ["a&b.md"], expected: ["a&b.md"] },
+    { input: "[x](a\\\\b.md)", obsidian: ["a\\b.md"], expected: ["a\\b.md"] },
+    { input: "[x](a\\b.md)", obsidian: ["a\\b.md"], expected: ["a\\b.md"] },
+    { input: "[x](\\<a.md\\>)", obsidian: ["<a.md>"], expected: ["<a.md>"] },
+    { input: "[x](<https://example.com>)", obsidian: [], expected: [] },
+    { input: "[x](<mailto:a@b.c>)", obsidian: [], expected: [] },
+    { input: "[x](<C:/x.md>)", obsidian: [], expected: [] },
+    { input: "[x](https\\://example.com)", obsidian: [], expected: [] },
+    { input: "[x](#Heading)", obsidian: ["#Heading"], expected: [] },
+    { input: "[x](<#Heading>)", obsidian: ["#Heading"], expected: [] },
+    { input: "[x](a.md#)", obsidian: ["a.md#"], expected: ["a.md"] },
+    { input: "[x](<a.md#>)", obsidian: ["a.md#"], expected: ["a.md"] },
+    { input: "[x](%20a.md)", obsidian: ["a.md"], expected: ["a.md"] },
+    { input: "[x](a.md%20)", obsidian: ["a.md"], expected: ["a.md"] },
+    { input: "[x](<%20a.md>)", obsidian: ["a.md"], expected: ["a.md"] },
+    { input: "[x](a%2Fb.md)", obsidian: ["a%2Fb.md"], expected: ["a%2Fb.md"] },
+    { input: "[x](a%3Fb.md)", obsidian: ["a%3Fb.md"], expected: ["a%3Fb.md"] },
+    { input: "[x](a%26b.md)", obsidian: ["a%26b.md"], expected: ["a%26b.md"] },
+    { input: "[x](a%23b.md)", obsidian: ["a%23b.md"], expected: ["a%23b.md"] },
+    { input: "[x](a%5Cb.md)", obsidian: ["a\\b.md"], expected: ["a\\b.md"] },
+    { input: "[x](<a%3Eb.md>)", obsidian: ["a>b.md"], expected: ["a>b.md"] },
+    { input: "[x](<a%3Cb.md>)", obsidian: ["a<b.md"], expected: ["a<b.md"] },
+    { input: "[x](a%2)", obsidian: [], expected: [] },
+    { input: "[x](<a%2.md>)", obsidian: [], expected: [] },
+    { input: "[x](a&amp;b.md)", obsidian: ["a&b.md"], expected: ["a&b.md"] },
+    { input: "[x](a&#38;b.md)", obsidian: ["a&b.md"], expected: ["a&b.md"] },
+    { input: "[x](<A &amp; B.md>)", obsidian: ["A & B.md"], expected: ["A & B.md"] },
+    { input: "[x](<A & B.md>)", obsidian: ["A & B.md"], expected: ["A & B.md"] },
+    { input: "[x](<A %26 B.md>)", obsidian: ["A %26 B.md"], expected: ["A %26 B.md"] },
+    // Whitespace, URI, balance, used-up destination and escaped opener rows from review.
+    { input: '[x](a(b "t")', obsidian: ["a(b"], expected: ["a(b"] },
+    { input: "[x](a.md\u00a0)", obsidian: ["a.md"], expected: ["a.md"] },
+    { input: "[x](\u00a0a.md)", obsidian: ["a.md"], expected: ["a.md"] },
+    { input: "[x](<a\u00a0b.md>)", obsidian: ["a b.md"], expected: ["a b.md"] },
+    { input: "[x](a.md\u3000)", obsidian: ["a.md"], expected: ["a.md"] },
+    { input: "[x](<a\u2028b.md>)", obsidian: ["a\u2028b.md"], expected: ["a\u2028b.md"] },
+    { input: "[x](<a\rb.md>) [y](c.md)", obsidian: ["c.md"], expected: ["c.md"] },
+    { input: "[x](%68ttps://example.com)", obsidian: [], expected: [] },
+    { input: "[x](< https://example.com >)", obsidian: [], expected: [] },
+    { input: "[x](a/b:c.md)", obsidian: [], expected: [] },
+    { input: "[x](ab%3Ac.md)", obsidian: ["ab%3Ac.md"], expected: ["ab%3Ac.md"] },
+    // A link starting with `./` or `../` keeps its `:`, tested before percent-decoding and trimming.
+    {
+      input: "[x](../Note.md#Step%201:%20Setup)",
+      obsidian: ["../Note.md#Step 1: Setup"],
+      expected: ["../Note.md"],
+    },
+    {
+      input: "[x](<../My Note.md#Step 1: Setup>)",
+      obsidian: ["../My Note.md#Step 1: Setup"],
+      expected: ["../My Note.md"],
+    },
+    { input: "[x](./a:b.md)", obsidian: ["./a:b.md"], expected: ["./a:b.md"] },
+    { input: "[x](&#46;/a:b.md)", obsidian: ["./a:b.md"], expected: ["./a:b.md"] },
+    { input: "[x](.\\/a:b.md)", obsidian: ["./a:b.md"], expected: ["./a:b.md"] },
+    { input: "[x](%2E%2E/a:b.md)", obsidian: [], expected: [] },
+    { input: "[x](< ../a:b.md>)", obsidian: [], expected: [] },
+    { input: "[x](/a:b.md)", obsidian: [], expected: [] },
+    { input: "[x](.../a:b.md)", obsidian: [], expected: [] },
+    { input: "[a](https://x.com/[b](c.md))", obsidian: [], expected: [] },
+    { input: "\\[x](a.md)", obsidian: [], expected: [] },
+    { input: "\\\\[x](a.md)", obsidian: ["a.md"], expected: ["a.md"] },
+    { input: "![x](img.png)", obsidian: ["img.png"], expected: ["img.png"] },
+    // Character references, entity-made headings and headings that drop the link.
+    { input: "[x](a&notit;b.md)", obsidian: ["a\u00acit;b.md"], expected: ["a\u00acit;b.md"] },
+    { input: "[x](a&amplt;b.md)", obsidian: ["a&lt;b.md"], expected: ["a&lt;b.md"] },
+    { input: "[x](a&amp;amp;b.md)", obsidian: ["a&amp;b.md"], expected: ["a&amp;b.md"] },
+    { input: "[x](a&amp;#35;b.md)", obsidian: ["a&#35;b.md"], expected: ["a&"] },
+    { input: "[x](a&num;Heading)", obsidian: ["a#Heading"], expected: ["a"] },
+    { input: "[x](a&#35;Heading)", obsidian: ["a#Heading"], expected: ["a"] },
+    { input: "[x](a&#x23;Heading)", obsidian: ["a#Heading"], expected: ["a"] },
+    { input: "[x](a.md#h:1)", obsidian: [], expected: [] },
+    { input: "[x](<Note.md#Step 1: Setup>)", obsidian: [], expected: [] },
+    { input: "[x](a.md#h\\:x)", obsidian: [], expected: [] },
+    { input: "[x](a.md#h&colon;x)", obsidian: [], expected: [] },
+    { input: "![x](img.png#h:1)", obsidian: [], expected: [] },
+    { input: "[x](a.md#%2)", obsidian: [], expected: [] },
+    { input: "[x](a.md#%zz)", obsidian: [], expected: [] },
+    { input: "[x](Budget.md#100%)", obsidian: [], expected: [] },
+    { input: "[x](a.md#h%3A1)", obsidian: ["a.md#h%3A1"], expected: ["a.md"] },
+    { input: "[x](Budget.md#100%25)", obsidian: ["Budget.md#100%"], expected: ["Budget.md"] },
+    // A malformed escape leaves an embed undecoded instead of dropping it.
+    { input: "![i](100%.png)", obsidian: ["100%.png"], expected: ["100%.png"] },
+    { input: "![](<100% done.png>)", obsidian: ["100% done.png"], expected: ["100% done.png"] },
+    { input: "![i](a.png#h%2)", obsidian: ["a.png#h%2"], expected: ["a.png"] },
+    { input: "![i](./a%2.png)", obsidian: ["./a%2.png"], expected: ["./a%2.png"] },
+    { input: '![i](<a%2.png> "t")', obsidian: ["a%2.png"], expected: ["a%2.png"] },
+    { input: "![i](a%26b%.png)", obsidian: ["a%26b%.png"], expected: ["a%26b%.png"] },
+    { input: "![i](&amp;%.png)", obsidian: ["&%.png"], expected: ["&%.png"] },
+    { input: "!![i](50%.png)", obsidian: ["50%.png"], expected: ["50%.png"] },
+    { input: "\\![i](a%2.png)", obsidian: [], expected: [] },
+    { input: "![i](a%zz:b.png)", obsidian: [], expected: [] },
+    { input: "x ![a](b%.png) y [c](d%.md)", obsidian: ["b%.png"], expected: ["b%.png"] },
+    { input: "[x](a&notes.md)", obsidian: ["a&notes.md"], expected: ["a&notes.md"] },
+    { input: "[x](a&amp b.md)", obsidian: [], expected: [] },
+    // Comments, long reference names, escapes and the rewriter's spellings.
+    { input: "[x](<a.md #h>)", obsidian: ["a.md #h"], expected: ["a.md"] },
+    { input: "%% [x](a.md) %%", obsidian: ["a.md"], expected: ["a.md"] },
+    { input: "x %%[x](a.md)%% y", obsidian: ["a.md"], expected: ["a.md"] },
+    {
+      input: "[x](a&bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb;c.md)",
+      obsidian: ["a&bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb;c.md"],
+      expected: ["a&bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb;c.md"],
+    },
+    {
+      input: "[x](a&notbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb;c.md)",
+      obsidian: ["a\u00acbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb;c.md"],
+      expected: ["a\u00acbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb;c.md"],
+    },
+    {
+      input: "[x](a&notbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbc.md)",
+      obsidian: ["a&notbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbc.md"],
+      expected: ["a&notbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbc.md"],
+    },
+    {
+      input: "[x](a&CounterClockwiseContourIntegralx;b.md)",
+      obsidian: ["a&CounterClockwiseContourIntegralx;b.md"],
+      expected: ["a&CounterClockwiseContourIntegralx;b.md"],
+    },
+    {
+      input: "[x](a&CounterClockwiseContourIntegral;b.md)",
+      obsidian: ["a∳b.md"],
+      expected: ["a∳b.md"],
+    },
+    { input: "[x](a&#;b.md)", obsidian: ["a&#;b.md"], expected: ["a&"] },
+    { input: "[x](a&\\#35;b.md)", obsidian: ["a#b.md"], expected: ["a"] },
+    { input: "[x]()", obsidian: [], expected: [] },
+    { input: "[x]( )", obsidian: [], expected: [] },
+    { input: "[x](a.md 'ti\\'tle')", obsidian: ["a.md"], expected: ["a.md"] },
+    { input: '[x](a.md "t" )', obsidian: ["a.md"], expected: ["a.md"] },
+    { input: "[x](a.md\u000b)", obsidian: ["a.md"], expected: ["a.md"] },
+    { input: "[x](a\u00a0b.md)", obsidian: [], expected: [] },
+    { input: "[x](a\\ b.md#h)", obsidian: ["a\\ b.md#h"], expected: ["a\\ b.md"] },
+    { input: "[x](a%20b.md#Head%20ing)", obsidian: ["a b.md#Head ing"], expected: ["a b.md"] },
+    { input: "[x](%41.md)", obsidian: ["A.md"], expected: ["A.md"] },
+    { input: "[x](a.md#h&num;2)", obsidian: ["a.md#h#2"], expected: ["a.md"] },
+    { input: "[x](A&amp;B.md#h)", obsidian: ["A&B.md#h"], expected: ["A&B.md"] },
+    { input: "[x](a\\_b&amp;c\\_d.md#h)", obsidian: ["a_b&c_d.md#h"], expected: ["a_b&c_d.md"] },
+    { input: "[x](\\[a\\].md)", obsidian: ["[a].md"], expected: ["[a].md"] },
+    { input: "[x](a\\*b.md)", obsidian: ["a*b.md"], expected: ["a*b.md"] },
+    { input: "[x](a\\$b.md)", obsidian: ["a$b.md"], expected: ["a$b.md"] },
+    { input: "[x](a_b.md)", obsidian: ["a_b.md"], expected: ["a_b.md"] },
+    { input: "[x](a\\_\\_b.md)", obsidian: ["a__b.md"], expected: ["a__b.md"] },
+    { input: "[x](a%60b%60c.md)", obsidian: ["a`b`c.md"], expected: ["a`b`c.md"] },
+    { input: "[x](<a%60b%60c.md>)", obsidian: ["a`b`c.md"], expected: ["a`b`c.md"] },
+    { input: "[x](a\\<b\\>c.md)", obsidian: ["a<b>c.md"], expected: ["a<b>c.md"] },
+    { input: "[x](R+D%20@%20Home.md)", obsidian: ["R+D @ Home.md"], expected: ["R+D @ Home.md"] },
+    { input: "[x](A%20&%61mp;%20B.md)", obsidian: ["A &amp; B.md"], expected: ["A &amp; B.md"] },
+    {
+      input: "[x](A%20&%61mplt;%20B.md)",
+      obsidian: ["A &amplt; B.md"],
+      expected: ["A &amplt; B.md"],
+    },
+    { input: "[x](a&#%335;b.md)", obsidian: ["a&#35;b.md"], expected: ["a&"] },
+    { input: "[x](<A &%61mp; B.md>)", obsidian: ["A &amp; B.md"], expected: ["A &amp; B.md"] },
+    { input: "[x](Q%26A.md)", obsidian: ["Q%26A.md"], expected: ["Q%26A.md"] },
+    { input: "[x](x$y.md)", obsidian: ["x$y.md"], expected: ["x$y.md"] },
+    { input: "[x](x\\$y.md)", obsidian: ["x$y.md"], expected: ["x$y.md"] },
+    { input: "[x](a\\~\\~b.md)", obsidian: ["a~~b.md"], expected: ["a~~b.md"] },
+    { input: "[x](a~b.md)", obsidian: ["a~b.md"], expected: ["a~b.md"] },
+    { input: "[x](a\\=\\=b.md)", obsidian: ["a==b.md"], expected: ["a==b.md"] },
+    // A reference that decodes nothing after one that does.
+    { input: "[x](&amp;&Note.md)", obsidian: ["&&Note.md"], expected: ["&&Note.md"] },
+    { input: "[x](a&amp;&b.md)", obsidian: ["a&&b.md"], expected: ["a&&b.md"] },
+    { input: "[x](&lt;&gt.md)", obsidian: ["<&gt.md"], expected: ["<&gt.md"] },
+    { input: "[x](&amp;&amp.md)", obsidian: ["&&amp.md"], expected: ["&&amp.md"] },
+    { input: "[x](<&amp;&Note.md>)", obsidian: ["&&Note.md"], expected: ["&&Note.md"] },
+    { input: "x &amp;&Note y", obsidian: [], expected: [] },
+    { input: "[x](&#38;&Note.md)", obsidian: ["&&Note.md"], expected: ["&&Note.md"] },
+    // Nested openers, and a bare title that starts before a failed angle title.
+    { input: '[a](< [b](x.md "t") > "x', obsidian: ["x.md"], expected: ["x.md"] },
+    { input: "[a](h:[a](h:a))", obsidian: [], expected: [] },
+    { input: "[a](#[b](c.md))", obsidian: ["#[b](c.md)"], expected: [] },
+    // An escaped closer, a prose bracket, and the spellings a move writes.
+    { input: "[a\\](b.md)", obsidian: [], expected: [] },
+    { input: "[a\\\\](b.md)", obsidian: ["b.md"], expected: ["b.md"] },
+    { input: "[a\\\\\\](b.md)", obsidian: [], expected: [] },
+    {
+      input: "Type [ to open, `]` to close, or read [the guide](Old.md).",
+      obsidian: ["Old.md"],
+      expected: ["Old.md"],
+    },
+    { input: "[x](R&D&amp;#35;)", obsidian: ["R&D&#35;"], expected: ["R&D&"] },
+    { input: "[x](R&D&#35;)", obsidian: ["R&D#"], expected: ["R&D"] },
+    { input: "[x](<A(B.md#h)c>)", obsidian: ["A(B.md#h)c"], expected: ["A(B.md"] },
+    { input: "[x](A(B.md#h)c)", obsidian: ["A(B.md#h)c"], expected: ["A(B.md"] },
+    {
+      input: "![n](<New Plan.md#100%>)",
+      obsidian: ["New Plan.md#100%"],
+      expected: ["New Plan.md"],
+    },
+    {
+      input: "[x](./Old.md#Step%201:%20Setup)",
+      obsidian: ["./Old.md#Step 1: Setup"],
+      expected: ["./Old.md"],
+    },
+    {
+      input: "[x](a&notXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX.b;c.md)",
+      obsidian: ["a&notXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX.b;c.md"],
+      expected: ["a&notXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX.b;c.md"],
+    },
+    // A numeric reference's leading zeros keep its code point, a code point
+    // past U+10FFFF decodes to U+FFFD, and a reference no `;` ends stays as
+    // written.
+    { input: "[x](<&#0000000065;.md>)", obsidian: ["A.md"], expected: ["A.md"] },
+    { input: "[x](<&#x00000041;.md>)", obsidian: ["A.md"], expected: ["A.md"] },
+    {
+      input: "[x](<&#00001114112;.md>)",
+      obsidian: [`${REPLACEMENT_CHARACTER}.md`],
+      expected: [`${REPLACEMENT_CHARACTER}.md`],
+    },
+    {
+      input: "[x](<&#x0110000;.md>)",
+      obsidian: [`${REPLACEMENT_CHARACTER}.md`],
+      expected: [`${REPLACEMENT_CHARACTER}.md`],
+    },
+    // More significant digits than any code point holds, decoded without
+    // parse-entities.
+    {
+      input: "[x](<&#0011141120;a.md>) [y](<&#x01100000;b.md>)",
+      obsidian: [`${REPLACEMENT_CHARACTER}a.md`, `${REPLACEMENT_CHARACTER}b.md`],
+      expected: [`${REPLACEMENT_CHARACTER}a.md`, `${REPLACEMENT_CHARACTER}b.md`],
+    },
+    { input: "[x](<&#65.md>)", obsidian: ["&#65.md"], expected: ["&"] },
+    // A backslash run before a title's opening quote, odd or even, ends the link.
+    { input: '[x](a.md \\"t")', obsidian: [], expected: [] },
+    { input: '[x](a.md \\\\"t")', obsidian: [], expected: [] },
+    { input: '[x](a.md \\\\\\\\"t")', obsidian: [], expected: [] },
+    { input: "[x](a.md \\\\'t')", obsidian: [], expected: [] },
+    { input: "[x](<&#;.md>)", obsidian: ["&#;.md"], expected: ["&"] },
+    {
+      input: "[x](<&amp;and more text.md>)",
+      obsidian: ["&and more text.md"],
+      expected: ["&and more text.md"],
+    },
+  ]
+
+  it.each(obsidianCases)("extracts $expected from $input", ({ input, expected }) => {
+    expect(links.extractFromBody(input)).toEqual(expected)
+  })
+
+  // Each accepted link's parts rebuild its text, and its path and extension
+  // spell the target Obsidian stores.
+  it.each(obsidianCases.filter(({ expected }) => expected.length > 0))(
+    "splits each link in $input into parts that rebuild it",
+    ({ input, expected }) => {
+      const markdownMatches = links
+        .matchLinksInLine(input)
+        .filter((linkMatch) => linkMatch.kind === "markdown")
+
+      expect(splitMarkdownLinksIn(input)).toEqual(
+        expected.map((storedTarget, index) => ({
+          rebuilt: markdownMatches[index]?.text,
+          storedTarget,
+        })),
+      )
+    },
+  )
+
+  // Obsidian reads a wikilink inside a markdown link's destination or title
+  // as part of that link, not as a link of its own.
+  const wikilinkInDestinationCases = [
+    { input: "[x](x.md#[[x]])", obsidian: ["x.md#[[x]]"], expected: ["x.md"] },
+    { input: '[x](b.md "see [[Old]]")', obsidian: ["b.md"], expected: ["b.md"] },
+    { input: "[x](b.md 'see [[Old]]')", obsidian: ["b.md"], expected: ["b.md"] },
+    { input: "[x](b.md (see [[Old]]))", obsidian: ["b.md"], expected: ["b.md"] },
+    { input: '![x](b.png "[[Old]]")', obsidian: ["b.png"], expected: ["b.png"] },
+    { input: '[x](https://example.com "[[Plan]]")', obsidian: [], expected: [] },
+    { input: '[x](#h "[[Plan]]")', obsidian: ["#h"], expected: [] },
+    {
+      input: '[[Old]] and [x](b.md "[[Other]]")',
+      obsidian: ["Old", "b.md"],
+      expected: ["b.md", "Old"],
+    },
+  ]
+
+  it.each(wikilinkInDestinationCases)("extracts $expected from $input", ({ input, expected }) => {
+    expect(links.extractFromBody(input)).toEqual(expected)
+  })
+
+  // Obsidian reads a markdown link's destination and title with any backticks
+  // as written, so a code span there is part of the path or the title, or
+  // ends the link when it leaves no valid title.
+  const inlineCodeInDestinationCases = [
+    { input: 'See [x](b.md `foo` "[[Old]]")', obsidian: ["Old"], expected: ["Old"] },
+    { input: "[x](b.md `foo`) [[Old]]", obsidian: ["Old"], expected: ["Old"] },
+    { input: '[x](`c` b.md "[[d]]")', obsidian: ["d"], expected: ["d"] },
+    { input: '[x](`c` https://x "[[d]]")', obsidian: ["d"], expected: ["d"] },
+    { input: "[x](<`draft`Old.md>)", obsidian: ["`draft`Old.md"], expected: ["`draft`Old.md"] },
+    { input: "[x](`draft`Old.md)", obsidian: ["`draft`Old.md"], expected: ["`draft`Old.md"] },
+    {
+      input: "[x](<Report `draft` [[Old]].md>)",
+      obsidian: ["Report `draft` [[Old]].md"],
+      expected: ["Report `draft` [[Old]].md"],
+    },
+    { input: '[x](<a b.md> "`t` [[Old]]")', obsidian: ["a b.md"], expected: ["a b.md"] },
+    { input: '[x](b.md "<% tp.x %> [[Old]]")', obsidian: ["b.md"], expected: ["b.md"] },
+    { input: "[x](Old.md`v2`)", obsidian: ["Old.md`v2`"], expected: ["Old.md`v2`"] },
+    { input: '[x](b.md "[[c") [[Old]]', obsidian: ["b.md", "Old"], expected: ["b.md", "Old"] },
+    { input: '[x](Old.md#[[Old]] "`c`")', obsidian: ["Old.md#[[Old]]"], expected: ["Old.md"] },
+    { input: "[x](Old.md#`h`)", obsidian: ["Old.md#`h`"], expected: ["Old.md"] },
+    { input: "[x](<Old.md#a `b` c>)", obsidian: ["Old.md#a `b` c"], expected: ["Old.md"] },
+  ]
+
+  it.each(inlineCodeInDestinationCases)("extracts $expected from $input", ({ input, expected }) => {
+    expect(links.extractFromBody(input)).toEqual(expected)
+  })
+
+  // Obsidian reads a wikilink's target as written: backticks and Templater
+  // expressions stay in it, and its first `#`, `|` or `]]` ends it even
+  // inside one, but a lone `]` does not. A table-pipe escape is dropped with
+  // the spaces around its backslash.
+  const wikilinkTargetAsWrittenCases = [
+    { input: "[[a\\ |b]]", obsidian: ["a"], expected: ["a"] },
+    { input: "| [[Note \\|Alias]] | x |", obsidian: ["Note"], expected: ["Note"] },
+    { input: "[[a `b` c]]", obsidian: ["a `b` c"], expected: ["a `b` c"] },
+    {
+      input: "[[Daily/<% tp.date.yesterday() %>]]",
+      obsidian: ["Daily/<% tp.date.yesterday() %>"],
+      expected: ["Daily/<% tp.date.yesterday() %>"],
+    },
+    { input: "[[a `|` b]]", obsidian: ["a `"], expected: ["a `"] },
+    { input: "[[a `#h` c]]", obsidian: ["a `#h` c"], expected: ["a `"] },
+    { input: "[[a `]]` b]]", obsidian: ["a `"], expected: ["a `"] },
+    { input: "[[a#h `]]` c]]", obsidian: ["a#h `"], expected: ["a"] },
+    { input: "[[a|x `]]` c]]", obsidian: ["a"], expected: ["a"] },
+    { input: "[[Daily/<% a|b %>]]", obsidian: ["Daily/<% a"], expected: ["Daily/<% a"] },
+    { input: "[[Daily/<% a#b %>]]", obsidian: ["Daily/<% a#b %>"], expected: ["Daily/<% a"] },
+    { input: "[[a `]` b]]", obsidian: ["a `]` b"], expected: ["a `]` b"] },
+    {
+      input: '[[<% tp.date.now("gggg-[W]ww") %>]]',
+      obsidian: ['<% tp.date.now("gggg-[W]ww") %>'],
+      expected: ['<% tp.date.now("gggg-[W]ww") %>'],
+    },
+    {
+      input: '[[Weekly/<% tp.date.now("gggg-[W]ww") %>|This week]]',
+      obsidian: ['Weekly/<% tp.date.now("gggg-[W]ww") %>'],
+      expected: ['Weekly/<% tp.date.now("gggg-[W]ww") %>'],
+    },
+  ]
+
+  it.each(wikilinkTargetAsWrittenCases)("extracts $expected from $input", ({ input, expected }) => {
+    expect(links.extractFromBody(input)).toEqual(expected)
+  })
+
+  // Each case's `expected` holds the targets of its recorded `obsidian` links:
+  // each link cut at its first `#` and trimmed, without the empty ones. A
+  // re-recorded `obsidian` value that no longer gives `expected` fails here.
+  it.each([
+    ...obsidianCases,
+    ...wikilinkInDestinationCases,
+    ...inlineCodeInDestinationCases,
+    ...wikilinkTargetAsWrittenCases,
+  ])("derives $expected from Obsidian's stored links for $input", ({ obsidian, expected }) => {
+    expect(targetsInStoredLinks(obsidian)).toEqual(expected.toSorted())
+  })
+
+  // Each link whose destination holds backticks splits into parts that
+  // rebuild it, with the stored target read as written.
+  const backtickDestinationSplitCases = [
+    { input: "[x](<`draft`Old.md>)", storedTarget: "`draft`Old.md" },
+    { input: "[x](`draft`Old.md)", storedTarget: "`draft`Old.md" },
+    { input: "[x](Old.md`v2`)", storedTarget: "Old.md`v2`" },
+    { input: "[x](<Report `draft` [[Old]].md>)", storedTarget: "Report `draft` [[Old]].md" },
+    { input: '[x](<a b.md> "`t` [[Old]]")', storedTarget: "a b.md" },
+    { input: "[x](Old.md#`h`)", storedTarget: "Old.md" },
+    { input: "[x](<Old.md#a `b` c>)", storedTarget: "Old.md" },
+    { input: '[x](Old.md#[[Old]] "`c`")', storedTarget: "Old.md" },
+  ]
+
+  it.each(backtickDestinationSplitCases)(
+    "splits $input into parts that rebuild it and spell $storedTarget",
+    ({ input, storedTarget }) => {
+      expect(splitMarkdownLinksIn(input)).toEqual([{ rebuilt: input, storedTarget }])
+    },
+  )
+})
+
+// ── Markdown link memory ─────────────────────────────────────────
+
+/** The memory worker's peak heap growth while it scans, decodes or folds its
+ *  10,000,000-character line, with the line's parenthesis count and the
+ *  length of the operation's result. */
+const measureHeapGrowth = async (
+  shape:
+    | "sparse"
+    | "dense"
+    | "ampersands"
+    | "ampersand-tail"
+    | "digit-run"
+    | "long-number"
+    | "escaped-punctuation"
+    | "no-break-spaces"
+    | "percent-runs"
+    | "dense-links"
+    | "code-spans"
+    | "templater"
+    | "final-sigmas"
+    | "capital-greek-words",
+): Promise<{ peakGrowth: number; parenthesisCount: number; resultLength: number }> => {
+  const { peakGrowth, ready, done } = await measureWorkerHeapGrowth({
+    workerUrl: new URL("./helpers/link-memory-worker.ts", import.meta.url),
+    workerData: shape,
+  })
+  return {
+    peakGrowth,
+    parenthesisCount: readNumberDetail(ready, "parenthesisCount"),
+    resultLength: readNumberDetail(done, "resultLength"),
+  }
+}
+
+describe("markdown link scan memory", () => {
+  /** Heap growth any scan may show, from V8's own bookkeeping. */
+  const ONE_MEGABYTE = 1_000_000
+
+  /** The record set keeps two 4-byte integers per parenthesis. */
+  const BYTES_PER_PARENTHESIS = 8
+
+  it("grows the heap less than 1 MB on a 10,000,000-character line with one parenthesis", async () => {
+    const { peakGrowth, parenthesisCount, resultLength } = await measureHeapGrowth("sparse")
+
+    expect({ parenthesisCount, resultLength }).toEqual({ parenthesisCount: 1, resultLength: 0 })
+    expect(peakGrowth).toBeLessThan(ONE_MEGABYTE)
+  }, 60_000)
+
+  it("grows the heap at most 8 bytes per parenthesis and 1 MB on a parenthesis-dense line", async () => {
+    const { peakGrowth, parenthesisCount, resultLength } = await measureHeapGrowth("dense")
+
+    expect({ parenthesisCount, resultLength }).toEqual({
+      parenthesisCount: 9_999_997,
+      resultLength: 0,
+    })
+    expect(peakGrowth).toBeLessThan(BYTES_PER_PARENTHESIS * parenthesisCount + ONE_MEGABYTE)
+  }, 60_000)
+})
+
+describe("link spelling decode memory", () => {
+  const LINE_LENGTH = 10_000_000
+
+  /** The decoder's joined batches, its output and the garbage its
+   *  parse-entities calls leave before a collection come to about 5 bytes per
+   *  character on this line. One string per decoded piece would cost about 90. */
+  const BYTES_PER_CHARACTER = 8
+
+  it("grows the heap at most 8 bytes per character decoding a 10,000,000-character run of &", async () => {
+    const { peakGrowth, resultLength } = await measureHeapGrowth("ampersands")
+
+    expect(resultLength).toBe(LINE_LENGTH)
+    expect(peakGrowth).toBeLessThan(BYTES_PER_CHARACTER * LINE_LENGTH)
+  }, 60_000)
+
+  it("grows the heap at most 8 bytes per character decoding one &amp; before 10,000,000 characters of text", async () => {
+    const { peakGrowth, resultLength } = await measureHeapGrowth("ampersand-tail")
+
+    // `&amp;` decodes to the one character `&`, four fewer than its spelling.
+    expect(resultLength).toBe(LINE_LENGTH - 4)
+    expect(peakGrowth).toBeLessThan(BYTES_PER_CHARACTER * LINE_LENGTH)
+  }, 60_000)
+
+  it("grows the heap at most 8 bytes per character decoding one &# reference with 10,000,000 digits", async () => {
+    const { peakGrowth, resultLength } = await measureHeapGrowth("digit-run")
+
+    // The leading zeros do not change the code point, so the line decodes to "A".
+    expect(resultLength).toBe(1)
+    expect(peakGrowth).toBeLessThan(BYTES_PER_CHARACTER * LINE_LENGTH)
+  }, 60_000)
+
+  // Each case's line decodes to resultLength characters.
+  const denseDecodeCases = [
+    { shape: "escaped-punctuation", text: "escape pairs", resultLength: LINE_LENGTH / 2 },
+    { shape: "no-break-spaces", text: "no-break spaces", resultLength: LINE_LENGTH },
+    { shape: "percent-runs", text: "short percent runs", resultLength: LINE_LENGTH / 2 },
+  ] as const
+
+  it.each(denseDecodeCases)(
+    "grows the heap at most 8 bytes per character decoding a 10,000,000-character line of $text",
+    async ({ shape, resultLength: expectedLength }) => {
+      const { peakGrowth, resultLength } = await measureHeapGrowth(shape)
+
+      expect(resultLength).toBe(expectedLength)
+      expect(peakGrowth).toBeLessThan(BYTES_PER_CHARACTER * LINE_LENGTH)
+    },
+    60_000,
+  )
+
+  it("grows the heap at most 8 bytes per character decoding one &# reference with a 10,000,000-digit number", async () => {
+    const { peakGrowth, resultLength } = await measureHeapGrowth("long-number")
+
+    // A number past U+10FFFF decodes to the one character U+FFFD.
+    expect(resultLength).toBe(1)
+    expect(peakGrowth).toBeLessThan(BYTES_PER_CHARACTER * LINE_LENGTH)
+  }, 60_000)
+})
+
+describe("link extraction memory", () => {
+  const LINE_LENGTH = 10_000_000
+
+  /** The masked copies of the line and the line with destinations blanked
+   *  cost a few bytes per character; holding each link found on the line
+   *  until its end would cost about 60. */
+  const BYTES_PER_CHARACTER = 8
+
+  // Each case's line yields `targets` distinct targets.
+  const denseLineCases = [
+    { shape: "dense-links", text: "markdown links", targets: 1 },
+    { shape: "code-spans", text: "inline code spans", targets: 0 },
+    { shape: "templater", text: "Templater expressions", targets: 0 },
+  ] as const
+
+  it.each(denseLineCases)(
+    "grows the heap at most 8 bytes per character extracting a 10,000,000-character line of $text",
+    async ({ shape, targets }) => {
+      const { peakGrowth, resultLength } = await measureHeapGrowth(shape)
+
+      expect(resultLength).toBe(targets)
+      expect(peakGrowth).toBeLessThan(BYTES_PER_CHARACTER * LINE_LENGTH)
+    },
+    60_000,
+  )
+})
+
+describe("link name fold memory", () => {
+  const LINE_LENGTH = 10_000_000
+
+  /** The fold holds at most a lowercased copy, a buffer and the folded copy,
+   *  two bytes per character each, because Greek letters take two. Whether
+   *  toLowerCase copies a line that is already lowercase depends on the Node
+   *  release, so both lines share one bound. */
+  const BYTES_PER_CHARACTER = 8
+
+  const foldCases = [
+    { shape: "final-sigmas", text: "final sigmas" },
+    { shape: "capital-greek-words", text: "capital Greek words" },
+  ] as const
+
+  it.each(foldCases)(
+    "grows the heap at most 8 bytes per character lowercasing a 10,000,000-character line of $text",
+    async ({ shape }) => {
+      const { peakGrowth, resultLength } = await measureHeapGrowth(shape)
+
+      expect(resultLength).toBe(LINE_LENGTH)
+      expect(peakGrowth).toBeLessThan(BYTES_PER_CHARACTER * LINE_LENGTH)
+    },
+    60_000,
+  )
+})
+
+// ── Markdown links against the remark oracle ─────────────────────
+
+/** Whether a markdown link's bare destination ends at whitespace while a `(`
+ *  in it is still open, which CommonMark's balance rule rejects and Obsidian
+ *  accepts (`[x](a(b "t")` stores `a(b`). */
+const endsAtWhitespaceUnbalanced = (linkText: string): boolean => {
+  const destination = linkText.slice(linkText.indexOf("](") + "](".length).trimStart()
+
+  if (destination.startsWith("<")) return false
+  // The walk threads the open-parenthesis depth and skips each escaped character.
+  let depth = 0
+
+  for (let index = 0; index < destination.length; index++) {
+    const character = destination.charAt(index)
+
+    if (character === "\\") {
+      index++
+      continue
+    }
+    if (/\s/.test(character)) return depth > 0
+    if (character === ")" && depth === 0) return false
+    if (character === "(") depth++
+    if (character === ")") depth--
+  }
+  return false
+}
+
+describe("markdown links against the remark oracle", () => {
+  const tokenDocuments = createLinkTokenDocuments(10_000)
+  const keptDocuments = tokenDocuments.filter((document) => !findExcludedConstruct(document))
+  const keptWithLinks = keptDocuments.filter((document) => {
+    return referenceMarkdownLinks(document).length > 0
+  })
+
+  const sortedUnique = (targets: readonly string[]): string[] => [...new Set(targets)].toSorted()
+
+  // The seeded generator fixes each count, so a change to the exclusions or
+  // the generator shows in review as a changed number.
+  it("leaves 105 of the 10,000 token documents out of the comparison", () => {
+    expect(tokenDocuments.length - keptDocuments.length).toBe(105)
+  })
+
+  it("keeps 1,089 token documents that hold a link", () => {
+    expect(keptWithLinks.length).toBe(1_089)
+  })
+
+  it("holds 128 kept documents that CommonMark's balance rule would read wrongly", () => {
+    const unbalancedDocuments = keptWithLinks.filter((document) => {
+      const masked = maskLikeExtraction(document)
+      return referenceMarkdownLinks(document).some(({ start, end }) => {
+        return endsAtWhitespaceUnbalanced(masked.slice(start, end))
+      })
+    })
+    expect(unbalancedDocuments.length).toBe(128)
+  })
+
+  it("extracts the oracle's targets from every kept token document", () => {
+    const disagreements = keptDocuments.flatMap((document) => {
+      const extracted = sortedUnique(links.extractFromBody(document))
+      const oracle = sortedUnique(referenceMarkdownLinks(document).map(({ target }) => target))
+      return JSON.stringify(extracted) === JSON.stringify(oracle)
+        ? []
+        : [{ document, extracted, oracle }]
+    })
+    expect(disagreements).toEqual([])
+  })
+
+  it("matches the oracle's span for every link in every kept token document", () => {
+    const disagreements = keptDocuments.flatMap((document) => {
+      const masked = maskLikeExtraction(document)
+      const matched = links
+        .matchLinksInLine(masked)
+        .filter((linkMatch) => linkMatch.kind === "markdown")
+        .map(({ start, end }) => ({ start, end }))
+      const oracle = referenceMarkdownLinks(document).map(({ start, end }) => ({ start, end }))
+      return JSON.stringify(matched) === JSON.stringify(oracle)
+        ? []
+        : [{ document, matched, oracle }]
+    })
+    expect(disagreements).toEqual([])
   })
 })
 
@@ -629,6 +1586,10 @@ describe("extractFromFrontmatter", () => {
         related: ["[[sessions/log-a\\|log-a]]"],
       }),
     ).toEqual(["sessions/log-a"])
+  })
+
+  it("drops the space before an escaped pipe in a frontmatter wikilink", () => {
+    expect(links.extractFromFrontmatter({ related: ["[[Note \\|Alias]]"] })).toEqual(["Note"])
   })
 
   it("extracts wikilinks to non-markdown assets in frontmatter", () => {
@@ -868,6 +1829,24 @@ describe("stripExtension", () => {
 
   it("ignores dots in folder names", () => {
     expect(links.stripExtension("v1.2/note")).toBe("v1.2/note")
+  })
+})
+
+// ── lowercaseLinkName ────────────────────────────────────────────
+
+describe("lowercaseLinkName", () => {
+  it("folds every final sigma in a text, whatever follows the capital sigma", () => {
+    expect(links.lowercaseLinkName("See [[ΟΣ]] and [x](ΟΣ.md)")).toBe("see [[οσ]] and [x](οσ.md)")
+  })
+
+  it("lowercases a text with no sigma", () => {
+    expect(links.lowercaseLinkName("Café [[A]]")).toBe("café [[a]]")
+  })
+
+  it("keeps a lone surrogate beside a folded sigma", () => {
+    const loneSurrogate = String.fromCharCode(0xd800)
+
+    expect(links.lowercaseLinkName(`${loneSurrogate}ΟΣ`)).toBe(`${loneSurrogate}οσ`)
   })
 })
 
@@ -1575,4 +2554,83 @@ describe("link-target limits", () => {
     },
     CHILD_TEST_TIMEOUT_MS,
   )
+})
+
+// ── Destination encoder round trip ───────────────────────────────
+
+/** Characters the destination encoder treats specially, between plain ones.
+ *  `#`, `:` and a no-break space are left out, and so is whitespace at a
+ *  name's edges: encodeMarkdownDestination's docstring lists them as having
+ *  no spelling. */
+const NAME_CHARACTERS = [
+  "a",
+  "B",
+  "1",
+  " ",
+  "\t",
+  "_",
+  "~",
+  "=",
+  "&",
+  '"',
+  "'",
+  "(",
+  ")",
+  "<",
+  ">",
+  "%",
+  "\\",
+  "[",
+  "]",
+  "*",
+  "$",
+  "`",
+  "!",
+  ".",
+  "é",
+  "😀",
+]
+
+/** How many names the round trip draws, enough to reach the neighbour rules
+ *  (a `_` before punctuation, a letter after `&`, runs of `~` or `=`) often. */
+const ROUND_TRIP_NAME_COUNT = 20_000
+
+const drawName = (random: () => number): string => {
+  const length = 1 + Math.floor(random() * 12)
+  const characters = Array.from({ length }, () => {
+    return NAME_CHARACTERS[Math.floor(random() * NAME_CHARACTERS.length)] ?? "a"
+  })
+  return `${characters.join("").trim() || "a"}.md`
+}
+
+describe("markdown destination encoder round trip", () => {
+  it("writes 20,000 seeded names in both destination forms that extractFromBody reads back", () => {
+    const random = createSeededRandom(845)
+    const names = Array.from({ length: ROUND_TRIP_NAME_COUNT }, () => drawName(random))
+    const destinationForms = ["bare", "angle"] as const
+    const failures = names.flatMap((name) => {
+      return destinationForms.flatMap((destinationForm) => {
+        const encoded = links.encodeMarkdownDestination(name, destinationForm)
+        // The encoder writes what goes between an angle destination's brackets.
+        const written = destinationForm === "angle" ? `[x](<${encoded}>)` : `[x](${encoded})`
+        const readBack = links.extractFromBody(written)
+        return readBack.length === 1 && readBack[0] === name ? [] : [{ name, written, readBack }]
+      })
+    })
+
+    expect(failures).toEqual([])
+  })
+
+  // A raw tab inside a destination reads back as the same name, so the round
+  // trip alone would pass if the encoder stopped encoding control characters.
+  it.each([
+    { label: "a tab", character: String.fromCharCode(0x09), encoded: "%09" },
+    { label: "a C0 control character", character: String.fromCharCode(0x01), encoded: "%01" },
+    { label: "DEL", character: String.fromCharCode(0x7f), encoded: "%7F" },
+  ])("percent-encodes $label in both destination forms", ({ character, encoded }) => {
+    const name = `a${character}b.md`
+
+    expect(links.encodeMarkdownDestination(name, "angle")).toBe(`a${encoded}b.md`)
+    expect(links.encodeMarkdownDestination(name, "bare")).toBe(`a${encoded}b.md`)
+  })
 })

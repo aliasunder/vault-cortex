@@ -339,13 +339,14 @@ See the [DEPLOY.md CI/CD section](./DEPLOY.md#cicd) for details on each workflow
 
 ## Upgrading pinned dependencies
 
-Three pins track something outside this repo. Treat each bump as a potential
+Four pins track something outside this repo. Treat each bump as a potential
 regression and re-verify that package's contract below before merging.
 
 | Package             | Pinned in                                                     | Tracks                                                                             | Dependabot       |
 | ------------------- | ------------------------------------------------------------- | ---------------------------------------------------------------------------------- | ---------------- |
 | `rrule`             | root `package.json`                                           | the version the Tasks plugin declares                                              | excluded         |
 | `remark-parse`      | root `package.json`, with `overrides` for its dependency tree | the release Obsidian's metadata cache forked                                       | excluded         |
+| `parse-entities`    | root `package.json`                                           | the version remark-parse 8 calls, which link destinations decode with              | excluded         |
 | `obsidian-headless` | `obsidian-headless/package.json` and its lockfile             | the Sync CLI whose observed behaviour the `:remote` image's init scripts depend on | a PR per release |
 
 ### Upgrading rrule (recurrence parity)
@@ -377,24 +378,28 @@ docstring), and calendar-invalid dates are nulled at parse time
 (`calendarValidOrNull` in `tasks.ts`). A behavior change in either is a
 decision, not a drift fix.
 
-### Upgrading remark-parse (body-tag parity)
+### Upgrading remark-parse (body-tag and link parity)
 
 `obsidian-markdown/body-tags.ts` finds a note's `#tags` with
 `remark-parse@8.0.3`, the version Obsidian's metadata cache forked, plus
 Obsidian's syntax as tokenizers in `obsidian-remark-parser.ts`. The pin is
 excluded from Dependabot, and 8.0.3 is the last 8.x release, so an advisory
 anywhere in its dependency tree is answered with an `overrides` entry, as
-`trim` is.
+`trim` is. `obsidian-markdown/links.ts` decodes link destinations with
+`parse-entities@2.0.0`, the version remark-parse 8 calls, so bump the
+parse-entities pin only together with remark-parse.
 
 Never open, read or copy Obsidian's app code (`worker.js`, `app.js`) when
-editing `obsidian-remark-parser.ts`, `body-tags.ts` or `remark-ports/`:
-Obsidian is proprietary and this repo is MIT, so those files are written from
-Obsidian's observed behaviour only. The scripts below are the only permitted
-contact; they run `worker.js` as a black box and print its answers.
+editing `obsidian-remark-parser.ts`, `body-tags.ts`, `remark-ports/`, or the
+markdown link grammar and destination encoder in `links.ts`: Obsidian is
+proprietary and this repo is MIT, so that code is written from Obsidian's
+observed behaviour only. The only permitted contact is
+running `worker.js` as a black box and reading its answers, as the scripts
+below do.
 [AGENTS.md](./AGENTS.md#upgrading-pinned-dependencies) states the same rule
 for agents.
 
-Re-check the parser against Obsidian when remark-parse changes and when
+Re-check the parser and the link scanner against Obsidian when remark-parse changes and when
 Obsidian ships a new release:
 
 1. Extract `worker.js` from the installed app:
@@ -410,9 +415,25 @@ Obsidian ships a new release:
 4. When the comparison finds disagreements, `disagreements.json` holds each
    shrunk input as a `{ label, input }` record. Pass that file as the third
    argument to step 2's command, then fix the parser until every row passes.
+5. Re-record the link vectors, whose `obsidian` field holds the links
+   Obsidian stored for each row's text:
+   1. Put each row's text in a JSON array: `input` in `links.test.ts`,
+      `written` in `note-mover.test.ts`.
+   2. Run `npm run oracle:body-tags -- <dir>/worker.js <inputs.json>` and copy
+      each `storedLinks` answer into its row's `obsidian` field.
+   3. Run
+      `npx vitest run src/vault-mcp/obsidian-markdown/__tests__/links.test.ts src/vault-mcp/vault-operations/__tests__/note-mover.test.ts`.
+   4. Fix each failing row:
+      - a `links.test.ts` row whose `expected` no longer follows from its
+        `obsidian` answer: set `expected` to the targets that answer gives,
+        then fix the scanner in `links.ts` until the row's extraction test
+        passes;
+      - a `note-mover.test.ts` row where Obsidian no longer stores the moved
+        path for each written link: fix `encodeMarkdownDestination` in
+        `links.ts`, then re-record the row's `written` text.
 
 For a one-off question, `npm run oracle:body-tags -- <dir>/worker.js <inputs.json>`
-prints Obsidian's raw tags and listed names for each input.
+prints Obsidian's raw tags, listed names and stored links for each input.
 
 ### Upgrading obsidian-headless
 

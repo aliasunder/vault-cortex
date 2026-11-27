@@ -2,7 +2,12 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { describe, it, expect, onTestFinished } from "vitest"
-import { listedTagNames, loadObsidianTagOracle, readOracleInputs } from "../obsidian-tag-oracle.js"
+import {
+  listedTagNames,
+  loadObsidianTagOracle,
+  readOracleInputs,
+  storedLinksIn,
+} from "../obsidian-tag-oracle.js"
 
 /** A file holding `content` in a temporary folder removed when the test finishes. */
 const writeTempFile = async (fileName: string, content: string): Promise<string> => {
@@ -53,6 +58,9 @@ describe("loadObsidianTagOracle", () => {
   it.each([
     { label: "tags that are a falsy non-list", reply: { tags: 0 } },
     { label: "a tag entry without a text tag", reply: { tags: [{ tag: 7 }] } },
+    { label: "links that are a falsy non-list", reply: { links: 0 } },
+    { label: "a link entry without a text link", reply: { links: [{ link: "a" }, { link: 3 }] } },
+    { label: "an embed entry without a text link", reply: { embeds: [{ link: 3 }] } },
   ])("throws on a reply with $label", async ({ reply }) => {
     const { workerPath, readTags } = await loadEchoingOracle()
     const replyText = JSON.stringify(reply)
@@ -68,6 +76,25 @@ describe("loadObsidianTagOracle", () => {
     expect(() => loadObsidianTagOracle(workerPath)).toThrow(
       new Error(`${workerPath} did not install a message handler`),
     )
+  })
+})
+
+describe("storedLinksIn", () => {
+  it("returns the reply's stored links, then its embeds, in the reply's order", () => {
+    const reply = {
+      links: [{ link: "b.md#h" }, { link: "Old" }],
+      embeds: [{ link: "photo.png" }],
+    }
+
+    expect(storedLinksIn(reply)).toEqual(["b.md#h", "Old", "photo.png"])
+  })
+
+  it.each([
+    { label: "a null reply", reply: null },
+    { label: "a reply with no links or embeds field", reply: { tags: [] } },
+    { label: "a reply whose links and embeds are null", reply: { links: null, embeds: null } },
+  ])("reads $label as no links", ({ reply }) => {
+    expect(storedLinksIn(reply)).toEqual([])
   })
 })
 

@@ -108,6 +108,7 @@
     "gray-matter": "4.0.3",
     "htmlparser2": "12.0.0",
     "luxon": "3.7.2",
+    "parse-entities": "2.0.0",
     "pdfjs-dist": "6.5.438",
     "picomatch": "4.0.7",
     "remark-parse": "8.0.3",

@@ -617,8 +617,10 @@ export const createSearchIndex = (
 
     -- One row per link text in a source, so two spellings that reach one file
     -- re-resolve separately after a rename.
-    -- - link_text is the target as written, without heading or alias; a file
-    --   card's is its exact path.
+    -- - link_text is the target as the link extractors store it (links.extractAll
+    --   for notes, extractCanvasLinks for Canvases), without heading or alias:
+    --   a wikilink's as written, a markdown link's decoded as Obsidian stores it
+    --   ([x](My%20Note.md) gives 'My Note.md'), and a file card's exact path.
     -- - link_kind is 'link' for a link typed in a note or a Canvas text card,
     --   and 'file-card' for a Canvas file card.
     -- - link_name is links.pathToLinkName(link_text) ('Folder/Real' gives
