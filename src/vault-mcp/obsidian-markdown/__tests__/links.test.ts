@@ -161,9 +161,15 @@ describe("matchLinksInLine", () => {
     )
   })
 
-  it("finds a markdown asset embed with kind markdown, offsets excluding the embed marker", () => {
+  it("finds a markdown asset embed with kind markdown, offsets including the embed marker", () => {
     expect(links.matchLinksInLine("see ![alt](image.png) end")).toEqual([
-      { text: "[alt](image.png)", start: 5, end: 21, kind: "markdown" },
+      { text: "![alt](image.png)", start: 4, end: 21, kind: "markdown" },
+    ])
+  })
+
+  it("starts a markdown link after an escaped embed marker at its bracket", () => {
+    expect(links.matchLinksInLine("see \\![alt](image.png) end")).toEqual([
+      { text: "[alt](image.png)", start: 6, end: 22, kind: "markdown" },
     ])
   })
 })
@@ -468,6 +474,18 @@ describe("splitMarkdownLink", () => {
 
   it("returns null for a destination with a malformed percent escape", () => {
     expect(links.splitMarkdownLink("[t](100%zzcomplete.md)")).toBeNull()
+  })
+
+  it("splits an embed with a malformed percent escape, its marker in the prefix", () => {
+    expect(links.splitMarkdownLink("![n](100%.md)")).toEqual({
+      prefix: "![n](",
+      rawTarget: "100%.md",
+      path: "100%",
+      extension: ".md",
+      heading: "",
+      suffix: ")",
+      form: "bare",
+    })
   })
 })
 
@@ -836,6 +854,18 @@ describe("extractFromBody against Obsidian 1.15.1", () => {
     { input: "[x](Budget.md#100%)", obsidian: [], expected: [] },
     { input: "[x](a.md#h%3A1)", obsidian: ["a.md#h%3A1"], expected: ["a.md"] },
     { input: "[x](Budget.md#100%25)", obsidian: ["Budget.md#100%"], expected: ["Budget.md"] },
+    // A malformed escape leaves an embed undecoded instead of dropping it.
+    { input: "![i](100%.png)", obsidian: ["100%.png"], expected: ["100%.png"] },
+    { input: "![](<100% done.png>)", obsidian: ["100% done.png"], expected: ["100% done.png"] },
+    { input: "![i](a.png#h%2)", obsidian: ["a.png#h%2"], expected: ["a.png"] },
+    { input: "![i](./a%2.png)", obsidian: ["./a%2.png"], expected: ["./a%2.png"] },
+    { input: '![i](<a%2.png> "t")', obsidian: ["a%2.png"], expected: ["a%2.png"] },
+    { input: "![i](a%26b%.png)", obsidian: ["a%26b%.png"], expected: ["a%26b%.png"] },
+    { input: "![i](&amp;%.png)", obsidian: ["&%.png"], expected: ["&%.png"] },
+    { input: "!![i](50%.png)", obsidian: ["50%.png"], expected: ["50%.png"] },
+    { input: "\\![i](a%2.png)", obsidian: [], expected: [] },
+    { input: "![i](a%zz:b.png)", obsidian: [], expected: [] },
+    { input: "x ![a](b%.png) y [c](d%.md)", obsidian: ["b%.png"], expected: ["b%.png"] },
     { input: "[x](a&notes.md)", obsidian: ["a&notes.md"], expected: ["a&notes.md"] },
     { input: "[x](a&amp b.md)", obsidian: [], expected: [] },
     // Comments, long reference names, escapes and the rewriter's spellings.

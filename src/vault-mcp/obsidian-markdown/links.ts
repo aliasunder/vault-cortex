@@ -82,7 +82,11 @@ type LinkSpan = { start: number; end: number; targetStart: number; targetEnd: nu
  *  (`[x](<My Note.md>)`) or bare (`[x](My%20Note.md)`). */
 export type DestinationForm = "angle" | "bare"
 
+/** Whether a markdown link is an embed (`![alt](photo.png)`) or a plain link. */
+type MarkdownLinkKind = "embed" | "link"
+
 /** A markdown link a scanner found:
+ *  - [start, end) starts at an embed's `!`, as a wikilink embed's span does;
  *  - [targetEnd, headingEnd) holds the raw `#heading`, empty without one;
  *  - storedTarget is the target as Obsidian stores it, decoded and without
  *    the heading. */
@@ -250,7 +254,7 @@ const decodeUriOrNull = (encoded: string): string | null => {
   try {
     return decodeURI(encoded)
   } catch {
-    // A malformed escape anywhere in the link drops it, as in Obsidian.
+    // The text holds a malformed escape; each caller decides what that means.
     return null
   }
 }
@@ -264,16 +268,21 @@ type StoredTarget = { target: string; headingOffset: number | null }
  *  1. drop each backslash before ASCII punctuation;
  *  2. decode character references (`&amp;`, `&#35;`);
  *  3. percent-decode like `decodeURI`, which keeps reserved escapes such as
- *     `%26` and `%23`; a malformed escape drops the link;
+ *     `%26` and `%23`. A malformed escape drops a plain link, while an embed
+ *     keeps its text undecoded (`![i](100%.png)` stores `100%.png`);
  *  4. replace each no-break space with a space, and trim;
  *  5. drop a link holding a `:`, which Obsidian reads as a URL, unless step
  *     2's output starts with `./` or `../`;
  *  6. split at the first `#`, and drop a link with no target before it (a
  *     heading in the same note). */
-const readStoredTarget = (content: string): StoredTarget | null => {
+const readStoredTarget = (params: {
+  content: string
+  linkKind: MarkdownLinkKind
+}): StoredTarget | null => {
+  const { content, linkKind } = params
   const unescaped = content.replace(ESCAPED_PUNCTUATION, "$1")
   const { decoded, hashSource } = decodeCharacterReferences(unescaped)
-  const decodedLink = decodeUriOrNull(decoded)
+  const decodedLink = decodeUriOrNull(decoded) ?? (linkKind === "embed" ? decoded : null)
 
   if (decodedLink === null) return null
 
@@ -595,26 +604,30 @@ const createDestinationReader = (text: string): ((openParen: number) => ScannedL
   }
 }
 
-/** Whether the `[` at `position` is escaped by an odd run of backslashes.
- *  Each backslash run sits before one `[` at most, so a line's walks add up
- *  to its length. */
+/** Whether the character at `position` (a `[`, or the `!` before one) is
+ *  escaped by an odd run of backslashes. A backslash run sits directly before
+ *  one character, which the scan checks at most once, so a line's walks add
+ *  up to its length. */
 const isEscapedAt = (text: string, position: number): boolean => {
-  // The walk counts the backslashes directly before the bracket.
+  // The walk counts the backslashes directly before the character.
   let backslashStart = position
 
   while (backslashStart > 0 && text[backslashStart - 1] === "\\") backslashStart--
   return (position - backslashStart) % 2 === 1
 }
 
-/** The span of a scanned link with a stored target, or null for one without. */
-const toMarkdownLinkSpan = (
-  text: string,
-  start: number,
-  link: ScannedLink,
-): MarkdownLinkSpan | null => {
+/** The span of a scanned link with a stored target, or null for one without.
+ *  start is the link's `[`, or an embed's `!`. */
+const toMarkdownLinkSpan = (params: {
+  text: string
+  start: number
+  link: ScannedLink
+  linkKind: MarkdownLinkKind
+}): MarkdownLinkSpan | null => {
+  const { text, start, link, linkKind } = params
   const { form, contentStart, contentEnd, end } = link
   const content = text.slice(contentStart, contentEnd)
-  const storedTarget = readStoredTarget(content)
+  const storedTarget = readStoredTarget({ content, linkKind })
 
   if (!storedTarget) return null
 
@@ -649,6 +662,7 @@ const toMarkdownLinkSpan = (
  *  `text` that names another note or file, left to right and never
  *  overlapping. The grammar follows Obsidian's:
  *  - a `[` after an odd run of backslashes opens no link;
+ *  - an unescaped `!` directly before the `[` makes the link an embed;
  *  - the destination is `<…>` or bare, after optional whitespace;
  *  - a title in `"…"`, `'…'` or `(…)` may follow after whitespace;
  *  - a complete link is used up even when it names nothing (a URL, a heading
@@ -678,7 +692,12 @@ const scanMarkdownLinks = (text: string, visit: (span: MarkdownLinkSpan) => void
 
     if (!link) continue
 
-    const span = toMarkdownLinkSpan(text, start, link)
+    // An unescaped `!` directly before the `[` makes the link an embed.
+    const markerStart = start - 1
+    const opensEmbed = text[markerStart] === "!" && !isEscapedAt(text, markerStart)
+    const span = opensEmbed
+      ? toMarkdownLinkSpan({ text, start: markerStart, link, linkKind: "embed" })
+      : toMarkdownLinkSpan({ text, start, link, linkKind: "link" })
 
     if (span) visit(span)
     // end - 1 is the link's `)`, and the loop's start++ moves past it.

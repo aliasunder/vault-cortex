@@ -26,12 +26,13 @@ const safeDecodeUri = (encoded: string): string | null => {
 }
 
 /** A remark link URL normalized the way Obsidian stores a link, then cut to
- *  the target: percent-decoded like decodeURI, no-break spaces replaced,
+ *  the target: percent-decoded like decodeURI (a malformed escape drops a
+ *  link and leaves an image's URL undecoded), no-break spaces replaced,
  *  trimmed, dropped when it holds a `:` unless the URL starts with `./` or
  *  `../`, and split at the first `#`. remark has already dropped escape
  *  backslashes and decoded character references. */
-const normalizeRemarkUrl = (url: string): string | null => {
-  const decodedLink = safeDecodeUri(url)
+const normalizeRemarkUrl = (url: string, nodeType: "image" | "link"): string | null => {
+  const decodedLink = safeDecodeUri(url) ?? (nodeType === "image" ? url : null)
 
   if (decodedLink === null) return null
 
@@ -45,18 +46,17 @@ const normalizeRemarkUrl = (url: string): string | null => {
 }
 
 /** A link the remark oracle found: its stored target, and the span from its
- *  `[` to the end of its `)`, the span matchLinksInLine reports. */
+ *  `[` (an image's `!`) to the end of its `)`, the span matchLinksInLine
+ *  reports. */
 type ReferenceLink = { target: string; start: number; end: number }
 
 const collectReferenceLinks = (node: ParsedNode, found: ReferenceLink[]): void => {
-  const isLink = node.type === "link" || node.type === "image"
-  const target = isLink && typeof node.url === "string" ? normalizeRemarkUrl(node.url) : null
+  const nodeType = node.type === "link" || node.type === "image" ? node.type : null
+  const target =
+    nodeType && typeof node.url === "string" ? normalizeRemarkUrl(node.url, nodeType) : null
 
   if (target !== null && node.position) {
-    // An image's node starts at its `!`, one character before the `[`.
-    const imageMarkerLength = node.type === "image" ? 1 : 0
-    const start = node.position.start.offset + imageMarkerLength
-    found.push({ target, start, end: node.position.end.offset })
+    found.push({ target, start: node.position.start.offset, end: node.position.end.offset })
   }
   for (const child of node.children ?? []) collectReferenceLinks(child, found)
 }

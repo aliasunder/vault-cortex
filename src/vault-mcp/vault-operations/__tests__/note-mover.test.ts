@@ -338,6 +338,26 @@ describe("moveNote — link rewriting forms", () => {
     expect(await readNote("Hub.md")).toBe("Read the [summary](New%20Note.md) now.\n")
   })
 
+  it("rewrites a markdown embed whose raw percent sign Obsidian keeps undecoded", async () => {
+    const { writeFixture, moveNote, readNote } = setupVault()
+    await writeFixture("100%.md", "content\n")
+    await writeFixture("Hub.md", "Progress: ![n](100%.md)\n")
+
+    const result = await moveNote({
+      oldPath: "100%.md",
+      newPath: "99%.md",
+      backlinkSources: ["Hub.md"],
+    })
+
+    expect(await readNote("Hub.md")).toBe("Progress: ![n](99%25.md)\n")
+    expect(result).toEqual({
+      moved_to: "99%.md",
+      links_updated: 1,
+      updated_notes: ["Hub.md"],
+      pruned_empty_folders: 0,
+    })
+  })
+
   it("percent-encodes a space and keeps balanced parentheses raw in a rewritten markdown link", async () => {
     const { writeFixture, moveNote, readNote } = setupVault()
     await writeFixture("Old.md", "content\n")
