@@ -364,7 +364,7 @@ Link queries use a `links` table populated during indexing:
   1. Exact vault-relative path (path from vault folder)
   2. Path relative to the linking note (path from current file, including upward `../`)
   3. Shortest path: the shortest path that ends with the target, folders included, so `[[sub/Note]]` reaches `A/sub/Note.md`
-- **Lookups:** a resolve's cost grows with the link's length, not with the vault's size, because `obsidian-markdown/links.ts` answers each tier from lookups it builds over a path list on that list's first resolve and keeps with the list:
+- **Lookups:** `obsidian-markdown/links.ts` answers each tier from lookups it builds over a path list (the notes, or the other files) on that list's first resolve, and builds them again whenever a path is added to or removed from that list. A build reads the whole list; after it, a resolve's cost grows with the link's length, not with the vault's size. The lookups are:
   - a map from each spelling a tier compares to the shortest path with that spelling: the path itself, and for a non-markdown file also the path and the file name without the extension, each also in folded letter case;
   - for each last path segment a suffix tier compares, a tree of the paths ending in it, keyed by folder segments from the end, built when a link first asks for that segment.
 - **Letter case:** Obsidian resolves a link whatever its letter case, so `[[real]]` and `[[folder/real]]` reach `Folder/Real.md`. Resolution walks the three tiers in the link's own letter case first, and walks them again with letter case folded only when every tier misses. A folded match returns the stored path, and backlinks, orphans and `vault_move_note` all follow it.

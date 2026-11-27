@@ -639,7 +639,9 @@ export const createSearchIndex = (
     CREATE INDEX IF NOT EXISTS idx_links_name ON links(link_name);
 
     -- basename holds the file name without its extension, which backlinks
-    -- show as a file's title.
+    -- show as a file's title. No query reads base_path; it stays because an
+    -- earlier release's inserts name it, so dropping it would break a
+    -- downgrade onto this database.
     CREATE TABLE IF NOT EXISTS non_md_files (
       path      TEXT PRIMARY KEY,
       base_path TEXT NOT NULL,
