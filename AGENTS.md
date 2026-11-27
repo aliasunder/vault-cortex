@@ -1294,12 +1294,13 @@ file focused on conventions; don't duplicate procedure here.
     solve, which technical choices does it make, how is it tested,
     secured and versioned
 - **ARCHITECTURE.md**: a contributor.
-- **DEPLOY.md and the `deploy/` guides**: a self-hoster at a terminal or
-  a deploy button.
+- **The `deploy/` guides**: a self-hoster at a terminal or a deploy
+  button.
+- **DEPLOY.md**: a forker reproducing the AWS reference deployment.
 - **SECURITY.md**: a vulnerability reporter.
 - **cli/README.md**: someone who found the npm package first.
 
-Every doc edit follows these rules:
+These rules follow from each doc's readers:
 
 - **Every passage answers a question its doc's readers ask.** A passage
   that answers none is cut. One written for another doc's reader moves
@@ -1308,12 +1309,11 @@ Every doc edit follows these rules:
   A doc that names a protection against data loss or attack (atomic
   writes, the per-file mutex) keeps one clause saying how it works
   ("stages to a temp file, then renames").
-- **In the README, DEPLOY.md, the `deploy/` guides and cli/README.md,
-  features are stated as what the Obsidian user can do**, in their
-  vocabulary ("complete a task," "move between lanes," "filter by due
-  date"), never implementation vocabulary ("mutate," "atomic write
-  cycle," "composable mutations"); ARCHITECTURE.md keeps its engineering
-  terms.
+- **In the README, the `deploy/` guides and cli/README.md, features
+  are stated as what the Obsidian user can do**, in their vocabulary
+  ("complete a task," "move between lanes," "filter by due date"), never
+  implementation vocabulary ("mutate," "atomic write cycle," "composable
+  mutations"); ARCHITECTURE.md keeps its engineering terms.
 - **In the README and SECURITY.md, sentences about how the project is
   built use the standard names** for the techniques it chose and the
   hazards it guards against (FTS5, RRF, cross-encoder, per-file mutex,
@@ -1325,6 +1325,11 @@ Every doc edit follows these rules:
   the generated DOCKERHUB.md, settings tables, an opt-out stated in its
   feature's section and the recovery path beside a destructive-outcome
   claim are deliberate copies.
+- **Before calling a doc done, walk the entire document start to finish
+  as each reader it serves** (for a doc not listed above, name its
+  readers from what it covers): line-level fact-checking cannot
+  validate a doc; each sentence can be true while the doc as a whole
+  misleads.
 
 **Write-time format decision** — before committing any prose (code
 comments, JSDoc, README sections, PR descriptions, env-file comments):
@@ -1336,12 +1341,6 @@ match their siblings' length and shape.
 
 **Doc quality rules:**
 
-- Before calling a doc done, pick each reader the doc serves (listed
-  under "Write for each doc's reader" for the main docs; for any other
-  doc, name its readers from what it covers) and walk the entire
-  document start to finish — line-level fact-checking cannot
-  validate a doc; each sentence can be true while the doc as a whole
-  misleads.
 - When a doc offers multiple paths (install methods, tools, runtimes),
   every operational section (update, restart, verify, troubleshoot)
   serves every offered path — or explicitly scopes itself.
