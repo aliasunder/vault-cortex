@@ -76,9 +76,12 @@ const INLINE_CODE_RE = /`+[^`\n]*`+/g
 
 /** Splits a matched wikilink into capture groups 1–4: embed `!`, target,
  *  `#heading`, `|alias`. Anchored and non-global — safe for .exec().
- *  scanWikilinks finds the links this parses, so the two must accept the same
- *  grammar. */
-const WIKILINK_PARTS = /^(!?)\[\[([^\]#|]+)(#[^\]|]*)?(\|[^\]]+)?\]\]$/
+ *  scanBodyLineLinks reports the links this parses: each ends at its first
+ *  `]]`, and any part may hold a lone `]` from a code span the scan hid, as
+ *  `[[a `]` b]]` does, so a part accepts a `]` that another `]` does not
+ *  follow. */
+const WIKILINK_PARTS =
+  /^(!?)\[\[((?:[^\]#|]|\](?!\]))+)(#(?:[^\]|]|\](?!\]))*)?(\|(?:[^\]]|\](?!\]))+)?\]\]$/
 
 /** Treats a trailing backslash as Obsidian's table-pipe escape (`[[path\|alias]]`), even
  *  outside a table, because Obsidian does not allow a backslash in a file name. */

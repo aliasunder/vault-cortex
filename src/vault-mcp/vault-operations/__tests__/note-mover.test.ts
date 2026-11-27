@@ -519,6 +519,26 @@ describe("moveNote — link rewriting forms", () => {
     })
   })
 
+  it("rewrites wikilinks whose target, heading or alias holds a lone `]` inside a code span", async () => {
+    const { writeFixture, moveNote, readNote } = setupVault()
+    await writeFixture("a `]` b.md", "content\n")
+    await writeFixture("Hub.md", "See [[a `]` b]], [[a `]` b#h `]` c]] and [[a `]` b|x `]` c]].\n")
+
+    const result = await moveNote({
+      oldPath: "a `]` b.md",
+      newPath: "Bar.md",
+      backlinkSources: ["Hub.md"],
+    })
+
+    expect(await readNote("Hub.md")).toBe("See [[Bar]], [[Bar#h `]` c]] and [[Bar|x `]` c]].\n")
+    expect(result).toEqual({
+      moved_to: "Bar.md",
+      links_updated: 3,
+      updated_notes: ["Hub.md"],
+      pruned_empty_folders: 0,
+    })
+  })
+
   it("rewrites wikilinks that a `]]` inside a code span in the heading or alias closes", async () => {
     const { writeFixture, moveNote, readNote } = setupVault()
     await writeFixture("Foo.md", "content\n")
