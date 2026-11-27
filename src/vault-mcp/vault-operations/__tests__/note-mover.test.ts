@@ -659,6 +659,16 @@ describe("moveNote — markdown link destinations", () => {
       obsidian: ["a`b`c.md", "a`b`c.md", "a`b`c.md"],
     },
     {
+      newPath: "_draft_.md",
+      written: '[a](<\\_draft_.md>) [b](\\_draft_.md "tip") [c](\\_draft_.md) and `code`',
+      obsidian: ["_draft_.md", "_draft_.md", "_draft_.md"],
+    },
+    {
+      newPath: "a<b>c.md",
+      written: '[a](<a%3Cb%3Ec.md>) [b](a\\<b\\>c.md "tip") [c](a\\<b\\>c.md) and `code`',
+      obsidian: ["a<b>c.md", "a<b>c.md", "a<b>c.md"],
+    },
+    {
       newPath: "Half (open.md",
       written:
         '[a](<Half (open.md>) [b](Half%20%28open.md "tip") [c](Half%20%28open.md) and `code`',
@@ -752,6 +762,18 @@ describe("moveNote — markdown link destinations", () => {
       oldPath: "A &amp; B.md",
       link: "[x](A%20&%61mp;%20B.md)",
       rewritten: "[x](New.md)",
+    },
+    {
+      label: "a multi-byte escape beside escaped parentheses",
+      oldPath: "Café (1).md",
+      link: "[x](Caf%C3%A9%20\\(1\\).md)",
+      rewritten: "[x](New.md)",
+    },
+    {
+      label: "a mixed escape beside a malformed escape in another link",
+      oldPath: "a(b)c.md",
+      link: "[y](%E9.md) and [x](a%28b\\)c.md)",
+      rewritten: "[y](%E9.md) and [x](New.md)",
     },
   ]
 

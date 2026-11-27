@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, onTestFinished } from "vitest"
 import { execFileSync } from "node:child_process"
 import { posix } from "node:path"
+import { setTimeout as sleep } from "node:timers/promises"
 import { Worker } from "node:worker_threads"
 import { links } from "../links.js"
 import { classifyLines } from "../lines.js"
@@ -454,6 +455,32 @@ describe("splitMarkdownLink", () => {
         destinationForm: "bare",
       },
     },
+    {
+      name: "keeps a character reference before the heading inside the written target",
+      input: "[t](A&amp;B.md#h)",
+      expected: {
+        prefix: "[t](",
+        writtenTarget: "A&amp;B.md",
+        path: "A&B",
+        extension: ".md",
+        heading: "#h",
+        suffix: ")",
+        destinationForm: "bare",
+      },
+    },
+    {
+      name: "keeps escape pairs and references before the heading inside the written target",
+      input: "[t](a\\_b&amp;c\\_d.md#h)",
+      expected: {
+        prefix: "[t](",
+        writtenTarget: "a\\_b&amp;c\\_d.md",
+        path: "a_b&c_d",
+        extension: ".md",
+        heading: "#h",
+        suffix: ")",
+        destinationForm: "bare",
+      },
+    },
   ]
 
   it.each(scenarios)("$name", ({ input, expected }) => {
@@ -810,6 +837,7 @@ describe("extractFromBody against Obsidian 1.15.1", () => {
     { input: "[x](<a\u00a0b.md>)", obsidian: ["a b.md"], expected: ["a b.md"] },
     { input: "[x](a.md\u3000)", obsidian: ["a.md"], expected: ["a.md"] },
     { input: "[x](<a\u2028b.md>)", obsidian: ["a\u2028b.md"], expected: ["a\u2028b.md"] },
+    { input: "[x](<a\rb.md>) [y](c.md)", obsidian: ["c.md"], expected: ["c.md"] },
     { input: "[x](%68ttps://example.com)", obsidian: [], expected: [] },
     { input: "[x](< https://example.com >)", obsidian: [], expected: [] },
     { input: "[x](a/b:c.md)", obsidian: [], expected: [] },
@@ -882,6 +910,21 @@ describe("extractFromBody against Obsidian 1.15.1", () => {
       obsidian: ["a\u00acbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb;c.md"],
       expected: ["a\u00acbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb;c.md"],
     },
+    {
+      input: "[x](a&notbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbc.md)",
+      obsidian: ["a&notbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbc.md"],
+      expected: ["a&notbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbc.md"],
+    },
+    {
+      input: "[x](a&CounterClockwiseContourIntegralx;b.md)",
+      obsidian: ["a&CounterClockwiseContourIntegralx;b.md"],
+      expected: ["a&CounterClockwiseContourIntegralx;b.md"],
+    },
+    {
+      input: "[x](a&CounterClockwiseContourIntegral;b.md)",
+      obsidian: ["a∳b.md"],
+      expected: ["a∳b.md"],
+    },
     { input: "[x](a&#;b.md)", obsidian: ["a&#;b.md"], expected: ["a&"] },
     { input: "[x](a&\\#35;b.md)", obsidian: ["a#b.md"], expected: ["a"] },
     { input: "[x]()", obsidian: [], expected: [] },
@@ -894,6 +937,8 @@ describe("extractFromBody against Obsidian 1.15.1", () => {
     { input: "[x](a%20b.md#Head%20ing)", obsidian: ["a b.md#Head ing"], expected: ["a b.md"] },
     { input: "[x](%41.md)", obsidian: ["A.md"], expected: ["A.md"] },
     { input: "[x](a.md#h&num;2)", obsidian: ["a.md#h#2"], expected: ["a.md"] },
+    { input: "[x](A&amp;B.md#h)", obsidian: ["A&B.md#h"], expected: ["A&B.md"] },
+    { input: "[x](a\\_b&amp;c\\_d.md#h)", obsidian: ["a_b&c_d.md#h"], expected: ["a_b&c_d.md"] },
     { input: "[x](\\[a\\].md)", obsidian: ["[a].md"], expected: ["[a].md"] },
     { input: "[x](a\\*b.md)", obsidian: ["a*b.md"], expected: ["a*b.md"] },
     { input: "[x](a\\$b.md)", obsidian: ["a$b.md"], expected: ["a$b.md"] },
@@ -1011,7 +1056,12 @@ const measureScanHeapGrowth = async (
   const samples: number[] = []
 
   worker.postMessage("go")
-  while (!scanFinished) samples.push(await sampleHeap())
+  // Each sample leaves garbage in the worker's heap, and back-to-back
+  // samples add up to about 1 MB of it to the peak.
+  while (!scanFinished) {
+    samples.push(await sampleHeap())
+    await sleep(1)
+  }
 
   const done = await finishedScan
 

@@ -117,7 +117,11 @@ const fixture = (size: number): { text: string; expected: unknown } => {
     const tail = "[[x|".repeat(size / 4)
     return { text: `[[Keep|alias]] ${tail}`, expected: `alias ${tail}` }
   }
-  return { text: `[[Keep]] ${"[".repeat(size)}`, expected: `Keep ${"[".repeat(size)}` }
+  if (variant === "plaintext-wiki") {
+    return { text: `[[Keep]] ${"[".repeat(size)}`, expected: `Keep ${"[".repeat(size)}` }
+  }
+  // A misspelled variant would otherwise time another family's fixture and pass.
+  throw new Error(`unknown adversary variant: ${String(variant)}`)
 }
 
 const parse = (text: string): unknown => {
