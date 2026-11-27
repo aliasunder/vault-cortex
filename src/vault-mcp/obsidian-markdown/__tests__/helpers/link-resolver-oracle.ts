@@ -8,7 +8,32 @@
 import { posix } from "node:path"
 import { links } from "../../links.js"
 
-const { isWithinLinkTargetLimit, joinToSourceFolder, stripExtension } = links
+const { isWithinLinkTargetLimit, stripExtension } = links
+
+/** A link target's path segments without the "." and empty ones, which path
+ *  normalization skips. */
+const meaningfulSegments = (target: string): string[] => {
+  return target.split("/").filter((segment) => segment !== "" && segment !== ".")
+}
+
+const countLeadingParentSegments = (segments: readonly string[]): number => {
+  const firstNameIndex = segments.findIndex((segment) => segment !== "..")
+  return firstNameIndex === -1 ? segments.length : firstNameIndex
+}
+
+/** Joins a link target to the linking note's folder ("path from current
+ *  file"), or returns null when the target's leading ".." run climbs above the
+ *  vault root, where no vault file is. Skipping that join keeps a long leading
+ *  run of "../" from costing more than linear time. A caller bounds every other
+ *  shape by checking isWithinLinkTargetLimit first. */
+const joinToSourceFolder = (sourcePath: string, target: string): string | null => {
+  const sourceFolder = posix.dirname(sourcePath)
+  const leadingParentCount = countLeadingParentSegments(meaningfulSegments(target))
+  const sourceFolderDepth = meaningfulSegments(sourceFolder).length
+
+  if (leadingParentCount > sourceFolderDepth) return null
+  return posix.join(sourceFolder, target)
+}
 
 /** Code-point count of a path — SQLite's length() metric, not the UTF-16
  *  code-unit count that String.length reports (they differ on paths with

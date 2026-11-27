@@ -11014,11 +11014,11 @@ describe("path lists links resolve against", () => {
     const search = createSearchIndex(":memory:")
     saveNote(search, "Target.md", "# Target")
     saveNote(search, "source.md", "[[Target]]")
-    const originalResolve = links.resolve
+    const originalResolveNoteOrAsset = links.resolveNoteOrAsset
     const notePathLists = new Set<readonly string[]>()
-    const resolveSpy = vi.spyOn(links, "resolve").mockImplementation((params) => {
+    const resolveSpy = vi.spyOn(links, "resolveNoteOrAsset").mockImplementation((params) => {
       notePathLists.add(params.allPaths)
-      return originalResolve(params)
+      return originalResolveNoteOrAsset(params)
     })
     onTestFinished(() => resolveSpy.mockRestore())
 
@@ -11059,8 +11059,8 @@ describe("path lists links resolve against", () => {
     saveNote(search, "source.md", "[[Target]]")
     saveNote(search, "other.md", "[[Target]]")
     // The removal's re-resolution reads the note list, without Target.md, and
-    // then calls links.resolve, which fails.
-    const resolveSpy = vi.spyOn(links, "resolve").mockImplementationOnce(() => {
+    // then calls links.resolveNoteOrAsset, which fails.
+    const resolveSpy = vi.spyOn(links, "resolveNoteOrAsset").mockImplementationOnce(() => {
       throw new Error(INJECTED_FAILURE)
     })
     onTestFinished(() => resolveSpy.mockRestore())
@@ -11079,16 +11079,16 @@ describe("path lists links resolve against", () => {
     saveNote(search, "source.md", "![[photo.png]]")
     saveNote(search, "other.md", "# Other")
     // The new file's re-resolution reads the file list, with the new file, and
-    // then calls links.resolveAsset, which fails.
-    const resolveAssetSpy = vi.spyOn(links, "resolveAsset").mockImplementationOnce(() => {
+    // then calls links.resolveNoteOrAsset, which fails.
+    const resolveSpy = vi.spyOn(links, "resolveNoteOrAsset").mockImplementationOnce(() => {
       throw new Error(INJECTED_FAILURE)
     })
-    onTestFinished(() => resolveAssetSpy.mockRestore())
+    onTestFinished(() => resolveSpy.mockRestore())
 
     expect(() => search.upsertNonMdFile("assets/photo.png", 100)).toThrow(
       new Error(INJECTED_FAILURE),
     )
-    resolveAssetSpy.mockRestore()
+    resolveSpy.mockRestore()
 
     saveNote(search, "other.md", "![[photo.png]]")
 
@@ -11101,14 +11101,14 @@ describe("path lists links resolve against", () => {
     saveNote(search, "source.md", "![[photo.png]]")
     saveNote(search, "other.md", "# Other")
     // The removal's re-resolution reads the file list, without the file, and
-    // then calls links.resolveAsset, which fails.
-    const resolveAssetSpy = vi.spyOn(links, "resolveAsset").mockImplementationOnce(() => {
+    // then calls links.resolveNoteOrAsset, which fails.
+    const resolveSpy = vi.spyOn(links, "resolveNoteOrAsset").mockImplementationOnce(() => {
       throw new Error(INJECTED_FAILURE)
     })
-    onTestFinished(() => resolveAssetSpy.mockRestore())
+    onTestFinished(() => resolveSpy.mockRestore())
 
     expect(() => search.removeNonMdFile("assets/photo.png")).toThrow(new Error(INJECTED_FAILURE))
-    resolveAssetSpy.mockRestore()
+    resolveSpy.mockRestore()
 
     saveNote(search, "other.md", "![[photo.png]]")
 

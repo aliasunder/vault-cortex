@@ -487,9 +487,7 @@ const foldAsciiCase = (path: string): string => {
 
 /** Orders same-tier resolution matches, winner first: the path with fewer
  *  code points, then the one earlier in UTF-8 byte order, so the winner never
- *  depends on the order of the path list. The Buffer.compare tie-break is
- *  the order of compareByUtf8Bytes in utils/compare-utf8-bytes.ts, written
- *  inline because this leaf layer cannot import utils. */
+ *  depends on the order of the path list. */
 const compareShortestPathFirst = (leftPath: string, rightPath: string): number => {
   const lengthDifference = codePointLength(leftPath) - codePointLength(rightPath)
 
@@ -827,14 +825,15 @@ const getAssetLookups = createLookupsCache(createAssetLookups)
 const resolveNoteInLetterCase = (params: {
   targetWithExtension: string
   targetRelativeToSource: string | null
-  lookups: NoteLookups
+  lookups: Record<LetterCase, NoteLookups>
   letterCase: LetterCase
 }): string | null => {
   const { targetWithExtension, targetRelativeToSource, lookups, letterCase } = params
+  const { pathWithForm, pathEndingWith } = lookups[letterCase]
   const comparableTarget = notePathForComparison(targetWithExtension, letterCase)
 
   // Exact path match ("path from vault folder"): "folder/Note.md" or "Note.md"
-  const exactMatch = lookups.pathWithForm(comparableTarget)
+  const exactMatch = pathWithForm(comparableTarget)
 
   if (exactMatch) return exactMatch
 
@@ -842,9 +841,7 @@ const resolveNoteInLetterCase = (params: {
   // to the linking note's folder, so "../C/target" and "sub/target" land on
   // the right note.
   if (targetRelativeToSource) {
-    const relativeMatch = lookups.pathWithForm(
-      notePathForComparison(targetRelativeToSource, letterCase),
-    )
+    const relativeMatch = pathWithForm(notePathForComparison(targetRelativeToSource, letterCase))
 
     if (relativeMatch) return relativeMatch
   }
@@ -854,7 +851,7 @@ const resolveNoteInLetterCase = (params: {
   // Obsidian's heuristic prefers the shortest path, and the byte-order
   // tie-break keeps the winner independent of the list's order (callers feed
   // it from unordered SQL scans that change across index rebuilds).
-  return lookups.pathEndingWith(comparableTarget)
+  return pathEndingWith(comparableTarget)
 }
 
 /** Adds ".md" unless the target already ends with it in lowercase, so
@@ -894,7 +891,7 @@ const resolveInExactCase = (params: {
   return resolveNoteInLetterCase({
     targetWithExtension,
     targetRelativeToSource: joinToOptionalSourceFolder(sourcePath, targetWithExtension),
-    lookups: getNoteLookups(allPaths).exact,
+    lookups: getNoteLookups(allPaths),
     letterCase: "exact",
   })
 }
@@ -919,19 +916,19 @@ const resolve = (params: {
 
   const targetWithExtension = noteTargetWithExtension(target)
   const targetRelativeToSource = joinToOptionalSourceFolder(sourcePath, targetWithExtension)
-  const noteLookups = getNoteLookups(allPaths)
+  const lookups = getNoteLookups(allPaths)
 
   return (
     resolveNoteInLetterCase({
       targetWithExtension,
       targetRelativeToSource,
-      lookups: noteLookups.exact,
+      lookups,
       letterCase: "exact",
     }) ??
     resolveNoteInLetterCase({
       targetWithExtension,
       targetRelativeToSource,
-      lookups: noteLookups.folded,
+      lookups,
       letterCase: "folded",
     })
   )
@@ -1041,6 +1038,27 @@ const resolveAsset = (params: {
   )
 }
 
+type ResolvedLinkTarget = { kind: "note" | "asset"; path: string }
+
+/** Resolves a link target to a note, or to a non-markdown file when no note
+ *  matches, so a target that names both reaches the note. Returns null when
+ *  neither matches. */
+const resolveNoteOrAsset = (params: {
+  target: string
+  allPaths: readonly string[]
+  allAssetPaths: readonly string[]
+  sourcePath?: string
+}): ResolvedLinkTarget | null => {
+  const { allPaths, allAssetPaths, ...targetAndSource } = params
+  const notePath = resolve({ ...targetAndSource, allPaths })
+
+  if (notePath) return { kind: "note", path: notePath }
+
+  const assetPath = resolveAsset({ ...targetAndSource, allAssetPaths })
+
+  return assetPath ? { kind: "asset", path: assetPath } : null
+}
+
 /** A note's complete link set — body links unioned with frontmatter wikilinks,
  *  deduplicated. Single source of truth for "what does this note link to",
  *  shared by incremental upsert and full rebuild — must not diverge. */
@@ -1059,10 +1077,10 @@ export const links = {
   extractFromFrontmatter,
   extractAll,
   isWithinLinkTargetLimit,
-  joinToSourceFolder,
   resolve,
   resolveInExactCase,
   stripExtension,
   pathToLinkName,
   resolveAsset,
+  resolveNoteOrAsset,
 }

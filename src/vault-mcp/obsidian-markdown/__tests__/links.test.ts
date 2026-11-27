@@ -1100,6 +1100,51 @@ describe("resolveAsset", () => {
   })
 })
 
+// ── resolveNoteOrAsset ───────────────────────────────────────────
+
+describe("resolveNoteOrAsset", () => {
+  const allAssetPaths = ["Trip Route.canvas", "assets/photo.png"]
+
+  it("resolves to the note when a note and a file share the link's name", () => {
+    expect(
+      links.resolveNoteOrAsset({
+        target: "Trip Route",
+        allPaths: ["Trip Route.md"],
+        allAssetPaths,
+      }),
+    ).toEqual({ kind: "note", path: "Trip Route.md" })
+  })
+
+  it("resolves to the file when no note matches", () => {
+    expect(
+      links.resolveNoteOrAsset({ target: "Trip Route", allPaths: ["Other.md"], allAssetPaths }),
+    ).toEqual({ kind: "asset", path: "Trip Route.canvas" })
+  })
+
+  it("returns null when neither a note nor a file matches", () => {
+    expect(
+      links.resolveNoteOrAsset({ target: "missing", allPaths: ["Other.md"], allAssetPaths }),
+    ).toBeNull()
+  })
+
+  it("resolves a relative link from the source note's folder in both tiers", () => {
+    const resolveFromSubfolder = (target: string): ReturnType<typeof links.resolveNoteOrAsset> => {
+      return links.resolveNoteOrAsset({
+        target,
+        allPaths: ["x.md"],
+        allAssetPaths,
+        sourcePath: "a/note.md",
+      })
+    }
+
+    expect(resolveFromSubfolder("../x")).toEqual({ kind: "note", path: "x.md" })
+    expect(resolveFromSubfolder("../assets/photo.png")).toEqual({
+      kind: "asset",
+      path: "assets/photo.png",
+    })
+  })
+})
+
 // ── Resolver oracle ──────────────────────────────────────────────
 
 /** Mulberry32, a small seeded generator, so every run draws the same corpus. */
@@ -1438,14 +1483,23 @@ describe("link-target limits", () => {
     expect(boundaryTargets.map(links.isWithinLinkTargetLimit)).toEqual([true, false])
   })
 
-  it("joinToSourceFolder returns null for a leading '..' run that climbs above the vault root", () => {
-    expect(links.joinToSourceFolder("a/note.md", ".././/../x")).toBeNull()
-    expect(links.joinToSourceFolder("note.md", "../x")).toBeNull()
+  it("resolve skips the join for a target that climbs above the vault root from a note at the root", () => {
+    const joinSpy = vi.spyOn(posix, "join")
+    onTestFinished(() => joinSpy.mockRestore())
+
+    expect(links.resolve({ target: "../x", allPaths: ["x.md"], sourcePath: "note.md" })).toBeNull()
+    expect(joinSpy).not.toHaveBeenCalled()
   })
 
-  it("joinToSourceFolder joins a leading '..' run that climbs at most to the vault root", () => {
-    expect(links.joinToSourceFolder("a/note.md", "./../x")).toBe("x")
-    expect(links.joinToSourceFolder("note.md", "x/../y")).toBe("y")
+  it("resolve joins a target with a '..' after a name from a note at the vault root", () => {
+    const joinSpy = vi.spyOn(posix, "join")
+    onTestFinished(() => joinSpy.mockRestore())
+
+    expect(links.resolve({ target: "x/../y", allPaths: ["y.md"], sourcePath: "note.md" })).toBe(
+      "y.md",
+    )
+    expect(joinSpy).toHaveBeenCalledTimes(1)
+    expect(joinSpy).toHaveBeenCalledWith(".", "x/../y.md")
   })
 
   it("resolve skips the join for a target that climbs above the vault root", () => {

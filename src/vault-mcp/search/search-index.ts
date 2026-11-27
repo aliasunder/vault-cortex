@@ -968,8 +968,7 @@ export const createSearchIndex = (
    *    again as a new array.
    *  - A write that adds or removes a note clears the list inside its transaction, before
    *    anything resolves against it; an edit of an existing note keeps it.
-   *  - A failed write that could have changed either list clears both (clearPathListCaches),
-   *    since its transaction may have read a list holding a change the rollback undid. */
+   *  - A failed write that could have changed either list clears both (runListChangingWrite). */
   let cachedNotePaths: readonly string[] | undefined
   const getNotePaths = (): readonly string[] => {
     cachedNotePaths ??= selectAllNotePathsStmt.all().map((note) => note.path)
@@ -1007,6 +1006,19 @@ export const createSearchIndex = (
   const clearPathListCaches = (): void => {
     cachedNotePaths = undefined
     cachedNonMarkdownPaths = undefined
+  }
+
+  /** Runs a transaction that can add or remove a note or file.
+   *  - When it throws, both path lists are cleared, since it may have read a list holding a
+   *    change the rollback undid.
+   *  - The catch encloses the transaction call, so a failed COMMIT clears the lists too. */
+  const runListChangingWrite = (write: () => void): void => {
+    try {
+      write()
+    } catch (error) {
+      clearPathListCaches()
+      throw error
+    }
   }
 
   // ── File content prepared statements (conditional on fileToolsEnabled) ──
@@ -1412,17 +1424,17 @@ export const createSearchIndex = (
     `SELECT ${NOTE_METADATA_COLUMNS_SQL} FROM notes WHERE path = ?`,
   )
 
-  /** A note wins over a non-markdown file, and an unresolved link keeps its text as the target.
-   *  The file tier is links.resolveAsset, the resolver the note mover uses, so the index and a
-   *  move agree on where a file link points. */
+  /** An unresolved link keeps its text as the target. */
   const resolveLinkTarget = (params: { linkText: string; sourcePath: string }): string => {
     const { linkText, sourcePath } = params
+    const resolvedTarget = links.resolveNoteOrAsset({
+      target: linkText,
+      allPaths: getNotePaths(),
+      allAssetPaths: getNonMarkdownPaths(),
+      sourcePath,
+    })
 
-    return (
-      links.resolve({ target: linkText, allPaths: getNotePaths(), sourcePath }) ??
-      links.resolveAsset({ target: linkText, allAssetPaths: getNonMarkdownPaths(), sourcePath }) ??
-      linkText
-    )
+    return resolvedTarget?.path ?? linkText
   }
 
   const insertLink = (params: {
@@ -1542,29 +1554,20 @@ export const createSearchIndex = (
       reResolveLinksNaming(linkNames)
     }).immediate
 
-    // The catch encloses the transaction call, so a failed COMMIT clears the lists too.
-    try {
-      upsertNonMdFileRow()
-    } catch (error) {
-      clearPathListCaches()
-      throw error
-    }
+    runListChangingWrite(upsertNonMdFileRow)
   }
 
   /** Removes a non-markdown file. Called by the file watcher on unlink. The
    *  links that resolved to it re-resolve, to another file or to their text. */
   const removeNonMdFile = (filePath: string): void => {
-    try {
+    runListChangingWrite(
       db.transaction(() => {
         const { changes } = deleteNonMdFileStmt.run(filePath)
 
         if (changes > 0) cachedNonMarkdownPaths = undefined
         reResolveLinksTo(filePath)
-      })()
-    } catch (error) {
-      clearPathListCaches()
-      throw error
-    }
+      }),
+    )
   }
 
   // ── File content indexing ─────────────────────────────────────
@@ -2003,13 +2006,7 @@ export const createSearchIndex = (
       if (isNewNote) reResolveLinksNaming([links.pathToLinkName(note.path)])
     }).immediate
 
-    // The catch encloses the transaction call, so a failed COMMIT clears the lists too.
-    try {
-      upsertNoteRows()
-    } catch (error) {
-      clearPathListCaches()
-      throw error
-    }
+    runListChangingWrite(upsertNoteRows)
 
     const sourceVersion = Symbol()
     sourceVersions.set(filePath, sourceVersion)
@@ -2506,7 +2503,7 @@ export const createSearchIndex = (
 
     // All deletes commit or roll back together — a mid-sequence throw must
     // not leave the note half-removed across notes/FTS/tasks/links.
-    try {
+    runListChangingWrite(
       db.transaction(() => {
         const removedNoteRow = removeNotesStmt.get(filePath)
 
@@ -2521,12 +2518,8 @@ export const createSearchIndex = (
         if (memoryFile) {
           removeMemoryEntriesForFile(memoryFile)
         }
-      })()
-    } catch (error) {
-      // The transaction may have read a path list without the note it rolled back.
-      clearPathListCaches()
-      throw error
-    }
+      }),
+    )
     sourceVersions.delete(filePath)
   }
 
