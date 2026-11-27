@@ -1089,11 +1089,45 @@ describe("extractFromBody against Obsidian 1.15.1", () => {
     { input: '[x](Old.md#[[Old]] "`c`")', obsidian: ["Old.md#[[Old]]"], expected: ["Old.md"] },
     { input: "[x](Old.md#`h`)", obsidian: ["Old.md#`h`"], expected: ["Old.md"] },
     { input: "[x](<Old.md#a `b` c>)", obsidian: ["Old.md#a `b` c"], expected: ["Old.md"] },
+    { input: "[[a `b` c]]", obsidian: ["a `b` c"], expected: ["a `b` c"] },
+    {
+      input: "[[Daily/<% tp.date.yesterday() %>]]",
+      obsidian: ["Daily/<% tp.date.yesterday() %>"],
+      expected: ["Daily/<% tp.date.yesterday() %>"],
+    },
   ]
 
   it.each(inlineCodeInDestinationCases)("extracts $expected from $input", ({ input, expected }) => {
     expect(links.extractFromBody(input)).toEqual(expected)
   })
+
+  // Each link whose destination holds backticks splits into parts that
+  // rebuild it, with the stored target read as written.
+  const backtickDestinationSplitCases = [
+    { input: "[x](<`draft`Old.md>)", storedTarget: "`draft`Old.md" },
+    { input: "[x](`draft`Old.md)", storedTarget: "`draft`Old.md" },
+    { input: "[x](Old.md`v2`)", storedTarget: "Old.md`v2`" },
+    { input: "[x](<Report `draft` [[Old]].md>)", storedTarget: "Report `draft` [[Old]].md" },
+    { input: '[x](<a b.md> "`t` [[Old]]")', storedTarget: "a b.md" },
+  ]
+
+  it.each(backtickDestinationSplitCases)(
+    "splits $input into parts that rebuild it and spell $storedTarget",
+    ({ input, storedTarget }) => {
+      const markdownMatches = links
+        .matchLinksInLine(input)
+        .filter((linkMatch) => linkMatch.kind === "markdown")
+      const splits = markdownMatches.map(({ text }) => {
+        const parts = links.splitMarkdownLink(text)
+        return {
+          rebuilt: parts && `${parts.prefix}${parts.writtenTarget}${parts.heading}${parts.suffix}`,
+          storedTarget: parts && `${parts.path}${parts.extension}`,
+        }
+      })
+
+      expect(splits).toEqual([{ rebuilt: input, storedTarget }])
+    },
+  )
 })
 
 // ── Markdown link memory ─────────────────────────────────────────

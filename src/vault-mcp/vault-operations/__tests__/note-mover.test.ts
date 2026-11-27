@@ -1017,6 +1017,28 @@ describe("moveNote — selectivity (must-not-rewrite cases)", () => {
     })
   })
 
+  it("rewrites links inside a Templater expression in a note it rewrites", async () => {
+    const { writeFixture, moveNote, readNote } = setupVault()
+    await writeFixture("Old.md", "content\n")
+    await writeFixture("Hub.md", '<% tp.file.include("[[Old]]") %> and <% "[x](Old.md)" %>\n')
+
+    const result = await moveNote({
+      oldPath: "Old.md",
+      newPath: "New.md",
+      backlinkSources: ["Hub.md"],
+    })
+
+    expect(await readNote("Hub.md")).toBe(
+      '<% tp.file.include("[[New]]") %> and <% "[x](New.md)" %>\n',
+    )
+    expect(result).toEqual({
+      moved_to: "New.md",
+      links_updated: 2,
+      updated_notes: ["Hub.md"],
+      pruned_empty_folders: 0,
+    })
+  })
+
   it("rewrites a frontmatter wikilink between backticks, which frontmatter reads as a link", async () => {
     const { writeFixture, moveNote, readNote } = setupVault()
     await writeFixture("Foo.md", "content\n")

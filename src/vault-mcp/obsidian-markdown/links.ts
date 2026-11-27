@@ -222,9 +222,10 @@ const findHashSource = (params: { piece: string; decodedPiece: string }): number
 /** Decodes character references as Obsidian does in a link destination, and
  *  finds where the first `#` of the output came from.
  *  - A reference never holds an `&` after its first character, so the text
- *    decodes piece by piece, each piece after the first starting at an `&`. One parse-entities
- *    call over the whole text would repeat its last reference for a later `&`
- *    that decodes to nothing (`&lt;&gt.md` as `<<.md`), which Obsidian does not.
+ *    decodes piece by piece, each piece after the first starting at an `&`.
+ *    One parse-entities call over the whole text would repeat its last
+ *    reference for a later `&` that decodes to nothing (`&lt;&gt.md` as
+ *    `<<.md`), which Obsidian does not.
  *  - hashSource is the offset in `text` of that `#`, or of the reference that
  *    produced it, or -1 without one. */
 const decodeCharacterReferences = (text: string): { decoded: string; hashSource: number } => {
@@ -823,9 +824,9 @@ const createDestinationReader = (text: string): ((openParen: number) => ScannedL
 }
 
 /** Whether the character at `position` (a `[` or `]`, or the `!` before a
- *  `[`) is escaped by an odd run of backslashes. A backslash run sits directly before
- *  one character, which the scan checks at most once, so a line's walks add
- *  up to its length. */
+ *  `[`) is escaped by an odd run of backslashes. A backslash run sits
+ *  directly before one character, which the scan checks at most once, so a
+ *  line's walks add up to its length. */
 const isEscapedAt = (text: string, position: number): boolean => {
   // The walk counts the backslashes directly before the character.
   let backslashStart = position
@@ -875,11 +876,11 @@ const toMarkdownLinkSpan = (params: {
  *  names another note or file, left to right and never overlapping. The
  *  grammar follows Obsidian's, except that the link text ends at its first
  *  unescaped `]`, so `[a [b] c](d.md)` holds no link:
- *  - openers and link-text brackets are found in `text`, where a caller may
- *    blank inline code and other spans it skips, keeping every offset;
- *  - destinations and titles are read from `destinationText`, the same line
+ *  - openers and link-text brackets are found in `maskedText`, where a caller
+ *    may blank inline code and other spans it skips, keeping every offset;
+ *  - destinations and titles are read from `destinationText`, the same text
  *    as written, because Obsidian reads backticks there as part of the
- *    destination (`[x](<a`b`.md>)` stores ``a`b`.md``);
+ *    destination (``[x](<a`b`.md>)`` stores ``a`b`.md``);
  *  - a `[` or `]` after an odd run of backslashes is text, so `[a\](b.md)`
  *    holds no link;
  *  - an unescaped `!` directly before the `[` makes the link an embed;
@@ -887,15 +888,15 @@ const toMarkdownLinkSpan = (params: {
  *  - a title in `"…"`, `'…'` or `(…)` may follow after whitespace;
  *  - a complete link is used up even when it names nothing (a URL, a heading
  *    in the same note), so the scan resumes after its `)`;
- *  - `visitDestination` receives each complete link's destination and title,
- *    from the character after its `(` to its end. */
+ *  - `visitDestinationAndTitle` receives each complete link's destination and
+ *    title, from the character after its `(` to its end. */
 const scanMarkdownLinks = (params: {
-  text: string
+  maskedText: string
   destinationText: string
   visit: (span: MarkdownLinkSpan) => void
-  visitDestination?: (region: { start: number; end: number }) => void
+  visitDestinationAndTitle?: (region: { start: number; end: number }) => void
 }): void => {
-  const { text, destinationText, visit, visitDestination } = params
+  const { maskedText, destinationText, visit, visitDestinationAndTitle } = params
   // The link text cursor outlives a failed opener and only moves forward: a
   // later opener reaches the same `]` or a later one.
   let textEnd = 0
@@ -908,23 +909,25 @@ const scanMarkdownLinks = (params: {
   // `[[[…\\\\…]`.
   let checkedTextEnd = -1
 
+  const isLinkTextCloser = (position: number): boolean => {
+    return maskedText[position] === "]" && !isEscapedAt(maskedText, position)
+  }
+
   const findLinkTextEnd = (start: number): number => {
     textEnd = Math.max(textEnd, start + 1)
 
     if (textEnd === checkedTextEnd) return textEnd
-    while (textEnd < text.length && (text[textEnd] !== "]" || isEscapedAt(text, textEnd))) {
-      textEnd++
-    }
+    while (textEnd < maskedText.length && !isLinkTextCloser(textEnd)) textEnd++
     checkedTextEnd = textEnd
     return textEnd
   }
 
-  for (let start = 0; start < text.length; start++) {
-    if (text[start] !== "[" || isEscapedAt(text, start)) continue
+  for (let start = 0; start < maskedText.length; start++) {
+    if (maskedText[start] !== "[" || isEscapedAt(maskedText, start)) continue
 
     const openParen = findLinkTextEnd(start) + 1
 
-    if (text[openParen] !== "(") continue
+    if (maskedText[openParen] !== "(") continue
 
     readLink ??= createDestinationReader(destinationText)
     const link = readLink(openParen)
@@ -933,13 +936,13 @@ const scanMarkdownLinks = (params: {
 
     // An unescaped `!` directly before the `[` makes the link an embed.
     const markerStart = start - 1
-    const opensEmbed = text[markerStart] === "!" && !isEscapedAt(text, markerStart)
+    const opensEmbed = maskedText[markerStart] === "!" && !isEscapedAt(maskedText, markerStart)
     const span = opensEmbed
       ? toMarkdownLinkSpan({ text: destinationText, start: markerStart, link, linkKind: "embed" })
       : toMarkdownLinkSpan({ text: destinationText, start, link, linkKind: "link" })
 
     if (span) visit(span)
-    visitDestination?.({ start: openParen + 1, end: link.end })
+    visitDestinationAndTitle?.({ start: openParen + 1, end: link.end })
     // end - 1 is the link's `)`, and the loop's start++ moves past it.
     start = link.end - 1
   }
@@ -981,13 +984,14 @@ const maskTemplaterExpressions = (text: string): string => {
 }
 
 /** Calls the visitors for each link in a body line, wikilinks first and then
- *  markdown links. Openers are found in `maskedLine`, a copy of `line` with
- *  the spans a caller skips blanked to spaces, and markdown destinations are
- *  read from `line` (scanMarkdownLinks). A wikilink inside a markdown link's
- *  destination or title is part of that link, as Obsidian reads
- *  `[x](a.md "[[b]]")` and `[x](https://example.com "[[b]]")`, so wikilinks are
- *  found with every complete destination and title blanked too, and no two
- *  links the visitors receive overlap. */
+ *  markdown links:
+ *  - `maskedLine` is `line` with the spans a caller skips blanked to spaces;
+ *    markdown links are found in it and their destinations read from `line`,
+ *    as scanMarkdownLinks describes;
+ *  - a wikilink inside a markdown link's destination or title is part of that
+ *    link, as Obsidian reads `[x](a.md "[[b]]")` and
+ *    `[x](https://example.com "[[b]]")`, so wikilinks are found with every
+ *    complete destination and title blanked too. */
 const scanBodyLineLinks = (params: {
   maskedLine: string
   line: string
@@ -998,16 +1002,16 @@ const scanBodyLineLinks = (params: {
   const markdownSpans: MarkdownLinkSpan[] = []
   // The masked line with each destination and title blanked, built in pieces
   // as the scan reports them in text order. A wikilink cannot cross a link's
-  // `](`, so every wikilink outside them keeps its offsets.
+  // `](`, so the blanking cuts no wikilink in two.
   const wikilinkLinePieces: string[] = []
   // How much of the masked line the pieces already hold.
   let copiedThrough = 0
 
   scanMarkdownLinks({
-    text: maskedLine,
+    maskedText: maskedLine,
     destinationText: line,
     visit: (span) => markdownSpans.push(span),
-    visitDestination: ({ start, end }) => {
+    visitDestinationAndTitle: ({ start, end }) => {
       wikilinkLinePieces.push(maskedLine.slice(copiedThrough, start), " ".repeat(end - start))
       copiedThrough = end
     },
@@ -1024,8 +1028,9 @@ const scanBodyLineLinks = (params: {
 }
 
 /** Finds a body line's wikilinks, then its markdown links (not in text order),
- *  outside inline code, as links.extractFromBody reads them. Offsets and each
- *  match's `text` come from `line` as written, and no two matches overlap. */
+ *  outside inline code, as links.extractFromBody reads them except inside
+ *  Templater expressions. Offsets and each match's `text` come from `line` as
+ *  written. */
 const matchLinksInLine = (line: string): LinkMatch[] => {
   const matches: LinkMatch[] = []
   scanBodyLineLinks({
@@ -1097,16 +1102,18 @@ const splitWikilink = (linkText: string): WikilinkParts | null => {
 
 /** Splits a markdown link's text into its parts with the scanner's grammar,
  *  or returns null when the text is not one whole link that names a note or
- *  file. Any vault target parses (notes, assets and extensionless targets),
- *  so moveNote can rewrite all of them. path and extension come from the
- *  stored target, because percent-encoding can hide the dot (photo%2Epng) or
- *  span the extension (photo.p%6Eg). The link text is read with its inline
- *  code blanked, as in its line: a code span that touches a link a line scan
- *  found lies wholly inside it. */
+ *  file:
+ *  - any vault target parses (notes, assets and extensionless targets), so
+ *    moveNote can rewrite all of them;
+ *  - path and extension come from the stored target, because percent-encoding
+ *    can hide the dot (photo%2Epng) or span the extension (photo.p%6Eg);
+ *  - the link text is read with its inline code blanked, as in its line. A
+ *    code span that reaches outside the link starts after its `(`, where the
+ *    text is read as written either way. */
 const splitMarkdownLink = (linkText: string): MarkdownLinkParts | null => {
   const spans: MarkdownLinkSpan[] = []
   scanMarkdownLinks({
-    text: maskInlineCode(linkText),
+    maskedText: maskInlineCode(linkText),
     destinationText: linkText,
     visit: (span) => spans.push(span),
   })
@@ -1211,7 +1218,9 @@ const extractFromBody = (content: string): string[] => {
       maskedLine: linkExtractableLine,
       line: text,
       visitWikilink: ({ targetStart, targetEnd }) => {
-        const rawTarget = linkExtractableLine.slice(targetStart, targetEnd)
+        // Obsidian reads a wikilink's target as written, backticks and
+        // Templater expressions included (``[[a `b` c]]`` stores ``a `b` c``).
+        const rawTarget = text.slice(targetStart, targetEnd)
         const target = stripEscapedPipe(rawTarget.trim())
 
         if (isExtractableTarget(target)) targets.add(target)

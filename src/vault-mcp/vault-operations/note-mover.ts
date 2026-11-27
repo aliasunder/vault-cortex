@@ -2,8 +2,9 @@
  *  mirroring Obsidian's built-in rename. Reuses the link grammar, parsing,
  *  destination encoding and resolution from ../obsidian-markdown/links.ts so
  *  the rewriter and indexer read links alike. They differ in one place: the
- *  indexer skips Templater expressions, while the rewriter, like Obsidian's
- *  rename, rewrites links inside them.
+ *  indexer skips Templater expressions, and the rewriter rewrites a link in
+ *  one only in a note it rewrites for another link, since its backlink scan
+ *  reads links as the indexer does.
  *
  *  How it comes together — building blocks first, orchestrator last:
  *    1. Target classification — decides IF a link needs rewriting and what form
@@ -177,10 +178,8 @@ const buildReplacementTarget = (params: {
 
   if (form === "relative") {
     const pathFromSource = posix.relative(posix.dirname(newSourcePath), absoluteForm)
-    const relative =
-      writesRelativeStart && !pathFromSource.startsWith("../")
-        ? `./${pathFromSource}`
-        : pathFromSource
+    const addsRelativeStart = writesRelativeStart && !pathFromSource.startsWith("../")
+    const relative = addsRelativeStart ? `./${pathFromSource}` : pathFromSource
     return resolvesToDesired(relative) ? relative : absoluteForm
   }
 
@@ -268,9 +267,9 @@ const rewriteTarget = (
     originalExtension.toLowerCase() === posix.extname(desiredTarget).toLowerCase()
   const keepExtension = grammarWritesExtension && carriesResolvedExtension
 
-  // A markdown link that starts with "./" or "../" keeps a relative start,
-  // because Obsidian reads a markdown link holding a ":", such as one in its
-  // heading, as a URL without one.
+  // A markdown link that starts with "./" or "../" keeps that start. Without
+  // it, Obsidian reads a link holding a ":", such as a ":" in its heading, as
+  // a URL.
   const writesRelativeStart =
     grammar === "markdown" && (rawTarget.startsWith("./") || rawTarget.startsWith("../"))
 
@@ -292,7 +291,6 @@ const rewriteTarget = (
 
 type LinkEdit = { start: number; end: number; replacement: string }
 
-/** One link links.matchLinksInLine found in a body line. */
 type LinkMatch = ReturnType<typeof links.matchLinksInLine>[number]
 
 /** Takes a raw link target (with its original extension state and grammar) and
@@ -437,8 +435,8 @@ const rewriteBodyLine = (
   line: string,
   rewriteLink: RewriteLink,
 ): { line: string; linksRewritten: number } => {
-  // Links are found as links.extractFromBody reads them, so a link opener
-  // inside a code span cannot swallow a link after it.
+  // Links are found outside inline code, as links.extractFromBody finds them,
+  // so a link opener inside a code span cannot swallow a link after it.
   const edits = links
     .matchLinksInLine(line)
     .flatMap((linkMatch) => rewriteLinkMatch({ linkMatch, rewriteLink }))
