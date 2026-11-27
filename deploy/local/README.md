@@ -3,7 +3,7 @@
 Run Vault Cortex on your machine against a local Obsidian vault. No cloud, no
 Obsidian Sync — just Docker and a folder of `.md` files.
 
-**Contents** — [Prerequisites](#prerequisites) · [Setup](#setup) · [Connect](#connect-your-mcp-client) · [Verify](#verify) · [Monitoring](#monitoring) · [Updating](#updating) · [Restart](#restart) · [Stop](#stop) · [More than one vault](#run-more-than-one-vault) · [Windows](#windows-docker-desktop) · [Memory](#memory) · [File Tools](#file-tools) · [Read-only](#read-only-mode) · [Deleting](#deleting-notes-and-files) · [Config](#configuration) · [Troubleshooting](#troubleshooting)
+**Contents** — [Prerequisites](#prerequisites) · [Setup](#setup) · [Connect](#connect-your-mcp-client) · [Verify](#verify) · [Monitoring](#monitoring) · [Updating](#updating) · [Restart](#restart) · [Stop](#stop) · [More than one vault](#run-more-than-one-vault) · [Windows](#windows-docker-desktop) · [Memory](#memory) · [File Tools](#file-tools) · [Read-only](#read-only-mode) · [Deleting](#deleting-notes-and-files) · [Daily Notes](#daily-notes) · [Config](#configuration) · [Troubleshooting](#troubleshooting)
 
 ## Prerequisites
 
@@ -408,13 +408,76 @@ links), for notes and for other files alike:
 
 To restore a trashed note or file, move it out of `.trash` by hand.
 
+## Daily notes
+
+`vault_get_daily_note` finds your daily notes using the folder and date
+format set in Obsidian's Daily notes options. The server reads them from
+`.obsidian/daily-notes.json` in your vault folder, so there is nothing to set
+up; changes you make in Obsidian apply on the next call.
+
+If the folder box in Obsidian's Daily notes options is empty, Obsidian puts
+daily notes where **Default location for new notes** says (Settings → Files
+and links, stored in `.obsidian/app.json`), and the server follows it.
+**Same folder as current file** means the vault root, as it does in Obsidian
+for daily notes.
+
+Daily notes in the vault root, or in the new-note folder because the folder
+box is empty, aren't protected from delete and move and can appear in orphan
+results, because protecting or excluding that folder would also cover every
+other note in it.
+
+If you use the Periodic Notes plugin, whose settings the core config file
+doesn't track, set `DAILY_NOTES_FOLDER` (any vault-relative path: `Journal`,
+`Planner/Daily`, or `/` for the vault root) and `DAILY_NOTES_FORMAT` (same
+tokens as Obsidian's date format setting) in `.env`. A set value always wins
+over the config file; a value you leave unset while `daily-notes.json` is
+missing comes from the fallbacks, the `Daily Notes` folder and `YYYY-MM-DD`.
+Apply `.env` edits as the **Changed `.env`?** note under [Restart](#restart)
+says.
+
+A few date format tokens are unsupported: ordinals (`Do`, `Mo`, `DDDo`,
+`wo`), `dd` (2-letter weekday), `d` (weekday number), `e`, `k`/`kk`, `w`
+(week number), `Q` (quarter), `Z`/`ZZ` (UTC offset), and the localized
+formats (`L`–`LLLL`, `LT`, `LTS`). If your format uses any of them,
+`vault_get_daily_note` returns an error; change the format in Obsidian or set
+`DAILY_NOTES_FORMAT` to a supported alternative.
+
 ## Configuration
 
-Only `MCP_AUTH_TOKEN` and `VAULT_PATH` are required. For optional settings
-(memory folder, protected paths, orphan exclusions, file tools, read-only
-mode, per-tool disabling, daily notes folder and format, trash retention,
-timezone, log-file limits), see the [Configuration](../../README.md#configuration) section
-in the main README.
+Only `MCP_AUTH_TOKEN` and `VAULT_PATH` are required; `VAULT_PATH` must not
+contain `*`, `?`, or `[`. Every optional setting is documented in
+`.env.example`:
+
+| Setting                     | Default                                       | What it does                                                                                                                                                                                                                                                                                                                           |
+| --------------------------- | --------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `PUBLIC_URL`                | `http://localhost:8000`                       | The URL clients connect to, used for OAuth sign-in. When you change `PORT` or reach the server through another address, change it to match, or MCP clients can't sign in                                                                                                                                                               |
+| `PORT`                      | `8000`                                        | Host port the server is published on                                                                                                                                                                                                                                                                                                   |
+| `BIND_ADDRESS`              | `127.0.0.1`                                   | Address on this computer the port is published on. `127.0.0.1` keeps the server reachable from this machine only; `0.0.0.0` lets other devices on your network reach it (see [Other computers on your network](#other-computers-on-your-network))                                                                                      |
+| `INSTANCE_NAME`             | `vault-cortex`                                | Names this install's container and search-index volume. Set it before the first start to run another vault on this machine (see [Run more than one vault](#run-more-than-one-vault)). Valid values: two or more lowercase letters, digits, hyphens or underscores, starting with a letter or digit                                     |
+| `TZ`                        | `UTC`                                         | Your IANA timezone (e.g. `America/New_York`) — affects daily note dates and timestamps                                                                                                                                                                                                                                                 |
+| `EMBEDDING_ENABLED`         | `true`                                        | Set `false` for keyword-only search: no model download (~59MB), no vector index, no hybrid search                                                                                                                                                                                                                                      |
+| `RERANK_MODE`               | `blended`                                     | `blended` reranks results with the cross-encoder (~200ms added latency); `none` skips reranking. Only takes effect when `EMBEDDING_ENABLED` is true                                                                                                                                                                                    |
+| `MEMORY_ENABLED`            | `true`                                        | Set `false` to hide the memory tools and skip creating the memory folder. `MEMORY_DIR` still supplies the defaults for `PROTECTED_PATHS` and `ORPHAN_EXCLUDE_FOLDERS`                                                                                                                                                                  |
+| `MEMORY_DIR`                | `About Me`                                    | Vault folder for structured memory files                                                                                                                                                                                                                                                                                               |
+| `FILE_TOOLS_ENABLED`        | `true`                                        | Set `false` to hide the file tools; `DISABLED_TOOLS=vault_write_file,vault_delete_file` hides only writing and deleting                                                                                                                                                                                                                |
+| `READONLY_MODE`             | `false`                                       | Set `true` to hide every tool that changes the vault and skip memory folder auto-creation — read and search only                                                                                                                                                                                                                       |
+| `DISABLED_TOOLS`            | none hidden                                   | Hide individual tools by name, comma-separated; names match the [README tools table](https://github.com/aliasunder/vault-cortex#tools). It cannot re-enable a tool another setting hides, and an unknown name stops the server at startup                                                                                              |
+| `PROTECTED_PATHS`           | `MEMORY_DIR`, daily notes folder              | Folders whose notes and files can't be deleted, whose notes can't be moved, and that no note can be moved into; their notes stay editable. The daily notes folder is read from `DAILY_NOTES_FOLDER` or `daily-notes.json` (see [Daily notes](#daily-notes) for root and empty settings). A value you set replaces both default folders |
+| `ORPHAN_EXCLUDE_FOLDERS`    | daily notes folder, `Templates`, `MEMORY_DIR` | Folders excluded from orphan detection. A list you set replaces all defaults; `ORPHAN_EXCLUDE_FOLDERS=,` excludes nothing, and an empty value uses the defaults                                                                                                                                                                        |
+| `DAILY_NOTES_FOLDER`        | from `daily-notes.json`                       | Sets the daily notes folder (see [Daily notes](#daily-notes)); `Daily Notes` when that file is missing or unreadable                                                                                                                                                                                                                   |
+| `DAILY_NOTES_FORMAT`        | from `daily-notes.json`                       | Sets the daily note filename format, with the same tokens as Obsidian's date format setting (see [Daily notes](#daily-notes)); `YYYY-MM-DD` when that file is missing or unreadable                                                                                                                                                    |
+| `TRASH_RETENTION_DAYS`      | `30`                                          | Days a note or file deleted under Obsidian's default "Move to system trash" setting stays in `.trash` before the server cleans it up; `none` keeps them forever. Only notes and files the server moved there are cleaned up (see [Deleting notes and files](#deleting-notes-and-files))                                                |
+| `WINDOWS_MODE`              | `false`                                       | On Windows, set `true`: the file watcher switches to polling, and note moves and new files from `vault_write_file` to rename-based writes, so a vault on a `C:` drive works through Docker Desktop (see [Windows](#windows-docker-desktop))                                                                                            |
+| `MAX_FILE_BYTES`            | `52428800` (50 MiB)                           | Largest file `vault_read_file` reads, in bytes; a larger file is refused, and a larger PDF is found in search by its name only                                                                                                                                                                                                         |
+| `MAX_IMAGE_OUTPUT_BYTES`    | `49152` (48 KiB)                              | Byte budget for images `vault_read_file` returns, before base64 encoding; larger images are downscaled and recompressed to fit. Raise it for clients that accept larger responses                                                                                                                                                      |
+| `MAX_PDF_RENDER_PAGES`      | `5`                                           | Most PDF pages rendered as images when `raw: true` is set on `vault_read_file`; `MAX_IMAGE_OUTPUT_BYTES` is divided across them, so fewer pages means higher quality each                                                                                                                                                              |
+| `SERVICE_DOCUMENTATION_URL` | the GitHub repo URL                           | URL returned in OAuth discovery metadata                                                                                                                                                                                                                                                                                               |
+| `TRUST_PROXY_HOPS`          | `0`                                           | Set `1` when exactly one proxy you control sits in front of the server (Caddy, nginx, Cloudflare Tunnel) and nothing else can reach its port, so OAuth rate limiting and logs use the visitor's IP from `X-Forwarded-For`. With `0`, forwarding headers are ignored                                                                    |
+| `TRUST_FORWARDED_HOPS`      | `0`                                           | How many trailing `for=` entries in the [RFC 7239](https://www.rfc-editor.org/rfc/rfc7239) `Forwarded` header belong to proxies you control. `0` ignores the header; `1` when the proxy in front writes it and is the only way to reach the server; `2` when a CDN fronts that proxy and is the only way to reach it                   |
+| `LOG_LEVEL`                 | `info`                                        | Logging verbosity: `debug`, `info`, `warn`, `error`                                                                                                                                                                                                                                                                                    |
+| `LOG_DIR`                   | `none`                                        | Directory inside the container for log files that survive container re-creation (e.g. `/data/logs`). The container's own log (what `docker logs` shows) is always written, but Docker discards it when the container is re-created                                                                                                     |
+| `LOG_RETENTION_DAYS`        | `90`                                          | Days to keep log files once `LOG_DIR` is a path; cleanup runs at startup and each day. Digits only; `0` keeps today, and invalid values warn and use `90`                                                                                                                                                                              |
+| `LOG_MAX_DAILY_MB`          | `25`                                          | Maximum MB per daily log file: whole numbers of at least 1, or `none` for no cap. At the cap, file logging pauses until midnight in `TZ`; the container log continues                                                                                                                                                                  |
 
 ## Troubleshooting
 
