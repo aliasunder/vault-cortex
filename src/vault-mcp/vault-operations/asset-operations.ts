@@ -459,7 +459,7 @@ const writeAssetContent = async (
   // The note check also ignores letter case: on a macOS or Windows bind mount,
   // "Plan.MD" opens the note "Plan.md". Reads keep the exact match, so a
   // "README.MD" that is not a note stays readable.
-  assertNotMarkdownNote({ fullPath: fullPath.toLowerCase(), path })
+  assertNotMarkdownNote({ resolvedPath: fullPath.toLowerCase(), path })
 
   const fileKind = getFileKind(fullPath)
 

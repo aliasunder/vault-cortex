@@ -94,10 +94,10 @@ src/
   vault-mcp/
     server.ts, config.ts # Entry point and env-var loader, the only loose files here
     obsidian-markdown/ # Pure parsers and transforms with no I/O (pdf-engine excepted): lines, frontmatter, callouts, headings, links, tags, aliases, body-tags + obsidian-remark-parser + remark-ports/, tasks, recurrence, memory-entries, canvas, file-kinds, html, plaintext, pdf + pdf-engine, moment-format
-    vault-operations/ # Vault read, write, and patch: vault-filesystem (base I/O), vault-patcher, note-mover, memory-store, daily-notes, vault-folder-config, task-mutations, task-format-config, trash-config, trash-sweeper, asset-operations, asset-text
+    vault-operations/ # Vault read, write, and patch: vault-filesystem (base I/O), vault-patcher, note-mover, memory-store, daily-notes, delete-options, vault-folder-config, task-mutations, task-format-config, trash-config, trash-sweeper, asset-operations, asset-text
       pdf-extractor.ts, pdf-extraction-child.ts, pdf-extraction-protocol.ts # One shared child owns PDF text reads and deferred indexing; raw page rendering stays in the server
     mcp-core/ # MCP protocol surface: mcp-router, tool-registry, tool-availability, tool-definitions, prompt-definitions, coded-error-remedy
-      tools/ # One <domain>-tools module per data-layer domain (vault-crud, search, task, memory, daily-note, asset), plus tool-helpers
+      tools/ # One <domain>-tools module per data-layer domain (vault-crud, search, task, memory, daily-note, asset), plus tool-helpers (registration plumbing and per-call result text) and tool-description-text (text two or more descriptions share)
       prompts/ # One <name>-prompt module per prompt (vault-orientation, memory-review, daily-review), plus prompt-helpers
     search/ # SQLite FTS5, hybrid search, file watching, embedding: search-index, search-queries, fts-query, hybrid-search, search-helpers, rrf, embedder, reranker, search-models, chunker, file-watcher, body-tag-parser + body-tag-worker (body tags parsed in a worker thread)
     oauth/ # OAuth 2.1: oauth-provider, oauth-routes, authorize-guard, consent-page, unknown-client-page
@@ -178,7 +178,11 @@ A module's folder is decided by **what it depends on**, not just its topic:
   module is self-contained: one register function and its data-layer imports,
   with tool names imported from the registry. Shared helpers
   (`createSafeHandlers`, `formatNoteMetadata`, `ToolRegistrationContext`
-  type) live in `tool-helpers.ts`. Group modules take `safeHandler` and
+  type) live in `tool-helpers.ts`; text that two or more tool descriptions
+  state word for word, and the `describe*` builders for text that depends on
+  the config or the enabled tool set, live in `tool-description-text.ts`.
+  `describe*` names description text built at registration and `format*`
+  names result text built per call. Group modules take `safeHandler` and
   `safeHandlerContent` from the registration context; `createSafeHandlers`
   builds them per server from the enabled tools and the vault path.
   **Tool handlers stay thin**: schema, wire mapping (snake_case ↔ camelCase),
@@ -469,7 +473,25 @@ Before integrating agent command setup, read [Agent command setup](./CONTRIBUTIN
 <!-- distilled from vault Reference/code-standards-* on 2026-11-03; refresh (merges, keeps hand edits): run the sync-code-standards skill -->
 
 These rules are authoring guidance, not a review checklist. Apply them
-while writing, not after. `eslint.config.ts` enforces this subset:
+while writing, not after, and only after the design step they cannot
+replace: before adding to or splitting a function, a module or a doc
+section, read what that unit is responsible for and who it serves (its
+docstring, its header comment, the section's lead), write that sentence
+when it is missing or says only "helpers" or "shared", and judge the
+change against it. A change that does not fit goes to the unit that owns
+it, or the sentence changes and the change says so. The rules below
+constrain a unit's shape once its responsibility is known; none of them,
+DRY included, can say what a unit is for, and a rule or a reviewer's
+finding applied without that answer produces units that exist only to
+satisfy it.
+
+- Wrong: a delete core that switches on which wrapper called it so the
+  two wrappers can share one kind check, and a word table that templates
+  two tools' descriptions because their sentences differ by a noun.
+- Right: each wrapper checks its own kind and the core's docstring says it
+  deletes a canonical path, and each tool states its own description.
+
+`eslint.config.ts` enforces this subset:
 
 - No `function` declarations, and `type` over `interface`.
 - No `any`, `as` casts other than `as const`, or `!` non-null assertions
@@ -930,10 +952,11 @@ Two naming layers — MCP (JSON wire format) and TypeScript (internal):
   handler runs a backlinks lookup before the data-layer `.md`-only check.
 - **`vault_read_file` is the deliberate inverse.** Its `path` names any
   non-markdown file and **must not** end in `.md` (matched exactly, so a
-  `.MD` file reads as text; `vault_write_file` refuses `.md` in any letter
-  case); `vaultFs.readAsset` rejects notes so the `.md` boundary stays one
-  rule with two sides (notes → `vault_read_note`, everything else →
-  `vault_read_file`). Error
+  `.MD` file reads as text; `vault_write_file` and `vault_delete_file` refuse
+  `.md` in any letter case);
+  `vaultFs.readAsset` rejects notes so the `.md` boundary stays one rule with
+  two sides (notes → `vault_read_note`, everything else → `vault_read_file`,
+  and the same split for the write and delete tools). Error
   messages never name tools; routing guidance lives in each tool's
   description.
 

@@ -2,8 +2,8 @@
  *  stores as `trashOption` in `.obsidian/app.json`. `TrashOption` below lists
  *  the values.
  *
- *  A server running Obsidian Sync never calls this reader. The delete tool's
- *  handler deletes permanently there, because `.trash/` is never synced and
+ *  A server running Obsidian Sync never calls this reader. Every delete is
+ *  permanent there (`delete-options.ts`), because `.trash/` is never synced and
  *  recovery is through Sync's version history. */
 
 import { readFile } from "node:fs/promises"

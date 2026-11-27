@@ -4,13 +4,12 @@ import { z } from "zod"
 import { createMemoryStore } from "../../vault-operations/memory-store.js"
 import { TOOL_NAMES } from "../tool-registry.js"
 import type { ToolRegistrationContext } from "./tool-helpers.js"
+import { createStrictInputObject, toolInputErrorResult } from "./tool-helpers.js"
 import {
-  createStrictInputObject,
   FILESYSTEM_ERROR_ENTRY,
   formatServedSentencesLine,
   INDEX_ENGINE_ERROR_ENTRY,
-  toolInputErrorResult,
-} from "./tool-helpers.js"
+} from "./tool-description-text.js"
 
 /** One entry for the bare-name checks every tool taking a memory file name
  *  runs, so the three descriptions cannot drift apart. */
