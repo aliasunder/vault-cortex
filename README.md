@@ -291,7 +291,7 @@ Your notes embed screenshots, reference architecture diagrams, and link out to c
 - **Browse** — list any visible folder's files with per-extension counts and file sizes; files a note links to report their size in the link graph too
 - **Write** — create or replace a canvas, a Base, or any other text file from any client, so a board or a Bases view can change from your phone. A canvas or `.json` file must be valid JSON and a Base valid YAML before it is saved. PDFs, images other than SVG, and any existing file that holds binary data can't be written. An overwrite keeps no copy on the server; on an Obsidian Sync vault, Sync's [version history](https://obsidian.md/help/sync/version-history) keeps earlier versions of the files it syncs (attachments for two weeks)
 - **Delete** — remove a canvas, an image, a PDF, or any other file from any client. Links and embeds to it in your notes break, as they do when you delete a file in Obsidian, and files in the protected folders (`PROTECTED_PATHS`) are refused. Where the file goes:
-  - without Obsidian Sync, it follows Obsidian's "Deleted files" setting (Settings → Files and links) as a note does. The default, "Move to system trash", moves it to the vault's `.trash/` folder, because a container has no system trash, and the server removes it after `TRASH_RETENTION_DAYS`
+  - without Obsidian Sync, it follows Obsidian's "Deleted files" setting (Settings → Files and links) as a note does. The default, "Move to system trash", moves it to the vault's `.trash/` folder, because a container has no system trash; moving it back out of `.trash/` restores it, until the server removes it after `TRASH_RETENTION_DAYS`
   - with Obsidian Sync, the delete is permanent, and Sync's version history keeps a deleted attachment for two weeks
 
 Search reads the first 100 KB of each searchable file's text, and at most a PDF's first 500 pages. These files are found by their name only:
@@ -383,7 +383,7 @@ Vault Cortex indexes every [property](https://help.obsidian.md/Editing+and+forma
 
 The five promoted names are conventions, not requirements — Vault Cortex works with any property schema.
 
-**Leading callouts** are promoted too. When a note's first body content is an Obsidian [callout](https://help.obsidian.md/Editing+and+formatting/Callouts) (`> [!type]`) — either right after frontmatter or right after the title heading — it's indexed and surfaced alongside discovery results. This makes notes self-describing: an agent scanning results can see what each note is _for_ before deciding which to read. The memory templates use `> [!info] Scope of this file` callouts for this, and any note in your vault can use the same pattern.
+**Leading callouts** are promoted too. When a note's first body content is an Obsidian [callout](https://help.obsidian.md/Editing+and+formatting/Callouts) (`> [!type]`) — either right after frontmatter or right after the title heading — it's indexed and surfaced alongside discovery results (`vault_search` includes it on request). This makes notes self-describing: an agent scanning results can see what each note is _for_ before deciding which to read. The memory templates use `> [!info] Scope of this file` callouts for this, and any note in your vault can use the same pattern.
 
 ---
 
