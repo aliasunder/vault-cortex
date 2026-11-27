@@ -398,7 +398,7 @@ All settings are environment variables with sensible defaults. The table lists t
 | `DISABLED_TOOLS`       | —            | —                                | Hide individual tools by name, comma-separated (e.g. `vault_delete_note,vault_move_note`); names match the Tool column in the [tools table](#tools). It cannot re-enable a tool another setting hides, and an unknown name stops the server at startup. |
 | `PROTECTED_PATHS`      | —            | `MEMORY_DIR`, daily notes folder | Folders whose notes and files can't be deleted, whose notes can't be moved, and that no note can be moved into; their notes stay editable. A value you set replaces both default folders.                                                               |
 | `TZ`                   | —            | `UTC`                            | IANA timezone for timestamps and daily note resolution                                                                                                                                                                                                  |
-| `TRASH_RETENTION_DAYS` | —            | `30`                             | Days a note or file the server moved to `.trash/` stays there before it is cleaned up; `none` keeps them forever. Unused with Obsidian Sync, whose deletes are permanent.                                                                               |
+| `TRASH_RETENTION_DAYS` | —            | `30`                             | Days a note or file deleted under Obsidian's default "Move to system trash" setting stays in `.trash/` before the server cleans it up; `none` keeps them forever. Unused with Obsidian Sync, whose deletes are permanent.                               |
 
 ### Daily notes
 
