@@ -144,13 +144,16 @@ const classifyLinkForm = (params: {
   return "basename"
 }
 
-/** The last segments of a path that names a folder, not a file: the empty
- *  string, "." and "..". */
-const FOLDER_ONLY_NAMES: ReadonlySet<string> = new Set(["", ".", ".."])
+/** Whether `[[target]]` stores exactly this target, as links.extractFromBody
+ *  reads a body line. */
+const wikilinkReadsBackAs = (target: string): boolean => {
+  const storedTargets = links.extractFromBody(`[[${target}]]`)
+  return storedTargets.length === 1 && storedTargets[0] === target
+}
 
 /** Builds a replacement target that resolves to desiredTarget from the new
- *  source location, or returns null when no spelling does. It returns the
- *  first of these that resolves there:
+ *  source location, or returns null when none of these spellings does. It
+ *  returns the first that resolves there:
  *  1. the original link form, basename or relative;
  *  2. the vault-absolute path, in the extension state keepExtension asks
  *     for: true keeps desiredTarget's extension (the original link carried
@@ -160,9 +163,12 @@ const FOLDER_ONLY_NAMES: ReadonlySet<string> = new Set(["", ".", ".."])
  *     extensionless spelling. A markdown link always keeps its extension
  *     state, so it gets no third spelling.
  *  A note named like the file with its extension (`B.png.md`) takes every
- *  spelling, so the link is left as written. writesRelativeStart puts "./"
- *  before a relative replacement that does not climb with "../". The
- *  replacement takes desiredTarget's letter case, not the link's. */
+ *  spelling, so the link is left as written. A relative replacement climbs
+ *  to the folder that holds the target and then names it, so it always ends
+ *  in the target's name: from `A/B/`, `A/B.png`'s stem is `../B`, never the
+ *  bare "" that names the folder. writesRelativeStart puts "./" before a
+ *  relative replacement that does not climb with "../". The replacement
+ *  takes desiredTarget's letter case, not the link's. */
 const buildReplacementTarget = (params: {
   form: LinkForm
   grammar: LinkGrammar
@@ -184,11 +190,10 @@ const buildReplacementTarget = (params: {
   const absoluteForm = keepExtension ? desiredTarget : links.stripExtension(desiredTarget)
 
   const resolvesToDesired = (candidate: string): boolean => {
-    // A spelling that ends in "", "." or ".." names a folder, not the file.
-    // From `A/B/`, the relative spelling of `A/B.png`'s stem is "", which the
-    // resolver joins back to `A/B` and matches by stem, yet `![[]]` names
-    // nothing.
-    if (FOLDER_ONLY_NAMES.has(posix.basename(candidate))) return false
+    // A wikilink's target ends at its first `#`, `|` or `]]`, so a path that
+    // holds one (`q#1/B.png`, `B.txt#draft`) is written as a link to another
+    // target. A markdown destination is checked the same way by readsBackAs.
+    if (grammar === "wikilink" && !wikilinkReadsBackAs(candidate)) return false
     return resolveFromNewSource(candidate) === desiredTarget
   }
 
@@ -199,7 +204,11 @@ const buildReplacementTarget = (params: {
   }
 
   if (form === "relative") {
-    const pathFromSource = posix.relative(posix.dirname(newSourcePath), absoluteForm)
+    const folderFromSource = posix.relative(
+      posix.dirname(newSourcePath),
+      posix.dirname(absoluteForm),
+    )
+    const pathFromSource = posix.join(folderFromSource, posix.basename(absoluteForm))
     const addsRelativeStart = writesRelativeStart && !pathFromSource.startsWith("../")
     const relative = addsRelativeStart ? `./${pathFromSource}` : pathFromSource
 

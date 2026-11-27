@@ -1470,18 +1470,20 @@ describe("moveNote — asset link rewriting", () => {
 
   it.each([
     {
-      label: "an empty relative spelling",
+      label: "the moved note's new folder",
       siblingFile: "A/B/B.png",
       newPath: "A/B/note.md",
+      relativeSpelling: "../B",
     },
     {
-      label: "a relative spelling of only ..",
+      label: "a folder above the moved note",
       siblingFile: "A/B/C/B.png",
       newPath: "A/B/C/note.md",
+      relativeSpelling: "../../B",
     },
   ])(
-    "writes the full path, not $label, when a file link's stem names the moved note's new folder",
-    async ({ siblingFile, newPath }) => {
+    "keeps a relative file link naming the file, not $label, when the file's stem names that folder",
+    async ({ siblingFile, newPath, relativeSpelling }) => {
       const { writeFixture, moveNote, readNote } = setupVault()
       await writeFixture("A/B.png", "img")
       await writeFixture(siblingFile, "img")
@@ -1489,7 +1491,9 @@ describe("moveNote — asset link rewriting", () => {
 
       const result = await moveNote({ oldPath: "A/note.md", newPath })
 
-      expect(await readNote(newPath)).toBe("See ![[A/B]] and ![[A/B#h|al]].\n")
+      expect(await readNote(newPath)).toBe(
+        `See ![[${relativeSpelling}]] and ![[${relativeSpelling}#h|al]].\n`,
+      )
       expect(result).toEqual({
         moved_to: newPath,
         links_updated: 2,
@@ -1498,6 +1502,82 @@ describe("moveNote — asset link rewriting", () => {
       })
     },
   )
+
+  it("rewrites a relative markdown file link to a climbing spelling when a note takes its full path", async () => {
+    const { writeFixture, moveNote, readNote } = setupVault()
+    await writeFixture("A/B.png", "img")
+    await writeFixture("A/B/C/B.png", "img")
+    await writeFixture("Z/A/B.md", "content\n")
+    await writeFixture("A/note.md", "See ![x](./B).\n")
+
+    const result = await moveNote({ oldPath: "A/note.md", newPath: "A/B/C/note.md" })
+
+    // From A/B/C/, ./B names A/B/C/B.png and A/B names the note Z/A/B.md.
+    expect(await readNote("A/B/C/note.md")).toBe("See ![x](../../B).\n")
+    expect(result).toEqual({
+      moved_to: "A/B/C/note.md",
+      links_updated: 1,
+      updated_notes: [],
+      pruned_empty_folders: 0,
+    })
+  })
+
+  it.each([
+    {
+      label: "a folder holding #",
+      file: "q#1/B.png",
+      content: "See ![[B]].\n",
+      oldPath: "note.md",
+      newPath: "B.md",
+    },
+    {
+      label: "an extension holding #",
+      file: "Galleries/q/B.txt#draft",
+      content: "See [[q/B|reference]].\n",
+      oldPath: "S/note.md",
+      newPath: "Galleries/q/B.md",
+    },
+  ])(
+    "leaves a moved note's file wikilink as written when every spelling of the file's path in $label reads back as another target",
+    async ({ file, content, oldPath, newPath }) => {
+      const { writeFixture, moveNote, readNote } = setupVault()
+      await writeFixture(file, "data")
+      await writeFixture(oldPath, content)
+
+      const result = await moveNote({ oldPath, newPath })
+
+      expect(await readNote(newPath)).toBe(content)
+      expect(result).toEqual({
+        moved_to: newPath,
+        links_updated: 0,
+        updated_notes: [],
+        pruned_empty_folders: 0,
+      })
+    },
+  )
+
+  it("rewrites a backlink to a renamed note that ends in a space with a spelling that keeps the space", async () => {
+    const { writeFixture, moveNote, readNote } = setupVault()
+    await writeFixture("B.pdf", "pdf")
+    await writeFixture("Old.md", "content\n")
+    await writeFixture("Hub.md", "See [[Old|x]].\n")
+
+    const result = await moveNote({
+      oldPath: "Old.md",
+      newPath: "B .md",
+      backlinkSources: ["Hub.md"],
+    })
+
+    // [[B |x]] would store B, which names B.pdf; only the spelling with the
+    // extension keeps the space.
+    expect(await readNote("Hub.md")).toBe("See [[B .md|x]].\n")
+    expect(result).toEqual({
+      moved_to: "B .md",
+      links_updated: 1,
+      updated_notes: ["Hub.md"],
+      pruned_empty_folders: 0,
+    })
+  })
 
   it("rewrites a relative wikilink embed to an asset when the note moves deeper", async () => {
     const { writeFixture, moveNote, readNote } = setupVault()
