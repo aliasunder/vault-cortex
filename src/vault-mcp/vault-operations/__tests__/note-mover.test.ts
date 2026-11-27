@@ -1414,6 +1414,26 @@ describe("moveNote — asset link rewriting", () => {
     })
   })
 
+  it("rewrites a moved note's broken asset link to a form that a note with the same name does not take over", async () => {
+    const { writeFixture, moveNote, readNote } = setupVault()
+    await writeFixture("M/q/B.png", "img")
+    await writeFixture("T/q/B.pdf", "pdf")
+    await writeFixture("Z/B.md", "content\n")
+    await writeFixture("S/note.md", "See ![[q/B]] and [x](q/B).\n")
+
+    const result = await moveNote({ oldPath: "S/note.md", newPath: "T/note.md" })
+
+    // From T/, q/B names T/q/B.pdf. The bare B would name the note Z/B.md,
+    // since a note wins over a file, so the rewrite spells the full path.
+    expect(await readNote("T/note.md")).toBe("See ![[M/q/B]] and [x](M/q/B).\n")
+    expect(result).toEqual({
+      moved_to: "T/note.md",
+      links_updated: 2,
+      updated_notes: [],
+      pruned_empty_folders: 0,
+    })
+  })
+
   it("rewrites a relative wikilink embed to an asset when the note moves deeper", async () => {
     const { writeFixture, moveNote, readNote } = setupVault()
     await writeFixture("assets/photo.png", "img")

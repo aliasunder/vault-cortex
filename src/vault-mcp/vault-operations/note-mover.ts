@@ -231,11 +231,16 @@ const rewriteTarget = (
         sourcePath: context.newSourcePath,
       })
     }
-    return links.resolveAsset({
+    // A note wins over a file here as in the index, so a candidate such as a
+    // bare `B` that also names a note `Z/B.md` does not count as reaching the
+    // file.
+    const resolvedAfterMove = links.resolveNoteOrAsset({
       target: candidate,
+      allPaths: context.allNotePathsAfter,
       allAssetPaths: context.allAssetPaths,
       sourcePath: context.newSourcePath,
     })
+    return resolvedAfterMove?.path ?? null
   }
 
   // A link that already resolves correctly from the new location is left
