@@ -1002,24 +1002,25 @@ describe("extractFromBody against Obsidian 1.15.1", () => {
   )
 })
 
-// ── Markdown link scan memory ────────────────────────────────────
+// ── Markdown link memory ─────────────────────────────────────────
 
-/** What the memory worker reports: the line it built, then the scan's result. */
+/** What the memory worker reports: the line it built, then the length of the
+ *  operation's result. */
 type MemoryWorkerMessage =
-  { status: "ready"; parenthesisCount: number } | { status: "done"; matchCount: number }
+  { status: "ready"; parenthesisCount: number } | { status: "done"; resultLength: number }
 
 const isMemoryWorkerMessage = (message: unknown): message is MemoryWorkerMessage => {
   return typeof message === "object" && message !== null && "status" in message
 }
 
-/** The worker's peak heap growth while it scans its 10,000,000-character
- *  line, over the heap it holds before the scan. getHeapStatistics reads a
- *  worker's heap while it runs one synchronous call, and its external memory
- *  counts typed arrays. */
-const measureScanHeapGrowth = async (
-  shape: "sparse" | "dense",
-): Promise<{ peakGrowth: number; parenthesisCount: number; matchCount: number }> => {
-  const workerUrl = new URL("./helpers/link-scanner-memory-worker.ts", import.meta.url)
+/** The worker's peak heap growth while it scans or decodes its
+ *  10,000,000-character line, over the heap it holds before the operation.
+ *  getHeapStatistics reads a worker's heap while it runs one synchronous call,
+ *  and its external memory counts typed arrays. */
+const measureHeapGrowth = async (
+  shape: "sparse" | "dense" | "ampersands",
+): Promise<{ peakGrowth: number; parenthesisCount: number; resultLength: number }> => {
+  const workerUrl = new URL("./helpers/link-memory-worker.ts", import.meta.url)
   const worker = new Worker(workerUrl, { workerData: shape, execArgv: ["--import", "tsx"] })
   onTestFinished(async () => {
     await worker.terminate()
@@ -1041,32 +1042,32 @@ const measureScanHeapGrowth = async (
 
   const ready = await nextMessage()
 
-  if (ready.status !== "ready") throw new Error("the worker scanned before it was ready")
+  if (ready.status !== "ready") throw new Error("the worker ran before it was ready")
 
   const baseline = await sampleHeap()
-  const scanned = nextMessage()
-  // The sampling loop stops once the worker reports the scan's result.
-  let scanFinished = false
-  const finishedScan = scanned.finally(() => {
-    scanFinished = true
+  const operated = nextMessage()
+  // The sampling loop stops once the worker reports the operation's result.
+  let operationFinished = false
+  const finishedOperation = operated.finally(() => {
+    operationFinished = true
   })
   const samples: number[] = []
 
   worker.postMessage("go")
   // Each sample leaves garbage in the worker's heap, and back-to-back
   // samples add up to about 1 MB of it to the peak.
-  while (!scanFinished) {
+  while (!operationFinished) {
     samples.push(await sampleHeap())
     await sleep(1)
   }
 
-  const done = await finishedScan
+  const done = await finishedOperation
 
   if (done.status !== "done") throw new Error("the worker reported ready twice")
   return {
     peakGrowth: Math.max(baseline, ...samples) - baseline,
     parenthesisCount: ready.parenthesisCount,
-    matchCount: done.matchCount,
+    resultLength: done.resultLength,
   }
 }
 
@@ -1078,17 +1079,36 @@ describe("markdown link scan memory", () => {
   const BYTES_PER_PARENTHESIS = 8
 
   it("grows the heap less than 1 MB on a 10,000,000-character line with one parenthesis", async () => {
-    const { peakGrowth, parenthesisCount, matchCount } = await measureScanHeapGrowth("sparse")
+    const { peakGrowth, parenthesisCount, resultLength } = await measureHeapGrowth("sparse")
 
-    expect({ parenthesisCount, matchCount }).toEqual({ parenthesisCount: 1, matchCount: 0 })
+    expect({ parenthesisCount, resultLength }).toEqual({ parenthesisCount: 1, resultLength: 0 })
     expect(peakGrowth).toBeLessThan(ONE_MEGABYTE)
   }, 60_000)
 
   it("grows the heap at most 8 bytes per parenthesis and 1 MB on a parenthesis-dense line", async () => {
-    const { peakGrowth, parenthesisCount, matchCount } = await measureScanHeapGrowth("dense")
+    const { peakGrowth, parenthesisCount, resultLength } = await measureHeapGrowth("dense")
 
-    expect({ parenthesisCount, matchCount }).toEqual({ parenthesisCount: 9_999_997, matchCount: 0 })
+    expect({ parenthesisCount, resultLength }).toEqual({
+      parenthesisCount: 9_999_997,
+      resultLength: 0,
+    })
     expect(peakGrowth).toBeLessThan(BYTES_PER_PARENTHESIS * parenthesisCount + ONE_MEGABYTE)
+  }, 60_000)
+})
+
+describe("link spelling decode memory", () => {
+  const LINE_LENGTH = 10_000_000
+
+  /** The decoder's joined batches, its output and the garbage its
+   *  parse-entities calls leave before a collection come to about 5 bytes per
+   *  character on this line. One string per decoded piece would cost about 90. */
+  const BYTES_PER_CHARACTER = 8
+
+  it("grows the heap at most 8 bytes per character decoding a 10,000,000-character run of &", async () => {
+    const { peakGrowth, resultLength } = await measureHeapGrowth("ampersands")
+
+    expect(resultLength).toBe(LINE_LENGTH)
+    expect(peakGrowth).toBeLessThan(BYTES_PER_CHARACTER * LINE_LENGTH)
   }, 60_000)
 })
 

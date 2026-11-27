@@ -37,6 +37,12 @@ const LONGEST_REFERENCE_NAME = 31
  *  options: a reference counts only when a `;` ends it. */
 const REFERENCE_OPTIONS = { nonTerminated: false }
 
+/** How many decoded pieces the reference decoder holds before it joins them.
+ *  A text dense with `&` has one piece per character, and one string per piece
+ *  costs about 90 bytes of heap per character; a batch this size stays under a
+ *  megabyte. */
+const PIECES_PER_JOIN = 4096
+
 const NO_BREAK_SPACE = "\u00a0"
 
 /** A link that starts in the linking note's folder (`./`) or its parent
@@ -224,20 +230,29 @@ const findHashSource = (params: { piece: string; decodedPiece: string }): number
 const decodeCharacterReferences = (text: string): { decoded: string; hashSource: number } => {
   if (!text.includes("&")) return { decoded: text, hashSource: text.indexOf("#") }
 
-  const decodedPieces: string[] = []
+  const decodedRuns: string[] = []
+  const pendingPieces: string[] = []
   // The walk threads each piece's offset, and keeps the first `#` it finds.
   let pieceStart = 0
   let hashSource = -1
 
-  for (const piece of text.split(/(?=&)/)) {
+  while (pieceStart < text.length) {
+    const nextAmpersand = text.indexOf("&", pieceStart + 1)
+    const pieceEnd = nextAmpersand === -1 ? text.length : nextAmpersand
+    const piece = text.slice(pieceStart, pieceEnd)
     const decodedPiece = decodeReferencePiece(piece)
     const hashInPiece = hashSource === -1 ? findHashSource({ piece, decodedPiece }) : -1
 
     if (hashInPiece !== -1) hashSource = pieceStart + hashInPiece
-    decodedPieces.push(decodedPiece)
-    pieceStart += piece.length
+    pendingPieces.push(decodedPiece)
+    if (pendingPieces.length === PIECES_PER_JOIN) {
+      decodedRuns.push(pendingPieces.join(""))
+      pendingPieces.length = 0
+    }
+    pieceStart = pieceEnd
   }
-  return { decoded: decodedPieces.join(""), hashSource }
+  decodedRuns.push(pendingPieces.join(""))
+  return { decoded: decodedRuns.join(""), hashSource }
 }
 
 const isEscapePairAt = (text: string, position: number): boolean => {
