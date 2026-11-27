@@ -1297,16 +1297,14 @@ found the npm package first. Three rules follow:
 - **Vocabulary stays; mechanism goes to ARCHITECTURE.md.** FTS5, RRF,
   cross-encoder, per-file mutex, TOCTOU and `link()` name the choices
   the engineering reader evaluates, so the README and SECURITY.md keep
-  them unglossed. How a mechanism works (resolve-then-prefix-check,
-  temp-file-then-rename, blend weights) is the contributor's reading.
+  them unglossed. How a mechanism works (blend weights, RRF's rank
+  constant, chunk prefixes) is the contributor's reading.
 - **Features are stated as what the reader can now do**, in the
   reader's vocabulary ("complete a task," "move between lanes," "filter
   by due date"), never implementation vocabulary ("mutate," "atomic
   write cycle," "composable mutations").
-- **One home per fact; other docs point.** Caveats, platform gotchas
-  and the full settings reference live in the deploy guides; the README
-  keeps the required variables and the switches a reader flips while
-  deciding. A fact stated twice goes stale once.
+- **One home per fact; other docs point.** Caveats and platform gotchas
+  live in the deploy guides. A fact stated twice goes stale once.
 
 Before adding, cutting or moving a passage, name the doc's reader and
 the question the passage answers for them. A passage that answers no
