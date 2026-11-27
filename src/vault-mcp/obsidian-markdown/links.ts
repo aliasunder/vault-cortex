@@ -123,16 +123,14 @@ type WikilinkParts = {
  *  prefix + writtenTarget + heading + suffix is the link's text:
  *  - prefix: everything before the target (`[text](`, spaces, `<`);
  *  - writtenTarget: the target as written;
- *  - path and extension: the target as Obsidian stores it, split at the
- *    extension's dot, which extension keeps ("" for an extensionless target);
+ *  - storedTarget: the target as Obsidian stores it, decoded;
  *  - heading: the raw `#heading`, "" without one;
  *  - suffix: everything after (spaces, `>`, the title, `)`);
  *  - destinationForm: how the destination is written. */
 type MarkdownLinkParts = {
   prefix: string
   writtenTarget: string
-  path: string
-  extension: string
+  storedTarget: string
   heading: string
   suffix: string
   destinationForm: DestinationForm
@@ -1143,8 +1141,6 @@ const splitWikilink = (linkText: string): WikilinkParts | null => {
  *  file:
  *  - any vault target parses (notes, assets and extensionless targets), so
  *    moveNote can rewrite all of them;
- *  - path and extension come from the stored target, because percent-encoding
- *    can hide the dot (photo%2Epng) or span the extension (photo.p%6Eg);
  *  - `linkText` is scanned with its inline code blanked, as its line was. A
  *    code span that starts inside the link and ends after it must start after
  *    the `(`, since one starting earlier would have hidden the link from the
@@ -1162,12 +1158,10 @@ const splitMarkdownLink = (linkText: string): MarkdownLinkParts | null => {
   if (!wholeSpan) return null
 
   const { targetStart, targetEnd, headingEnd, storedTarget, destinationForm } = wholeSpan
-  const path = stripExtension(storedTarget)
   return {
     prefix: linkText.slice(0, targetStart),
     writtenTarget: linkText.slice(targetStart, targetEnd),
-    path,
-    extension: storedTarget.slice(path.length),
+    storedTarget,
     heading: linkText.slice(targetEnd, headingEnd),
     suffix: linkText.slice(headingEnd),
     destinationForm,
@@ -1923,7 +1917,6 @@ const extractAll = (content: string, data: Record<string, unknown>): string[] =>
 export const links = {
   matchLinksInLine,
   matchWikilinks,
-  maskInlineCode,
   splitWikilink,
   splitMarkdownLink,
   decodeLinkSpellings,

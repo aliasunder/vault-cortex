@@ -352,7 +352,7 @@ const readsBackAs = (
 
   if (!parts) return false
   return (
-    `${parts.path}${parts.extension}` === expected.target &&
+    parts.storedTarget === expected.target &&
     parts.heading === expected.heading &&
     parts.suffix === expected.suffix
   )
@@ -375,10 +375,12 @@ const rewriteMarkdownDestination = (params: {
 
   if (!parts) return null
 
-  // The link resolves by its target as Obsidian stores it, not as written.
+  // The link resolves by its target as Obsidian stores it, not as written,
+  // and its extension comes from that target too, since percent-encoding can
+  // hide the dot (photo%2Epng) or span the extension (photo.p%6Eg).
   const newTarget = rewriteLink({
-    rawTarget: `${parts.path}${parts.extension}`,
-    originalExtension: parts.extension,
+    rawTarget: parts.storedTarget,
+    originalExtension: posix.extname(parts.storedTarget),
     grammar: "markdown",
   })
 

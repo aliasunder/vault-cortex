@@ -123,7 +123,7 @@ const rawTagsIn = (reply: WorkerReply): string[] => {
  * The links a reply stores, links first, then embeds, each as `a.md#heading`:
  * the `obsidian` field of the rows in links.test.ts and note-mover.test.ts.
  */
-const storedLinksIn = (reply: WorkerReply): string[] => {
+export const storedLinksIn = (reply: WorkerReply): string[] => {
   const entries = [...(reply?.links ?? []), ...(reply?.embeds ?? [])]
   return entries.map((entry) => entry.link)
 }
@@ -135,15 +135,6 @@ const storedLinksIn = (reply: WorkerReply): string[] => {
 export const loadObsidianTagOracle = (workerPath: string): ((noteText: string) => string[]) => {
   const readReply = loadObsidianMetadataWorker(workerPath)
   return (noteText) => rawTagsIn(readReply(noteText))
-}
-
-/**
- * Loads a `worker.js` and returns a function giving the links Obsidian stores
- * for a note's full text, as storedLinksIn lists them.
- */
-export const loadObsidianLinkOracle = (workerPath: string): ((noteText: string) => string[]) => {
-  const readReply = loadObsidianMetadataWorker(workerPath)
-  return (noteText) => storedLinksIn(readReply(noteText))
 }
 
 /** Matches a name made of ASCII digits only. */
