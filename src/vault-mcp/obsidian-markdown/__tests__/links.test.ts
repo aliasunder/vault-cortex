@@ -43,6 +43,22 @@ describe("matchLinksInLine", () => {
     ])
   })
 
+  // Obsidian 1.15.1 reads ``[[a#h `]]` c]]`` as ``[[a#h `]]`` and
+  // ``[[a|x `]]` c]]`` as ``[[a|x `]]``.
+  it("ends a wikilink at a `]]` inside a code span in its heading or alias", () => {
+    expect(links.matchLinksInLine("[[a#h `]]` c]] [[a|x `]]` c]]")).toEqual([
+      { text: "[[a#h `]]", start: 0, end: 9, kind: "wikilink" },
+      { text: "[[a|x `]]", start: 15, end: 24, kind: "wikilink" },
+    ])
+  })
+
+  it("ends a wikilink at its own `]]` when a `|` or `#` inside a code span ends its target", () => {
+    expect(links.matchLinksInLine("[[a `|` b]] [[c `#h` d]]")).toEqual([
+      { text: "[[a `|` b]]", start: 0, end: 11, kind: "wikilink" },
+      { text: "[[c `#h` d]]", start: 12, end: 24, kind: "wikilink" },
+    ])
+  })
+
   it("returns no wikilink inside a markdown link's title, and keeps one outside it", () => {
     const line = '[[A]] [x](b.md "[[C]]")'
 
@@ -290,6 +306,11 @@ describe("splitWikilink", () => {
       name: "moves a trailing backslash into the heading when one follows",
       input: "[[a\\#h|x]]",
       expected: { embed: "", target: "a", heading: "\\#h", alias: "|x" },
+    },
+    {
+      name: "keeps the spaces at the end of a target with no escape",
+      input: "[[a |b]]",
+      expected: { embed: "", target: "a ", heading: "", alias: "|b" },
     },
   ]
 
@@ -1142,8 +1163,11 @@ describe("extractFromBody against Obsidian 1.15.1", () => {
 
   // Obsidian reads a wikilink's target as written: backticks and Templater
   // expressions stay in it, and its first `#`, `|` or `]]` ends it even
-  // inside one, but a lone `]` does not.
+  // inside one, but a lone `]` does not. A table-pipe escape is dropped with
+  // the spaces around its backslash.
   const wikilinkTargetAsWrittenCases = [
+    { input: "[[a\\ |b]]", obsidian: ["a"], expected: ["a"] },
+    { input: "| [[Note \\|Alias]] | x |", obsidian: ["Note"], expected: ["Note"] },
     { input: "[[a `b` c]]", obsidian: ["a `b` c"], expected: ["a `b` c"] },
     {
       input: "[[Daily/<% tp.date.yesterday() %>]]",
@@ -1153,6 +1177,8 @@ describe("extractFromBody against Obsidian 1.15.1", () => {
     { input: "[[a `|` b]]", obsidian: ["a `"], expected: ["a `"] },
     { input: "[[a `#h` c]]", obsidian: ["a `#h` c"], expected: ["a `"] },
     { input: "[[a `]]` b]]", obsidian: ["a `"], expected: ["a `"] },
+    { input: "[[a#h `]]` c]]", obsidian: ["a#h `"], expected: ["a"] },
+    { input: "[[a|x `]]` c]]", obsidian: ["a"], expected: ["a"] },
     { input: "[[Daily/<% a|b %>]]", obsidian: ["Daily/<% a"], expected: ["Daily/<% a"] },
     { input: "[[Daily/<% a#b %>]]", obsidian: ["Daily/<% a#b %>"], expected: ["Daily/<% a"] },
     { input: "[[a `]` b]]", obsidian: ["a `]` b"], expected: ["a `]` b"] },

@@ -399,7 +399,7 @@ below do.
 [AGENTS.md](./AGENTS.md#upgrading-pinned-dependencies) states the same rule
 for agents.
 
-Re-check the parser against Obsidian when remark-parse changes and when
+Re-check the parser and the link scanner against Obsidian when remark-parse changes and when
 Obsidian ships a new release:
 
 1. Extract `worker.js` from the installed app:
@@ -415,14 +415,22 @@ Obsidian ships a new release:
 4. When the comparison finds disagreements, `disagreements.json` holds each
    shrunk input as a `{ label, input }` record. Pass that file as the third
    argument to step 2's command, then fix the parser until every row passes.
-5. Re-record the link vectors: the `obsidian` column in `links.test.ts` and
-   `note-mover.test.ts` holds the links Obsidian stored for each row's input.
-   Put those inputs in a JSON array, run
-   `npm run oracle:body-tags -- <dir>/worker.js <inputs.json>`, copy each
-   `storedLinks` answer into its row, and run
-   `npx vitest run src/vault-mcp/obsidian-markdown/__tests__/links.test.ts src/vault-mcp/vault-operations/__tests__/note-mover.test.ts`.
-   A row whose `expected` targets no longer follow from its `obsidian` answer
-   fails, and the scanner is fixed until it passes.
+5. Re-record the link vectors, whose `obsidian` field holds the links
+   Obsidian stored for each row's text:
+   1. Put each row's text in a JSON array: `input` in `links.test.ts`,
+      `written` in `note-mover.test.ts`.
+   2. Run `npm run oracle:body-tags -- <dir>/worker.js <inputs.json>` and copy
+      each `storedLinks` answer into its row's `obsidian` field.
+   3. Run
+      `npx vitest run src/vault-mcp/obsidian-markdown/__tests__/links.test.ts src/vault-mcp/vault-operations/__tests__/note-mover.test.ts`.
+   4. Fix each failing row:
+      - a `links.test.ts` row whose `expected` no longer follows from its
+        `obsidian` answer: set `expected` to the targets that answer gives,
+        then fix the scanner in `links.ts` until the row's extraction test
+        passes;
+      - a `note-mover.test.ts` row where Obsidian no longer stores the moved
+        path for each written link: fix `encodeMarkdownDestination` in
+        `links.ts`, then re-record the row's `written` text.
 
 For a one-off question, `npm run oracle:body-tags -- <dir>/worker.js <inputs.json>`
 prints Obsidian's raw tags, listed names and stored links for each input.

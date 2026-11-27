@@ -75,7 +75,7 @@ scripts/ # Dev and ops helpers in TypeScript (not shipped in Docker); most open 
   deployment-env.ts # Loads ~/.config/vault-cortex/.env; shell variables override its values
   instance-env.ts # Derives PUBLIC_URL for manual deploys (npm run lightsail:up) the same way sst.config.ts and deploy.yml do, or the Lambda authorizer rejects tokens
   tool-surface-capture.ts # Boots one server per settings combination for the tool-surface snapshot test, size report, and LobeHub manifest; an on/off setting that gates tools goes in its SURFACE_AXES
-  obsidian-tag-oracle.ts, generate-body-tag-vectors.ts, compare-body-tags-random.ts # Check body tags against Obsidian's own parser (see CONTRIBUTING.md → Upgrading remark-parse)
+  obsidian-tag-oracle.ts, generate-body-tag-vectors.ts, compare-body-tags-random.ts # Check body tags and stored links against Obsidian's own parser (see CONTRIBUTING.md → Upgrading remark-parse)
 cli/src/ # npx vault-cortex CLI, run on the host: bin (entry) → main (wiring) → program (Commander), the only loose files; layers under "CLI layering"
   adapters/ # The outside world: docker, prompts, env-file (.env read and write), vault, token
   rules/ # Decisions and text, with no file, Docker or prompt I/O: env-values (.env parse and typed getters), env-edits (.env text edits), ports, bind-address, messages, env-templates, node-version

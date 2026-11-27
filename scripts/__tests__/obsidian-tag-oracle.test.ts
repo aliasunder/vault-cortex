@@ -33,7 +33,11 @@ self.onmessage = (event) => {
 
 const loadEchoingOracle = async () => {
   const workerPath = await writeTempFile("echoing-worker.js", ECHOING_WORKER_SOURCE)
-  return { workerPath, readTags: loadObsidianTagOracle(workerPath) }
+  return {
+    workerPath,
+    readTags: loadObsidianTagOracle(workerPath),
+    readLinks: loadObsidianLinkOracle(workerPath),
+  }
 }
 
 describe("loadObsidianTagOracle", () => {
@@ -78,8 +82,7 @@ describe("loadObsidianTagOracle", () => {
 
 describe("loadObsidianLinkOracle", () => {
   it("returns the reply's stored links, then its embeds, in the reply's order", async () => {
-    const workerPath = await writeTempFile("echoing-worker.js", ECHOING_WORKER_SOURCE)
-    const readLinks = loadObsidianLinkOracle(workerPath)
+    const { readLinks } = await loadEchoingOracle()
     const reply = {
       links: [{ link: "b.md#h" }, { link: "Old" }],
       embeds: [{ link: "photo.png" }],
@@ -88,17 +91,23 @@ describe("loadObsidianLinkOracle", () => {
     expect(readLinks(JSON.stringify(reply))).toEqual(["b.md#h", "Old", "photo.png"])
   })
 
-  it("reads a reply with no links or embeds as no links", async () => {
-    const workerPath = await writeTempFile("echoing-worker.js", ECHOING_WORKER_SOURCE)
-    const readLinks = loadObsidianLinkOracle(workerPath)
+  it.each([
+    { label: "a null reply", reply: null },
+    { label: "a reply with no links or embeds field", reply: { tags: [] } },
+    { label: "a reply whose links and embeds are null", reply: { links: null, embeds: null } },
+  ])("reads $label as no links", async ({ reply }) => {
+    const { readLinks } = await loadEchoingOracle()
 
-    expect(readLinks(JSON.stringify({ tags: [], links: null }))).toEqual([])
+    expect(readLinks(JSON.stringify(reply))).toEqual([])
   })
 
-  it("throws on a reply with a link entry without a text link", async () => {
-    const workerPath = await writeTempFile("echoing-worker.js", ECHOING_WORKER_SOURCE)
-    const readLinks = loadObsidianLinkOracle(workerPath)
-    const replyText = JSON.stringify({ embeds: [{ link: 3 }] })
+  it.each([
+    { label: "links that are a falsy non-list", reply: { links: 0 } },
+    { label: "a link entry without a text link", reply: { links: [{ link: "a" }, { link: 3 }] } },
+    { label: "an embed entry without a text link", reply: { embeds: [{ link: 3 }] } },
+  ])("throws on a reply with $label", async ({ reply }) => {
+    const { workerPath, readLinks } = await loadEchoingOracle()
+    const replyText = JSON.stringify(reply)
 
     expect(() => readLinks(replyText)).toThrow(
       new Error(`unexpected reply from ${workerPath}: ${replyText}`),

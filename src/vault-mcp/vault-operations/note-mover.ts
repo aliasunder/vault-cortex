@@ -5,7 +5,7 @@
  *  expressions, which only the indexer blanks:
  *  - the indexer skips a link inside one;
  *  - the rewriter rewrites a link inside one only in the moved note and in a
- *    note that also links to it outside one, because its backlink scan reads
+ *    note that also links to the moved note outside one, because its backlink scan reads
  *    links as the indexer does.
  *
  *  How it comes together — building blocks first, orchestrator last:

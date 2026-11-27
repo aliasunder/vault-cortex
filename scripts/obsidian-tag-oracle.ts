@@ -50,8 +50,10 @@ const isWorkerLinkEntry = (value: unknown): value is WorkerLinkEntry => {
   )
 }
 
-/** True for a missing or null list, which means none, or for a list whose
- *  entries all pass `isEntry`. A falsy value such as 0 is malformed. */
+/**
+ * True for a missing or null list, which means none, or for a list whose
+ * entries all pass `isEntry`. A falsy value such as 0 is malformed.
+ */
 const isEntryListOrNone = (entries: unknown, isEntry: (entry: unknown) => boolean): boolean => {
   if (entries === undefined || entries === null) return true
   return Array.isArray(entries) && entries.every(isEntry)
@@ -113,24 +115,35 @@ const loadObsidianMetadataWorker = (workerPath: string): ((noteText: string) => 
   }
 }
 
-/** Loads a `worker.js` and returns a function giving Obsidian's raw body tags
- *  for a note's full text. */
-export const loadObsidianTagOracle = (workerPath: string): ((noteText: string) => string[]) => {
-  const readReply = loadObsidianMetadataWorker(workerPath)
-  return (noteText) => (readReply(noteText)?.tags ?? []).map((entry) => entry.tag)
+const rawTagsIn = (reply: WorkerReply): string[] => {
+  return (reply?.tags ?? []).map((entry) => entry.tag)
 }
 
-/** Loads a `worker.js` and returns a function giving the links Obsidian
- *  stores for a note's full text, links before embeds, each as Obsidian
- *  stores it (`a.md#heading`), which is what the link vector tables'
- *  `obsidian` columns hold. */
+/**
+ * The links a reply stores, links first, then embeds, each as `a.md#heading`:
+ * the `obsidian` field of the rows in links.test.ts and note-mover.test.ts.
+ */
+const storedLinksIn = (reply: WorkerReply): string[] => {
+  const entries = [...(reply?.links ?? []), ...(reply?.embeds ?? [])]
+  return entries.map((entry) => entry.link)
+}
+
+/**
+ * Loads a `worker.js` and returns a function giving Obsidian's raw body tags
+ * for a note's full text.
+ */
+export const loadObsidianTagOracle = (workerPath: string): ((noteText: string) => string[]) => {
+  const readReply = loadObsidianMetadataWorker(workerPath)
+  return (noteText) => rawTagsIn(readReply(noteText))
+}
+
+/**
+ * Loads a `worker.js` and returns a function giving the links Obsidian stores
+ * for a note's full text, as storedLinksIn lists them.
+ */
 export const loadObsidianLinkOracle = (workerPath: string): ((noteText: string) => string[]) => {
   const readReply = loadObsidianMetadataWorker(workerPath)
-  return (noteText) => {
-    const reply = readReply(noteText)
-    const entries = [...(reply?.links ?? []), ...(reply?.embeds ?? [])]
-    return entries.map((entry) => entry.link)
-  }
+  return (noteText) => storedLinksIn(readReply(noteText))
 }
 
 /** Matches a name made of ASCII digits only. */
@@ -193,12 +206,17 @@ if (isMainModule) {
     process.exit(2)
   }
 
-  const readObsidianTags = loadObsidianTagOracle(workerPath)
-  const readObsidianLinks = loadObsidianLinkOracle(workerPath)
+  const readReply = loadObsidianMetadataWorker(workerPath)
   const results = readOracleInputs(inputsPath).map(({ label, input }) => {
-    const rawTags = readObsidianTags(input)
-    const storedLinks = readObsidianLinks(input)
-    return { label, input, rawTags, listedNames: listedTagNames(rawTags), storedLinks }
+    const reply = readReply(input)
+    const rawTags = rawTagsIn(reply)
+    return {
+      label,
+      input,
+      rawTags,
+      listedNames: listedTagNames(rawTags),
+      storedLinks: storedLinksIn(reply),
+    }
   })
   console.log(JSON.stringify(results, null, 2))
 }

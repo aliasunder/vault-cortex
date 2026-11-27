@@ -515,6 +515,26 @@ describe("moveNote — link rewriting forms", () => {
     })
   })
 
+  it("rewrites wikilinks that a `]]` inside a code span in the heading or alias closes", async () => {
+    const { writeFixture, moveNote, readNote } = setupVault()
+    await writeFixture("Foo.md", "content\n")
+    await writeFixture("Hub.md", "See [[Foo#h `]]` c]] and [[Foo|x `]]` c]].\n")
+
+    const result = await moveNote({
+      oldPath: "Foo.md",
+      newPath: "Bar.md",
+      backlinkSources: ["Hub.md"],
+    })
+
+    expect(await readNote("Hub.md")).toBe("See [[Bar#h `]]` c]] and [[Bar|x `]]` c]].\n")
+    expect(result).toEqual({
+      moved_to: "Bar.md",
+      links_updated: 2,
+      updated_notes: ["Hub.md"],
+      pruned_empty_folders: 0,
+    })
+  })
+
   it("rewrites a table link with a space before its escaped pipe", async () => {
     const { writeFixture, moveNote, readNote } = setupVault()
     await writeFixture("Foo.md", "content\n")
@@ -538,7 +558,7 @@ describe("moveNote — link rewriting forms", () => {
   it("rewrites a link with a space after its escaped pipe's backslash", async () => {
     const { writeFixture, moveNote, readNote } = setupVault()
     await writeFixture("Foo.md", "content\n")
-    await writeFixture("Hub.md", "See [[Foo\\ |display]] and [[Foo\\#h]].\n")
+    await writeFixture("Hub.md", "See [[Foo\\ |display]].\n")
 
     const result = await moveNote({
       oldPath: "Foo.md",
@@ -546,10 +566,30 @@ describe("moveNote — link rewriting forms", () => {
       backlinkSources: ["Hub.md"],
     })
 
-    expect(await readNote("Hub.md")).toBe("See [[Bar\\ |display]] and [[Bar\\#h]].\n")
+    expect(await readNote("Hub.md")).toBe("See [[Bar\\ |display]].\n")
     expect(result).toEqual({
       moved_to: "Bar.md",
-      links_updated: 2,
+      links_updated: 1,
+      updated_notes: ["Hub.md"],
+      pruned_empty_folders: 0,
+    })
+  })
+
+  it("keeps the backslash before a heading when it rewrites a link", async () => {
+    const { writeFixture, moveNote, readNote } = setupVault()
+    await writeFixture("Foo.md", "content\n")
+    await writeFixture("Hub.md", "See [[Foo\\#h]].\n")
+
+    const result = await moveNote({
+      oldPath: "Foo.md",
+      newPath: "Bar.md",
+      backlinkSources: ["Hub.md"],
+    })
+
+    expect(await readNote("Hub.md")).toBe("See [[Bar\\#h]].\n")
+    expect(result).toEqual({
+      moved_to: "Bar.md",
+      links_updated: 1,
       updated_notes: ["Hub.md"],
       pruned_empty_folders: 0,
     })

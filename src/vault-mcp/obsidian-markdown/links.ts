@@ -107,9 +107,11 @@ type MarkdownLinkSpan = LinkSpan & {
 }
 
 /** The structural parts of a wikilink ![[target#heading|alias]]. heading/alias
- *  keep their leading `#` / `|`, and the one after the target also holds a
- *  table-pipe escape the target ended in (`\|`, `\ |`), so reconstruction is
- *  plain concatenation; target is not trimmed (the caller trims). */
+ *  keep their leading `#` / `|`, and whichever follows the target also starts
+ *  with a backslash the target ended in, with the whitespace after it
+ *  (`[[a\ |b]]` gives alias `\ |b`, `[[a\#h]]` heading `\#h`), so
+ *  reconstruction is plain concatenation; target is not trimmed (the caller
+ *  trims). */
 type WikilinkParts = {
   embed: string
   target: string
@@ -1002,9 +1004,9 @@ const WIKILINK_TARGET_DELIMITER = /[#|]|\]\]/
  *    link, as Obsidian reads `[x](a.md "[[b]]")` and
  *    `[x](https://example.com "[[b]]")`, so wikilinks are found with every
  *    complete destination and title blanked too;
- *  - a wikilink's target ends at its first `#`, `|` or `]]` in `line`, inside
- *    a code span or a Templater expression too, as Obsidian stores
- *    ``[[a `|` b]]`` as ``a ` ``. */
+ *  - a wikilink's target ends at its first `#`, `|` or `]]` in `line`, and the
+ *    link at its first `]]` after the target, inside a code span or a
+ *    Templater expression too, as Obsidian stores ``[[a `|` b]]`` as ``a ` ``. */
 const scanBodyLineLinks = (params: {
   maskedLine: string
   line: string
@@ -1037,21 +1039,18 @@ const scanBodyLineLinks = (params: {
       ? maskedLine
       : [...wikilinkLinePieces, maskedLine.slice(copiedThrough)].join("")
 
-  // Masking only blanks characters, so the first delimiter in `line` is never
-  // after the one the masked scan stopped at.
+  // Masking only blanks characters, so each delimiter found in `line` is never
+  // after the one the masked scan stopped at, and both searches stay inside
+  // the span.
   const visitWikilinkAsWritten = (span: LinkSpan): void => {
     const delimiterOffset = line
       .slice(span.targetStart, span.targetEnd)
       .search(WIKILINK_TARGET_DELIMITER)
-
-    if (delimiterOffset === -1) {
-      visitWikilink(span)
-      return
-    }
-    const targetEnd = span.targetStart + delimiterOffset
-    // A `]]` there closes the link, as Obsidian reads ``[[a `]]` b]]`` as
-    // ``[[a `]]``, so the rewriter's match ends where the stored target does.
-    const end = line.startsWith("]]", targetEnd) ? targetEnd + 2 : span.end
+    const targetEnd = delimiterOffset === -1 ? span.targetEnd : span.targetStart + delimiterOffset
+    // The first `]]` after the target closes the link, in a heading or an alias
+    // too, as Obsidian reads ``[[a#h `]]` c]]`` as ``[[a#h `]]``, so a rewrite
+    // keeps the text after it.
+    const end = line.indexOf("]]", targetEnd) + "]]".length
     visitWikilink({ ...span, targetEnd, end })
   }
 
@@ -1117,9 +1116,10 @@ const pathToLinkName = (path: string): string => {
 }
 
 /** Splits a matched wikilink, or returns null for malformed text.
- *  A trailing backslash, with any spaces after it, moves from the target to
- *  the part after it, so the rebuilt link keeps the table-pipe escape and the
- *  target reads as the index stores it (`[[a\ |b]]` stores `a`). */
+ *  A trailing backslash, with any whitespace after it, moves from the target
+ *  into the heading, or into the alias when there is no heading, so the
+ *  rebuilt link keeps it and the target reads as the index stores it
+ *  (`[[a\ |b]]` stores `a`). */
 const splitWikilink = (linkText: string): WikilinkParts | null => {
   const parts = WIKILINK_PARTS.exec(linkText)
 
@@ -1128,10 +1128,10 @@ const splitWikilink = (linkText: string): WikilinkParts | null => {
 
   // Both groups take part in every match; the check only narrows their types.
   if (embed === undefined || rawTarget === undefined) return null
-  const targetThroughEscape = rawTarget.trimEnd()
+  const trimmedTarget = rawTarget.trimEnd()
 
-  if (!targetThroughEscape.endsWith("\\")) return { embed, target: rawTarget, heading, alias }
-  const target = targetThroughEscape.slice(0, -1)
+  if (!trimmedTarget.endsWith("\\")) return { embed, target: rawTarget, heading, alias }
+  const target = trimmedTarget.slice(0, -1)
   const escape = rawTarget.slice(target.length)
 
   if (heading) return { embed, target, heading: `${escape}${heading}`, alias }
