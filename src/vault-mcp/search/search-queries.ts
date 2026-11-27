@@ -20,6 +20,7 @@ import {
   rowToMetadata,
   rowToTaskEntry,
   noteRowToSearchResult,
+  parseStringArray,
   escapeLikeWildcards,
   folderLikePattern,
   dayToEpochMsRange,
@@ -100,6 +101,8 @@ export type RankingTuning = {
  *  plain functions with no state of their own. Each optional group is
  *  `null` when its feature is off, and each query degrades accordingly. */
 export type SearchQueryContext = {
+  /** Carries the fold_tag and property_value_text SQL functions that
+   *  createSearchIndex registers. */
   readonly db: Database.Database
   readonly vector: {
     readonly embedder: Embedder | undefined
@@ -366,66 +369,54 @@ export const fullTextSearch = (
     LIMIT ?
   `
 
-  try {
-    const rows = context.db
-      .prepare<
-        unknown[],
-        Pick<
-          NoteRow,
-          | "path"
-          | "title"
-          | "tags"
-          | "body_tags"
-          | "folder"
-          | "type"
-          | "created"
-          | "mtime"
-          | "bytes"
-        > & {
-          snippet: string
-          is_exact_name: number
-          rank_score: number
-          leading_callout?: string | null
-        }
-      >(sql)
-      .all(...queryParams)
+  // sanitizeFtsQuery leaves no search text that FTS5 rejects, so an error from
+  // this query comes from the index or the filters. The error propagates through
+  // hybridSearch to the tool's response, because an empty page would report
+  // it as "no match".
+  const rows = context.db
+    .prepare<
+      unknown[],
+      Pick<
+        NoteRow,
+        "path" | "title" | "tags" | "body_tags" | "folder" | "type" | "created" | "mtime" | "bytes"
+      > & {
+        snippet: string
+        is_exact_name: number
+        rank_score: number
+        leading_callout?: string | null
+      }
+    >(sql)
+    .all(...queryParams)
 
-    // An exact-name match adds the best negated rank among the returned rows
-    // to its own. FTS5 keeps every rank below zero, so an exact-name match
-    // outscores every other returned row, and the scores descend in the order
-    // the query sorted the rows, so a higher score still means a more relevant
-    // result.
-    const bestRankScore = rows.reduce(
-      // Spreading the rows into Math.max overflows the call stack past about
-      // 100,000 rows.
-      (bestScore, row) => Math.max(bestScore, row.rank_score),
-      -Infinity,
-    )
+  // An exact-name match adds the best negated rank among the returned rows
+  // to its own. FTS5 keeps every rank below zero, so an exact-name match
+  // outscores every other returned row, and the scores descend in the order
+  // the query sorted the rows, so a higher score still means a more relevant
+  // result.
+  const bestRankScore = rows.reduce(
+    // Spreading the rows into Math.max overflows the call stack past about
+    // 100,000 rows.
+    (bestScore, row) => Math.max(bestScore, row.rank_score),
+    -Infinity,
+  )
 
-    const results: SearchResult[] = rows.map((row) => {
-      const score = row.is_exact_name ? row.rank_score + bestRankScore : row.rank_score
+  const results: SearchResult[] = rows.map((row) => {
+    const score = row.is_exact_name ? row.rank_score + bestRankScore : row.rank_score
 
-      return noteRowToSearchResult({
-        row,
-        snippet: row.snippet,
-        // The result contract caps scores at four significant digits; SQL ranks
-        // at full precision, so returned scores can tie without reordering hits
-        score: Number(score.toPrecision(4)),
-        includeLeadingCallout,
-      })
+    return noteRowToSearchResult({
+      row,
+      snippet: row.snippet,
+      // The result contract caps scores at four significant digits; SQL ranks
+      // at full precision, so returned scores can tie without reordering hits
+      score: Number(score.toPrecision(4)),
+      includeLeadingCallout,
     })
-    logger.info("full text search", {
-      query: params.query,
-      resultCount: results.length,
-    })
-    return results
-  } catch (error) {
-    logger.warn("full text search failed", {
-      query: params.query,
-      error: describeError(error),
-    })
-    return []
-  }
+  })
+  logger.info("full text search", {
+    query: params.query,
+    resultCount: results.length,
+  })
+  return results
 }
 
 // ── Memory recall ──────────────────────────────────────────────
@@ -530,10 +521,12 @@ const anyTermLexicalCandidates = (
   memory.ftsSearchStmt
     .all(sanitizeFtsQueryAnyTerm(query))
     .filter(matchesFileFilter)
-    .map((row, ftsRank) => ({
+    .map((row, bm25Position) => ({
       row,
       ftsHit: false,
-      fusedScore: -ftsRank,
+      // The rescue path sorts by fusedScore, highest first, so the negated
+      // position keeps the bm25 order.
+      fusedScore: -bm25Position,
       distance: undefined,
     }))
 
@@ -973,8 +966,9 @@ const buildDateOrderBy = (
   column: string,
   explicitDirection: "ASC" | "DESC" | undefined,
 ): string => {
-  const directionFor = (col: string): "ASC" | "DESC" =>
-    explicitDirection ?? (DESCENDING_BY_DEFAULT.has(col) ? "DESC" : "ASC")
+  const directionFor = (dateColumn: string): "ASC" | "DESC" => {
+    return explicitDirection ?? (DESCENDING_BY_DEFAULT.has(dateColumn) ? "DESC" : "ASC")
+  }
 
   const cascade = DATE_CASCADE[column]
   const primary = `t.${column} IS NULL, t.${column} ${directionFor(column)}`
@@ -983,7 +977,7 @@ const buildDateOrderBy = (
     return `${primary}, n.mtime DESC`
   }
   const fallbacks = cascade
-    .map((col) => `t.${col} IS NULL, t.${col} ${directionFor(col)}`)
+    .map((dateColumn) => `t.${dateColumn} IS NULL, t.${dateColumn} ${directionFor(dateColumn)}`)
     .join(", ")
   return `${primary}, ${fallbacks}, n.mtime DESC`
 }
@@ -1171,7 +1165,11 @@ export const listTasks = (
       `SELECT COUNT(*) as total FROM tasks t JOIN notes n ON n.path = t.note_path ${whereClause}`,
     )
     .get(...queryParams)
-  const total = countRow === undefined ? 0 : countRow.total
+
+  // An aggregate query with no GROUP BY returns exactly one row, even over an
+  // empty table.
+  if (!countRow) throw new Error("task count query returned no row")
+  const { total } = countRow
 
   // Kanban detection: notes with kanban-plugin in frontmatter are Kanban boards,
   // so their tasks need lane moves (not checkbox toggles) to complete.
@@ -1226,6 +1224,19 @@ export const listAllTags = (
   _params: Record<string, never>,
   logger: Logger,
 ): TagCount[] => {
+  // fold_tag below rejects a stored tag that reaches it as a number or null,
+  // but json_each hands it text from a damaged column too, such as an object's
+  // string values or a nested list's JSON, and those would be listed as tags.
+  // Each column goes through the row parser first, which throws the
+  // IndexIntegrityError every tool that reads tags back throws for it.
+  const tagColumnsStmt = context.db.prepare<[], Pick<NoteRow, "tags" | "body_tags">>(
+    "SELECT tags, body_tags FROM notes",
+  )
+  for (const tagColumns of tagColumnsStmt.iterate()) {
+    parseStringArray(tagColumns.tags)
+    parseStringArray(tagColumns.body_tags)
+  }
+
   // Every tag occurrence, property and body alike, is one row. Spellings that
   // fold to the same lowercase tag form one group:
   // - the group's count is the number of distinct notes carrying any of its
@@ -1573,7 +1584,7 @@ export const getBacklinks = (
   const results: BacklinkEntry[] = rows.map((row) => ({
     path: row.path,
     title: row.title,
-    bytes: row.bytes ?? 0,
+    bytes: row.bytes,
   }))
   logger.info("get backlinks", {
     path: params.path,
@@ -1795,10 +1806,9 @@ export const vaultStats = (
   `
   const row = context.db.prepare<unknown[], VaultStats>(sql).get()
 
-  if (!row) {
-    logger.info("vault stats empty")
-    return { totalNotes: 0, untaggedNotes: 0, noPropertiesNotes: 0 }
-  }
+  // An aggregate query with no GROUP BY returns exactly one row, even over an
+  // empty table.
+  if (!row) throw new Error("vault stats query returned no row")
   logger.info("vault stats", row)
   return row
 }

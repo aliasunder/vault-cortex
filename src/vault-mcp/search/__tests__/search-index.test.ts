@@ -16,6 +16,7 @@ import {
   isHtmlOrScriptTooLargeToRead,
 } from "../search-index.js"
 import type { NoteMetadata, OutgoingLinkEntry, SearchIndex, TaskEntry } from "../search-index.js"
+import { IndexIntegrityError } from "../search-helpers.js"
 import type { StatusClassification } from "../../obsidian-markdown/tasks.js"
 import { links } from "../../obsidian-markdown/links.js"
 import { logger } from "../../../logger.js"
@@ -1521,8 +1522,8 @@ describe("upsertNote atomicity", () => {
     const taskInsertPoison = installStatementPoison("INSERT INTO tasks")
     const atomicIndex = createSearchIndex(":memory:")
     // The control note's positive assertions below prove the query path works,
-    // so the target note's empty results can't pass vacuously (fullTextSearch
-    // catches SQL errors and returns []).
+    // so the target note's empty results show the rollback, not a query that
+    // matches nothing.
     atomicIndex.upsertNote(
       withBodyTags({
         filePath: "atomic/control.md",
@@ -2808,12 +2809,11 @@ describe("listAllTags", () => {
   })
 
   it("returns tags with counts ordered by count desc", () => {
-    const tags = index.listAllTags({}, logger)
-    expect(tags[0]).toEqual({ tag: "principles", count: 2 })
-    expect(tags.find((tagEntry) => tagEntry.tag === "self")).toEqual({
-      tag: "self",
-      count: 1,
-    })
+    expect(index.listAllTags({}, logger)).toEqual([
+      { tag: "principles", count: 2 },
+      { tag: "self", count: 1 },
+      { tag: "work", count: 1 },
+    ])
   })
 
   it("merges spellings that differ in letter case under the most-used spelling, counting notes", () => {
@@ -2906,6 +2906,158 @@ describe("listAllTags", () => {
     ])
     const results = index.fullTextSearch({ query: "no tags" }, logger)
     expect(results.map((result) => result.path)).toEqual(["bare.md"])
+  })
+})
+
+describe("damaged stored tag columns", () => {
+  /** A file-backed index holding one note, whose stored row a second
+   *  connection then damages, the way an outside process would. */
+  const createIndexWithDamagedNote = async (damage: {
+    column: "tags" | "body_tags"
+    storedValue: string | null
+  }): Promise<SearchIndex> => {
+    const databaseDir = await mkdtemp(join(tmpdir(), "damaged-tags-"))
+    onTestFinished(() => rm(databaseDir, { recursive: true }))
+    const databasePath = join(databaseDir, "index.db")
+    const damagedIndex = createSearchIndex(databasePath)
+    damagedIndex.upsertNote(
+      withBodyTags({
+        filePath: "damaged.md",
+        rawContent: "---\ntags: [work]\n---\nfindable #inline\n",
+        fileStat: testStat(1000),
+      }),
+      logger,
+    )
+    const damagingConnection = new Database(databasePath)
+    onTestFinished(() => {
+      damagingConnection.close()
+    })
+    const damageResult = damagingConnection
+      .prepare(`UPDATE notes SET ${damage.column} = ? WHERE path = ?`)
+      .run(damage.storedValue, "damaged.md")
+    expect(damageResult.changes).toBe(1)
+    return damagedIndex
+  }
+
+  it("fullTextSearch throws the index damage error for a matching note whose tags column is not a string array", async () => {
+    const damagedIndex = await createIndexWithDamagedNote({ column: "tags", storedValue: "{}" })
+
+    expect(() => damagedIndex.fullTextSearch({ query: "findable" }, logger)).toThrow(
+      new IndexIntegrityError("expected string[] from JSON column, got: {}"),
+    )
+  })
+
+  it.each([
+    {
+      label: "a tags list holding a number",
+      column: "tags" as const,
+      storedValue: '["work",42]',
+      expectedMessage: 'expected string[] from JSON column, got: ["work",42]',
+    },
+    {
+      label: "a tags list holding null",
+      column: "tags" as const,
+      storedValue: "[null]",
+      expectedMessage: "expected string[] from JSON column, got: [null]",
+    },
+    {
+      label: "a tags column that is NULL",
+      column: "tags" as const,
+      storedValue: null,
+      expectedMessage: "expected string[] from JSON column, got: null",
+    },
+    {
+      label: "a body_tags column that is an object",
+      column: "body_tags" as const,
+      storedValue: '{"tag":"stored"}',
+      expectedMessage: 'expected string[] from JSON column, got: {"tag":"stored"}',
+    },
+    {
+      label: "a tags column that is not JSON",
+      column: "tags" as const,
+      storedValue: "{",
+      expectedMessage: "JSON column is not JSON: {",
+    },
+    // SQLite's JSON functions read this JSON5 list as an array of strings,
+    // while the row parsers reject it
+    {
+      label: "a tags column written as JSON5",
+      column: "tags" as const,
+      storedValue: "['work']",
+      expectedMessage: "JSON column is not JSON: ['work']",
+    },
+  ])(
+    "listAllTags throws the index damage error for $label",
+    async ({ column, storedValue, expectedMessage }) => {
+      const damagedIndex = await createIndexWithDamagedNote({ column, storedValue })
+
+      expect(() => damagedIndex.listAllTags({}, logger)).toThrow(
+        new IndexIntegrityError(expectedMessage),
+      )
+    },
+  )
+
+  // A tag filter folds each stored tag in SQL before any row parser reads the
+  // note, so the fold itself rejects a tag stored as a number or null
+  it.each([
+    {
+      label: "searchByTag",
+      runQuery: (damagedIndex: SearchIndex) => damagedIndex.searchByTag({ tag: "work" }, logger),
+    },
+    {
+      label: "searchByTag with exact",
+      runQuery: (damagedIndex: SearchIndex) => {
+        return damagedIndex.searchByTag({ tag: "work", exact: true }, logger)
+      },
+    },
+    {
+      label: "fullTextSearch with a tags filter",
+      runQuery: (damagedIndex: SearchIndex) => {
+        return damagedIndex.fullTextSearch(
+          { query: "findable", filters: { tags: ["work"] } },
+          logger,
+        )
+      },
+    },
+  ])(
+    "$label throws the index damage error for a stored tag that is a number",
+    async ({ runQuery }) => {
+      const damagedIndex = await createIndexWithDamagedNote({ column: "tags", storedValue: "[42]" })
+
+      expect(() => runQuery(damagedIndex)).toThrow(
+        new IndexIntegrityError("expected a string tag, got: 42"),
+      )
+    },
+  )
+
+  it("listTasks with a tag filter throws the index damage error for a stored task tag that is a number", async () => {
+    const databaseDir = await mkdtemp(join(tmpdir(), "damaged-task-tags-"))
+    onTestFinished(() => rm(databaseDir, { recursive: true }))
+    const databasePath = join(databaseDir, "index.db")
+    const damagedIndex = createSearchIndex(databasePath)
+    damagedIndex.upsertNote(
+      withBodyTags({
+        filePath: "tasks.md",
+        rawContent: "- [ ] file the report #work\n",
+        fileStat: testStat(1000),
+      }),
+      logger,
+    )
+
+    expect(damagedIndex.listTasks({ tag: "work" }, logger).total).toBe(1)
+
+    const damagingConnection = new Database(databasePath)
+    onTestFinished(() => {
+      damagingConnection.close()
+    })
+    const damageResult = damagingConnection
+      .prepare("UPDATE tasks SET tags = ? WHERE note_path = ?")
+      .run("[42]", "tasks.md")
+    expect(damageResult.changes).toBe(1)
+
+    expect(() => damagedIndex.listTasks({ tag: "work" }, logger)).toThrow(
+      new IndexIntegrityError("expected a string tag, got: 42"),
+    )
   })
 })
 
@@ -9695,8 +9847,11 @@ describe("vaultStats", () => {
       }),
       logger,
     )
-    const stats = index.vaultStats({}, logger)
-    expect(stats.totalNotes).toBe(2)
+    expect(index.vaultStats({}, logger)).toEqual({
+      totalNotes: 2,
+      untaggedNotes: 0,
+      noPropertiesNotes: 0,
+    })
   })
 
   it("counts untagged notes", () => {
@@ -9716,8 +9871,11 @@ describe("vaultStats", () => {
       }),
       logger,
     )
-    const stats = index.vaultStats({}, logger)
-    expect(stats.untaggedNotes).toBe(1)
+    expect(index.vaultStats({}, logger)).toEqual({
+      totalNotes: 2,
+      untaggedNotes: 1,
+      noPropertiesNotes: 1,
+    })
   })
 
   it("counts notes without frontmatter properties", () => {
@@ -9737,8 +9895,11 @@ describe("vaultStats", () => {
       }),
       logger,
     )
-    const stats = index.vaultStats({}, logger)
-    expect(stats.noPropertiesNotes).toBe(1)
+    expect(index.vaultStats({}, logger)).toEqual({
+      totalNotes: 2,
+      untaggedNotes: 2,
+      noPropertiesNotes: 1,
+    })
   })
 
   it("returns all zeros on an empty index", () => {
@@ -11520,6 +11681,45 @@ describe("canvas file content and links", () => {
       )
       const backlinks = fileIndex.getBacklinks({ path: "Projects/vault-cortex.md" }, logger)
       expect(backlinks).toEqual([{ path: "Diagrams/arch.canvas", title: "arch", bytes: 500 }])
+    })
+
+    // A database from before non_md_files.bytes existed holds NULL in it
+    // until the startup rebuild backfills the row.
+    it("reports 0 bytes for a canvas backlink source whose size is not yet recorded", async () => {
+      const databaseDir = await mkdtemp(join(tmpdir(), "backlink-null-bytes-"))
+      onTestFinished(() => rm(databaseDir, { recursive: true }))
+      const databasePath = join(databaseDir, "index.db")
+      const fileIndex = createSearchIndex(databasePath, undefined, undefined, {
+        fileToolsEnabled: true,
+      })
+      fileIndex.upsertNote(
+        withBodyTags({
+          filePath: "Projects/vault-cortex.md",
+          rawContent: "# vault-cortex\n\nMain project note.\n",
+          fileStat: testStat(1000),
+        }),
+        logger,
+      )
+      fileIndex.upsertNonMdFile("Diagrams/arch.canvas", 500)
+      fileIndex.upsertFileContent(
+        {
+          filePath: "Diagrams/arch.canvas",
+          rawContent: CANVAS_WITH_FILE_NODES,
+          fileStat: testStat(5000, 500),
+        },
+        logger,
+      )
+      const migratingConnection = new Database(databasePath)
+      onTestFinished(() => {
+        migratingConnection.close()
+      })
+      const clearResult = migratingConnection
+        .prepare("UPDATE non_md_files SET bytes = NULL WHERE path = ?")
+        .run("Diagrams/arch.canvas")
+      expect(clearResult.changes).toBe(1)
+
+      const backlinks = fileIndex.getBacklinks({ path: "Projects/vault-cortex.md" }, logger)
+      expect(backlinks).toEqual([{ path: "Diagrams/arch.canvas", title: "arch", bytes: 0 }])
     })
 
     it("canvas outgoing links show file-node targets", () => {

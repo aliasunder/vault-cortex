@@ -1,7 +1,11 @@
 import { describe, it, expect, vi, onTestFinished } from "vitest"
+import { mkdtemp, rm } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import Database from "better-sqlite3"
 import { DateTime } from "luxon"
 import { createSearchIndex } from "../search-index.js"
+import { IndexIntegrityError } from "../search-helpers.js"
 import type { SearchFilters, SearchIndex } from "../search-index.js"
 import { logger } from "../../../logger.js"
 import { withBodyTags } from "./body-tag-test-helpers.js"
@@ -479,6 +483,36 @@ Content about deployment costs and infrastructure.
       // Only c.md has the "work" tag — a.md (tags: personal, career) excluded
       const paths = results.map((result) => result.path)
       expect(paths).toEqual(["c.md"])
+    })
+
+    it("throws the index damage error when the vector leg's tag filter reads a stored tag that is a number", async () => {
+      const databaseDir = await mkdtemp(join(tmpdir(), "hybrid-damaged-tags-"))
+      onTestFinished(() => rm(databaseDir, { recursive: true }))
+      const databasePath = join(databaseDir, "index.db")
+      const hybridIndex = createSearchIndex(databasePath, createHybridMockEmbedder())
+
+      const noteASourceVersion = hybridIndex.upsertNote(
+        withBodyTags({ filePath: "a.md", rawContent: NOTE_A, fileStat: testStat(1000) }),
+        logger,
+      )
+      await hybridIndex.embedNote(
+        { sourceVersion: noteASourceVersion, notePath: "a.md", rawContent: NOTE_A },
+        logger,
+      )
+
+      const damagingConnection = new Database(databasePath)
+      onTestFinished(() => {
+        damagingConnection.close()
+      })
+      const damageResult = damagingConnection
+        .prepare("UPDATE notes SET tags = ? WHERE path = ?")
+        .run("[42]", "a.md")
+      expect(damageResult.changes).toBe(1)
+
+      // No lexical match, so only the vector leg's tag filter reads a.md's tags
+      await expect(
+        hybridIndex.hybridSearch({ query: "zzqq", filters: { tags: ["work"] } }, logger),
+      ).rejects.toThrow(new IndexIntegrityError("expected a string tag, got: 42"))
     })
 
     it("applies the tag filter to vector-only results ignoring letter case and nesting", async () => {

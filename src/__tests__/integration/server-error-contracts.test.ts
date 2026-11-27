@@ -4819,11 +4819,13 @@ describe("date filter values", () => {
 const INDEX_REMEDY =
   "The server's search index could not be read; the call was not at fault. Retry once; if it fails again, tell the server's owner."
 
-// Which layer reports a damaged tags column depends on who parses it:
-// - vault_list_tags reads tags through SQLite's json_each, which rejects '{'
-//   (not JSON) itself, so the error is a SqliteError;
-// - vault_recent_notes reads the column back in JavaScript, where '{}' parses
-//   but is not a string array, so the error is an IndexIntegrityError.
+// Which layer reports a damaged tags column depends on who reads it first:
+// - a tag filter (vault_search's tags filter, vault_search_by_tag) reads the
+//   column in SQL, where SQLite's JSON functions reject '{' (not JSON) with a
+//   SqliteError and the fold_tag function rejects the 42 in '[42]' with an
+//   IndexIntegrityError;
+// - the JavaScript row parsers, which vault_list_tags also runs over every
+//   stored tags column, reject '{', '{}' and '[42]' with an IndexIntegrityError.
 describe("a damaged index row carries the index remedy", () => {
   /** A server of this block's own, so corrupting its index never reaches the
    *  shared server; the index file is opened from the test through a second
@@ -4845,7 +4847,7 @@ describe("a damaged index row carries the index remedy", () => {
     return { ownClient, index }
   }
 
-  it("vault_list_tags on a tags column that is not JSON returns the SQLite error with the remedy", async () => {
+  it("vault_list_tags on a tags column that is not JSON returns the integrity error with the remedy", async () => {
     const { ownClient, index } = await startServerWithOpenIndex()
     // The same call works before the row is damaged, so the failure below
     // comes from the damage and not from the call
@@ -4856,7 +4858,12 @@ describe("a damaged index row carries the index remedy", () => {
 
     const result = await callTool({ client: ownClient, name: "vault_list_tags", args: {} })
     expect(result).toEqual({
-      content: [{ type: "text", text: `[SqliteError]: malformed JSON. ${INDEX_REMEDY}` }],
+      content: [
+        {
+          type: "text",
+          text: `[IndexIntegrityError]: JSON column is not JSON: {. ${INDEX_REMEDY}`,
+        },
+      ],
       isError: true,
     })
   }, 30_000)
@@ -4869,6 +4876,97 @@ describe("a damaged index row carries the index remedy", () => {
     index.prepare("UPDATE notes SET tags = '{}' WHERE path = ?").run("Orphan Note.md")
 
     const result = await callTool({ client: ownClient, name: "vault_recent_notes", args: {} })
+    expect(result).toEqual({
+      content: [
+        {
+          type: "text",
+          text: `[IndexIntegrityError]: expected string[] from JSON column, got: {}. ${INDEX_REMEDY}`,
+        },
+      ],
+      isError: true,
+    })
+  }, 30_000)
+
+  it("vault_list_tags on a tags column holding a number returns the integrity error with the remedy", async () => {
+    const { ownClient, index } = await startServerWithOpenIndex()
+    const before = await callTool({ client: ownClient, name: "vault_list_tags", args: {} })
+    expect(before.isError).toBeUndefined()
+
+    index.prepare("UPDATE notes SET tags = '[42]' WHERE path = ?").run("Orphan Note.md")
+
+    const result = await callTool({ client: ownClient, name: "vault_list_tags", args: {} })
+    expect(result).toEqual({
+      content: [
+        {
+          type: "text",
+          text: `[IndexIntegrityError]: expected string[] from JSON column, got: [42]. ${INDEX_REMEDY}`,
+        },
+      ],
+      isError: true,
+    })
+  }, 30_000)
+
+  it("vault_search with a tags filter over a tags column that is not JSON returns the SQLite error with the remedy", async () => {
+    const { ownClient, index } = await startServerWithOpenIndex()
+    const searchArgs = { query: "incoming links", filters: { tags: ["test"] } }
+    const before = await callTool({ client: ownClient, name: "vault_search", args: searchArgs })
+    expect(before.isError).toBeUndefined()
+
+    index.prepare("UPDATE notes SET tags = '{' WHERE path = ?").run("Orphan Note.md")
+
+    const result = await callTool({ client: ownClient, name: "vault_search", args: searchArgs })
+    expect(result).toEqual({
+      content: [{ type: "text", text: `[SqliteError]: malformed JSON. ${INDEX_REMEDY}` }],
+      isError: true,
+    })
+  }, 30_000)
+
+  it("vault_search_by_tag over a tags column that is not JSON returns the SQLite error with the remedy", async () => {
+    const { ownClient, index } = await startServerWithOpenIndex()
+    const tagArgs = { tag: "test" }
+    const before = await callTool({ client: ownClient, name: "vault_search_by_tag", args: tagArgs })
+    expect(before.isError).toBeUndefined()
+
+    index.prepare("UPDATE notes SET tags = '{' WHERE path = ?").run("Orphan Note.md")
+
+    const result = await callTool({ client: ownClient, name: "vault_search_by_tag", args: tagArgs })
+    expect(result).toEqual({
+      content: [{ type: "text", text: `[SqliteError]: malformed JSON. ${INDEX_REMEDY}` }],
+      isError: true,
+    })
+  }, 30_000)
+
+  it("vault_search with a tags filter over a tags column holding a number returns the integrity error with the remedy", async () => {
+    const { ownClient, index } = await startServerWithOpenIndex()
+    const searchArgs = { query: "incoming links", filters: { tags: ["test"] } }
+    const before = await callTool({ client: ownClient, name: "vault_search", args: searchArgs })
+    expect(before.isError).toBeUndefined()
+
+    index.prepare("UPDATE notes SET tags = '[42]' WHERE path = ?").run("Orphan Note.md")
+
+    const result = await callTool({ client: ownClient, name: "vault_search", args: searchArgs })
+    expect(result).toEqual({
+      content: [
+        {
+          type: "text",
+          text: `[IndexIntegrityError]: expected a string tag, got: 42. ${INDEX_REMEDY}`,
+        },
+      ],
+      isError: true,
+    })
+  }, 30_000)
+
+  // Embeddings are off in this server, so only the keyword leg reads the
+  // note's row, and no other leg can raise the error.
+  it("vault_search matching a note whose tags column has the wrong shape returns the integrity error with the remedy", async () => {
+    const { ownClient, index } = await startServerWithOpenIndex()
+    const searchArgs = { query: "incoming links" }
+    const before = await callTool({ client: ownClient, name: "vault_search", args: searchArgs })
+    expect(before.isError).toBeUndefined()
+
+    index.prepare("UPDATE notes SET tags = '{}' WHERE path = ?").run("Orphan Note.md")
+
+    const result = await callTool({ client: ownClient, name: "vault_search", args: searchArgs })
     expect(result).toEqual({
       content: [
         {
