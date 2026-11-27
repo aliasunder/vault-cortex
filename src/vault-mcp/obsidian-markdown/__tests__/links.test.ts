@@ -1255,7 +1255,9 @@ const measureHeapGrowth = async (
     | "percent-runs"
     | "dense-links"
     | "code-spans"
-    | "templater",
+    | "templater"
+    | "final-sigmas"
+    | "capital-greek-words",
 ): Promise<{ peakGrowth: number; parenthesisCount: number; resultLength: number }> => {
   const workerUrl = new URL("./helpers/link-memory-worker.ts", import.meta.url)
   const worker = new Worker(workerUrl, { workerData: shape, execArgv: ["--import", "tsx"] })
@@ -1412,6 +1414,31 @@ describe("link extraction memory", () => {
       const { peakGrowth, resultLength } = await measureHeapGrowth(shape)
 
       expect(resultLength).toBe(targets)
+      expect(peakGrowth).toBeLessThan(BYTES_PER_CHARACTER * LINE_LENGTH)
+    },
+    60_000,
+  )
+})
+
+describe("link name fold memory", () => {
+  const LINE_LENGTH = 10_000_000
+
+  /** The fold measures about 4 bytes per character: a buffer and the folded
+   *  copy, two bytes each, because Greek letters take two. A fold that
+   *  allocates a piece per letter measures 5 to 7, so 5 tells them apart. */
+  const BYTES_PER_CHARACTER = 5
+
+  const foldCases = [
+    { shape: "final-sigmas", text: "final sigmas" },
+    { shape: "capital-greek-words", text: "capital Greek words" },
+  ] as const
+
+  it.each(foldCases)(
+    "grows the heap at most 5 bytes per character lowercasing a 10,000,000-character line of $text",
+    async ({ shape }) => {
+      const { peakGrowth, resultLength } = await measureHeapGrowth(shape)
+
+      expect(resultLength).toBe(LINE_LENGTH)
       expect(peakGrowth).toBeLessThan(BYTES_PER_CHARACTER * LINE_LENGTH)
     },
     60_000,
@@ -1795,6 +1822,24 @@ describe("stripExtension", () => {
 
   it("ignores dots in folder names", () => {
     expect(links.stripExtension("v1.2/note")).toBe("v1.2/note")
+  })
+})
+
+// ── lowercaseLinkName ────────────────────────────────────────────
+
+describe("lowercaseLinkName", () => {
+  it("folds every final sigma in a text, whatever follows the capital sigma", () => {
+    expect(links.lowercaseLinkName("See [[ΟΣ]] and [x](ΟΣ.md)")).toBe("see [[οσ]] and [x](οσ.md)")
+  })
+
+  it("lowercases a text with no sigma", () => {
+    expect(links.lowercaseLinkName("Café [[A]]")).toBe("café [[a]]")
+  })
+
+  it("keeps a lone surrogate beside a folded sigma", () => {
+    const loneSurrogate = String.fromCharCode(0xd800)
+
+    expect(links.lowercaseLinkName(`${loneSurrogate}ΟΣ`)).toBe(`${loneSurrogate}οσ`)
   })
 })
 

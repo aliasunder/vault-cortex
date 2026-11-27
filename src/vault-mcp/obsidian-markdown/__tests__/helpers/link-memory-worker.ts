@@ -1,8 +1,10 @@
 /** A worker thread that builds one 10,000,000-character line, reports
  *  "ready", and runs one links operation on it when its parent says "go", so
  *  the parent can sample the worker's heap while the operation runs:
- *  - a "sparse" or "dense" line is scanned with matchLinksInLine;
- *  - an "ampersands" line is decoded with decodeLinkSpellings. */
+ *  - the shapes in DECODED_SHAPES are decoded with decodeLinkSpellings;
+ *  - the shapes in EXTRACTED_SHAPES are extracted with extractFromBody;
+ *  - the shapes in FOLDED_SHAPES are lowercased with lowercaseLinkName;
+ *  - every other shape is scanned with matchLinksInLine. */
 import { parentPort, workerData } from "node:worker_threads"
 import { links } from "../../links.js"
 
@@ -32,6 +34,10 @@ const DECODED_SHAPES: ReadonlySet<unknown> = new Set([
 /** The shapes whose targets are extracted with extractFromBody. */
 const EXTRACTED_SHAPES: ReadonlySet<unknown> = new Set(["dense-links", "code-spans", "templater"])
 
+/** The shapes lowercased with lowercaseLinkName. Their Greek letters need two
+ *  bytes each, so the line is flattened through UTF-16 instead of Latin-1. */
+const FOLDED_SHAPES: ReadonlySet<unknown> = new Set(["final-sigmas", "capital-greek-words"])
+
 const NO_BREAK_SPACE = String.fromCharCode(0xa0)
 
 /** The line each shape names:
@@ -46,7 +52,9 @@ const NO_BREAK_SPACE = String.fromCharCode(0xa0)
  *  - percent-runs: `%41 ` repeated;
  *  - dense-links: `[](a)` repeated, one markdown link every five characters;
  *  - code-spans: `` `a` `` repeated;
- *  - templater: `<%a%>` repeated. */
+ *  - templater: `<%a%>` repeated;
+ *  - final-sigmas: only `ς`;
+ *  - capital-greek-words: `ΟΔΟΣ ` repeated, each word lowercasing to end in `ς`. */
 const buildLine = (shape: unknown): string => {
   if (shape === "sparse") {
     const filler = `ab c"d'e<f `
@@ -65,14 +73,17 @@ const buildLine = (shape: unknown): string => {
   if (shape === "dense-links") return "[](a)".repeat(LINE_LENGTH / 5)
   if (shape === "code-spans") return "`a`".repeat(Math.floor(LINE_LENGTH / 3))
   if (shape === "templater") return "<%a%>".repeat(LINE_LENGTH / 5)
+  if (shape === "final-sigmas") return "ς".repeat(LINE_LENGTH)
+  if (shape === "capital-greek-words") return "ΟΔΟΣ ".repeat(LINE_LENGTH / 5)
   throw new Error(`unknown line shape: ${String(shape)}`)
 }
 
-/** Returns how many matches a scan found, how many characters a decode
- *  returned, or how many targets an extraction found. */
+/** Returns how many matches a scan found, how many characters a decode or a
+ *  fold returned, or how many targets an extraction found. */
 const runOperation = (line: string): number => {
   if (DECODED_SHAPES.has(workerData)) return links.decodeLinkSpellings(line).length
   if (EXTRACTED_SHAPES.has(workerData)) return links.extractFromBody(line).length
+  if (FOLDED_SHAPES.has(workerData)) return links.lowercaseLinkName(line).length
   return links.matchLinksInLine(line).length
 }
 
@@ -82,7 +93,8 @@ const port = parentPort
 const builtLine = buildLine(workerData)
 // String.repeat builds a rope, which V8 flattens on the first scan; copying
 // through a buffer flattens it before the baseline is sampled.
-const line = Buffer.from(builtLine, "latin1").toString("latin1")
+const flatteningEncoding = FOLDED_SHAPES.has(workerData) ? "utf16le" : "latin1"
+const line = Buffer.from(builtLine, flatteningEncoding).toString(flatteningEncoding)
 const parenthesisCount = countParentheses(line)
 
 port.on("message", () => {

@@ -698,34 +698,21 @@ const extractLinks = (params: {
   return { linkTargets: links.extractAll(parsed.content, frontmatter), fileCardPaths: [] }
 }
 
-/** Every final sigma. Global — use only with replace. */
-const FINAL_SIGMA = /ς/g
-
-/** Lowercases text for the pre-filter's substring checks, with "ς" folded to
- *  "σ" as links.pathToLinkName folds it. toLowerCase turns a capital "Σ" into
- *  either one depending on what follows it, so the stem `ΟΣ` and the link
- *  `[x](ΟΣ.md)` would otherwise lowercase to `ος` and `οσ.md`. */
-const lowercaseForPrefilter = (text: string): string => {
-  return replaceAllInBatches({
-    text: text.toLowerCase(),
-    pattern: FINAL_SIGMA,
-    replacement: () => "σ",
-  })
-}
-
 /** Every lowercased spelling a link to a note named `targetStem` can take in a
  *  note's or Canvas's text, for a substring pre-filter before the full parse.
  *  A link that percent-encodes, escapes or references the name's characters
  *  holds the plain stem in the decoded view listSearchableViews adds. */
 const listLowercaseStemSpellings = (targetStem: string): string[] => {
   // Pre-filter stems are lowercased so a case-mismatched link is never
-  // skipped before the resolver runs.
-  const lowercaseStem = lowercaseForPrefilter(targetStem)
+  // skipped before the resolver runs. The fold matches a stem to a link that
+  // writes the name before ".md", where a capital final sigma lowercases
+  // differently.
+  const lowercaseStem = links.lowercaseLinkName(targetStem)
   // A Canvas stores its links inside JSON strings, which escape `"` and `\`.
   // JSON.stringify applies that escaping; the slice drops the quotes it adds
   // around the string.
   const jsonEscapedStem = JSON.stringify(targetStem).slice(1, -1)
-  const lowercaseJsonEscapedStem = lowercaseForPrefilter(jsonEscapedStem)
+  const lowercaseJsonEscapedStem = links.lowercaseLinkName(jsonEscapedStem)
   // Some JSON writers (Python's json.dump by default) escape each non-ASCII
   // UTF-16 unit, writing "Café" as "Caf\u00e9" and an emoji as two escapes;
   // the regex has no u flag, so it matches those units one at a time. Escape
@@ -815,7 +802,7 @@ const discoverBacklinksFromFilesystem = async (
         // pre-filter before the full parse below.
         const searchableViews = listSearchableViews({ path: candidatePath, content })
         const couldContainLink = searchableViews.some((view) => {
-          const lowercaseView = lowercaseForPrefilter(view)
+          const lowercaseView = links.lowercaseLinkName(view)
           return lowercaseStemSpellings.some((spelling) => lowercaseView.includes(spelling))
         })
 

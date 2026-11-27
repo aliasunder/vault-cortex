@@ -7,6 +7,7 @@
  *  Recognition stays private so callers share the grammar and receive
  *  position-safe matches through the methods on `links`. */
 
+import { Buffer } from "node:buffer"
 import { posix } from "node:path"
 import parseEntities from "parse-entities"
 import { createTextJoiner, replaceAllInBatches } from "./batched-text.js"
@@ -1164,18 +1165,37 @@ const stripExtension = (filePath: string): string => {
   return filePath.slice(0, filePath.length - extension.length)
 }
 
+const FINAL_SIGMA_CODE_UNIT = "ς".charCodeAt(0)
+const SIGMA_CODE_UNIT = "σ".charCodeAt(0)
+
+/** Lowercases text with "ς" folded to "σ", because toLowerCase turns a capital
+ *  "Σ" into either one depending on what follows it, so one name could
+ *  otherwise lowercase two ways (`ΟΣ` alone as `ος`, before `.md` as `οσ`).
+ *  The fold copies the code units into one buffer instead of replacing, since
+ *  a replace allocates a piece per "ς", about 30 bytes of heap per character
+ *  on a long text dense with them; a lone surrogate is copied as it is. */
+const lowercaseLinkName = (text: string): string => {
+  const lowercase = text.toLowerCase()
+
+  if (!lowercase.includes("ς")) return lowercase
+  const codeUnits = new Uint16Array(lowercase.length)
+  for (let index = 0; index < lowercase.length; index++) {
+    const codeUnit = lowercase.charCodeAt(index)
+    codeUnits[index] = codeUnit === FINAL_SIGMA_CODE_UNIT ? SIGMA_CODE_UNIT : codeUnit
+  }
+  return Buffer.from(codeUnits.buffer).toString("utf16le")
+}
+
 /** The key that pairs a link's text with the files it could name. A link and
  *  a file a resolver could match must share a key; a key shared more widely
  *  costs only an extra re-resolve of the search index's links rows, which
- *  store it as link_name. The key is:
- *  - the last path segment, minus one trailing ".md" (case-sensitive, as
- *    noteTargetWithExtension adds it), lowercased;
- *  - "ς" folded to "σ", because toLowerCase turns a capital "Σ" into either one depending
- *    on what follows it, so one name could otherwise lowercase two ways. */
+ *  store it as link_name. The key is the last path segment, minus one
+ *  trailing ".md" (case-sensitive, as noteTargetWithExtension adds it),
+ *  through lowercaseLinkName. */
 const pathToLinkName = (path: string): string => {
   const lastSegment = posix.basename(path)
   const name = lastSegment.endsWith(".md") ? lastSegment.slice(0, -".md".length) : lastSegment
-  return name.toLowerCase().replaceAll("ς", "σ")
+  return lowercaseLinkName(name)
 }
 
 /** Splits a matched wikilink, or returns null for malformed text.
@@ -1994,6 +2014,7 @@ export const links = {
   resolveInExactCase,
   stripExtension,
   pathToLinkName,
+  lowercaseLinkName,
   resolveAsset,
   resolveNoteOrAsset,
 }
