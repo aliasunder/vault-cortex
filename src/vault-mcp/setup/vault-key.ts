@@ -1,7 +1,7 @@
 /** The key hash Obsidian Sync checks a vault password against, derived the
  *  way the obsidian-headless CLI derives it during `ob sync-setup`. The
  *  pinned CLI is the contract — re-verify the scrypt parameters, the HKDF
- *  info string, and the per-version branch on every bump (AGENTS.md →
+ *  info string, and the per-version branch on every bump (CONTRIBUTING.md →
  *  Upgrading obsidian-headless). */
 
 import { createHash, hkdf, scrypt } from "node:crypto"

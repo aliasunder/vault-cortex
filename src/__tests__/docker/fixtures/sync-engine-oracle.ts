@@ -23,7 +23,7 @@
  * so the engine under test is the exact one the image ships. The bundle has
  * no exports, so it is compiled with its closing CLI call (`x.parse();`)
  * replaced by an export of the engine class (`is`). Both names are minified
- * identifiers of obsidian-headless 0.0.14 — AGENTS.md → "Upgrading
+ * identifiers of obsidian-headless 0.0.14 — CONTRIBUTING.md → "Upgrading
  * obsidian-headless" lists them for re-checking on a bump.
  *
  * The bundle resolves its config root from HOME and XDG_CONFIG_HOME once, as

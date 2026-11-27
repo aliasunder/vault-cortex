@@ -337,6 +337,185 @@ What each release's notes list:
 
 See the [DEPLOY.md CI/CD section](./DEPLOY.md#cicd) for details on each workflow.
 
+## Upgrading pinned dependencies
+
+Three pins track something outside this repo. Treat each bump as a potential
+regression and re-verify that package's contract below before merging.
+
+| Package             | Pinned in                                                     | Tracks                                                                             | Dependabot       |
+| ------------------- | ------------------------------------------------------------- | ---------------------------------------------------------------------------------- | ---------------- |
+| `rrule`             | root `package.json`                                           | the version the Tasks plugin declares                                              | excluded         |
+| `remark-parse`      | root `package.json`, with `overrides` for its dependency tree | the release Obsidian's metadata cache forked                                       | excluded         |
+| `obsidian-headless` | `obsidian-headless/package.json` and its lockfile             | the Sync CLI whose observed behaviour the `:remote` image's init scripts depend on | a PR per release |
+
+### Upgrading rrule (recurrence parity)
+
+`recurrence.ts` transliterates the Tasks plugin's recurrence logic
+(`Recurrence.ts` + `Occurrence.ts`) and pins `rrule` to the exact version
+the plugin declares, so rule parsing and next-hit computation match the
+plugin by construction. The pin is deliberately excluded from Dependabot.
+On any rrule bump — or when re-verifying against a newer Tasks plugin
+release — re-check each of these against the plugin source before merging:
+
+- The rule grammar split (`/^([a-zA-Z0-9, !]+?)( when done)?$/i`) and the
+  `parseText` try/null handling.
+- Reference-date priority (due → scheduled → start; flipped to due →
+  start → scheduled under `removeScheduledDateOnRecurrence`).
+- The month/year overflow walk-back: the rule's start date (rrule's
+  `dtstart`) moves with each step, and a rule whose text contains `" on "`
+  (an explicit day, "every month on the 31st") skips the walk-back — month
+  rules only.
+- The fields `createNextOccurrence` sets on the next occurrence: block
+  link, 🆔, and ⛔ cleared; created date replaced per `setCreatedDate`,
+  never carried forward.
+- The `recurrence.test.ts` vectors lifted from the plugin's own
+  `Recurrence.test.ts` — refresh them from the new release's tests.
+
+Two deliberate divergences are pinned by tests, each contracted where it
+lives: exhausted finite rules complete without spawning (`recurrence.ts`'s
+docstring), and calendar-invalid dates are nulled at parse time
+(`calendarValidOrNull` in `tasks.ts`). A behavior change in either is a
+decision, not a drift fix.
+
+### Upgrading remark-parse (body-tag parity)
+
+`obsidian-markdown/body-tags.ts` finds a note's `#tags` with
+`remark-parse@8.0.3`, the version Obsidian's metadata cache forked, plus
+Obsidian's syntax as tokenizers in `obsidian-remark-parser.ts`. The pin is
+excluded from Dependabot, and 8.0.3 is the last 8.x release, so an advisory
+anywhere in its dependency tree is answered with an `overrides` entry, as
+`trim` is.
+
+Never open, read or copy Obsidian's app code (`worker.js`, `app.js`) when
+editing `obsidian-remark-parser.ts`, `body-tags.ts` or `remark-ports/`:
+Obsidian is proprietary and this repo is MIT, so those files are written from
+Obsidian's observed behaviour only. The scripts below are the only permitted
+contact; they run `worker.js` as a black box and print its answers.
+[AGENTS.md](./AGENTS.md#upgrading-pinned-dependencies) states the same rule
+for agents.
+
+Re-check the parser against Obsidian when remark-parse changes and when
+Obsidian ships a new release:
+
+1. Extract `worker.js` from the installed app:
+   `npx -y @electron/asar extract "<app-dir>/obsidian-<version>.asar" <dir>`
+   (on macOS, `<app-dir>` is `~/Library/Application Support/obsidian`).
+2. Regenerate the vectors:
+   `npm run vectors:body-tags -- <dir>/worker.js <version>`. It asks that
+   worker for every input in
+   `src/vault-mcp/obsidian-markdown/__tests__/fixtures/obsidian-body-tag-vectors.json`
+   and rewrites each expected answer.
+3. Run `npx vitest run src/vault-mcp/obsidian-markdown/__tests__/body-tags.test.ts`
+   and `npm run compare:body-tags -- <dir>/worker.js --documents 300000 --out disagreements.json`.
+4. When the comparison finds disagreements, `disagreements.json` holds each
+   shrunk input as a `{ label, input }` record. Pass that file as the third
+   argument to step 2's command, then fix the parser until every row passes.
+
+For a one-off question, `npm run oracle:body-tags -- <dir>/worker.js <inputs.json>`
+prints Obsidian's raw tags and listed names for each input.
+
+### Upgrading obsidian-headless
+
+The Sync CLI's [documentation](https://obsidian.md/help/sync/headless)
+covers usage, not internals, so the `:remote` init chain depends on
+behaviour observed in the pinned `cli.js`. Treat every bump
+of `obsidian-headless/package.json` as a potential regression and
+re-verify each contract against the new source before merging:
+
+- Verbs and flags the scripts call: `login`, `sync-config` (including
+  `--mode` and `--json`), `sync`, `sync --continuous`,
+  `sync-setup --vault --device-name`, `sync-list-remote --json` and
+  `sync-list-local --json`. `sync-config --json` prints `vaultId`
+  and `syncMode` (`bidirectional` when unset), and an unknown `--mode`
+  value exits non-zero, which `init-setup-vault` treats as fatal.
+- Each vault's setup is `obsidian-headless/sync/<vaultId>/config.json`, and
+  every command uses the first setup, in folder-name order, whose
+  `path.resolve(vaultPath)` is the working folder. `check-sync-vault` relies
+  on these outputs, captured as vectors in its test file:
+  - `sync-config --json` exits 3 when no setup matches the folder and 1 when
+    a setup without `vaultPath` sorts first, and it skips a setup file it
+    can't read or parse;
+  - `sync-list-local --json` lists `{ id, path, host }` per setup;
+  - `sync-list-remote --json` lists owned and shared vaults with `id` and
+    `name`, and needs the token;
+  - `sync-setup` resolves `--vault` by ID first, then by a unique name.
+- `sync-setup` rewrites the whole config on every boot without the filter
+  fields or `syncMode`. `sync-config --file-types` / `--excluded-folders` /
+  `--configs` then queue only the recorded server files that the new value
+  allows and the reset defaults block, so some changes queue nothing.
+- `ob sync` creates `<vault>/.obsidian/` and a `.obsidian/.sync.lock`
+  directory before transferring anything. `vault_has_content` in
+  `init-first-sync` therefore treats an `.obsidian/` folder that holds
+  nothing but `.sync.lock` as an empty vault.
+- The device's file record is
+  `obsidian-headless/sync/<vaultId>/state.db` under `$XDG_CONFIG_HOME`,
+  table `local_files`. The engine loads this record at startup and compares
+  it against the files on disk. The deletion-storm guard in `init-first-sync`
+  reads the same table: it stops the container when the record lists files
+  but the vault is empty, because the engine would push each missing file as
+  a deletion.
+- Files delivered by `sync --continuous` are recorded in that same
+  table as they arrive, and a file deleted locally has its row removed at
+  once. The stub's `sync-record` and `sync-forget` verbs mirror the two.
+- `init-first-sync` queues every file the engine knows about but this
+  device has no local record of (its header explains why). That step
+  relies on five engine behaviours. The remote-boot oracle
+  (`fixtures/sync-engine-oracle.ts`) runs the image's own engine on the
+  first; re-check the other four by hand in the new `cli.js`:
+  1. The deletion scan pushes a deletion for a `server_files` row with no
+     `local_files` row, and only two-way sync runs it: `pull-only` and
+     `mirror-remote` return first. The pending loop runs before the scan,
+     and a one-shot `sync` stops at the first failed download, before it.
+  2. `server_files` and `pending_files` rows share one record shape
+     (`addPendingFile` writes `uid, path, data`), and the three tables keep
+     the columns the script's schema check lists.
+  3. `sync --continuous` backs off a failed download and still runs the scan.
+  4. Skipping a superseded queued entry deletes every queued row for that
+     path (`DELETE FROM pending_files WHERE path = ?`).
+  5. The oracle's minified names are unchanged: the closing `x.parse();`
+     call, and `is` as the engine class's name.
+- In `pull-only`, `init-first-sync` also drops a queued download whose
+  `hash` equals the local record's `synchash`, which would replay the synced
+  version over a local edit. The oracle scenarios named in parentheses cover
+  their behaviour; re-check by hand behaviours 1 and 5, the upload half of 3
+  and the cursor half of 4:
+  1. The re-queue in the `sync-setup` bullet above includes files this
+     device already downloaded (`ss()`, `changeFilter`).
+  2. `pull-only` and `mirror-remote` download a queued file over a differing
+     local copy, and two-way sync keeps the copy ("edited, synced version
+     queued" in each of the three modes).
+  3. A download, or an upload, sets `synchash` to the SHA-256 hex of the
+     bytes, equal to the record's `hash`; a local edit leaves it
+     ("downloaded, pull-only", "edited, not queued, pull-only").
+  4. `pull-only` runs neither an upload nor a deletion scan after the
+     pending loop ("edited, not queued, pull-only", "not queued,
+     pull-only"), and the sync cursor is past a dropped row, so the server
+     never sends that row again.
+  5. Pending rows load once, when the engine starts, in `uid` order, and a
+     later row for the same path supersedes an earlier one.
+
+- The setup page's pre-flight (`src/vault-mcp/setup/`) mirrors two calls
+  `ob sync-setup` makes on the next boot: `/vault/list` (an
+  end-to-end encrypted vault comes back with `password: ""`) and
+  `/vault/access` with the key hash — scrypt over the NFKC-normalized
+  password and salt (N 32768, r 8, p 1, 32 bytes), then HKDF-SHA256 with
+  info `ObsidianKeyHash` for `encryption_version` 2 and 3, SHA-256 for 0. The
+  vectors in `vault-key.test.ts` were produced by the pinned CLI's own
+  functions; recompute them on a bump.
+
+The remote-boot scenarios never run the real CLI — they run the stub
+(`src/__tests__/docker/fixtures/ob`), which imitates the behaviour listed
+above. So if a new CLI version behaves differently, those tests still pass,
+because the stub still behaves the old way. Only the sync-engine oracle runs
+the image's real engine. After updating the pinned version:
+
+1. Update the stub to match the new behaviour, and the oracle's minified
+   names if they changed.
+2. Run the remote-boot tests (the oracle among them) and the init-script
+   tests.
+3. Boot the new image once against real Obsidian Sync and confirm the
+   first sync, the guard's file count, and continuous sync in the logs.
+
 ## Railway template
 
 The Railway one-click template (`railway.com/deploy/vault-cortex`) lives in
