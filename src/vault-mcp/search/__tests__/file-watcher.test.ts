@@ -1937,19 +1937,23 @@ describe("file watcher — obsolete events and embedding queues", () => {
     }
     const { testVault, search, fire } = await createControlledWatcher(embedder)
     const newestEmbedFinished = Promise.withResolvers<undefined>()
+    const laterEditEmbedFinished = Promise.withResolvers<undefined>()
     const realNoteEmbed = search.embedNote
     const embedNoteSpy = vi
       .spyOn(search, "embedNote")
       .mockImplementation(async (params, requestLogger) => {
         await realNoteEmbed(params, requestLogger)
         if (params.rawContent === "thirdedit") newestEmbedFinished.resolve(undefined)
+        if (params.rawContent === "fourthedit") laterEditEmbedFinished.resolve(undefined)
       })
+    const errorSpy = vi.spyOn(logger, "error")
+    onTestFinished(() => errorSpy.mockRestore())
 
     await writeFile(join(testVault, "blocker.md"), "heldtopaz")
     await fire("change", "blocker.md")
     await blockerEntered.promise
 
-    // The first edit's step starts at once and waits in the index's queue
+    // The first edit's job starts at once and waits in the index's queue
     // behind the held job; the next two wait behind it on the note's own chain
     for (const editContent of ["firstedit", "secondedit", "thirdedit"]) {
       await writeFile(join(testVault, "note.md"), editContent)
@@ -1958,8 +1962,15 @@ describe("file watcher — obsolete events and embedding queues", () => {
     releaseBlocker.resolve(vector)
     await newestEmbedFinished.promise
 
+    // The third edit's job runs as soon as the job that took its content
+    // settles, so it has found nothing left to embed before a later edit's
+    // embedding can finish
+    await writeFile(join(testVault, "note.md"), "fourthedit")
+    await fire("change", "note.md")
+    await laterEditEmbedFinished.promise
+
     // Source versions are symbols the index mints, so only their type is known
-    expect(embedNoteSpy).toHaveBeenCalledTimes(3)
+    expect(embedNoteSpy).toHaveBeenCalledTimes(4)
     expect(embedNoteSpy).toHaveBeenNthCalledWith(
       2,
       { notePath: "note.md", rawContent: "firstedit", sourceVersion: expect.any(Symbol) },
@@ -1970,8 +1981,69 @@ describe("file watcher — obsolete events and embedding queues", () => {
       { notePath: "note.md", rawContent: "thirdedit", sourceVersion: expect.any(Symbol) },
       logger,
     )
-    expect(embedder.embedText).toHaveBeenCalledTimes(2)
-    expect(embedder.embedText).toHaveBeenLastCalledWith("note\n\nthirdedit")
+    expect(embedNoteSpy).toHaveBeenNthCalledWith(
+      4,
+      { notePath: "note.md", rawContent: "fourthedit", sourceVersion: expect.any(Symbol) },
+      logger,
+    )
+    expect(embedder.embedText).toHaveBeenCalledTimes(3)
+    expect(embedder.embedText).toHaveBeenNthCalledWith(2, "note\n\nthirdedit")
+    expect(embedder.embedText).toHaveBeenNthCalledWith(3, "note\n\nfourthedit")
+    expect(errorSpy).not.toHaveBeenCalled()
+  })
+
+  it("embeds nothing for a note deleted while its newest content waits behind another note's held job", async () => {
+    const vector = new Float32Array(384).fill(0.1)
+    const blockerEntered = Promise.withResolvers<undefined>()
+    const releaseBlocker = Promise.withResolvers<Float32Array>()
+    onTestFinished(() => releaseBlocker.resolve(vector))
+    const embedder = {
+      embedText: vi.fn(async (text: string) => {
+        if (text === "blocker\n\nheldtopaz") {
+          blockerEntered.resolve(undefined)
+          return releaseBlocker.promise
+        }
+        return vector
+      }),
+      embedBatch: vi.fn(async (texts: readonly string[]) => texts.map(() => vector)),
+    }
+    const { testVault, database, search, fire } = await createControlledWatcher(embedder)
+    const waitingEmbedFinished = Promise.withResolvers<undefined>()
+    const realNoteEmbed = search.embedNote
+    const embedNoteSpy = vi
+      .spyOn(search, "embedNote")
+      .mockImplementation(async (params, requestLogger) => {
+        await realNoteEmbed(params, requestLogger)
+        if (params.rawContent === "secondedit") waitingEmbedFinished.resolve(undefined)
+      })
+
+    await writeFile(join(testVault, "blocker.md"), "heldtopaz")
+    await fire("change", "blocker.md")
+    await blockerEntered.promise
+
+    // The first edit's job takes its content at once and waits behind the
+    // held job; the second edit's content waits in the watcher for its turn
+    for (const editContent of ["firstedit", "secondedit"]) {
+      await writeFile(join(testVault, "note.md"), editContent)
+      await fire("change", "note.md")
+    }
+    await rm(join(testVault, "note.md"))
+    await fire("unlink", "note.md")
+    expect(search.fullTextSearch({ query: "secondedit" }, logger)).toEqual([])
+    releaseBlocker.resolve(vector)
+    await waitingEmbedFinished.promise
+
+    // Source versions are symbols the index mints, so only their type is known
+    expect(embedNoteSpy).toHaveBeenCalledTimes(3)
+    expect(embedNoteSpy).toHaveBeenNthCalledWith(
+      3,
+      { notePath: "note.md", rawContent: "secondedit", sourceVersion: expect.any(Symbol) },
+      logger,
+    )
+    expect(embedder.embedText).toHaveBeenCalledExactlyOnceWith("blocker\n\nheldtopaz")
+    expect(database.prepare("SELECT note_path, chunk_text FROM note_chunks").all()).toEqual([
+      { note_path: "blocker.md", chunk_text: "blocker\n\nheldtopaz" },
+    ])
   })
 
   it.each([{ fileName: "page.html" }, { fileName: "page.htm" }])(

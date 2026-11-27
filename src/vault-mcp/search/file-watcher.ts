@@ -171,10 +171,11 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
   //   current one.
   const pendingEmbeds = new Map<string, Promise<void>>()
 
-  // Each note path's newest content still waiting for its embedding step. A
-  // queued step takes the entry when it starts, so edits made while the index's
-  // queue is busy keep one copy of the note, not one per edit.
-  const pendingNoteEmbeds = new Map<string, { content: string; sourceVersion: symbol }>()
+  // Each note path's newest content that no embedding job has taken yet. A
+  // job takes the entry when it starts, so edits that land while the path's
+  // earlier job is queued or running keep one waiting copy of the note, not
+  // one per edit.
+  const pendingNoteEmbedRequests = new Map<string, { content: string; sourceVersion: symbol }>()
 
   /**
    * Each path's event token, which guards the path's read; source versions
@@ -422,8 +423,8 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
     return { status: "file-indexed" }
   }
 
-  /** Indexes an added or modified note and queues its re-embedding. The
-   *  embedding is returned unawaited, so the caller decides whether to wait. */
+  /** Indexes an added or modified note and queues its re-embedding, which
+   *  keeps running after this returns and logs its own failure. */
   const indexChangedNote = async (params: {
     filePath: string
     relativePath: string
@@ -501,7 +502,7 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
         logger,
       )
 
-      pendingNoteEmbeds.set(relativePath, { content, sourceVersion })
+      pendingNoteEmbedRequests.set(relativePath, { content, sourceVersion })
 
       // Each path queues model work; recovering a rejected predecessor
       // allows later jobs to run after a transient failure.
@@ -514,11 +515,11 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
           })
         })
         .then(() => {
-          const embedRequest = pendingNoteEmbeds.get(relativePath)
+          const embedRequest = pendingNoteEmbedRequests.get(relativePath)
 
-          // An earlier step already took the newest content
+          // An earlier job already took the newest content
           if (!embedRequest) return
-          pendingNoteEmbeds.delete(relativePath)
+          pendingNoteEmbedRequests.delete(relativePath)
           return search.embedNote(
             {
               notePath: relativePath,
