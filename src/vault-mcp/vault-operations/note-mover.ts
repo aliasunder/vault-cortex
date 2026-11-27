@@ -323,12 +323,17 @@ const applyLinkEdits = (text: string, edits: LinkEdit[]): string => {
 }
 
 /** Rewrites one matched wikilink, preserving the embed marker, heading, and
- *  alias; null when the target needs no change. */
+ *  alias; null when the target is empty or needs no change. */
 const rewriteWikilinkText = (linkText: string, rewriteLink: RewriteLink): string | null => {
   const parts = links.splitWikilink(linkText)
 
   if (!parts) return null
   const rawTarget = parts.target.trim()
+
+  // An empty target (`[[ ]]`, `[[ #h]]`) names no note, and the index skips
+  // it. Resolved from the moved note's folder, it would match a file named
+  // like that folder (`A/B.png` beside `A/B/`) and become a link to it.
+  if (!rawTarget) return null
   const newTarget = rewriteLink({
     rawTarget,
     originalExtension: posix.extname(rawTarget),

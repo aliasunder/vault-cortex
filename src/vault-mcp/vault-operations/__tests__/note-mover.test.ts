@@ -1397,6 +1397,23 @@ describe("moveNote — selectivity (must-not-rewrite cases)", () => {
 })
 
 describe("moveNote — asset link rewriting", () => {
+  it("leaves the moved note's empty-target wikilinks alone when a file shares its old folder's name", async () => {
+    const { writeFixture, moveNote, readNote } = setupVault()
+    const content = '---\ncover: "[[ ]]"\n---\nLinks: [[ ]], ![[ ]], [[\\|x]] and [[ #h]].\n'
+    await writeFixture("A/B.png", "img")
+    await writeFixture("A/B/note.md", content)
+
+    const result = await moveNote({ oldPath: "A/B/note.md", newPath: "C/note.md" })
+
+    expect(await readNote("C/note.md")).toBe(content)
+    expect(result).toEqual({
+      moved_to: "C/note.md",
+      links_updated: 0,
+      updated_notes: [],
+      pruned_empty_folders: 0,
+    })
+  })
+
   it("rewrites a relative wikilink embed to an asset when the note moves deeper", async () => {
     const { writeFixture, moveNote, readNote } = setupVault()
     await writeFixture("assets/photo.png", "img")
