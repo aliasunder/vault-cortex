@@ -48,7 +48,7 @@ const RELATIVE_LINK_START = /^\.\.?\//
 const LINE_TERMINATOR = /[\n\r\u2028\u2029]/
 
 /** Matches inline code spans so links inside backticks (e.g. `[[Note]]`) can be
- *  ignored. Global — use only with matchAll/replaceAll. */
+ *  ignored. Global — use only with replace. */
 const INLINE_CODE_RE = /`+[^`\n]*`+/g
 
 /** Splits a matched wikilink into capture groups 1–4: embed `!`, target,
