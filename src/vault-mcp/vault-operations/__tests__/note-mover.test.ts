@@ -887,6 +887,13 @@ describe("moveNote — markdown link destinations", () => {
       link: "[y](%E9.md) and [x](a%28b\\)c.md)",
       rewritten: "[y](%E9.md) and [x](New.md)",
     },
+    {
+      // Lowercased alone the name ends in ς, and before .md in σ.
+      label: "a capital final sigma before the extension",
+      oldPath: "ΟΣ.md",
+      link: "[x](ΟΣ.md)",
+      rewritten: "[x](New.md)",
+    },
   ]
 
   it.each(unindexedCases)(
@@ -2182,7 +2189,7 @@ describe("moveNote — Canvas sources", () => {
   it("finds a Canvas whose JSON escapes an ampersand in the note's name", async () => {
     const { writeFixture, moveNote, readNote, logger } = setupVault()
     await writeFixture("Q&A.md", "# Q&A\n")
-    // Go's encoding/json writes & as &, an escape of an ASCII character,
+    // Go's encoding/json writes & as \u0026, an escape of an ASCII character,
     // which no spelling of the stem holds.
     await writeFixture(
       "Board.canvas",
@@ -2210,10 +2217,42 @@ describe("moveNote — Canvas sources", () => {
     )
   })
 
+  it("finds a Canvas file card whose JSON escapes the & of a name that spells a character reference", async () => {
+    const { writeFixture, moveNote, readNote, logger } = setupVault()
+    await writeFixture("Q&copy;.md", "# Q\n")
+    // A file card stores the name as written, so only the view with the JSON
+    // escapes undone holds it: decoding it as a markdown link turns &copy;
+    // into a copyright sign.
+    await writeFixture(
+      "Board.canvas",
+      obsidianCanvas([
+        '{"id":"f1","type":"file","file":"Q\\u0026copy;.md","x":0,"y":0,"width":400,"height":400}',
+      ]),
+    )
+
+    const result = await moveNote({ oldPath: "Q&copy;.md", newPath: "Answers.md" })
+
+    expect(await readNote("Board.canvas")).toBe(
+      obsidianCanvas([
+        '{"id":"f1","type":"file","file":"Answers.md","x":0,"y":0,"width":400,"height":400}',
+      ]),
+    )
+    expect(result).toEqual({
+      moved_to: "Answers.md",
+      links_updated: 1,
+      updated_notes: ["Board.canvas"],
+      pruned_empty_folders: 0,
+    })
+    expect(vi.mocked(logger.info)).toHaveBeenCalledWith(
+      "backlink verification discovered sources the index missed",
+      { from: "Q&copy;.md", to: "Answers.md", additionalSources: ["Board.canvas"], attempt: 0 },
+    )
+  })
+
   it("finds a Canvas whose JSON escapes an accented letter in a link written in another case", async () => {
     const { writeFixture, moveNote, readNote, logger } = setupVault()
     await writeFixture("Café.md", "# Café\n")
-    // The link's É is escaped as É and the note's é as é, so the
+    // The link's É is escaped as \u00C9 and the note's é as \u00e9, so the
     // two escapes differ even after lowercasing.
     await writeFixture(
       "Board.canvas",

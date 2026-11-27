@@ -698,6 +698,21 @@ const extractLinks = (params: {
   return { linkTargets: links.extractAll(parsed.content, frontmatter), fileCardPaths: [] }
 }
 
+/** Every final sigma. Global — use only with replace. */
+const FINAL_SIGMA = /ς/g
+
+/** Lowercases text for the pre-filter's substring checks, with "ς" folded to
+ *  "σ" as links.pathToLinkName folds it. toLowerCase turns a capital "Σ" into
+ *  either one depending on what follows it, so the stem `ΟΣ` and the link
+ *  `[x](ΟΣ.md)` would otherwise lowercase to `ος` and `οσ.md`. */
+const lowercaseForPrefilter = (text: string): string => {
+  return replaceAllInBatches({
+    text: text.toLowerCase(),
+    pattern: FINAL_SIGMA,
+    replacement: () => "σ",
+  })
+}
+
 /** Every lowercased spelling a link to a note named `targetStem` can take in a
  *  note's or Canvas's text, for a substring pre-filter before the full parse.
  *  A link that percent-encodes, escapes or references the name's characters
@@ -705,12 +720,12 @@ const extractLinks = (params: {
 const listLowercaseStemSpellings = (targetStem: string): string[] => {
   // Pre-filter stems are lowercased so a case-mismatched link is never
   // skipped before the resolver runs.
-  const lowercaseStem = targetStem.toLowerCase()
+  const lowercaseStem = lowercaseForPrefilter(targetStem)
   // A Canvas stores its links inside JSON strings, which escape `"` and `\`.
   // JSON.stringify applies that escaping; the slice drops the quotes it adds
   // around the string.
   const jsonEscapedStem = JSON.stringify(targetStem).slice(1, -1)
-  const lowercaseJsonEscapedStem = jsonEscapedStem.toLowerCase()
+  const lowercaseJsonEscapedStem = lowercaseForPrefilter(jsonEscapedStem)
   // Some JSON writers (Python's json.dump by default) escape each non-ASCII
   // UTF-16 unit, writing "Café" as "Caf\u00e9" and an emoji as two escapes;
   // the regex has no u flag, so it matches those units one at a time. Escape
@@ -739,10 +754,12 @@ const decodeJsonStringEscape = ({ groups }: RegExpExecArray): string => {
   throw new Error("decodeJsonStringEscape takes a JSON_STRING_ESCAPE match")
 }
 
-/** The views of a file's text a link's target spelling can appear in: the
- *  text itself and, when decoding changes it, the text decoded the way a
- *  stored link reads it. A Canvas's JSON string escapes are undone first, so
- *  a text card's `a\_b.md` reads as `a_b.md` and `Q\u0026A.md` as `Q&A.md`. */
+/** The distinct views of a file's text a link's target spelling can appear in:
+ *  - the text itself;
+ *  - for a Canvas, its JSON strings unescaped, as a file card's path and a
+ *    wikilink store a name (`Q\u0026A.md` reads as `Q&A.md`);
+ *  - that text decoded the way a stored markdown link reads it, so a text
+ *    card's `a\_b.md` reads as `a_b.md`. */
 const listSearchableViews = (params: { path: string; content: string }): string[] => {
   const { path, content } = params
   const linkText = isCanvasPath(path)
@@ -752,10 +769,9 @@ const listSearchableViews = (params: { path: string; content: string }): string[
         replacement: decodeJsonStringEscape,
       })
     : content
-  const decodedView = links.decodeLinkSpellings(linkText)
+  const views = [content, linkText, links.decodeLinkSpellings(linkText)]
 
-  if (decodedView === content) return [content]
-  return [content, decodedView]
+  return views.filter((view, index) => views.indexOf(view) === index)
 }
 
 /** Scans vault notes and Canvas files for links to targetPath, returning the
@@ -799,7 +815,7 @@ const discoverBacklinksFromFilesystem = async (
         // pre-filter before the full parse below.
         const searchableViews = listSearchableViews({ path: candidatePath, content })
         const couldContainLink = searchableViews.some((view) => {
-          const lowercaseView = view.toLowerCase()
+          const lowercaseView = lowercaseForPrefilter(view)
           return lowercaseStemSpellings.some((spelling) => lowercaseView.includes(spelling))
         })
 
