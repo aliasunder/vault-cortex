@@ -1962,9 +1962,9 @@ describe("file watcher — obsolete events and embedding queues", () => {
     releaseBlocker.resolve(vector)
     await newestEmbedFinished.promise
 
-    // The second edit's job embedded the third edit's content, and the third
-    // edit's job runs as soon as it settles, so that job has found nothing left
-    // to embed before a later edit's embedding can finish
+    // The second edit's job embedded the third edit's content. The third
+    // edit's job runs as soon as the second's settles, so it has found nothing
+    // left to embed before a later edit's embedding can finish
     await writeFile(join(testVault, "note.md"), "fourthedit")
     await fire("change", "note.md")
     await laterEditEmbedFinished.promise
@@ -2029,6 +2029,11 @@ describe("file watcher — obsolete events and embedding queues", () => {
       await writeFile(join(testVault, "note.md"), editContent)
       await fire("change", "note.md")
     }
+    // The watcher stores an edit's waiting content as it indexes the edit, so
+    // a keyword hit shows the second edit's content is waiting
+    expect(
+      search.fullTextSearch({ query: "secondedit" }, logger).map((result) => result.path),
+    ).toEqual(["note.md"])
     await rm(join(testVault, "note.md"))
     await fire("unlink", "note.md")
     expect(search.fullTextSearch({ query: "secondedit" }, logger)).toEqual([])

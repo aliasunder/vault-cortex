@@ -2498,8 +2498,8 @@ describe("hybridSearch — ranking tuning", () => {
       },
       logger,
     )
-    // Not embedded, so the reranker reads the file's keyword snippet, which
-    // keeps the one 50,000-character word whole
+    // The file is not embedded, so the reranker reads its keyword snippet,
+    // which keeps the one 50,000-character word whole
     const longFileContent = `findmeword ${"z".repeat(50_000)}`
     prefixIndex.upsertNonMdFile("docs/long.txt", longFileContent.length)
     prefixIndex.upsertFileContent(
@@ -2513,8 +2513,8 @@ describe("hybridSearch — ranking tuning", () => {
 
     await prefixIndex.hybridSearch({ query: "findmeword" }, logger)
 
-    // ASCII text, so slice cuts by code points; the label counts toward the
-    // limit, so the cut comes after the prefix
+    // The text is ASCII, so slice cuts it by code points. The label counts
+    // toward the limit, so the text is cut after the label is added
     expect(capturingReranker.rerankPairs).toHaveBeenCalledExactlyOnceWith("findmeword", [
       "Career\n\n\nCareer goals and aspirations.",
       `File: ${longFileContent}`.slice(0, 32_768),

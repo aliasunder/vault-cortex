@@ -1,7 +1,11 @@
-/** Heading-aware chunking for embedding. Splits a note into chunks sized for
- *  the embedding model's context window (512 tokens for bge-small-en-v1.5).
- *  File content is chunked here too, so "note" in this module covers a file's
- *  text as well.
+/** Heading-aware chunking for embedding, and the text both models read.
+ *  - Splits a note into chunks sized for the embedding model's context window
+ *    (512 tokens for bge-small-en-v1.5). File content is chunked here too, so
+ *    "note" in this module covers a file's text as well.
+ *  - Every text the embedding model or the reranker reads is cut here
+ *    (truncateModelInput), and a memory entry's model text is built here
+ *    (memoryEntryModelText), because entries reach the models without being
+ *    chunked.
  *
  *  Algorithm (every prefix counts against the chunk budget — see
  *  chunkContent):
