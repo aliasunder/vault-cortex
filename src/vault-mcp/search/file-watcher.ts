@@ -161,12 +161,21 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
   // Set once by indexHeldPathsWithinBounds, which the startup batch runs after the rebuild.
   let heldPdfsIndexed: Promise<void> = Promise.resolve()
 
-  // Each path's latest embedding job. A new job for the path waits for this one,
-  // so a note edited many times runs one model job at a time. A job that still
-  // finishes after a newer edit writes nothing: the index checks the source
-  // version the job carries (the token upsertNote or upsertFileContent returned
-  // for the content it embeds) against the path's current one.
+  // Each path's latest embedding job.
+  // - A new job for the path starts after this one settles, so the watcher
+  //   holds at most one place per path in the search index's queue
+  //   (runEmbeddingJob), which runs note and file embedding jobs one at a time.
+  // - A job that still finishes after a newer edit writes nothing: the index
+  //   checks the source version the job carries (the token upsertNote or
+  //   upsertFileContent returned for the content it embeds) against the path's
+  //   current one.
   const pendingEmbeds = new Map<string, Promise<void>>()
+
+  // Each note path's newest content that no embedding job has taken yet. A
+  // job takes the entry when it starts, so edits that land while the path's
+  // earlier job is queued or running keep one waiting copy of the note, not
+  // one per edit.
+  const pendingNoteEmbedRequests = new Map<string, { content: string; sourceVersion: symbol }>()
 
   /**
    * Each path's event token, which guards the path's read; source versions
@@ -414,8 +423,8 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
     return { status: "file-indexed" }
   }
 
-  /** Indexes an added or modified note and queues its re-embedding. The
-   *  embedding is returned unawaited, so the caller decides whether to wait. */
+  /** Indexes an added or modified note and queues its re-embedding, which
+   *  keeps running after this returns and logs its own failure. */
   const indexChangedNote = async (params: {
     filePath: string
     relativePath: string
@@ -493,6 +502,8 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
         logger,
       )
 
+      pendingNoteEmbedRequests.set(relativePath, { content, sourceVersion })
+
       // Each path queues model work; recovering a rejected predecessor
       // allows later jobs to run after a transient failure.
       const previousEmbed = pendingEmbeds.get(relativePath) ?? Promise.resolve()
@@ -504,8 +515,17 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
           })
         })
         .then(() => {
+          const embedRequest = pendingNoteEmbedRequests.get(relativePath)
+
+          // An earlier job already took the newest content, or the note was deleted
+          if (!embedRequest) return
+          pendingNoteEmbedRequests.delete(relativePath)
           return search.embedNote(
-            { notePath: relativePath, rawContent: content, sourceVersion },
+            {
+              notePath: relativePath,
+              rawContent: embedRequest.content,
+              sourceVersion: embedRequest.sourceVersion,
+            },
             logger,
           )
         })
@@ -600,6 +620,10 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
     // "superseded", so that read cannot re-add the file removed here.
     currentEvents.delete(relativePath)
     abortPendingBodyTagParse(relativePath)
+
+    // A deleted note's waiting content is released now, so it does not stay in
+    // memory until its job's turn comes
+    pendingNoteEmbedRequests.delete(relativePath)
 
     if (!filePath.endsWith(".md")) {
       const removeAssetRow = (): boolean => {

@@ -1,5 +1,11 @@
-/** Heading-aware chunking for embedding. Splits a note into chunks sized for
- *  the embedding model's context window (512 tokens for bge-small-en-v1.5).
+/** Heading-aware chunking for embedding, and the text both models read.
+ *  - Splits a note into chunks sized for the embedding model's context window
+ *    (512 tokens for bge-small-en-v1.5). File content is chunked here too, so
+ *    "note" in this module covers a file's text as well.
+ *  - Every text the embedding model or the reranker reads is cut here
+ *    (truncateModelInput), and a memory entry's model text is built here
+ *    (memoryEntryModelText), because entries reach the models without being
+ *    chunked.
  *
  *  Algorithm (every prefix counts against the chunk budget — see
  *  chunkContent):
@@ -20,9 +26,11 @@
  *  7. A split that yields no fragments at all falls back to one
  *     whole-body chunk so the note never leaves the vector index
  *  8. Each prefix part (title, metadata line, heading name) is cut to
- *     MAX_CHUNK_PREFIX_PART_CODE_POINTS, and a note's chunk text stops at its
- *     limit (see MAX_CHUNK_TEXT_PER_BODY_CHARACTER), so the chunks stay
- *     proportional to the note's length */
+ *     MAX_CHUNK_PREFIX_PART_CODE_POINTS
+ *  9. A note's chunk text stops at the limits MAX_CHUNK_TEXT_TO_BODY_RATIO and
+ *     MAX_NOTE_CHUNK_TEXT_CHARACTERS set, so it stays proportional to the
+ *     note's length, and its chunks stop at MAX_NOTE_CHUNKS
+ * 10. Each chunk's text is cut to MAX_MODEL_INPUT_CODE_POINTS */
 
 import { parseHeadings, type HeadingInfo } from "../obsidian-markdown/headings.js"
 import { splitIntoLines } from "../obsidian-markdown/lines.js"
@@ -46,21 +54,52 @@ const MIN_CHUNK_TOKENS = 50
  *  them, so a longer part would leave little or no body text in view. */
 const MAX_CHUNK_PREFIX_PART_CODE_POINTS = 2_000
 
-// A note's chunk text stops at the smaller of the two bounds below; the first
-// chunk and the table-of-contents chunk are always kept.
+// A note's chunks stop at MAX_NOTE_CHUNKS, or once their text would pass
+// MAX_CHUNK_TEXT_TO_BODY_RATIO times the stripped body's length or
+// MAX_NOTE_CHUNK_TEXT_CHARACTERS, whichever is smaller. The first chunk and the
+// table-of-contents chunk are always kept.
 
 /** A note's chunk texts total several times the length of its stripped body:
  *  each chunk repeats its prefix, and a section below the top level is also
  *  embedded in its top-level aggregate. Prose measures under 3 times, a Kanban
  *  board about 4.7, and a note of one-line sections 7 to 14 as its title
- *  lengthens, reaching 50 only with a title of about 700 characters. 50
- *  leaves room above those while keeping a note's chunk text, and the work to
- *  embed it, proportional to the note's length. */
-const MAX_CHUNK_TEXT_PER_BODY_CHARACTER = 50
+ *  lengthens, reaching 50 at a title of about 700 characters; such a note
+ *  with a longer title loses its later chunks. 50 leaves room above those
+ *  while keeping a note's chunk text, and the work to embed it, proportional
+ *  to the note's length. */
+const MAX_CHUNK_TEXT_TO_BODY_RATIO = 50
 
 /** Bounds a very large note's chunk text in memory; a real note at the densest
  *  measured ratio needs a stripped body over 3.5 MB to reach it. */
 const MAX_NOTE_CHUNK_TEXT_CHARACTERS = 50_000_000
+
+/** Each chunk is one model call and one stored vector, and a chunk of a tiny
+ *  section can be a few bytes, so the chunk text limits above do not bound the
+ *  count. A long real note (a multi-year journal in one note, a book-length
+ *  note) makes about 5,000 chunks, so this leaves about three times that. */
+const MAX_NOTE_CHUNKS = 16_384
+
+/** Tokenizing runs on the main thread whenever the embedding model or the
+ *  reranker reads a text, and its cost grows with the text's length. Both
+ *  models read only the first 512 tokens, which ordinary text reaches long
+ *  before this many code points, so the cut changes no vector or score for
+ *  ordinary text. */
+const MAX_MODEL_INPUT_CODE_POINTS = 32_768
+
+/** Cuts text bound for the embedding model or the reranker to
+ *  MAX_MODEL_INPUT_CODE_POINTS, ending on a whole grapheme. */
+export const truncateModelInput = (text: string): string => {
+  return truncateToCodePointLimit(text, MAX_MODEL_INPUT_CODE_POINTS)
+}
+
+/** Builds the text both models read for a memory entry. Entries reach the
+ *  models without being chunked, so the text is cut here to
+ *  MAX_MODEL_INPUT_CODE_POINTS, as every chunk is. */
+export const memoryEntryModelText = (
+  entry: Readonly<{ file: string; section: string; entry_text: string }>,
+): string => {
+  return truncateModelInput(`${entry.file} > ${entry.section}\n${entry.entry_text}`)
+}
 
 /** Approximate token count via whitespace splitting — good enough for
  *  deciding chunk boundaries without loading a real tokenizer. */
@@ -159,20 +198,20 @@ const prefixFragment = (chunkPrefix: string, fragment: string): string => {
 }
 
 /** The chunk texts in order, up to the one that would take their total length
- *  past maxCharacters; the first text is always kept. Texts are read one at a
- *  time, so from a lazy iterator no text after that one is built. */
-const takeWithinCharacterLimit = (
-  chunkTexts: Iterable<string>,
-  maxCharacters: number,
-): string[] => {
+ *  past maxCharacters or their count past MAX_NOTE_CHUNKS; the first text is
+ *  always kept. Texts are read one at a time, so from a lazy iterator no text
+ *  after that one is built. */
+const takeWithinChunkLimits = (chunkTexts: Iterable<string>, maxCharacters: number): string[] => {
   const keptTexts: string[] = []
   // The total length of keptTexts, threaded through the loop.
   let keptCharacters = 0
 
   for (const chunkText of chunkTexts) {
-    const exceedsLimit = keptCharacters + chunkText.length > maxCharacters
+    const isFirstText = keptTexts.length === 0
+    const exceedsCharacterLimit = keptCharacters + chunkText.length > maxCharacters
+    const chunkCountReached = keptTexts.length >= MAX_NOTE_CHUNKS
 
-    if (exceedsLimit && keptTexts.length > 0) break
+    if (!isFirstText && (exceedsCharacterLimit || chunkCountReached)) break
     keptTexts.push(chunkText)
     keptCharacters += chunkText.length
   }
@@ -180,7 +219,10 @@ const takeWithinCharacterLimit = (
 }
 
 const indexChunks = (chunkTexts: readonly string[]): NoteChunk[] => {
-  return chunkTexts.map((text, index) => ({ index, text }))
+  return chunkTexts.map((chunkText, index) => ({
+    index,
+    text: truncateModelInput(chunkText),
+  }))
 }
 
 /** Chunk budget after subtracting the prefix's own token cost, floored at
@@ -408,9 +450,10 @@ const buildTableOfContentsText = (params: {
  *  the title and then the stripped body; changing that form would change
  *  every such note's content hash and re-embed it.
  *
- *  Each prefix part is cut to MAX_CHUNK_PREFIX_PART_CODE_POINTS, and the
- *  chunks stop at the note's chunk text limit; the first chunk and the
- *  table-of-contents chunk always stay. */
+ *  Each prefix part is cut to MAX_CHUNK_PREFIX_PART_CODE_POINTS, the chunks
+ *  stop at the note's chunk text limit or MAX_NOTE_CHUNKS (the first chunk and
+ *  the table-of-contents chunk always stay), and each chunk's text is cut to
+ *  MAX_MODEL_INPUT_CODE_POINTS. */
 export const chunkContent = (params: {
   noteTitle: string
   bodyContent: string
@@ -445,7 +488,7 @@ export const chunkContent = (params: {
   const strippedBody = stripMarkdownSyntax(bodyContent)
   const bodyTokenCount = approximateTokenCount(strippedBody)
   const maxChunkTextCharacters = Math.min(
-    MAX_CHUNK_TEXT_PER_BODY_CHARACTER * strippedBody.length,
+    MAX_CHUNK_TEXT_TO_BODY_RATIO * strippedBody.length,
     MAX_NOTE_CHUNK_TEXT_CHARACTERS,
   )
 
@@ -492,7 +535,7 @@ export const chunkContent = (params: {
 
     if (!exceedsBudgetWithPrefix) return indexChunks([prefixFragment(basePrefix, strippedBody)])
     return indexChunks(
-      takeWithinCharacterLimit(sectionChunkTexts([], strippedBody), maxChunkTextCharacters),
+      takeWithinChunkLimits(sectionChunkTexts([], strippedBody), maxChunkTextCharacters),
     )
   }
 
@@ -509,7 +552,7 @@ export const chunkContent = (params: {
   // No headings — split at paragraph boundaries
   if (!firstHeading) {
     return indexChunks(
-      takeWithinCharacterLimit(sectionChunkTexts([], strippedBody), maxChunkTextCharacters),
+      takeWithinChunkLimits(sectionChunkTexts([], strippedBody), maxChunkTextCharacters),
     )
   }
 
@@ -520,9 +563,12 @@ export const chunkContent = (params: {
   ).trim()
   const preambleExists = Boolean(preambleText)
 
-  // A section span is split only when it is reached. Assembly stops at the
-  // first text past the note's chunk text limit, before any later span is
-  // split or any later fragment is prefixed.
+  // A section span is split only when it is reached.
+  // - Assembly stops at the first text past the note's chunk text limit or
+  //   chunk count, before any later span is split or any later fragment is
+  //   prefixed.
+  // - That holds only while every step from the spans to takeWithinChunkLimits
+  //   stays an iterator. An array anywhere in the chain splits every span first.
   const sectionTexts = collectSectionSpans(headings, preambleExists)
     .values()
     .flatMap((sectionSpan) => {
@@ -534,7 +580,7 @@ export const chunkContent = (params: {
 
   // The identity flatMap puts the preamble's texts before the sections'; Node
   // 24 has no Iterator.concat.
-  const bodyChunkTexts = takeWithinCharacterLimit(
+  const bodyChunkTexts = takeWithinChunkLimits(
     [sectionChunkTexts([], preambleText), sectionTexts]
       .values()
       .flatMap((chunkTexts) => chunkTexts),
@@ -545,8 +591,8 @@ export const chunkContent = (params: {
   // would dominate the token average, and notes of one type (e.g. Kanban
   // boards) would all share an identical Type/Tags line, collapsing exactly
   // the note-vs-note discrimination this chunk exists to provide. It sits
-  // outside the chunk text limit: it is emitted once, and it is the note's one
-  // short chunk for broad queries.
+  // outside the chunk text limit and the chunk count: it is emitted once, and
+  // it is the note's one short chunk for broad queries.
   const tableOfContentsText = buildTableOfContentsText({
     noteTitle: tocTitle,
     headings,

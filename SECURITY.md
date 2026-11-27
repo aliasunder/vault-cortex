@@ -289,6 +289,13 @@ The server, and the `:remote` image's setup mode, set these headers:
   2 seconds is indexed without body tags while the server keeps answering
 - Canvas groups nest only while `content nodes × groups + groups²` stays at
   most 16,000,000; a larger canvas renders flat
+- A note's or file's embedding stops at 16,384 chunks plus its
+  table-of-contents chunk, or once its chunk text reaches 50 times its
+  stripped body or 50 million characters; keyword search is unaffected
+- Each chunk, memory entry and search result is cut to 32,768 code points
+  before the embedding model or the reranker reads it
+- Chunks embed one note or file at a time, so the server holds one note's
+  or file's chunks in memory at a time
 
 ### Container hardening
 

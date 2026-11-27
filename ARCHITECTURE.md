@@ -640,10 +640,13 @@ Vector tables persist across restarts and rebuilds (only FTS, notes, links, task
 
 - Each successful source upsert returns a unique `sourceVersion`. Queued watcher jobs and background rebuild snapshots retain that version, so deletion or replacement invalidates earlier work even when content or modification time repeats.
 - Note, file-content and memory-entry writers check the captured version before model work and after each model await. Obsolete jobs skip derived writes, note/file tail pruning and later memory batches.
-- The watcher assigns an event token before reading each file and checks it before indexing. Unlink or a newer event invalidates earlier reads; embedding stays serialized per path to limit model concurrency.
+- The watcher assigns an event token before reading each file and checks it before indexing. Unlink or a newer event invalidates earlier reads.
 - Each note and file reaches the keyword index before its own embedding is queued.
 
-**Background embedding and tool calls:** model inference runs synchronously on the server's one JavaScript thread, so before each background model call (a chunk, or a 16-entry memory batch) the job waits until no tool call or prompt is running, for at most 5 seconds (`BACKGROUND_EMBED_MAX_WAIT_MS`). A tool call or prompt that arrives while a model call runs still waits for the model call to finish.
+**Background embedding and tool calls:** model inference runs synchronously on the server's one JavaScript thread.
+
+- Before each background model call (a chunk, or a 16-entry memory batch), the job waits until no tool call or prompt is running, for at most 5 seconds (`BACKGROUND_EMBED_MAX_WAIT_MS`). A tool call or prompt that arrives while a model call runs still waits for the model call to finish.
+- The index runs one note or file embedding job at a time, whether the watcher or the rebuild queued it, so when that wait times out, one of these jobs' model calls runs, not one per waiting job. The server also holds one note's or file's chunks at a time.
 
 **Embedding pipeline:** Controlled by `EMBEDDING_ENABLED` (default: `true`). Markdown syntax is stripped before embedding (`plaintext.ts`). Short notes (under 500 body tokens) stay a single title-prefixed chunk unless a metadata line pushes them past the chunk budget. Longer notes split into per-heading sections via `chunker.ts`:
 
@@ -651,11 +654,13 @@ Vector tables persist across restarts and rebuilds (only FTS, notes, links, task
 - **Chunk prefixes:** every fragment starts with the note title, followed by the note's aliases when it has any and its title is not empty (`Avery Quinn (also known as Avery, Mom)`), so the embedder and the reranker see a note's other names. Aggregate and leaf fragments add a `Section:` line naming the heading's ancestor path, with these exceptions:
   - Long ancestor paths drop their leading segments to fit the remaining token budget, keeping the deepest segments. The `Section:` line is omitted when the title and metadata exhaust the budget.
   - Preamble and TOC fragments omit the `Section:` line. The aggregate also omits it when one top-level heading opens the note with no preceding text or heading, because that heading wraps the whole note.
-- **Prefix part length:** in chunk prefixes, the title, the metadata line and each heading name are cut to 2,000 characters, about 370 of the embedding model's 512 tokens in English; the TOC chunk keeps the full title and heading names
+- **Prefix part length:** in chunk prefixes, the title, the metadata line and each heading name are cut to 2,000 characters, about 370 of the embedding model's 512 tokens in English; the TOC chunk keeps the full title and heading names, within the chunk length cut under Chunk limits
 - **Empty sections:** a heading whose slice is empty emits no section chunk. Its name still appears in the TOC and in descendant chunks' `Section:` lines. A top-level heading with children still emits its aggregate even without text of its own, because its slice spans the subtree.
 - **Table-of-contents chunk:** each split note with named headings emits one short chunk with its folder path and title on the first line, followed by heading names in document order within the chunk budget. This gives a broad query a compact view of the note's topics without requiring one section to represent the whole note
 - **Sub-splitting:** oversized sections split at paragraph boundaries (MAX_CHUNK_TOKENS = 450, minus each chunk's prefix cost), with a sub-minimum trailing fragment merged backward
-- **Per-note limit:** a note's chunk text stops at 50 times its stripped body or 50 million characters, whichever is smaller, and the first chunk and the TOC chunk always stay. The limit keeps embedding work proportional to note length, and ordinary notes stay under it; full-text search covers a note past the limit in full
+- **Chunk limits:** ordinary notes stay under these limits, and full-text search covers a note past them in full.
+  - A note's or file's chunks stop at 16,384, or once their text reaches 50 times its stripped body or 50 million characters, whichever is smaller, so embedding work stays proportional to note length. The first chunk always stays, and the TOC chunk is kept outside these limits.
+  - Before the embedding model or the reranker reads a chunk, a memory entry or a search result, its text is cut to 32,768 code points, because tokenizing time grows with a text's length. Both models read only the first 512 tokens, which ordinary text reaches long before that, so the cut changes no vector or score for ordinary text.
 
 Content-hash gating (SHA-256 per chunk) skips re-embedding unchanged content on both incremental file-watcher updates and full rebuilds. A chunk whose text already has a stored vector elsewhere in the same note or file gets that vector copied, so an edit near the top of a long note re-embeds only the chunks whose text changed.
 

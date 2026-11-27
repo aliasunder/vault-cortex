@@ -27,7 +27,7 @@ import { DEFAULT_STATUS_REGISTRY, tasks } from "../obsidian-markdown/tasks.js"
 import type { StatusClassification, TaskPriority, TaskStatus } from "../obsidian-markdown/tasks.js"
 import { contentHash, type Embedder } from "./embedder.js"
 import type { Reranker } from "./reranker.js"
-import { buildChunkMetadataPrefix, chunkContent } from "./chunker.js"
+import { buildChunkMetadataPrefix, chunkContent, memoryEntryModelText } from "./chunker.js"
 import type { PdfExtractor, PdfIndexExtraction } from "../vault-operations/pdf-extractor.js"
 import { caseFoldPath } from "../../utils/case-fold-path.js"
 import { describeError, describeErrorForLog } from "../../utils/describe-error.js"
@@ -2231,17 +2231,39 @@ export const createSearchIndex = (
     return Buffer.from(embedding.buffer, embedding.byteOffset, embedding.byteLength)
   }
 
+  // The note or file embedding job queued last. Reassigned as each job joins,
+  // so `let`.
+  let lastEmbeddingJob: Promise<unknown> = Promise.resolve()
+
+  /** Runs a note or file embedding job after the previous one settles, whatever
+   *  its outcome, and returns the job's own result or rejection.
+   *  - Jobs for different paths take turns, so the server holds one note's or
+   *    file's chunks at a time.
+   *  - Only the running job waits on a tool call, so when the foreground wait
+   *    times out, one of these jobs' model calls runs, not one per waiting job.
+   *  - embedMemoryEntriesForFile runs outside this queue, so its batches can
+   *    wait and call the model while a job here does. */
+  const runEmbeddingJob = <JobResult>(job: () => Promise<JobResult>): Promise<JobResult> => {
+    // A promise chain is the queue: each job starts from the one before it.
+    // allSettled lets a rejected job release the next one, while the rejection
+    // still reaches that job's own caller.
+    const currentJob = Promise.allSettled([lastEmbeddingJob]).then(() => job())
+    lastEmbeddingJob = currentJob
+    return currentJob
+  }
+
   /** Embeds a note's chunks.
    *  - `rawContent` is the content upsertNote indexed under `sourceVersion`, so upsertNote
    *    has already warned about an unreadable properties block in it.
    *  - The return counts changed chunks committed before completion or obsolescence.
-   *    Zero covers disabled, cached and obsolete calls. */
-  const embedAndStoreChunks = async (
+   *    Zero covers disabled, cached and obsolete calls.
+   *  - It runs in its turn through runEmbeddingJob (embedAndStoreChunks). */
+  const embedAndStoreChunksNow = async (
     params: { notePath: string; rawContent: string; sourceVersion: symbol },
     logger: Logger,
     // eslint-disable-next-line complexity -- this function is over the limit; split it before adding a branch
   ): Promise<number> => {
-    const { notePath, rawContent } = params
+    const { notePath, rawContent, sourceVersion } = params
 
     if (
       !embedder ||
@@ -2256,11 +2278,7 @@ export const createSearchIndex = (
       return 0
     }
 
-    if (
-      !isCurrentSourceVersion({ sourcePath: notePath, sourceVersion: params.sourceVersion }, logger)
-    ) {
-      return 0
-    }
+    if (!isCurrentSourceVersion({ sourcePath: notePath, sourceVersion }, logger)) return 0
 
     // Re-parsing is pure, so this reads what upsertNote read; the unreadable-block
     // error is ignored because upsertNote already logged it
@@ -2312,17 +2330,14 @@ export const createSearchIndex = (
       const vectorBytes =
         storedVector ??
         (await embedChunkWhenIdle(
-          { text: chunk.text, sourcePath: notePath, sourceVersion: params.sourceVersion },
+          { text: chunk.text, sourcePath: notePath, sourceVersion },
           logger,
         ))
 
       if (!vectorBytes) return embeddedCount
       // No await separates this check from the write below, so a job
       // superseded while it waited or while the model ran writes nothing
-      const isCurrentJob = isCurrentSourceVersion(
-        { sourcePath: notePath, sourceVersion: params.sourceVersion },
-        logger,
-      )
+      const isCurrentJob = isCurrentSourceVersion({ sourcePath: notePath, sourceVersion }, logger)
 
       if (!isCurrentJob) return embeddedCount
       if (!storedVector) storedVectors.remember(hash, vectorBytes)
@@ -2360,14 +2375,13 @@ export const createSearchIndex = (
       if (storedVector) reusedCount++
     }
 
-    if (
-      !isCurrentSourceVersion({ sourcePath: notePath, sourceVersion: params.sourceVersion }, logger)
-    ) {
+    if (!isCurrentSourceVersion({ sourcePath: notePath, sourceVersion }, logger)) {
       return embeddedCount
     }
 
-    // chunkContent assigns indices 0 through length - 1, so a shortened note's
-    // old tail starts at chunks.length; remove its vectors before their parent rows,
+    // chunkContent assigns indices 0 through length - 1, so the stored chunks past
+    // the note's new count (after an edit, or once chunkContent's limits cut the
+    // note) start at chunks.length; remove their vectors before their parent rows,
     // in one transaction so a crash cannot leave a chunk row whose vector is gone.
     db.transaction(() => {
       if (deleteStaleVectorsStmt) deleteStaleVectorsStmt.run(notePath, chunks.length)
@@ -2383,6 +2397,14 @@ export const createSearchIndex = (
     return embeddedCount
   }
 
+  /** embedAndStoreChunksNow in its turn among the note and file embedding jobs. */
+  const embedAndStoreChunks = (
+    params: { notePath: string; rawContent: string; sourceVersion: symbol },
+    logger: Logger,
+  ): Promise<number> => {
+    return runEmbeddingJob(() => embedAndStoreChunksNow(params, logger))
+  }
+
   /** How many memory entries go to the embedder per embedBatch call. Entries
    *  are uniformly short (~20–80 tokens), so padding waste inside a batch is
    *  negligible while the initial whole-corpus backfill collapses from one
@@ -2391,7 +2413,6 @@ export const createSearchIndex = (
 
   /** Missing vectors are retried on the next call if embedding stops after source indexing.
    *  - memoryFile is the bare name ("Agents"); notePath is its full vault-relative .md path.
-   *  - Model input includes the file and section for context and excludes the date.
    *  - The return counts committed entries, including completed batches before obsolescence. */
   const embedMemoryEntriesForFile = async (
     params: { memoryFile: string; notePath: string; sourceVersion: symbol },
@@ -2418,7 +2439,7 @@ export const createSearchIndex = (
       batchStart += MEMORY_EMBED_BATCH_SIZE
     ) {
       const batchRows = unembeddedRows.slice(batchStart, batchStart + MEMORY_EMBED_BATCH_SIZE)
-      const batchTexts = batchRows.map((row) => `${row.file} > ${row.section}\n${row.entry_text}`)
+      const batchTexts = batchRows.map(memoryEntryModelText)
       const embeddings = await callModelWhenIdle(
         { sourcePath: notePath, sourceVersion, callModel: () => embedder.embedBatch(batchTexts) },
         logger,
@@ -2432,7 +2453,7 @@ export const createSearchIndex = (
       if (!isCurrentJob) return embeddedCount
 
       db.transaction(() => {
-        for (const [rowIndexInBatch, row] of batchRows.entries()) {
+        for (const [rowIndexInBatch, entryRow] of batchRows.entries()) {
           const embedding = embeddings[rowIndexInBatch]
 
           if (embedding === undefined) {
@@ -2442,7 +2463,7 @@ export const createSearchIndex = (
           }
 
           insertMemoryVectorStmt.run(
-            BigInt(row.id),
+            BigInt(entryRow.id),
             Buffer.from(embedding.buffer, embedding.byteOffset, embedding.byteLength),
           )
         }
@@ -2465,36 +2486,32 @@ export const createSearchIndex = (
     params: { notePath: string; rawContent: string; sourceVersion: symbol },
     logger: Logger,
   ): Promise<void> => {
+    const { notePath, sourceVersion } = params
+
     if (!embedder) return
     await embedAndStoreChunks(params, logger)
-    const memoryFile = memoryFileNameFromPath(params.notePath)
+    const memoryFile = memoryFileNameFromPath(notePath)
 
-    if (
-      memoryFile &&
-      isCurrentSourceVersion(
-        { sourcePath: params.notePath, sourceVersion: params.sourceVersion },
-        logger,
-      )
-    ) {
-      await embedMemoryEntriesForFile(
-        { memoryFile, notePath: params.notePath, sourceVersion: params.sourceVersion },
-        logger,
-      )
+    if (memoryFile && isCurrentSourceVersion({ sourcePath: notePath, sourceVersion }, logger)) {
+      await embedMemoryEntriesForFile({ memoryFile, notePath, sourceVersion }, logger)
     }
   }
 
   /** Embeds a file's indexed text from file_content. The return counts changed
    *  chunks committed before completion or obsolescence. Zero covers disabled,
    *  unembedded-kind, cached and obsolete calls. The chunk loop mirrors
-   *  embedAndStoreChunks above, so a change to its wait, check and write
-   *  sequence goes in both. */
-  const embedAndStoreFileChunks = async (
+   *  embedAndStoreChunksNow above, so a change to its wait, check and write
+   *  sequence goes in both. It runs in its turn through runEmbeddingJob
+   *  (embedAndStoreFileChunks). */
+  const embedAndStoreFileChunksNow = async (
     params: { filePath: string; sourceVersion: symbol },
     logger: Logger,
     // eslint-disable-next-line complexity -- this function is over the limit; split it before adding a branch
   ): Promise<number> => {
+    const { filePath, sourceVersion } = params
+
     if (
-      !embedder ||
+      !fileContentVectorEnabled ||
       !selectFileContentForEmbeddingStmt ||
       !upsertFileChunkStmt ||
       !selectFileChunkHashesStmt ||
@@ -2508,17 +2525,12 @@ export const createSearchIndex = (
     }
 
     // Checked before the content loads, so a script's text is never read for embedding
-    if (!EMBEDDED_FILE_KINDS.has(getFileKind(params.filePath))) return 0
-    if (
-      !isCurrentSourceVersion(
-        { sourcePath: params.filePath, sourceVersion: params.sourceVersion },
-        logger,
-      )
-    ) {
+    if (!EMBEDDED_FILE_KINDS.has(getFileKind(filePath))) return 0
+    if (!isCurrentSourceVersion({ sourcePath: filePath, sourceVersion }, logger)) {
       return 0
     }
 
-    const fileContentRow = selectFileContentForEmbeddingStmt.get(params.filePath)
+    const fileContentRow = selectFileContentForEmbeddingStmt.get(filePath)
 
     if (!fileContentRow) return 0
 
@@ -2527,16 +2539,16 @@ export const createSearchIndex = (
     const chunks = chunkContent({
       noteTitle: fileContentRow.title,
       bodyContent: fileContentRow.content,
-      sourcePath: params.filePath,
+      sourcePath: filePath,
     })
 
     const existingHashes = new Map(
       selectFileChunkHashesStmt
-        .all(params.filePath)
+        .all(filePath)
         .map((chunkHashRow) => [chunkHashRow.chunk_index, chunkHashRow.content_hash]),
     )
 
-    const storedVectors = createStoredVectorLookup(() => selectFileVectorsStmt.all(params.filePath))
+    const storedVectors = createStoredVectorLookup(() => selectFileVectorsStmt.all(filePath))
 
     // The debug log line reports the rows written and how many of them reused
     // a stored vector instead of calling the model
@@ -2556,41 +2568,38 @@ export const createSearchIndex = (
       const vectorBytes =
         storedVector ??
         (await embedChunkWhenIdle(
-          { text: chunk.text, sourcePath: params.filePath, sourceVersion: params.sourceVersion },
+          { text: chunk.text, sourcePath: filePath, sourceVersion },
           logger,
         ))
 
       if (!vectorBytes) return embeddedCount
       // No await separates this check from the write below, so a job
       // superseded while it waited or while the model ran writes nothing
-      const isCurrentJob = isCurrentSourceVersion(
-        { sourcePath: params.filePath, sourceVersion: params.sourceVersion },
-        logger,
-      )
+      const isCurrentJob = isCurrentSourceVersion({ sourcePath: filePath, sourceVersion }, logger)
 
       if (!isCurrentJob) return embeddedCount
       if (!storedVector) storedVectors.remember(hash, vectorBytes)
 
       db.transaction(() => {
-        const existingChunk = selectFileChunkIdStmt.get(params.filePath, chunk.index)
+        const existingChunk = selectFileChunkIdStmt.get(filePath, chunk.index)
 
         if (existingChunk) {
           deleteFileVectorByChunkIdStmt.run(BigInt(existingChunk.id))
         }
 
         upsertFileChunkStmt.run({
-          file_path: params.filePath,
+          file_path: filePath,
           chunk_index: chunk.index,
           chunk_text: chunk.text,
           content_hash: hash,
         })
 
         // INSERT OR REPLACE assigns a new rowid, so the vector must use the replacement's ID.
-        const chunkRow = selectFileChunkIdStmt.get(params.filePath, chunk.index)
+        const chunkRow = selectFileChunkIdStmt.get(filePath, chunk.index)
 
         if (!chunkRow) {
           throw new Error(
-            `file chunk row missing after upsert: ${params.filePath} chunk ${String(chunk.index)}`,
+            `file chunk row missing after upsert: ${filePath} chunk ${String(chunk.index)}`,
           )
         }
         insertFileVectorStmt.run(BigInt(chunkRow.id), vectorBytes)
@@ -2600,25 +2609,21 @@ export const createSearchIndex = (
       if (storedVector) reusedCount++
     }
 
-    if (
-      !isCurrentSourceVersion(
-        { sourcePath: params.filePath, sourceVersion: params.sourceVersion },
-        logger,
-      )
-    ) {
+    if (!isCurrentSourceVersion({ sourcePath: filePath, sourceVersion }, logger)) {
       return embeddedCount
     }
 
-    // chunkContent assigns indices 0 through length - 1, so a shortened file's
-    // old tail starts at chunks.length; remove its vectors before their parent rows,
+    // chunkContent assigns indices 0 through length - 1, so the stored chunks past
+    // the file's new count (after an edit, or once chunkContent's limits cut the
+    // file) start at chunks.length; remove their vectors before their parent rows,
     // in one transaction so a crash cannot leave a chunk row whose vector is gone.
     db.transaction(() => {
-      if (deleteStaleFileVectorsStmt) deleteStaleFileVectorsStmt.run(params.filePath, chunks.length)
-      deleteStaleFileChunksStmt.run(params.filePath, chunks.length)
+      if (deleteStaleFileVectorsStmt) deleteStaleFileVectorsStmt.run(filePath, chunks.length)
+      deleteStaleFileChunksStmt.run(filePath, chunks.length)
     })()
 
     logger.debug("embedded file content", {
-      path: params.filePath,
+      path: filePath,
       totalChunks: chunks.length,
       embeddedCount,
       reusedCount,
@@ -2626,9 +2631,17 @@ export const createSearchIndex = (
     return embeddedCount
   }
 
+  /** embedAndStoreFileChunksNow in its turn among the note and file embedding jobs. */
+  const embedAndStoreFileChunks = (
+    params: { filePath: string; sourceVersion: symbol },
+    logger: Logger,
+  ): Promise<number> => {
+    return runEmbeddingJob(() => embedAndStoreFileChunksNow(params, logger))
+  }
+
   /** The watcher's entry point for embedding a file. It drops
-   *  embedAndStoreFileChunks' chunk count, so the watcher's queue of pending
-   *  embeds holds one promise type for notes and files. Safe to call for any
+   *  embedAndStoreFileChunks' chunk count, so file-watcher's pendingEmbeds map
+   *  holds one promise type for notes and files. Safe to call for any
    *  file: it does nothing when embedding or file tools are off, for a kind
    *  search does not embed, or for a file not in the index. */
   const embedFileContent = async (
