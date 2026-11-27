@@ -38,6 +38,10 @@ const REFERENCE_OPTIONS = { nonTerminated: false }
 
 const NO_BREAK_SPACE = "\u00a0"
 
+/** A link that starts in the linking note's folder (`./`) or its parent
+ *  (`../`), which Obsidian keeps as a vault link even when it holds a `:`. */
+const RELATIVE_LINK_START = /^\.\.?\//
+
 /** JavaScript's line terminators: LF, CR, the line separator (U+2028) and
  *  the paragraph separator (U+2029). */
 const LINE_TERMINATOR = /[\n\r\u2028\u2029]/
@@ -262,7 +266,8 @@ type StoredTarget = { target: string; headingOffset: number | null }
  *  3. percent-decode like `decodeURI`, which keeps reserved escapes such as
  *     `%26` and `%23`; a malformed escape drops the link;
  *  4. replace each no-break space with a space, and trim;
- *  5. drop a link holding a `:`, which Obsidian reads as a URL;
+ *  5. drop a link holding a `:`, which Obsidian reads as a URL, unless step
+ *     2's output starts with `./` or `../`;
  *  6. split at the first `#`, and drop a link with no target before it (a
  *     heading in the same note). */
 const readStoredTarget = (content: string): StoredTarget | null => {
@@ -273,8 +278,11 @@ const readStoredTarget = (content: string): StoredTarget | null => {
   if (decodedLink === null) return null
 
   const storedLink = decodedLink.replaceAll(NO_BREAK_SPACE, " ").trim()
+  // Obsidian checks how the link starts before percent-decoding and trimming, so
+  // `%2E%2E/a:b.md` and `< ../a:b.md>` are still URLs.
+  const readsAsUrl = storedLink.includes(":") && !RELATIVE_LINK_START.test(decoded)
 
-  if (storedLink.includes(":")) return null
+  if (readsAsUrl) return null
 
   const hashIndex = storedLink.indexOf("#")
   const linkpath = hashIndex === -1 ? storedLink : storedLink.slice(0, hashIndex)
@@ -283,7 +291,7 @@ const readStoredTarget = (content: string): StoredTarget | null => {
   if (!target) return null
 
   // The stored link's first `#` is the first one references produced:
-  // percent-decoding keeps `%23` encoded, and trimming removes only spaces.
+  // percent-decoding keeps `%23` encoded, and trimming removes only whitespace.
   const headingOffset = hashSource === -1 ? null : findRawOffset(content, hashSource)
   return { target, headingOffset }
 }

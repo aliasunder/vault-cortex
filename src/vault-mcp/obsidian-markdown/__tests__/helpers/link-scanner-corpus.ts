@@ -27,8 +27,9 @@ const safeDecodeUri = (encoded: string): string | null => {
 
 /** A remark link URL normalized the way Obsidian stores a link, then cut to
  *  the target: percent-decoded like decodeURI, no-break spaces replaced,
- *  trimmed, dropped when it holds a `:`, and split at the first `#`. remark
- *  has already dropped escape backslashes and decoded character references. */
+ *  trimmed, dropped when it holds a `:` unless the URL starts with `./` or
+ *  `../`, and split at the first `#`. remark has already dropped escape
+ *  backslashes and decoded character references. */
 const normalizeRemarkUrl = (url: string): string | null => {
   const decodedLink = safeDecodeUri(url)
 
@@ -36,7 +37,7 @@ const normalizeRemarkUrl = (url: string): string | null => {
 
   const storedLink = decodedLink.replaceAll("\u00a0", " ").trim()
 
-  if (storedLink.includes(":")) return null
+  if (storedLink.includes(":") && !/^\.\.?\//.test(url)) return null
 
   const hashIndex = storedLink.indexOf("#")
   const target = (hashIndex === -1 ? storedLink : storedLink.slice(0, hashIndex)).trim()
