@@ -3772,7 +3772,7 @@ describe("moveNote — filesystem backlink verification", () => {
     await writeFixture("My Note.md", "# My Note\n")
     // The link carries a percent-encoded space — the raw content contains
     // "My%20Note" but not "My Note" as a contiguous substring in the URL part.
-    // The pre-filter's encodedStem check catches this.
+    // The pre-filter finds "My Note" in the file's decoded view.
     await writeFixture("Linker.md", "See [here](My%20Note.md) for info.\n")
 
     const result = await moveNote({
@@ -3794,8 +3794,8 @@ describe("moveNote — filesystem backlink verification", () => {
     const { writeFixture, moveNote, readNote } = setupVault()
     await writeFixture("New (Draft).md", "# Draft\n")
     // A bare link may write parentheses as %28/%29, so the raw content holds
-    // neither "New (Draft)" nor "New%20(Draft)". The pre-filter's
-    // parenthesis-encoded spelling catches this.
+    // neither "New (Draft)" nor "New%20(Draft)". The pre-filter finds
+    // "New (Draft)" in the file's decoded view.
     await writeFixture("Hub.md", "See [x](New%20%28Draft%29.md).\n")
 
     const result = await moveNote({

@@ -775,21 +775,13 @@ const extractLinks = (params: {
 }
 
 /** Every lowercased spelling a link to a note named `targetStem` can take in a
- *  note's or Canvas's text, for a substring pre-filter before the full parse. */
+ *  note's or Canvas's text, for a substring pre-filter before the full parse.
+ *  A link that percent-encodes, escapes or references the name's characters
+ *  holds the plain stem in the decoded view listSearchableViews adds. */
 const listLowercaseStemSpellings = (targetStem: string): string[] => {
   // Pre-filter stems are lowercased so a case-mismatched link is never
-  // skipped before the resolver runs. Encode the original-case stem FIRST,
-  // then lowercase — encodeURIComponent is codepoint-sensitive, so encoding
-  // an already-lowered stem produces different percent sequences for non-ASCII
-  // (É → %C3%89 vs é → %C3%A9).
+  // skipped before the resolver runs.
   const lowercaseStem = targetStem.toLowerCase()
-  const lowercaseEncodedStem = encodeURIComponent(targetStem).toLowerCase()
-  // encodeURIComponent leaves parentheses unencoded, but a bare markdown link
-  // may encode them as %28/%29, which the first two forms can't match.
-  const lowercaseParenEncodedStem = lowercaseEncodedStem.replace(/\(/g, "%28").replace(/\)/g, "%29")
-  // The bare destination encoder writes what encodeURI escapes, which keeps
-  // `&`, `+`, `@` and the other reserved characters raw (`R+D%20@%20Home`).
-  const lowercaseUriEncodedStem = encodeURI(targetStem).toLowerCase()
   // A Canvas stores its links inside JSON strings, which escape `"` and `\`.
   // JSON.stringify applies that escaping; the slice drops the quotes it adds
   // around the string.
@@ -798,7 +790,8 @@ const listLowercaseStemSpellings = (targetStem: string): string[] => {
   // Some JSON writers (Python's json.dump by default) escape each non-ASCII
   // UTF-16 unit, writing "Café" as "Caf\u00e9" and an emoji as two escapes;
   // the regex has no u flag, so it matches those units one at a time. Escape
-  // before lowercasing, as with the encoded stem: É's escape is \u00c9.
+  // before lowercasing, because an escape keeps the letter's case:
+  // É's escape is \u00c9.
   const nonAsciiCodeUnit = /[\u0080-\uffff]/g
   const lowercaseAsciiEscapedStem = jsonEscapedStem
     .replace(nonAsciiCodeUnit, (codeUnit) => {
@@ -806,14 +799,7 @@ const listLowercaseStemSpellings = (targetStem: string): string[] => {
     })
     .toLowerCase()
 
-  return [
-    lowercaseStem,
-    lowercaseEncodedStem,
-    lowercaseParenEncodedStem,
-    lowercaseUriEncodedStem,
-    lowercaseJsonEscapedStem,
-    lowercaseAsciiEscapedStem,
-  ]
+  return [lowercaseStem, lowercaseJsonEscapedStem, lowercaseAsciiEscapedStem]
 }
 
 /** An escaped quote or backslash in a JSON string. Global — use only with replace. */
