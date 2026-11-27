@@ -889,13 +889,20 @@ const scanMarkdownLinks = (text: string, visit: (span: MarkdownLinkSpan) => void
   // Built at the line's first `](`, so a line without one allocates nothing.
   let readLink: ((openParen: number) => ScannedLink | null) | undefined
 
+  // The position the cursor last stopped at, an unescaped `]` or the line's
+  // end. Openers that reach it again return it without walking the backslash
+  // run before it, so each `]` is checked once and the scan stays linear on
+  // `[[[…\\\\…]`.
+  let checkedTextEnd = -1
+
   const findLinkTextEnd = (start: number): number => {
     textEnd = Math.max(textEnd, start + 1)
-    // Each `]` is checked once, and the backslash runs before different
-    // closers do not overlap, so the walk stays linear.
+
+    if (textEnd === checkedTextEnd) return textEnd
     while (textEnd < text.length && (text[textEnd] !== "]" || isEscapedAt(text, textEnd))) {
       textEnd++
     }
+    checkedTextEnd = textEnd
     return textEnd
   }
 

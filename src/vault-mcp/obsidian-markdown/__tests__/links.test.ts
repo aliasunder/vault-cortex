@@ -85,6 +85,7 @@ describe("matchLinksInLine", () => {
     { family: "nested URL openers" },
     { family: "nested heading openers" },
     { family: "openers before one long rejected destination" },
+    { family: "openers before one closer after an even backslash run" },
     { family: "outer angle links failing after an inner link's title" },
   ])(
     "scans markdown destinations with $family in linear time in an externally killed child",

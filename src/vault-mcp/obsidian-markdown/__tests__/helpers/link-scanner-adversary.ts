@@ -77,6 +77,10 @@ const markdownFamilies: Record<string, (size: number) => { text: string; expecte
     const text = `${KEEP}${"[".repeat(size / 2)}](${"a".repeat(size / 2)}`
     return { text, expected: [KEEP_MATCH] }
   },
+  "openers before one closer after an even backslash run": (size) => {
+    const text = `${KEEP}${"[".repeat(size / 2)}${"\\".repeat(size / 2)}]`
+    return { text, expected: [KEEP_MATCH] }
+  },
   "outer angle links failing after an inner link's title": (size) => {
     const block = '[a](< [b](x.md "t") > "x'
     const text = block.repeat(Math.floor(size / block.length))
