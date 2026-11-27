@@ -20,9 +20,10 @@
  *  7. A split that yields no fragments at all falls back to one
  *     whole-body chunk so the note never leaves the vector index
  *  8. Each prefix part (title, metadata line, heading name) is cut to
- *     MAX_CHUNK_PREFIX_PART_CODE_POINTS, and a note's chunks stop at the
- *     limits MAX_CHUNK_TEXT_TO_BODY_RATIO, MAX_NOTE_CHUNK_TEXT_CHARACTERS and
- *     MAX_NOTE_CHUNKS set, so the chunks stay proportional to the note's length
+ *     MAX_CHUNK_PREFIX_PART_CODE_POINTS; a note's chunk text stops at the limits
+ *     MAX_CHUNK_TEXT_TO_BODY_RATIO and MAX_NOTE_CHUNK_TEXT_CHARACTERS set, so it
+ *     stays proportional to the note's length, and its chunks stop at
+ *     MAX_NOTE_CHUNKS
  *  9. Each chunk's text is cut to MAX_MODEL_INPUT_CODE_POINTS */
 
 import { parseHeadings, type HeadingInfo } from "../obsidian-markdown/headings.js"
@@ -50,7 +51,8 @@ const MAX_CHUNK_PREFIX_PART_CODE_POINTS = 2_000
 // A note's chunks stop at MAX_NOTE_CHUNKS, or once their text would pass
 // MAX_CHUNK_TEXT_TO_BODY_RATIO times the stripped body's length or
 // MAX_NOTE_CHUNK_TEXT_CHARACTERS, whichever is smaller. The first chunk and the
-// table-of-contents chunk are always kept.
+// table-of-contents chunk are always kept. File content is chunked here too, so
+// every "note" in these limits covers a file's text as well.
 
 /** A note's chunk texts total several times the length of its stripped body:
  *  each chunk repeats its prefix, and a section below the top level is also
@@ -195,17 +197,17 @@ const prefixFragment = (chunkPrefix: string, fragment: string): string => {
  *  past maxCharacters or their count past MAX_NOTE_CHUNKS; the first text is
  *  always kept. Texts are read one at a time, so from a lazy iterator no text
  *  after that one is built. */
-const takeWithinNoteLimits = (chunkTexts: Iterable<string>, maxCharacters: number): string[] => {
+const takeWithinChunkLimits = (chunkTexts: Iterable<string>, maxCharacters: number): string[] => {
   const keptTexts: string[] = []
   // The total length of keptTexts, threaded through the loop.
   let keptCharacters = 0
 
   for (const chunkText of chunkTexts) {
     const isFirstText = keptTexts.length === 0
-    const passesCharacterLimit = keptCharacters + chunkText.length > maxCharacters
+    const exceedsCharacterLimit = keptCharacters + chunkText.length > maxCharacters
     const chunkCountReached = keptTexts.length >= MAX_NOTE_CHUNKS
 
-    if (!isFirstText && (passesCharacterLimit || chunkCountReached)) break
+    if (!isFirstText && (exceedsCharacterLimit || chunkCountReached)) break
     keptTexts.push(chunkText)
     keptCharacters += chunkText.length
   }
@@ -529,7 +531,7 @@ export const chunkContent = (params: {
 
     if (!exceedsBudgetWithPrefix) return indexChunks([prefixFragment(basePrefix, strippedBody)])
     return indexChunks(
-      takeWithinNoteLimits(sectionChunkTexts([], strippedBody), maxChunkTextCharacters),
+      takeWithinChunkLimits(sectionChunkTexts([], strippedBody), maxChunkTextCharacters),
     )
   }
 
@@ -546,7 +548,7 @@ export const chunkContent = (params: {
   // No headings — split at paragraph boundaries
   if (!firstHeading) {
     return indexChunks(
-      takeWithinNoteLimits(sectionChunkTexts([], strippedBody), maxChunkTextCharacters),
+      takeWithinChunkLimits(sectionChunkTexts([], strippedBody), maxChunkTextCharacters),
     )
   }
 
@@ -561,7 +563,7 @@ export const chunkContent = (params: {
   // - Assembly stops at the first text past the note's chunk text limit or
   //   chunk count, before any later span is split or any later fragment is
   //   prefixed.
-  // - That holds only while every step from the spans to takeWithinNoteLimits
+  // - That holds only while every step from the spans to takeWithinChunkLimits
   //   stays an iterator. An array anywhere in the chain splits every span first.
   const sectionTexts = collectSectionSpans(headings, preambleExists)
     .values()
@@ -574,7 +576,7 @@ export const chunkContent = (params: {
 
   // The identity flatMap puts the preamble's texts before the sections'; Node
   // 24 has no Iterator.concat.
-  const bodyChunkTexts = takeWithinNoteLimits(
+  const bodyChunkTexts = takeWithinChunkLimits(
     [sectionChunkTexts([], preambleText), sectionTexts]
       .values()
       .flatMap((chunkTexts) => chunkTexts),

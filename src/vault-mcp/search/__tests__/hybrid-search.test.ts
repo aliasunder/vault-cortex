@@ -1405,10 +1405,10 @@ This is a note with many words that should be truncated when using a small snipp
     })
 
     it("cuts a long snippet to 32,768 code points before the reranker reads it", async () => {
-      const rerankedDocumentLengths: number[] = []
+      const rerankedDocuments: string[] = []
       const recordingReranker = {
         rerankPairs: vi.fn((_query: string, documents: readonly string[]) => {
-          rerankedDocumentLengths.push(...documents.map((document) => [...document].length))
+          rerankedDocuments.push(...documents)
           return Promise.resolve(documents.map(() => 0))
         }),
       }
@@ -1440,7 +1440,10 @@ This is a note with many words that should be truncated when using a small snipp
 
       expect(reranked).toBe(true)
       expect(results.map((result) => result.path)).toEqual(["a.md", "long.md"])
-      expect(Math.max(...rerankedDocumentLengths)).toBe(32_768)
+      // The snippet's first 32,768 code points stay, so its query match does too
+      expect(rerankedDocuments.filter((document) => document.includes("findmeword"))).toEqual([
+        `findmeword ${"z".repeat(50_000)}`.slice(0, 32_768),
+      ])
     })
 
     it("sets reranked to false on FTS-only fallback", async () => {
