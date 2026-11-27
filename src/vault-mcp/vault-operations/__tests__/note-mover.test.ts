@@ -539,6 +539,26 @@ describe("moveNote — link rewriting forms", () => {
     })
   })
 
+  it("rewrites a wikilink whose alias is empty because a `]]` inside a code span closes it", async () => {
+    const { writeFixture, moveNote, readNote } = setupVault()
+    await writeFixture("Foo.md", "content\n")
+    await writeFixture("Hub.md", "See [[Foo#h `|]]` c]].\n")
+
+    const result = await moveNote({
+      oldPath: "Foo.md",
+      newPath: "Bar.md",
+      backlinkSources: ["Hub.md"],
+    })
+
+    expect(await readNote("Hub.md")).toBe("See [[Bar#h `|]]` c]].\n")
+    expect(result).toEqual({
+      moved_to: "Bar.md",
+      links_updated: 1,
+      updated_notes: ["Hub.md"],
+      pruned_empty_folders: 0,
+    })
+  })
+
   it("rewrites wikilinks that a `]]` inside a code span in the heading or alias closes", async () => {
     const { writeFixture, moveNote, readNote } = setupVault()
     await writeFixture("Foo.md", "content\n")

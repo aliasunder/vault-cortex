@@ -56,7 +56,7 @@ const REPLACEMENT_CHARACTER = String.fromCodePoint(0xfffd)
 
 const NO_BREAK_SPACE = "\u00a0"
 
-/** Every no-break space. Global \u2014 use only with replace. */
+/** Every no-break space. Global — use only with replace. */
 const NO_BREAK_SPACES = new RegExp(NO_BREAK_SPACE, "g")
 
 /** Keeps the character an ESCAPED_PUNCTUATION match escapes. */
@@ -73,15 +73,6 @@ const LINE_TERMINATOR = /[\n\r\u2028\u2029]/
 /** Matches inline code spans so links inside backticks (e.g. `[[Note]]`) can be
  *  ignored. Global — use only with replace. */
 const INLINE_CODE_RE = /`+[^`\n]*`+/g
-
-/** Splits a matched wikilink into capture groups 1–4: embed `!`, target,
- *  `#heading`, `|alias`. Anchored and non-global — safe for .exec().
- *  scanBodyLineLinks reports the links this parses: each ends at its first
- *  `]]`, and any part may hold a lone `]` from a code span the scan hid, as
- *  `[[a `]` b]]` does, so a part accepts a `]` that another `]` does not
- *  follow. */
-const WIKILINK_PARTS =
-  /^(!?)\[\[((?:[^\]#|]|\](?!\]))+)(#(?:[^\]|]|\](?!\]))*)?(\|(?:[^\]]|\](?!\]))+)?\]\]$/
 
 /** Treats a trailing backslash as Obsidian's table-pipe escape (`[[path\|alias]]`), even
  *  outside a table, because Obsidian does not allow a backslash in a file name. */
@@ -1201,19 +1192,38 @@ const pathToLinkName = (path: string): string => {
   return lowercaseLinkName(name)
 }
 
-/** Splits a matched wikilink, or returns null for malformed text.
- *  A trailing backslash, with any whitespace after it, moves from the target
- *  into the heading, or into the alias when there is no heading, so the
- *  rebuilt link keeps it and the target reads as the index stores it
- *  (`[[a\ |b]]` stores `a`). */
+/** Splits a matched wikilink into its embed `!`, target, `#heading` and
+ *  `|alias`, or returns null for text that does not open with `[[` or `![[`
+ *  and close at its first `]]`, or whose target is empty.
+ *  - The target ends at its first `#` or `|`, the heading at the next `|`, and
+ *    the alias holds the rest. scanBodyLineLinks reports links whose parts
+ *    hold a lone `]` from a code span it hid (``[[a `]` b]]``), and links
+ *    whose alias is empty because a `]]` in a code span closed them
+ *    (``[[a#h `|]]`` from ``[[a#h `|]]` c]]``).
+ *  - A trailing backslash, with any whitespace after it, moves from the target
+ *    into the heading, or into the alias when there is no heading, so the
+ *    rebuilt link keeps it and the target reads as the index stores it
+ *    (`[[a\ |b]]` stores `a`).
+ *  String searches find the parts: a pattern that tests each `]` with a
+ *  lookahead runs out of regex stack on a part of millions of characters. */
 const splitWikilink = (linkText: string): WikilinkParts | null => {
-  const parts = WIKILINK_PARTS.exec(linkText)
+  const embed = linkText.startsWith("!") ? "!" : ""
+  const opener = `${embed}[[`
 
-  if (!parts) return null
-  const [, embed, rawTarget, heading = "", alias = ""] = parts
+  if (!linkText.startsWith(opener) || !linkText.endsWith("]]")) return null
+  const inner = linkText.slice(opener.length, -"]]".length)
 
-  // Both groups take part in every match; the check only narrows their types.
-  if (embed === undefined || rawTarget === undefined) return null
+  // A `]]` inside, or a `]` just before the closing pair, means the text runs
+  // past the link's first `]]`.
+  if (`${inner}]`.includes("]]")) return null
+  const delimiterIndex = inner.search(WIKILINK_TARGET_DELIMITER)
+  const rawTarget = delimiterIndex === -1 ? inner : inner.slice(0, delimiterIndex)
+
+  if (!rawTarget) return null
+  const afterTarget = inner.slice(rawTarget.length)
+  const aliasIndex = afterTarget.indexOf("|")
+  const heading = aliasIndex === -1 ? afterTarget : afterTarget.slice(0, aliasIndex)
+  const alias = afterTarget.slice(heading.length)
   const trimmedTarget = rawTarget.trimEnd()
 
   if (!trimmedTarget.endsWith("\\")) return { embed, target: rawTarget, heading, alias }

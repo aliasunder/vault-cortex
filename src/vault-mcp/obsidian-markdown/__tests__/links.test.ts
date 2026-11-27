@@ -298,14 +298,60 @@ describe("splitWikilink", () => {
       input: "[[a |b]]",
       expected: { embed: "", target: "a ", heading: "", alias: "|b" },
     },
+    {
+      name: "keeps a lone `]` in each part",
+      input: "[[a `]` b#h `]` c|x `]` d]]",
+      expected: { embed: "", target: "a `]` b", heading: "#h `]` c", alias: "|x `]` d" },
+    },
+    {
+      name: "keeps `#` and `|` after the first `|` in the alias",
+      input: "[[a|x#y|z]]",
+      expected: { embed: "", target: "a", heading: "", alias: "|x#y|z" },
+    },
+    {
+      name: "splits a link whose alias is empty",
+      input: "[[a#h `|]]",
+      expected: { embed: "", target: "a", heading: "#h `", alias: "|" },
+    },
   ]
 
   it.each(scenarios)("$name", ({ input, expected }) => {
     expect(links.splitWikilink(input)).toEqual(expected)
   })
 
-  it("returns null for text that is not a well-formed wikilink", () => {
-    expect(links.splitWikilink("[[A")).toBeNull()
+  it.each([
+    { label: "an unclosed link", input: "[[A" },
+    { label: "text before the opener", input: "x[[A]]" },
+    { label: "a `]]` before the closing pair", input: "[[a]]b]]" },
+    { label: "a `]` just before the closing pair", input: "[[a]]]" },
+    { label: "an empty target before a heading", input: "[[#h]]" },
+    { label: "an empty target before an alias", input: "[[|x]]" },
+  ])("returns null for $label", ({ input }) => {
+    expect(links.splitWikilink(input)).toBeNull()
+  })
+
+  // Past about 8,390,000 characters, where a pattern that tests each `]` with
+  // a lookahead runs out of V8's regex stack.
+  const LONG_PART = "a".repeat(8_400_000)
+
+  it.each([
+    {
+      label: "target",
+      input: `[[${LONG_PART}]]`,
+      expected: { embed: "", target: LONG_PART, heading: "", alias: "" },
+    },
+    {
+      label: "heading",
+      input: `[[a#${LONG_PART}]]`,
+      expected: { embed: "", target: "a", heading: `#${LONG_PART}`, alias: "" },
+    },
+    {
+      label: "alias",
+      input: `[[a|${LONG_PART}]]`,
+      expected: { embed: "", target: "a", heading: "", alias: `|${LONG_PART}` },
+    },
+  ])("splits a link whose $label holds 8,400,000 characters", ({ input, expected }) => {
+    expect(links.splitWikilink(input)).toEqual(expected)
   })
 })
 
