@@ -224,13 +224,13 @@ See [ARCHITECTURE.md](./ARCHITECTURE.md) for the full design, auth flow diagrams
 
 ## Hybrid Search
 
-Keyword search alone fails when your vocabulary doesn't match the vault's — "aspirations" won't find a note about "targets", "coworkers" won't surface your "references" file. In testing against a real vault, 30% of natural-language queries returned zero or tangential results with keywords alone. Hybrid search eliminated those misses in the same test.
+Keyword search alone fails when your vocabulary doesn't match the vault's — "aspirations" won't find a note about "targets", "coworkers" won't surface your "references" file. In testing against a real vault, 6 of 20 natural-language queries returned nothing with keywords alone, and 3 more returned only tangential results. Hybrid search found all nine in the same test.
 
 Hybrid search fuses the keyword and vector rankings via [Reciprocal Rank Fusion](./ARCHITECTURE.md#hybrid-search), then the reranker refines the fused result:
 
 - **Keywords** (FTS5) stay precise on exact terms, jargon, and property values
 - **Vectors** (sqlite-vec) bridge the vocabulary gap by matching on meaning
-- **Reranker** (cross-encoder) refines ordering by scoring each query-document pair jointly — rescues intent-heavy queries where keywords and vectors both miss
+- **Reranker** (cross-encoder) reorders the top fused results by reading each query and note together, so a note that matches the intent rather than the words rises
 
 Search treats a note's [aliases](https://obsidian.md/help/aliases) as names for it, so searching an alias finds the note the way searching its title does. A note whose title or alias matches your whole search ranks first among keyword matches.
 
@@ -282,17 +282,15 @@ Your notes embed screenshots, reference architecture diagrams, and link out to c
 
 - **Images** — the image itself, not the filename. Screenshots and diagrams are downscaled and recompressed server-side when they exceed what MCP clients accept, so even a phone session can look at a 5MB architecture diagram
 - **Canvases** — a [Canvas](https://help.obsidian.md/canvas) board arrives as a readable outline: its groups, each card's content in reading order, and the connections between them. Canvas content is full-text searchable, and both the links typed in its cards and the files placed on the board appear in the link graph — backlinks, outgoing links and orphans work just like note-to-note links. The exact JSON source is one flag away when full fidelity matters
-- **PDFs** — text is extracted with heading hierarchy, code blocks, and hyperlinks preserved, and the first 100 KB of it (or the first 500 pages) is full-text searchable alongside your notes. Set `raw: true` to render pages as images instead, showing layout, diagrams, and tables that text extraction can't preserve — scanned and image-only PDFs work in this mode. A PDF whose text can't be extracted, or one larger than `MAX_FILE_BYTES`, is searchable by its name
-- **Text and data files** — TXT, SVG, JSON, XML, CSV, YAML, logs, and [Bases](https://help.obsidian.md/bases) files return exactly as written, and their first 100 KB is full-text searchable. Big data files and logs can be read a line range at a time, with each page reporting where you are and how much file remains
-- **HTML pages and scripts** — a saved page or generated report is searchable by the first 100 KB of the text a browser shows, never its tags or script code. Python, shell, and PowerShell scripts are searchable by keyword. Both must be UTF-8 text, and both read back as their source. A page or script over 16 MB is searchable by its name only
+- **PDFs** — text is extracted with heading hierarchy, code blocks, and hyperlinks preserved, and is full-text searchable alongside your notes. Set `raw: true` to render pages as images instead, showing layout, diagrams, and tables that text extraction can't preserve — scanned and image-only PDFs work in this mode
+- **Text and data files** — TXT, SVG, JSON, XML, CSV, YAML, logs, and [Bases](https://help.obsidian.md/bases) files return exactly as written, and are full-text searchable. Big data files and logs can be read a line range at a time, with each page reporting where you are and how much file remains
+- **HTML pages and scripts** — a saved page or generated report is searchable by the text a browser shows, never its tags or script code. Python, shell, and PowerShell scripts are searchable by keyword. Both must be UTF-8 text, and both read back as their source
 - **Other text files** — a file of any other type, such as a `.js` file, a `.toml` config or a file with no extension, reads back the way a text file does when its content is UTF-8. Search doesn't index these, so browse a folder to find them
 - **Browse** — list any visible folder's files with per-extension counts and file sizes; files a note links to report their size in the link graph too
 - **Write** — create or replace a canvas, a Base, or any other text file from any client, so a board or a Bases view can change from your phone. A canvas or `.json` file must be valid JSON and a Base valid YAML before it is saved. PDFs, images other than SVG, and any existing file that holds binary data can't be written. An overwrite keeps no copy on the server; on an Obsidian Sync vault, Sync's [version history](https://obsidian.md/help/sync/version-history) keeps earlier versions of the files it syncs (attachments for two weeks)
-- **Delete** — remove a canvas, an image, a PDF, or any other file from any client. Links and embeds to it in your notes break, as they do when you delete a file in Obsidian, and files in the protected folders (`PROTECTED_PATHS`) are refused. What happens to the file follows Obsidian's "Deleted files" setting (Settings → Files and links), as it does for notes:
-  - "Move to system trash", the default, moves it to `.trash/` for `TRASH_RETENTION_DAYS` (30 days by default)
-  - "Move to Obsidian trash" moves it to `.trash/` and keeps it there until you empty the folder
-  - "Permanently delete" removes it for good
-  - With Obsidian Sync (the remote image), the server skips the setting: the delete is permanent, and Sync's version history keeps a deleted attachment for two weeks
+- **Delete** — remove a canvas, an image, a PDF, or any other file from any client. Links and embeds to it in your notes break, as they do when you delete a file in Obsidian, and files in the protected folders (`PROTECTED_PATHS`) are refused. Without Obsidian Sync the file follows Obsidian's "Deleted files" setting (Settings → Files and links) as a note does, so the default moves it to `.trash/` for `TRASH_RETENTION_DAYS`; with Obsidian Sync the delete is permanent and Sync's version history keeps a deleted attachment for two weeks
+
+Search covers the first 100 KB of each text file, and of a PDF's text up to its first 500 pages; a PDF larger than `MAX_FILE_BYTES` (50 MB by default) or whose text can't be extracted, and a page or script over 16 MB, is found by its name.
 
 Set `FILE_TOOLS_ENABLED=false` to hide the file tools, or `DISABLED_TOOLS=vault_write_file,vault_delete_file` to keep reading files but turn off writing and deleting them.
 
@@ -301,6 +299,8 @@ See [ARCHITECTURE.md → Files](./ARCHITECTURE.md#files) for the image pipeline,
 ---
 
 ## Tools
+
+Reads and edits are sized to the agent's context. `vault_read_note` can return just a note's properties, its heading outline, one section, or a window of lines instead of the whole note. `vault_replace_span` and `vault_delete_span` find a block by a short fragment of its first and last lines, and `vault_insert_at_anchor` places new lines beside a line found the same way, so the agent edits a block without reproducing it.
 
 | Category        | Tool                         | Description                                                                                                                  |
 | --------------- | ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
@@ -346,11 +346,13 @@ See [ARCHITECTURE.md → Files](./ARCHITECTURE.md#files) for the image pipeline,
 
 Tools are model-driven — the assistant calls them. **Prompts** are workflows _you_ trigger. Each one queries the search index, link graph, and memory layer at invocation time, then assembles the results with guided instructions — so the session starts grounded in your vault's actual state, not assumptions.
 
-| Prompt              | Arguments             | What it does                                                                                                                                                                                                                                                                                                                                                                      |
-| ------------------- | --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `vault-orientation` | —                     | Surveys vault stats, folder distribution, property adoption rates (flags low adoption), orphans, broken link count, tags, recent notes, and the memory layer — with contextual tool suggestions                                                                                                                                                                                   |
-| `memory-review`     | `file?`, `max_chars?` | Structural overview (scope callouts, section entry counts) + dated content as a timeline. Guided reflection: evolution narrative, scope-fit, backfill gaps, and coverage analysis — append-only by default, pruning proposed only for `entry-policy: living` files. Hidden when `MEMORY_ENABLED=false`, `READONLY_MODE=true`, or `DISABLED_TOOLS` includes `vault_update_memory`. |
-| `daily-review`      | `date?`, `max_chars?` | Reconciles a day — daily note, vault-wide task status (due/overdue, scheduled), modified notes, outgoing links (broken-link detection), and backlinks — surfaces what happened, what's open, and what needs follow-up                                                                                                                                                             |
+| Prompt              | Arguments             | What it does                                                                                                                                                                                                                                                        |
+| ------------------- | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `vault-orientation` | —                     | Surveys vault stats, folder distribution, property adoption rates (flags low adoption), orphans, broken link count, tags, recent notes, and the memory layer — with contextual tool suggestions                                                                     |
+| `memory-review`     | `file?`, `max_chars?` | Structural overview (scope callouts, section entry counts) + dated content as a timeline. Guided reflection: evolution narrative, scope-fit, backfill gaps, and coverage analysis — append-only by default, pruning proposed only for `entry-policy: living` files. |
+| `daily-review`      | `date?`, `max_chars?` | Reconciles a day — daily note, vault-wide task status (due/overdue, scheduled), modified notes, outgoing links (broken-link detection), and backlinks — surfaces what happened, what's open, and what needs follow-up                                               |
+
+`memory-review` is hidden when `MEMORY_ENABLED=false`, `READONLY_MODE=true` or `DISABLED_TOOLS` includes `vault_update_memory`.
 
 Prompts adapt to your configuration (`MEMORY_DIR`, daily-notes settings) and work for any vault out of the box. Pass `max_chars` to cap embedded content if your client has payload limits.
 
@@ -372,7 +374,7 @@ Vault Cortex indexes every [property](https://help.obsidian.md/Editing+and+forma
 
 **All other properties** are still fully queryable — use `vault_search` with `filters.properties` for combined text + metadata queries, or `vault_search_by_property` for metadata-only lookups. `vault_list_property_keys` and `vault_list_property_values` discover what properties exist across your vault.
 
-These are conventions, not requirements — Vault Cortex works with any property schema. Promoted properties give you richer filtering and cleaner results out of the box.
+These are conventions, not requirements — Vault Cortex works with any property schema.
 
 **Leading callouts** get the same treatment. When a note's first body content is an Obsidian [callout](https://help.obsidian.md/Editing+and+formatting/Callouts) (`> [!type]`) — either right after frontmatter or right after the title heading — it's indexed and surfaced alongside every discovery result (on `vault_search`, ask for it with `include_leading_callout`). This makes notes self-describing: an agent scanning results can see what each note is _for_ before deciding which to read. The memory templates use `> [!info] Scope of this file` callouts for this, and any note in your vault can use the same pattern.
 
