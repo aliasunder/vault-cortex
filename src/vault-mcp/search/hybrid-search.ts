@@ -308,12 +308,12 @@ const tryRerank = async (params: {
     }
 
     const documentTexts = params.mergedResults.map((result) => {
+      // Each document is cut as every chunk is, because a snippet keeps whole
+      // words and one long word can run past the limit
       const documentText = collectDocumentText(result)
 
       // Kind marker only — the chunk text already opens with the file's
       // title, so prefixing the filename again would just repeat it.
-      // A snippet keeps whole words and a chunk stored before the cut can be
-      // longer, so each document gets the chunks' cut too.
       if (params.rerankKindPrefix && result.kind === "file") {
         return truncateModelInput(`${fileKindLabel(result.path)}: ${documentText}`)
       }

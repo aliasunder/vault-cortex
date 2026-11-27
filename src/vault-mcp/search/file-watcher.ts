@@ -517,7 +517,7 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
         .then(() => {
           const embedRequest = pendingNoteEmbedRequests.get(relativePath)
 
-          // An earlier job already took the newest content
+          // An earlier job already took the newest content, or the note was deleted
           if (!embedRequest) return
           pendingNoteEmbedRequests.delete(relativePath)
           return search.embedNote(
@@ -620,8 +620,9 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
     // "superseded", so that read cannot re-add the file removed here.
     currentEvents.delete(relativePath)
     abortPendingBodyTagParse(relativePath)
-    // A deleted note's waiting content would only be dropped as obsolete once
-    // its job's turn came, so it is released now instead
+
+    // A deleted note's waiting content is released now, so it does not stay in
+    // memory until its job's turn comes
     pendingNoteEmbedRequests.delete(relativePath)
 
     if (!filePath.endsWith(".md")) {

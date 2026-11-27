@@ -2413,7 +2413,6 @@ export const createSearchIndex = (
 
   /** Missing vectors are retried on the next call if embedding stops after source indexing.
    *  - memoryFile is the bare name ("Agents"); notePath is its full vault-relative .md path.
-   *  - Model input includes the file and section for context and excludes the date.
    *  - The return counts committed entries, including completed batches before obsolescence. */
   const embedMemoryEntriesForFile = async (
     params: { memoryFile: string; notePath: string; sourceVersion: symbol },

@@ -1,5 +1,7 @@
 /** Heading-aware chunking for embedding. Splits a note into chunks sized for
  *  the embedding model's context window (512 tokens for bge-small-en-v1.5).
+ *  File content is chunked here too, so "note" in this module covers a file's
+ *  text as well.
  *
  *  Algorithm (every prefix counts against the chunk budget — see
  *  chunkContent):
@@ -20,11 +22,11 @@
  *  7. A split that yields no fragments at all falls back to one
  *     whole-body chunk so the note never leaves the vector index
  *  8. Each prefix part (title, metadata line, heading name) is cut to
- *     MAX_CHUNK_PREFIX_PART_CODE_POINTS; a note's chunk text stops at the limits
- *     MAX_CHUNK_TEXT_TO_BODY_RATIO and MAX_NOTE_CHUNK_TEXT_CHARACTERS set, so it
- *     stays proportional to the note's length, and its chunks stop at
- *     MAX_NOTE_CHUNKS
- *  9. Each chunk's text is cut to MAX_MODEL_INPUT_CODE_POINTS */
+ *     MAX_CHUNK_PREFIX_PART_CODE_POINTS
+ *  9. A note's chunk text stops at the limits MAX_CHUNK_TEXT_TO_BODY_RATIO and
+ *     MAX_NOTE_CHUNK_TEXT_CHARACTERS set, so it stays proportional to the
+ *     note's length, and its chunks stop at MAX_NOTE_CHUNKS
+ * 10. Each chunk's text is cut to MAX_MODEL_INPUT_CODE_POINTS */
 
 import { parseHeadings, type HeadingInfo } from "../obsidian-markdown/headings.js"
 import { splitIntoLines } from "../obsidian-markdown/lines.js"
@@ -51,8 +53,7 @@ const MAX_CHUNK_PREFIX_PART_CODE_POINTS = 2_000
 // A note's chunks stop at MAX_NOTE_CHUNKS, or once their text would pass
 // MAX_CHUNK_TEXT_TO_BODY_RATIO times the stripped body's length or
 // MAX_NOTE_CHUNK_TEXT_CHARACTERS, whichever is smaller. The first chunk and the
-// table-of-contents chunk are always kept. File content is chunked here too, so
-// every "note" in these limits covers a file's text as well.
+// table-of-contents chunk are always kept.
 
 /** A note's chunk texts total several times the length of its stripped body:
  *  each chunk repeats its prefix, and a section below the top level is also
@@ -74,23 +75,22 @@ const MAX_NOTE_CHUNK_TEXT_CHARACTERS = 50_000_000
  *  note) makes about 5,000 chunks, so this leaves about three times that. */
 const MAX_NOTE_CHUNKS = 16_384
 
-/** Tokenizing runs on the main thread, when a chunk or memory entry is
- *  embedded and again when the reranker scores it, and its cost grows with the
- *  text's length. Both models read only the first 512 tokens, which ordinary
- *  text reaches long before this many code points, so the cut leaves its
- *  vectors unchanged. */
+/** Tokenizing runs on the main thread whenever the embedding model or the
+ *  reranker reads a text, and its cost grows with the text's length. Both
+ *  models read only the first 512 tokens, which ordinary text reaches long
+ *  before this many code points, so the cut changes no vector or score for
+ *  ordinary text. */
 const MAX_MODEL_INPUT_CODE_POINTS = 32_768
 
-/** Cuts text to MAX_MODEL_INPUT_CODE_POINTS, ending on a whole grapheme. Every
- *  chunk goes through it, and so does every search result the reranker scores,
- *  because a result's snippet keeps whole words. */
+/** Cuts text bound for the embedding model or the reranker to
+ *  MAX_MODEL_INPUT_CODE_POINTS, ending on a whole grapheme. */
 export const truncateModelInput = (text: string): string => {
   return truncateToCodePointLimit(text, MAX_MODEL_INPUT_CODE_POINTS)
 }
 
-/** The text the embedding model and the reranker read for a memory entry.
- *  Entries reach both models without being chunked, so the text gets the
- *  chunks' cut here. */
+/** Builds the text both models read for a memory entry. Entries reach the
+ *  models without being chunked, so the text is cut here to
+ *  MAX_MODEL_INPUT_CODE_POINTS, as every chunk is. */
 export const memoryEntryModelText = (
   entry: Readonly<{ file: string; section: string; entry_text: string }>,
 ): string => {
