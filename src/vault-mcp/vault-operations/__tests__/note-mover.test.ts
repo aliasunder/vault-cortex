@@ -2179,6 +2179,68 @@ describe("moveNote — Canvas sources", () => {
     )
   })
 
+  it("finds a Canvas whose JSON escapes an ampersand in the note's name", async () => {
+    const { writeFixture, moveNote, readNote, logger } = setupVault()
+    await writeFixture("Q&A.md", "# Q&A\n")
+    // Go's encoding/json writes & as &, an escape of an ASCII character,
+    // which no spelling of the stem holds.
+    await writeFixture(
+      "Board.canvas",
+      obsidianCanvas([
+        '{"id":"t1","type":"text","text":"See [[Q\\u0026A]]","x":0,"y":0,"width":250,"height":60}',
+      ]),
+    )
+
+    const result = await moveNote({ oldPath: "Q&A.md", newPath: "Answers.md" })
+
+    expect(await readNote("Board.canvas")).toBe(
+      obsidianCanvas([
+        '{"id":"t1","type":"text","text":"See [[Answers]]","x":0,"y":0,"width":250,"height":60}',
+      ]),
+    )
+    expect(result).toEqual({
+      moved_to: "Answers.md",
+      links_updated: 1,
+      updated_notes: ["Board.canvas"],
+      pruned_empty_folders: 0,
+    })
+    expect(vi.mocked(logger.info)).toHaveBeenCalledWith(
+      "backlink verification discovered sources the index missed",
+      { from: "Q&A.md", to: "Answers.md", additionalSources: ["Board.canvas"], attempt: 0 },
+    )
+  })
+
+  it("finds a Canvas whose JSON escapes an accented letter in a link written in another case", async () => {
+    const { writeFixture, moveNote, readNote, logger } = setupVault()
+    await writeFixture("Café.md", "# Café\n")
+    // The link's É is escaped as É and the note's é as é, so the
+    // two escapes differ even after lowercasing.
+    await writeFixture(
+      "Board.canvas",
+      obsidianCanvas([
+        '{"id":"t1","type":"text","text":"See [[CAF\\u00C9]]","x":0,"y":0,"width":250,"height":60}',
+      ]),
+    )
+
+    const result = await moveNote({ oldPath: "Café.md", newPath: "Bistro.md" })
+
+    expect(await readNote("Board.canvas")).toBe(
+      obsidianCanvas([
+        '{"id":"t1","type":"text","text":"See [[Bistro]]","x":0,"y":0,"width":250,"height":60}',
+      ]),
+    )
+    expect(result).toEqual({
+      moved_to: "Bistro.md",
+      links_updated: 1,
+      updated_notes: ["Board.canvas"],
+      pruned_empty_folders: 0,
+    })
+    expect(vi.mocked(logger.info)).toHaveBeenCalledWith(
+      "backlink verification discovered sources the index missed",
+      { from: "Café.md", to: "Bistro.md", additionalSources: ["Board.canvas"], attempt: 0 },
+    )
+  })
+
   it("leaves a file card that opens a PDF alone when the moved note is named after it", async () => {
     const { writeFixture, moveNote, readNote } = setupVault()
     await writeFixture("Plan.pdf", "%PDF-1.4\n")

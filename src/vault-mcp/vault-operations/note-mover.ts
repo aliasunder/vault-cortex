@@ -726,20 +726,30 @@ const listLowercaseStemSpellings = (targetStem: string): string[] => {
   return [lowercaseStem, lowercaseJsonEscapedStem, lowercaseAsciiEscapedStem]
 }
 
-/** An escaped quote or backslash in a JSON string. Global — use only with replace. */
-const JSON_STRING_ESCAPE = /\\(["\\])/g
+/** An escape in a JSON string that a link's target can hold: an escaped quote
+ *  or backslash, or a `\u` escape of one UTF-16 code unit, which some JSON
+ *  writers use for `&` (Go) or for every non-ASCII character (Python's
+ *  json.dump). Global — use only with replace. */
+const JSON_STRING_ESCAPE = /\\(?:(?<escapedCharacter>["\\])|u(?<codeUnitHex>[0-9A-Fa-f]{4}))/g
+
+/** The character a JSON_STRING_ESCAPE match stands for. */
+const decodeJsonStringEscape = ({ groups }: RegExpExecArray): string => {
+  if (groups?.escapedCharacter) return groups.escapedCharacter
+  if (groups?.codeUnitHex) return String.fromCharCode(Number.parseInt(groups.codeUnitHex, 16))
+  throw new Error("decodeJsonStringEscape takes a JSON_STRING_ESCAPE match")
+}
 
 /** The views of a file's text a link's target spelling can appear in: the
  *  text itself and, when decoding changes it, the text decoded the way a
  *  stored link reads it. A Canvas's JSON string escapes are undone first, so
- *  a text card's `a\_b.md` reads as `a_b.md`. */
+ *  a text card's `a\_b.md` reads as `a_b.md` and `Q\u0026A.md` as `Q&A.md`. */
 const listSearchableViews = (params: { path: string; content: string }): string[] => {
   const { path, content } = params
   const linkText = isCanvasPath(path)
     ? replaceAllInBatches({
         text: content,
         pattern: JSON_STRING_ESCAPE,
-        replacement: ([escape]) => escape.slice("\\".length),
+        replacement: decodeJsonStringEscape,
       })
     : content
   const decodedView = links.decodeLinkSpellings(linkText)
