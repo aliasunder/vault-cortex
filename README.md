@@ -416,12 +416,12 @@ When your daily notes live in the vault root, or in the new-note folder because 
 
 Vault Cortex writes to personal notes — the file safety layer is built to prevent corruption, not just errors.
 
-- **Atomic writes** — every file write stages to a temp file, then renames. Readers never see a partial or 0-byte note. Exclusive creates use `link()` (POSIX no-clobber) to close the TOCTOU window on note moves.
+- **Atomic writes** — every file write stages to a temp file, then renames. Readers never see a partial note, and outside `WINDOWS_MODE` never an empty one. Exclusive creates use `link()` (POSIX no-clobber; a reserved `'wx'` create under `WINDOWS_MODE`) to close the TOCTOU window on note moves.
 - **Per-file mutex** — concurrent MCP tool calls serialize or fail-fast per file. Moves lock the source, destination, and every backlink source as one unit.
 - **Body edits keep properties as written** — editing a note's body leaves its properties (the `---` block Obsidian shows as Properties) as they were, comments included.
 - **Property rewrites refuse what they can't keep** — `vault_update_properties`, a `vault_write_note` overwrite, the task tools and a move that changes a link inside the block rewrite the block: every property and value stays, YAML comments are dropped, and the formatting may change. A rewrite is refused, leaving the note unchanged, when the block is invalid YAML, is a list or a single value instead of `key: value` properties, or holds a value with an explicit tag such as `!!str`; the error says how to repair it.
 - **Notes with broken properties stay usable** — search treats a note whose properties are invalid YAML as having none, as Obsidian does. The note still shows in search and task lists, its body links still count as backlinks, and you can read, edit and move it with the block left as written. The server log flags it for repair.
-- **Path traversal blocked** — `resolveSafePath()` resolves then prefix-checks every path. Protected-path deletion is refused after normalization. Memory file names reject separators at the boundary.
+- **Path traversal blocked** — every path is resolved, then checked to sit inside the vault. Protected-path deletion is refused after normalization, and memory file names reject separators.
 - **Hidden paths are off-limits** — files and folders starting with a dot (`.obsidian/`, `.trash/`) never appear in listings or search, and any tool call that targets one directly is rejected, matching Obsidian. Plugin configs and their API keys stay out of reach.
 - **Without Obsidian Sync, deletes honor Obsidian's trash setting** — with "Deleted files" at Obsidian's default "Move to system trash" or at "Move to Obsidian trash", a deleted note or file moves to `.trash/` inside the vault instead of being removed (a container has no system trash; `.trash/` is Obsidian's own fallback for that). "Permanently delete" removes it for good.
 - **With Obsidian Sync, deletes are permanent** — the server skips the trash setting because `.trash/` never syncs; the delete reaches every device, and recovery is Sync's version history.
@@ -436,7 +436,7 @@ See [ARCHITECTURE.md → Data Integrity](./ARCHITECTURE.md#data-integrity) for m
 
 ## Authentication
 
-For a server with read/write access to personal notes, authentication is not optional. Vault Cortex implements the full OAuth 2.1 specification, including PKCE and refresh-token rotation. The [AWS (SST) deployment](#deployment-options) adds defense-in-depth: requests are validated at two independent layers (API Gateway Lambda authorizer + Express middleware). Per [BlueRock's 2026 MCP security analysis](https://www.bluerock.io/use-cases/safely-adopt-mcp), only 8.5% of MCP servers implement OAuth; 41% have no authentication at all.
+For a server with read/write access to personal notes, authentication is not optional. Vault Cortex implements OAuth 2.1 with Authorization Code and PKCE, dynamic client registration and refresh-token rotation. The reference AWS deployment ([SST](#deployment-options)) adds defense-in-depth: requests are validated at two independent layers (API Gateway Lambda authorizer + Express middleware). Per [BlueRock's 2026 MCP security analysis](https://www.bluerock.io/use-cases/safely-adopt-mcp), only 8.5% of MCP servers implement OAuth; 41% have no authentication at all.
 
 Two methods:
 
@@ -444,8 +444,6 @@ Two methods:
 | ----------------- | -------------------------------------------------------- | -------------------- |
 | **OAuth 2.1**     | Claude Desktop, Claude Code, claude.ai, any OAuth client | JWT (HS256, 6h)      |
 | **Static bearer** | Claude Code, MCP Inspector, curl                         | Raw `MCP_AUTH_TOKEN` |
-
-The method follows from your client — OAuth when it supports it, the raw token in a header otherwise ([Connect your MCP client](#connect-your-mcp-client) shows both).
 
 OAuth uses dynamic client registration — no manual Client ID or Secret needed:
 
@@ -465,12 +463,12 @@ Local runs on your machine. Remote deployments run on a VPS or a hosted containe
 
 Whichever path you pick, the server is replaceable and your vault isn't. Your notes are plain Markdown files, synced by Obsidian to every device you own; the container holds a copy and an index it can rebuild from scratch. Shut down the VPS, delete the Render or Railway service, switch hosts — the same files are still on your machine and in Obsidian Sync, readable by anything. That's the difference from an AI notebook whose real home is the vendor's database: here the host is a convenience, not a custodian.
 
-| Path                     | What                                                              | Guide                                                                         |
-| ------------------------ | ----------------------------------------------------------------- | ----------------------------------------------------------------------------- |
-| **Local**                | Your vault on your machine — free, no cloud                       | [`deploy/local/`](./deploy/local/)                                            |
-| **Remote · one-click**   | Render or Railway — one persistent volume, no server to manage    | [`deploy/render/`](./deploy/render/) · [`deploy/railway/`](./deploy/railway/) |
-| **Remote · self-hosted** | VPS + Obsidian Sync — access from any device                      | [`deploy/remote/`](./deploy/remote/)                                          |
-| **Remote · AWS (SST)**   | IaC reference deployment — automated infra, defense-in-depth auth | [`DEPLOY.md`](./DEPLOY.md)                                                    |
+| Path                     | What                                                                                                                                                                | Guide                                                                         |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| **Local**                | Your vault on your machine — free, no cloud                                                                                                                         | [`deploy/local/`](./deploy/local/)                                            |
+| **Remote · one-click**   | Render or Railway — one persistent volume, no server to manage; Render deploys from the [`render.yaml`](./render.yaml) Blueprint, Railway from a published template | [`deploy/render/`](./deploy/render/) · [`deploy/railway/`](./deploy/railway/) |
+| **Remote · self-hosted** | VPS + Obsidian Sync — access from any device                                                                                                                        | [`deploy/remote/`](./deploy/remote/)                                          |
+| **Remote · AWS (SST)**   | IaC reference deployment — automated infra, defense-in-depth auth, [~$17–29 USD/mo all-in](./ARCHITECTURE.md#cost)                                                  | [`DEPLOY.md`](./DEPLOY.md)                                                    |
 
 The AWS path includes CI/CD workflows built for this repo — [forkers need to configure their own credentials and stage](./DEPLOY.md#dont-fork-deploy-without-re-staging) before deploying.
 
@@ -478,13 +476,9 @@ Every path runs the same image, `ghcr.io/aliasunder/vault-cortex` — `:latest` 
 
 > **Also on Docker Hub:** the same images are mirrored to [`aliasunder/vault-cortex`](https://hub.docker.com/r/aliasunder/vault-cortex). GHCR is the primary source; Hub tags are identical.
 
-**Cost:** A remote setup needs a VPS or a hosted platform plan, plus $4 USD/mo for [Obsidian Sync](https://obsidian.md/sync). A 2 GiB instance handles semantic search fine for a typical vault; 4 GiB adds headroom for concurrent search and larger vaults. Skip semantic search entirely to go smaller still. Local-only is free. The [reference AWS deployment](./ARCHITECTURE.md#cost) runs ~$17–29 USD/mo all-in.
+**Instance size:** 2 GiB handles semantic search for a typical vault; 4 GiB adds headroom for concurrent search and larger vaults; skip semantic search to go smaller still.
 
 **More than one vault?** Each vault runs as its own install, with its own container, data and connector. On your own machine or server, give each install its own name: see **Run more than one vault** in the [local](./deploy/local/README.md#run-more-than-one-vault) and [remote](./deploy/remote/README.md#run-more-than-one-vault) guides. On Render or Railway, deploy a separate service for each vault.
-
-### One-click deploy
-
-Buttons and prerequisites are in [Quick Start → Remote](#remote-access-from-anywhere). Each guide walks through the deploy, where to find your URL and token, how to update, and how to delete: [`deploy/render/`](./deploy/render/) (from the [`render.yaml`](./render.yaml) Blueprint at the repo root) · [`deploy/railway/`](./deploy/railway/) (from a published template).
 
 ### Community deployments
 
