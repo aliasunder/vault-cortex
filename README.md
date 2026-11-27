@@ -18,7 +18,7 @@
 
 **Vault Cortex** is a standalone MCP server that gives any AI agent **hybrid search, task management, structured memory, and read/write access** to your [Obsidian](https://obsidian.md) vault, from your laptop or your phone. No plugins, no running Obsidian, no separate bridge. One Docker container, your vault folder, a full tool suite + guided prompts. Run it on a remote server with Obsidian Sync, and the same vault is accessible from your phone, claude.ai, or any remote MCP client, secured with OAuth 2.1. Deploy it with one click or self-host it; either way, the vault is always yours.
 
-**Contents** — [What you get](#what-you-get) · [Quick Start](#quick-start) · [How It Works](#how-it-works) · [Hybrid Search](#hybrid-search) · [Memory](#memory) · [Tasks](#tasks) · [Files](#files) · [Tools](#tools) · [Prompts](#prompts) · [Properties](#properties) · [Configuration](#configuration) · [Daily notes](#daily-notes) · [Data Integrity](#data-integrity) · [Authentication](#authentication) · [Deployment Options](#deployment-options) · [Community Deployments](#community-deployments)
+**Contents** — [What you get](#what-you-get) · [Quick Start](#quick-start) · [How It Works](#how-it-works) · [Hybrid Search](#hybrid-search) · [Memory](#memory) · [Tasks](#tasks) · [Files](#files) · [Tools](#tools) · [Prompts](#prompts) · [Properties](#properties) · [Configuration](#configuration) · [Data Integrity](#data-integrity) · [Authentication](#authentication) · [Deployment Options](#deployment-options)
 
 ## What you get
 
@@ -67,8 +67,6 @@ That's it — the CLI asks for your vault path, generates the auth token and con
 
 **Set up with the CLI?** It manages the server from here on — `configure`, `upgrade`, `start`, `restart`, `logs`, `down` ([CLI reference →](./cli/)).
 
-**Set up with Compose?** Stick with Compose for updates too (`docker compose pull && docker compose up -d`) — the CLI and Compose manage the container independently.
-
 <details>
 <summary><strong>Manual setup</strong> (no Node.js needed)</summary>
 
@@ -87,6 +85,8 @@ docker compose up
 
 </details>
 
+**Set up with Compose?** Stick with Compose for updates too (`docker compose pull && docker compose up -d`) — the CLI and Compose manage the container independently.
+
 **[Full local guide →](./deploy/local/)** (includes [Windows setup](./deploy/local/#windows-docker-desktop))
 
 ### Remote (access from anywhere)
@@ -96,12 +96,12 @@ Your vault on a server, kept current by Obsidian Sync, reachable from any MCP cl
 - **One click (Railway or Render):** you give your vault name and timezone (plus the vault password if your vault is encrypted). The platform handles HTTPS, restarts, persistent storage, and a generated MCP token, which each guide's **Your URL and token** section shows how to find. Once deployed, a setup page walks you through signing in to Obsidian Sync in your browser.
 - **Your own server:** the CLI asks for the public URL and vault name, captures your Obsidian Sync token for you, and generates the MCP token; [HTTPS](./deploy/remote/#https-access) is yours to set up.
 
-|                | Railway                                                                                                                                                                             | Render                                                                                                                                                  | Self-hosted                                                  |
+| **Setup**      | Railway                                                                                                                                                                             | Render                                                                                                                                                  | Self-hosted                                                  |
 | -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
-|                | [![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/vault-cortex?referralCode=_ldHIU&utm_medium=integration&utm_source=template&utm_campaign=generic) | [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/aliasunder/vault-cortex) | **[CLI setup →](#self-hosted-your-own-vps)**                 |
-| **Account**    | [Railway](https://railway.com) on the Hobby plan or higher — the 5 GB volume is included                                                                                            | [Render](https://render.com) with a card on file                                                                                                        | A VPS with [Docker](https://docs.docker.com/engine/install/) |
+| **Start**      | [![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/vault-cortex?referralCode=_ldHIU&utm_medium=integration&utm_source=template&utm_campaign=generic) | [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/aliasunder/vault-cortex) | **[CLI setup →](#self-hosted-your-own-vps)**                 |
+| **Account**    | [Railway](https://railway.com) on the Hobby plan or higher — the 5 GB volume for your vault copy and search index is included                                                       | [Render](https://render.com) with a card on file                                                                                                        | A VPS with [Docker](https://docs.docker.com/engine/install/) |
 | **Cost**       | Usage-metered: typically $20–30 USD/mo for a personal vault — a little under Render for a quiet vault, a little over for a busy one                                                 | Flat: about $26 USD/mo for the Standard instance (2 GB) and 5 GB disk, billed by the second                                                             | Whatever your VPS costs                                      |
-| **Pick it if** | You want the easier start — the template lands you in a configured project                                                                                                          | A predictable bill matters more than setup polish                                                                                                       | You already run a server or want full control                |
+| **Pick it if** | You want the easier start — the template lands you in a configured project                                                                                                          | You want a flat, predictable bill                                                                                                                       | You already run a server or want full control                |
 | **Guide**      | **[Railway guide →](./deploy/railway/)**                                                                                                                                            | **[Render guide →](./deploy/render/)**                                                                                                                  | **[Remote guide →](./deploy/remote/)**                       |
 
 All three need an [Obsidian Sync](https://obsidian.md/sync) subscription ($4 USD/mo). Whichever you pick, your vault stays in plain Markdown in Obsidian Sync and on your devices; the container only holds a copy.
@@ -121,7 +121,7 @@ The [Vault Cortex CLI](./cli/) sets up the same container on any Linux box you r
 npx vault-cortex@latest init --mode remote
 ```
 
-That's it — the CLI walks through the public URL, Obsidian Sync token (it can run [`get-sync-token`](./cli/README.md#get-sync-token) for you), vault name, the vault password for an encrypted vault, and auth config, then starts the server ([CLI reference →](./cli/)). From then on the CLI manages the server, and a Compose setup updates with Compose, as [under the local setup](#local-2-minutes--docker--your-vault-folder).
+That's it — the CLI walks through the public URL, Obsidian Sync token (it can run [`get-sync-token`](./cli/README.md#get-sync-token) for you), vault name, and the vault password for an encrypted vault, then generates the MCP token and starts the server ([CLI reference →](./cli/)). From then on the CLI manages the server, and a Compose setup updates with Compose, as [under the local setup](#local-2-minutes--docker--your-vault-folder).
 
 <details>
 <summary><strong>Manual setup</strong> (no Node.js needed)</summary>
@@ -186,9 +186,9 @@ A remote server with a publicly reachable `https` URL adds directly in Claude De
 
 </details>
 
-**claude.ai (web and mobile)** connects to the remote setup only — its connectors are fetched server-side and can never reach localhost.
+**claude.ai (web and mobile)** connects to the remote setup only — its connectors are fetched server-side and can never reach localhost. On claude.ai, add the server URL under Settings → Connectors → **Add custom connector**; the connector then works in the Claude mobile app too.
 
-> "Remote MCP server" refers to the connection type (HTTP) — in the local setup the server still runs entirely on your machine.
+> The CLI's connect message and the [local guide](./deploy/local/#other-oauth-clients-cursor-and-most-mcp-clients) say to add the server as a "remote MCP server": that names the connection type (HTTP). In the local setup the server still runs entirely on your machine.
 
 See [Authentication](#authentication) for both methods and token lifetimes.
 
@@ -224,9 +224,9 @@ See [ARCHITECTURE.md](./ARCHITECTURE.md) for the full design, auth flow diagrams
 
 ## Hybrid Search
 
-Keyword search alone fails when your vocabulary doesn't match the vault's — "aspirations" won't find a note about "targets", "coworkers" won't surface your "references" file. In testing against a real vault, 6 of 20 natural-language queries returned nothing with keywords alone, and 3 more returned only tangential results. Hybrid search returned relevant notes for all nine of those queries in the same test.
+Keyword search alone fails when your vocabulary doesn't match the vault's — "aspirations" won't find a note about "targets", "coworkers" won't surface your job "references" file. In testing against a real vault, 6 of 20 natural-language queries returned nothing with keywords alone, and 3 more returned only tangential results. Hybrid search returned relevant notes for all nine of those queries in the same test.
 
-Hybrid search fuses the keyword and vector rankings via [Reciprocal Rank Fusion](./ARCHITECTURE.md#hybrid-search), then the reranker refines the fused result:
+Hybrid search fuses the keyword and vector rankings via Reciprocal Rank Fusion, then the reranker refines the fused result:
 
 - **Keywords** (FTS5) stay precise on exact terms, jargon, and property values
 - **Vectors** (sqlite-vec) bridge the vocabulary gap by matching on meaning
@@ -242,13 +242,13 @@ See [ARCHITECTURE.md → Hybrid Search](./ARCHITECTURE.md#hybrid-search) for mod
 
 ## Memory
 
-A memory layer that only grows is only useful if agents can retrieve the right entries without reading everything back every time. Once you have hundreds of dated entries across multiple files — preferences, principles, communication style, ongoing commitments — whole-file reads bury the signal in irrelevant material. The memory system is designed for targeted retrieval.
+The memory layer is a folder of plain Markdown files (default: `About Me/`) holding dated entries under topic headings — auto-created with starter templates on first run, grown by agents through `vault_update_memory`.
 
-The layer is a folder of plain Markdown files (default: `About Me/`) holding dated entries under topic headings — auto-created with starter templates on first run, grown by agents through `vault_update_memory`. Three properties make it work:
+A layer that only grows is only useful if agents can retrieve the right entries without reading everything back every time. Once you have hundreds of dated entries across multiple files — preferences, principles, communication style, ongoing commitments — whole-file reads bury the signal in irrelevant material. The memory system is designed for targeted retrieval. Three properties make it work:
 
 - **Append-only** — the memory tools add dated entries and never rewrite one, so a changed view arrives as a new entry and the layer captures your current state _and_ the evolution behind it. `vault_delete_memory` removes an entry that was wrong when it was written
 - **Topic recall** — `vault_memory_recall` retrieves every relevant entry across all memory files at once, matched by keyword and by meaning, oldest first. Ask "what do I think about X?" and get the current take plus the dated history of how it developed — no need to read entire files or guess which file holds what
-- **Grows without degrading** — capping results (`limit`) drops the least-relevant entries, never a slice of the timeline. A memory layer with 500 entries serves a targeted query as well as one with 50
+- **Grows without degrading** — capping results (`limit`) drops the least-relevant entries, whatever their dates. A memory layer with 500 entries serves a targeted query as well as one with 50
 
 Files that describe what's current rather than what has been true (routines, active commitments) can declare `entry-policy: living` in frontmatter. Agents then also delete those files' expired entries with `vault_delete_memory` (the `memory-review` prompt proposes which ones), keeping the current-state picture accurate.
 
@@ -265,12 +265,12 @@ Task metadata lives in plain markdown — scattered across files, encoded in emo
 The task layer handles this so agents don't have to:
 
 - **Find** — filter by status, six date fields (due, scheduled, start, created, done, cancelled), priority, folder, or Kanban lane. Each result carries its note path, line number, and nearest heading when the task sits under one (the lane on a Kanban board) — no follow-up reads needed to locate a task
-- **Create** — add a correctly-formatted task in one step: description, priority, dates, recurrence, "On completion" action, dependencies, block ID (`^id`), and checklist sub-items (text only, no dates), placed under a heading at the top, the bottom, or an exact position, or nested under a parent task as a sub-task with its own dates. On a Kanban board a sub-task gets no block ID, since the Kanban plugin copies it onto the card when it saves the board
+- **Create** — add a correctly-formatted task in one step: description, priority, dates, recurrence, "On completion" action, dependencies, block ID (`^id`), and checklist sub-items (text only, no dates), placed under a heading at the top, the bottom, or an exact position, or nested under a parent task as a sub-task with its own dates. Sub-tasks on a Kanban board take no block ID, which keeps the card's own ID intact
 - **Update** — complete, reprioritize, edit the text, set or clear dates, recurrence, and the "On completion" action, add checklist items, move tasks between headings, and reorder within a lane in a single call
 - **Complete** — marking a task done auto-detects the done lane and stamps the completion date, honoring the plugin's "Set done date" setting; reversing it removes the date. Completion also runs the Tasks plugin's own behaviors:
   - a recurring task spawns its next occurrence, dates advanced the way the plugin computes them
   - a task set to delete "On completion" disappears from the note
-- **Both formats** — whichever format you use, [Tasks plugin](https://publish.obsidian.md/tasks/) emoji signifiers or [Dataview](https://blacksmithgu.github.io/obsidian-dataview/) inline fields, the server reads both and writes in the format your Tasks plugin is configured for — read from the plugin's settings when your vault syncs `.obsidian/`, with emoji signifiers as the default otherwise
+- **Both formats** — whichever format you use, [Tasks plugin](https://publish.obsidian.md/tasks/) emoji signifiers or [Dataview](https://blacksmithgu.github.io/obsidian-dataview/) inline fields, the server reads both and writes in the format your Tasks plugin is configured for — read from the plugin's settings when [your vault syncs `.obsidian/`](#daily-notes), with emoji signifiers as the default otherwise
 
 See [ARCHITECTURE.md → Tasks](./ARCHITECTURE.md#tasks) for the indexing model, date cascade sorting, and Kanban lane detection.
 
@@ -282,7 +282,7 @@ Your notes embed screenshots, reference architecture diagrams, and link out to c
 
 - **Images** — the image itself, not the filename. Screenshots and diagrams are downscaled and recompressed server-side when they exceed what MCP clients accept, so even a phone session can look at a 5MB architecture diagram
 - **Canvases** — a [Canvas](https://help.obsidian.md/canvas) board arrives as a readable outline: its groups, each card's content in reading order, and the connections between them. Canvas content is full-text searchable, and both the links typed in its cards and the files placed on the board appear in the link graph — backlinks, outgoing links and orphans work just like note-to-note links. The exact JSON source is one flag away when full fidelity matters
-- **PDFs** — text is extracted with heading hierarchy, code blocks, and hyperlinks preserved, and is full-text searchable alongside your notes. Set `raw: true` to render pages as images instead, showing layout, diagrams, and tables that text extraction can't preserve — scanned and image-only PDFs work in this mode
+- **PDFs** — text is extracted with heading hierarchy, code blocks, and hyperlinks preserved, and is full-text searchable alongside your notes. The agent can also ask for pages rendered as images (`raw: true`), showing layout, diagrams, and tables that text extraction can't preserve — scanned and image-only PDFs work in this mode
 - **Text and data files** — TXT, SVG, JSON, XML, CSV, YAML, logs, and [Bases](https://help.obsidian.md/bases) files return exactly as written, and are full-text searchable. Big data files and logs can be read a line range at a time, with each page reporting where you are and how much file remains
 - **HTML pages and scripts** — a saved page or generated report is searchable by the text a browser shows, never its tags or script code. Python, shell, and PowerShell scripts are searchable by keyword. Both must be UTF-8 text, and both read back as their source
 - **Other text files** — a file of any other type, such as a `.js` file, a `.toml` config or a file with no extension, reads back the way a text file does when its content is UTF-8. Search doesn't index these, so browse a folder to find them
@@ -351,11 +351,11 @@ Reads and edits can work on part of a note, so a long note doesn't fill the agen
 
 Tools are model-driven — the assistant calls them. **Prompts** are workflows _you_ trigger. Each one queries the search index, link graph, and memory layer at invocation time, then assembles the results with guided instructions — so the session starts grounded in your vault's actual state, not assumptions.
 
-| Prompt              | Arguments             | What it does                                                                                                                                                                                                                                                        |
-| ------------------- | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `vault-orientation` | —                     | Surveys vault stats, folder distribution, property adoption rates (flags low adoption), orphans, broken link count, tags, recent notes, and the memory layer — with contextual tool suggestions                                                                     |
-| `memory-review`     | `file?`, `max_chars?` | Structural overview (scope callouts, section entry counts) + dated content as a timeline. Guided reflection: evolution narrative, scope-fit, backfill gaps, and coverage analysis — append-only by default, pruning proposed only for `entry-policy: living` files. |
-| `daily-review`      | `date?`, `max_chars?` | Reconciles a day — daily note, vault-wide task status (due/overdue, scheduled), modified notes, outgoing links (broken-link detection), and backlinks — surfaces what happened, what's open, and what needs follow-up                                               |
+| Prompt              | Arguments             | What it does                                                                                                                                                                                                                                                                                                |
+| ------------------- | --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `vault-orientation` | —                     | Surveys vault stats, folder distribution, property adoption rates (flags low adoption), orphans, broken link count, tags, recent notes, and the memory layer — with contextual tool suggestions                                                                                                             |
+| `memory-review`     | `file?`, `max_chars?` | Structural overview (scope callouts, section entry counts) + dated content as a timeline. Guided reflection: how entries changed over time, entries in the wrong file, facts not yet recorded, and topics not yet covered — append-only by default, pruning proposed only for `entry-policy: living` files. |
+| `daily-review`      | `date?`, `max_chars?` | Reconciles a day — daily note, vault-wide task status (due/overdue, scheduled), modified notes, outgoing links (broken-link detection), and backlinks — surfaces what happened, what's open, and what needs follow-up                                                                                       |
 
 `memory-review` is hidden when `MEMORY_ENABLED=false`, `READONLY_MODE=true` or `DISABLED_TOOLS` includes `vault_update_memory`.
 
@@ -381,7 +381,7 @@ Vault Cortex indexes every [property](https://help.obsidian.md/Editing+and+forma
 
 These are conventions, not requirements — Vault Cortex works with any property schema.
 
-**Leading callouts** are promoted too. When a note's first body content is an Obsidian [callout](https://help.obsidian.md/Editing+and+formatting/Callouts) (`> [!type]`) — either right after frontmatter or right after the title heading — it's indexed and surfaced alongside every discovery result (on `vault_search`, ask for it with `include_leading_callout`). This makes notes self-describing: an agent scanning results can see what each note is _for_ before deciding which to read. The memory templates use `> [!info] Scope of this file` callouts for this, and any note in your vault can use the same pattern.
+**Leading callouts** are promoted too. When a note's first body content is an Obsidian [callout](https://help.obsidian.md/Editing+and+formatting/Callouts) (`> [!type]`) — either right after frontmatter or right after the title heading — it's indexed and surfaced alongside discovery results. This makes notes self-describing: an agent scanning results can see what each note is _for_ before deciding which to read. The memory templates use `> [!info] Scope of this file` callouts for this, and any note in your vault can use the same pattern.
 
 ---
 
@@ -448,7 +448,7 @@ Two methods:
 | Method            | Used by                                                  | Token format         |
 | ----------------- | -------------------------------------------------------- | -------------------- |
 | **OAuth 2.1**     | Claude Desktop, Claude Code, claude.ai, any OAuth client | JWT (HS256, 6h)      |
-| **Static bearer** | Claude Code, MCP Inspector, curl                         | Raw `MCP_AUTH_TOKEN` |
+| **Static bearer** | MCP Inspector, curl                                      | Raw `MCP_AUTH_TOKEN` |
 
 OAuth uses dynamic client registration — no manual Client ID or Secret needed:
 
@@ -564,11 +564,11 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md) for development setup, code conventions
 
 [MIT](./LICENSE)
 
-The `:remote` image **bundles** [`obsidian-headless`](https://github.com/obsidianmd/obsidian-headless)
-(the `ob` CLI), which is **proprietary** — its `package.json` declares `"license": "UNLICENSED"`
-(© Dynalist Inc. / Obsidian). It is installed from public npm at build time; the MIT license here
-does **not** cover it, and using it requires an active Obsidian Sync subscription. The `:latest`
-(local) image contains no proprietary components.
+Running the `:remote` image requires an active Obsidian Sync subscription, because it **bundles**
+[`obsidian-headless`](https://github.com/obsidianmd/obsidian-headless) (the `ob` CLI). That CLI is
+**proprietary** — its `package.json` declares `"license": "UNLICENSED"` (© Dynalist Inc. / Obsidian).
+It is installed from public npm at build time, and the MIT license here does **not** cover it. The
+`:latest` (local) image contains no proprietary components.
 
 ## Security
 

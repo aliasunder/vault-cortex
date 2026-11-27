@@ -1415,7 +1415,7 @@ Several files outside `src/` reflect the project's feature surface and
 need updating alongside code changes. What to check depends on what
 changed:
 
-- `README.md`: New deployment mode, new feature worth mentioning in the value prop
+- `README.md`: New deployment mode, new feature worth mentioning in the value prop, new required setting or a switch most installs change (its Configuration table)
 - `ARCHITECTURE.md`: New component, requirement, or design decision; component diagram changes. Write for scannability: bullet lists and numbered pipelines over dense prose — a reader landing on this page should grasp the flow at a glance, not parse nested parentheticals.
 - `ROADMAP.md`: Direction genuinely changes — a priority shifts between Planned and Exploring, or a non-goal is decided. Refreshed in periodic passes (roughly once or twice a year) that remove completed Planned entries; not updated per feature PR, and shipped items are never promoted into Delivered — that section is a static foundations sketch, not a changelog
 - `server.json`: Description changes. `description` has a 100-character limit per the MCP registry schema — counted in code points, not bytes, so em dashes are safe here (CI guards it).
@@ -1441,7 +1441,7 @@ changed:
 env var that the server reads (defined in `config.ts`, `server.ts`,
 `setup/setup-server.ts`, or `logger.ts`), update every downstream surface.
 Not every var goes in every file — container-internal vars (HOST, INDEX_DB_PATH) are hardcoded
-in compose and skip .env.example; remote-only vars (OBSIDIAN_AUTH_TOKEN,
+in compose and skip .env.example and the guides' Configuration tables; remote-only vars (OBSIDIAN_AUTH_TOKEN,
 PUID, etc.) only go in the remote surfaces. Use existing entries as a
 pattern:
 
