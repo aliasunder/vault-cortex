@@ -1962,9 +1962,9 @@ describe("file watcher — obsolete events and embedding queues", () => {
     releaseBlocker.resolve(vector)
     await newestEmbedFinished.promise
 
-    // The third edit's job runs as soon as the job that took its content
-    // settles, so it has found nothing left to embed before a later edit's
-    // embedding can finish
+    // The second edit's job embedded the third edit's content, and the third
+    // edit's job runs as soon as it settles, so that job has found nothing left
+    // to embed before a later edit's embedding can finish
     await writeFile(join(testVault, "note.md"), "fourthedit")
     await fire("change", "note.md")
     await laterEditEmbedFinished.promise
@@ -2009,12 +2009,14 @@ describe("file watcher — obsolete events and embedding queues", () => {
     }
     const { testVault, database, search, fire } = await createControlledWatcher(embedder)
     const firstEditEmbedFinished = Promise.withResolvers<undefined>()
+    const recreatedEmbedFinished = Promise.withResolvers<undefined>()
     const realNoteEmbed = search.embedNote
     const embedNoteSpy = vi
       .spyOn(search, "embedNote")
       .mockImplementation(async (params, requestLogger) => {
         await realNoteEmbed(params, requestLogger)
         if (params.rawContent === "firstedit") firstEditEmbedFinished.resolve(undefined)
+        if (params.rawContent === "recreated") recreatedEmbedFinished.resolve(undefined)
       })
 
     await writeFile(join(testVault, "blocker.md"), "heldtopaz")
@@ -2032,20 +2034,34 @@ describe("file watcher — obsolete events and embedding queues", () => {
     expect(search.fullTextSearch({ query: "secondedit" }, logger)).toEqual([])
     releaseBlocker.resolve(vector)
     await firstEditEmbedFinished.promise
-    // The second edit's job runs once the first settles, and finds its content gone
-    await new Promise((resolve) => setImmediate(resolve))
-    await new Promise((resolve) => setImmediate(resolve))
+
+    // Re-creating the note queues a job behind the second edit's, so once the
+    // new job's embedding finishes, the second edit's job has run and found
+    // its content gone
+    await writeFile(join(testVault, "note.md"), "recreated")
+    await fire("add", "note.md")
+    await recreatedEmbedFinished.promise
 
     // Source versions are symbols the index mints, so only their type is known
-    expect(embedNoteSpy).toHaveBeenCalledTimes(2)
+    expect(embedNoteSpy).toHaveBeenCalledTimes(3)
     expect(embedNoteSpy).toHaveBeenNthCalledWith(
       2,
       { notePath: "note.md", rawContent: "firstedit", sourceVersion: expect.any(Symbol) },
       logger,
     )
-    expect(embedder.embedText).toHaveBeenCalledExactlyOnceWith("blocker\n\nheldtopaz")
-    expect(database.prepare("SELECT note_path, chunk_text FROM note_chunks").all()).toEqual([
+    expect(embedNoteSpy).toHaveBeenNthCalledWith(
+      3,
+      { notePath: "note.md", rawContent: "recreated", sourceVersion: expect.any(Symbol) },
+      logger,
+    )
+    expect(embedder.embedText).toHaveBeenCalledTimes(2)
+    expect(embedder.embedText).toHaveBeenNthCalledWith(1, "blocker\n\nheldtopaz")
+    expect(embedder.embedText).toHaveBeenNthCalledWith(2, "note\n\nrecreated")
+    expect(
+      database.prepare("SELECT note_path, chunk_text FROM note_chunks ORDER BY note_path").all(),
+    ).toEqual([
       { note_path: "blocker.md", chunk_text: "blocker\n\nheldtopaz" },
+      { note_path: "note.md", chunk_text: "note\n\nrecreated" },
     ])
   })
 

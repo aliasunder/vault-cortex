@@ -1405,10 +1405,8 @@ This is a note with many words that should be truncated when using a small snipp
     })
 
     it("cuts a long snippet to 32,768 code points before the reranker reads it", async () => {
-      const rerankedDocuments: string[] = []
       const recordingReranker = {
         rerankPairs: vi.fn((_query: string, documents: readonly string[]) => {
-          rerankedDocuments.push(...documents)
           return Promise.resolve(documents.map(() => 0))
         }),
       }
@@ -1441,7 +1439,9 @@ This is a note with many words that should be truncated when using a small snipp
       expect(reranked).toBe(true)
       expect(results.map((result) => result.path)).toEqual(["a.md", "long.md"])
       // The snippet's first 32,768 code points stay, so its query match does too
-      expect(rerankedDocuments.filter((document) => document.includes("findmeword"))).toEqual([
+      expect(recordingReranker.rerankPairs).toHaveBeenCalledExactlyOnceWith("findmeword", [
+        // The chunk keeps the body's leading newline after the title prefix
+        "Career Goals\n\n\nI aspire to build meaningful products and grow as a technical leader.\nMy targets include shipping a major open source project.",
         `findmeword ${"z".repeat(50_000)}`.slice(0, 32_768),
       ])
     })
@@ -2464,6 +2464,60 @@ describe("hybridSearch — ranking tuning", () => {
       `File: guide\n\n${FILE_CONTENT}`,
       // The chunk keeps the body's leading newline after the title prefix.
       "Career\n\n\nCareer goals and aspirations.",
+    ])
+  })
+
+  it("cuts a file result's prefixed document to 32,768 code points before the reranker reads it", async () => {
+    const capturingReranker = {
+      rerankPairs: vi.fn((_query: string, documents: readonly string[]) => {
+        return Promise.resolve(documents.map(() => 0))
+      }),
+    }
+    const prefixIndex = createSearchIndex(
+      ":memory:",
+      createHybridMockEmbedder(),
+      capturingReranker,
+      {
+        fileToolsEnabled: true,
+        ranking: { rerankKindPrefix: true },
+      },
+    )
+    const careerNoteSourceVersion = prefixIndex.upsertNote(
+      withBodyTags({
+        filePath: "notes/career.md",
+        rawContent: NOTE_CONTENT,
+        fileStat: testStat(1000),
+      }),
+      logger,
+    )
+    await prefixIndex.embedNote(
+      {
+        sourceVersion: careerNoteSourceVersion,
+        notePath: "notes/career.md",
+        rawContent: NOTE_CONTENT,
+      },
+      logger,
+    )
+    // Not embedded, so the reranker reads the file's keyword snippet, which
+    // keeps the one 50,000-character word whole
+    const longFileContent = `findmeword ${"z".repeat(50_000)}`
+    prefixIndex.upsertNonMdFile("docs/long.txt", longFileContent.length)
+    prefixIndex.upsertFileContent(
+      {
+        filePath: "docs/long.txt",
+        rawContent: longFileContent,
+        fileStat: testStat(2000, longFileContent.length),
+      },
+      logger,
+    )
+
+    await prefixIndex.hybridSearch({ query: "findmeword" }, logger)
+
+    // ASCII text, so slice cuts by code points; the label counts toward the
+    // limit, so the cut comes after the prefix
+    expect(capturingReranker.rerankPairs).toHaveBeenCalledExactlyOnceWith("findmeword", [
+      "Career\n\n\nCareer goals and aspirations.",
+      `File: ${longFileContent}`.slice(0, 32_768),
     ])
   })
 
