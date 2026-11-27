@@ -1296,7 +1296,8 @@ file focused on conventions; don't duplicate procedure here.
 - **ARCHITECTURE.md**: a contributor.
 - **The `deploy/` guides**: a self-hoster at a terminal or a deploy
   button.
-- **DEPLOY.md**: a forker reproducing the AWS reference deployment.
+- **DEPLOY.md**: someone who deploys or runs the AWS reference
+  deployment.
 - **SECURITY.md**: a vulnerability reporter.
 - **cli/README.md**: someone who found the npm package first.
 
