@@ -1287,12 +1287,13 @@ file focused on conventions; don't duplicate procedure here.
 **Write for each doc's reader.** The main docs serve these readers:
 
 - **README.md** (and DOCKERHUB.md, generated from it) has two:
-  - an Obsidian user deciding whether to run this: what can the agent
-    do in my vault, does it work with my client and my phone, will it
-    damage my notes, what does it cost, how do I start
-  - an engineering reader evaluating the project: what problem does it
-    solve, which technical choices does it make, how is it tested,
-    secured and versioned
+  - an Obsidian user deciding whether to run the server, who asks
+    questions like: what can the agent do in my vault, does it work
+    with my client and my phone, will it damage my notes, what does it
+    cost, how do I start
+  - an engineering reader evaluating the project, who asks questions
+    like: what problem does it solve, which technical choices does it
+    make, how is it tested, secured and versioned
 - **ARCHITECTURE.md**: a contributor.
 - **The `deploy/` guides**: a self-hoster at a terminal or a deploy
   button.
@@ -1301,36 +1302,37 @@ file focused on conventions; don't duplicate procedure here.
 - **SECURITY.md**: a vulnerability reporter.
 - **cli/README.md**: someone who found the npm package first.
 
-These rules follow from each doc's readers:
+For a doc not listed, name its readers from what it covers. These
+rules follow from each doc's readers:
 
 - **Every passage answers a question its doc's readers ask.** A passage
-  that answers none is cut. One written for another doc's reader moves
-  to that doc: how a mechanism works (RRF's rank constant, blend
-  weights, chunk prefixes, temp-file naming) goes to ARCHITECTURE.md.
-  A doc that names a protection against data loss or attack (atomic
-  writes, the per-file mutex) keeps one clause saying how it works
-  ("stages to a temp file, then renames").
+  written for another doc's reader moves to that doc: how a mechanism
+  works (RRF's rank constant, blend weights, chunk prefixes, temp-file
+  naming) goes to ARCHITECTURE.md. A passage no doc's reader asks for
+  is cut. But a doc that names a protection against data loss or attack
+  (atomic writes, the per-file mutex) still says in a clause how that
+  protection works ("stages to a temp file, then renames").
 - **In the README, the `deploy/` guides and cli/README.md, features
   are stated as what the Obsidian user can do**, in their vocabulary
   ("complete a task," "move between lanes," "filter by due date"), never
-  implementation vocabulary ("mutate," "atomic write cycle," "composable
-  mutations"); ARCHITECTURE.md keeps its engineering terms.
+  in the code's internal terms ("mutate," "atomic write cycle,"
+  "composable mutations"); every other doc keeps its engineering terms.
 - **In the README and SECURITY.md, sentences about how the project is
   built use the standard names** for the techniques it chose and the
   hazards it guards against (FTS5, RRF, cross-encoder, per-file mutex,
-  TOCTOU, `link()`). Those sentences add no gloss to the names, even
-  when a review calls them jargon.
+  TOCTOU, `link()`). An edit adds no gloss to those names, even when a
+  review calls them jargon; the how-it-works clause the first rule
+  keeps is not a gloss.
 - **One home per fact; other docs link to it**, because a second copy
   goes stale when the first is edited. Windows setup lives in
-  `deploy/local/`, and the README links there. Registry descriptions,
-  the generated DOCKERHUB.md, settings tables, an opt-out stated in its
-  feature's section and the recovery path beside a destructive-outcome
-  claim are deliberate copies.
+  `deploy/local/`, and the README links there. Deliberate copies stay:
+  registry descriptions, the generated DOCKERHUB.md, each doc's env var
+  table, the clause the first rule keeps beside a protection, an opt-out
+  stated in its feature's section and the recovery path beside a
+  destructive-outcome claim.
 - **Before calling a doc done, walk the entire document start to finish
-  as each reader it serves** (for a doc not listed above, name its
-  readers from what it covers): line-level fact-checking cannot
-  validate a doc; each sentence can be true while the doc as a whole
-  misleads.
+  as each reader it serves.** Line-level fact-checking cannot validate a
+  doc; each sentence can be true while the doc as a whole misleads.
 
 **Write-time format decision** — before committing any prose (code
 comments, JSDoc, README sections, PR descriptions, env-file comments):
