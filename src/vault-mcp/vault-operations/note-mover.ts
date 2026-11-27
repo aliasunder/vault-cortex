@@ -94,11 +94,6 @@ type RewriteContext = {
  *  The absolute form starts at the vault root without a leading slash. */
 type LinkForm = "basename" | "absolute" | "relative"
 
-/** Which side of the vault a link points at. Notes are checked first — a
- *  target matching both a note and an asset resolves to the note, matching
- *  the indexer's precedence. */
-type TargetKind = "note" | "asset"
-
 /** Which link grammar a replacement is written back into. Markdown links
  *  carry their extension ([text](Note.md), ![alt](photo.png)); wikilinks to
  *  notes drop it ([[Note]]). */
@@ -178,9 +173,9 @@ const buildReplacementTarget = (params: {
 
 /** Returns the replacement target for one link, or null to leave it unchanged.
  *  Null when unresolved, still pointing at the right file, or not affected.
- *  Notes are resolved before assets (a target matching both resolves to the
- *  note, matching the indexer's precedence); an asset target never follows
- *  the move — only the shift in the source note's location can break it. */
+ *  A target matching both a note and an asset resolves to the note. An asset
+ *  target never follows the move — only the shift in the source note's
+ *  location can break it. */
 const rewriteTarget = (
   params: {
     rawTarget: string
@@ -191,22 +186,16 @@ const rewriteTarget = (
 ): string | null => {
   const { rawTarget, originalExtension, grammar } = params
 
-  const resolvedNoteBefore = links.resolve({
+  const resolvedTargetBefore = links.resolveNoteOrAsset({
     target: rawTarget,
     allPaths: context.allNotePaths,
+    allAssetPaths: context.allAssetPaths,
     sourcePath: context.oldSourcePath,
   })
-  const resolvedBefore =
-    resolvedNoteBefore ??
-    links.resolveAsset({
-      target: rawTarget,
-      allAssetPaths: context.allAssetPaths,
-      sourcePath: context.oldSourcePath,
-    })
 
-  if (resolvedBefore === null) return null
+  if (resolvedTargetBefore === null) return null
 
-  const targetKind: TargetKind = resolvedNoteBefore ? "note" : "asset"
+  const { kind: targetKind, path: resolvedBefore } = resolvedTargetBefore
 
   // Follow the moved note to its new location; every other target (an
   // unmoved note, or an asset — assets never move) keeps its resolved path,

@@ -20,6 +20,7 @@ import {
   legacyMarkdown,
   legacyTemplater,
 } from "./helpers/link-scanner-corpus.js"
+import { linkResolverOracle } from "./helpers/link-resolver-oracle.js"
 
 // ── matchLinksInLine ─────────────────────────────────────────────
 
@@ -677,19 +678,18 @@ describe("resolve", () => {
     expect(links.resolve({ target: "Note", allPaths: equalLengthPaths })).toBe("aaa/Note.md")
   })
 
-  it("measures shortest by code points, matching the SQL resolver's length()", () => {
+  it("measures shortest by code points, so a non-BMP character counts as one", () => {
     // "📚/a.md" is 6 code points but 7 UTF-16 units — under a String.length
-    // metric it ties with "ab/a.md" and loses the tie, diverging from
-    // SQLite's ORDER BY length(path), which counts code points.
+    // metric it ties with "ab/a.md" and loses the tie.
     const paths = ["ab/a.md", "📚/a.md"]
     expect(links.resolve({ target: "a", allPaths: paths })).toBe("📚/a.md")
   })
 
-  it("breaks equal-length ties in UTF-8 byte order, matching BINARY collation", () => {
+  it("breaks equal-length ties in UTF-8 byte order, not UTF-16 order", () => {
     // Both paths hold the same two characters in opposite order, so both
     // length metrics tie. UTF-16 code units put the emoji (surrogates,
     // 0xD83D…) before U+FFFD, but UTF-8 bytes put U+FFFD (0xEF…) before
-    // the emoji (0xF0…) — SQLite's BINARY collation compares bytes.
+    // the emoji (0xF0…).
     const paths = ["😀�/a.md", "�😀/a.md"]
     expect(links.resolve({ target: "a", allPaths: paths })).toBe("�😀/a.md")
   })
@@ -915,10 +915,7 @@ describe("resolveAsset", () => {
     "app/views/Inventory.base",
   ]
 
-  it("folds ASCII case in the path-suffix tier, matching the SQL twin's LIKE", () => {
-    // The indexer's suffix statements compare with LIKE (ASCII-case-
-    // insensitive), so the array resolver must fold too or the two
-    // resolvers pick different files for one target.
+  it("folds ASCII case in the path-suffix tier's first pass", () => {
     expect(
       links.resolveAsset({
         target: "sunset.png",
@@ -927,7 +924,7 @@ describe("resolveAsset", () => {
     ).toBe("photos/Sunset.png")
   })
 
-  it("folds ASCII case in the folder-qualified stem tier, matching the SQL twin's LIKE", () => {
+  it("folds ASCII case in the folder-qualified stem tier's first pass", () => {
     expect(
       links.resolveAsset({
         target: "views/Inventory",
@@ -1014,7 +1011,7 @@ describe("resolveAsset", () => {
     ).toBe("Photo.png")
   })
 
-  it("folds only ASCII letters in asset links, matching the SQL twin's NOCASE", () => {
+  it("folds only ASCII letters in asset links", () => {
     expect(
       links.resolveAsset({
         target: "éclair.png",
@@ -1087,8 +1084,8 @@ describe("resolveAsset", () => {
   })
 
   it("breaks same-length stem ties lexicographically", () => {
-    // Matches the SQL resolver's ORDER BY length(path), path — deterministic
-    // regardless of array order.
+    // Shortest first, then byte order, so the winner does not depend on the
+    // array's order.
     const paths = ["a/photo.png", "a/photo.jpg"]
     expect(links.resolveAsset({ target: "photo", allAssetPaths: paths })).toBe("a/photo.jpg")
   })
@@ -1100,6 +1097,253 @@ describe("resolveAsset", () => {
   it("cannot resolve a relative target without a source path", () => {
     expect(links.resolveAsset({ target: "../assets/photo.png", allAssetPaths })).toBeNull()
   })
+})
+
+// ── resolveNoteOrAsset ───────────────────────────────────────────
+
+describe("resolveNoteOrAsset", () => {
+  const allAssetPaths = ["Trip Route.canvas", "assets/photo.png"]
+
+  it("resolves to the note when a note and a file share the link's name", () => {
+    expect(
+      links.resolveNoteOrAsset({
+        target: "Trip Route",
+        allPaths: ["Trip Route.md"],
+        allAssetPaths,
+      }),
+    ).toEqual({ kind: "note", path: "Trip Route.md" })
+  })
+
+  it("resolves to the file when no note matches", () => {
+    expect(
+      links.resolveNoteOrAsset({ target: "Trip Route", allPaths: ["Other.md"], allAssetPaths }),
+    ).toEqual({ kind: "asset", path: "Trip Route.canvas" })
+  })
+
+  it("returns null when neither a note nor a file matches", () => {
+    expect(
+      links.resolveNoteOrAsset({ target: "missing", allPaths: ["Other.md"], allAssetPaths }),
+    ).toBeNull()
+  })
+
+  it("resolves a relative link from the source note's folder in both tiers", () => {
+    const resolveFromSubfolder = (target: string): ReturnType<typeof links.resolveNoteOrAsset> => {
+      return links.resolveNoteOrAsset({
+        target,
+        allPaths: ["x.md"],
+        allAssetPaths,
+        sourcePath: "a/note.md",
+      })
+    }
+
+    expect(resolveFromSubfolder("../x")).toEqual({ kind: "note", path: "x.md" })
+    expect(resolveFromSubfolder("../assets/photo.png")).toEqual({
+      kind: "asset",
+      path: "assets/photo.png",
+    })
+  })
+})
+
+// ── Resolver oracle ──────────────────────────────────────────────
+
+/** Mulberry32, a small seeded generator, so every run draws the same corpus. */
+const createSeededRandom = (seed: number): (() => number) => {
+  // The generator's state, advanced on every draw.
+  let state = seed
+
+  return () => {
+    state = (state + 0x6d2b79f5) | 0
+    const mixed = Math.imul(state ^ (state >>> 15), 1 | state)
+    const remixed = mixed ^ (mixed + Math.imul(mixed ^ (mixed >>> 7), 61 | mixed))
+    return ((remixed ^ (remixed >>> 14)) >>> 0) / 4294967296
+  }
+}
+
+/** A small pool, so paths that differ only in letter case or depth, and
+ *  targets that hit them, come up often. The emoji is one code point but two
+ *  UTF-16 units, so a resolver that measured paths in UTF-16 units would pick
+ *  a different shortest path. */
+const SEGMENT_TOKENS = [
+  "a",
+  "A",
+  "b",
+  "É",
+  "é",
+  "ß",
+  "SS",
+  "ss",
+  "x.y",
+  "sub dir",
+  "Photo",
+  "photo",
+  "😀",
+]
+const TARGET_ONLY_TOKENS = ["..", ".", ""]
+const ASSET_EXTENSIONS = [".png", ".PNG", ".gif", ".canvas", ".md.png", ""]
+
+const createCorpus = (seed: number) => {
+  const random = createSeededRandom(seed)
+  const pick = <Item>(items: readonly Item[]): Item => {
+    const pickedItem = items[Math.floor(random() * items.length)]
+
+    if (pickedItem === undefined) throw new Error("picked from an empty list")
+    return pickedItem
+  }
+  const drawSegments = (tokens: readonly string[]): string[] => {
+    return Array.from({ length: 1 + Math.floor(random() * 4) }, () => pick(tokens))
+  }
+
+  const notePaths = [
+    ...new Set(Array.from({ length: 300 }, () => `${drawSegments(SEGMENT_TOKENS).join("/")}.md`)),
+  ]
+  const assetPaths = [
+    ...new Set(
+      Array.from({ length: 300 }, () => {
+        return `${drawSegments(SEGMENT_TOKENS).join("/")}${pick(ASSET_EXTENSIONS)}`
+      }),
+    ),
+  ]
+  const targetTokens = [...SEGMENT_TOKENS, ...TARGET_ONLY_TOKENS]
+  const sources: ReadonlyArray<{ sourcePath?: string }> = [
+    {},
+    { sourcePath: "note.md" },
+    { sourcePath: "a/note.md" },
+    { sourcePath: "A/b/note.md" },
+    { sourcePath: "sub dir/x.y/note.md" },
+  ]
+  const lookups = Array.from({ length: 10_000 }, () => {
+    const extension = random() < 0.5 ? pick(ASSET_EXTENSIONS) : pick(["", ".md", ".MD"])
+    return { target: `${drawSegments(targetTokens).join("/")}${extension}`, ...pick(sources) }
+  })
+  return { notePaths, assetPaths, lookups }
+}
+
+/** The comparison takes about 2 s on an idle laptop and several times that
+ *  while the full suite runs, which can exceed vitest's 5 s default. */
+const ORACLE_TEST_TIMEOUT_MS = 30_000
+
+describe("resolver oracle", () => {
+  it(
+    "resolve, resolveInExactCase and resolveAsset match the scanning resolvers on 10,000 seeded targets",
+    () => {
+      const { notePaths, assetPaths, lookups } = createCorpus(20261126)
+
+      const disagreements = lookups.flatMap((lookup) => {
+        const answers = {
+          resolve: [
+            links.resolve({ ...lookup, allPaths: notePaths }),
+            linkResolverOracle.resolve({ ...lookup, allPaths: notePaths }),
+          ],
+          resolveInExactCase: [
+            links.resolveInExactCase({ ...lookup, allPaths: notePaths }),
+            linkResolverOracle.resolveInExactCase({ ...lookup, allPaths: notePaths }),
+          ],
+          resolveAsset: [
+            links.resolveAsset({ ...lookup, allAssetPaths: assetPaths }),
+            linkResolverOracle.resolveAsset({ ...lookup, allAssetPaths: assetPaths }),
+          ],
+        }
+        return Object.entries(answers)
+          .filter(([, [answer, oracleAnswer]]) => answer !== oracleAnswer)
+          .map(([resolver, [answer, oracleAnswer]]) => {
+            return { resolver, ...lookup, answer, oracleAnswer }
+          })
+      })
+
+      expect(disagreements).toEqual([])
+    },
+    ORACLE_TEST_TIMEOUT_MS,
+  )
+
+  it("the seeded corpus resolves 1,000 to 9,000 of its targets in both note and asset modes", () => {
+    const { notePaths, assetPaths, lookups } = createCorpus(20261126)
+
+    const resolvedNoteCount = lookups.filter((lookup) => {
+      return links.resolve({ ...lookup, allPaths: notePaths }) !== null
+    }).length
+    const resolvedAssetCount = lookups.filter((lookup) => {
+      return links.resolveAsset({ ...lookup, allAssetPaths: assetPaths }) !== null
+    }).length
+
+    // Both resolved and unresolved targets are common, so the comparison
+    // above checks hits and misses alike.
+    expect(resolvedNoteCount).toBeGreaterThan(1_000)
+    expect(resolvedNoteCount).toBeLessThan(9_000)
+    expect(resolvedAssetCount).toBeGreaterThan(1_000)
+    expect(resolvedAssetCount).toBeLessThan(9_000)
+  })
+
+  it.each([
+    {
+      label: "a full-name suffix skips a path equal to the target in another letter case",
+      target: "photo.png",
+      allAssetPaths: ["Photo.PNG", "a/photo.png"],
+      expected: "a/photo.png",
+    },
+    {
+      label: "a full-name suffix skips a shorter path equal to the target",
+      target: "photo.png",
+      allAssetPaths: ["Photo.png", "x/photo.png"],
+      expected: "x/photo.png",
+    },
+    {
+      label: "a stem suffix skips a path whose stem equals the target",
+      target: "a/photo",
+      allAssetPaths: ["A/Photo.png", "z/a/photo.gif"],
+      expected: "z/a/photo.gif",
+    },
+  ])(
+    "resolveAsset: $label, as the scanning resolver does",
+    ({ target, allAssetPaths, expected }) => {
+      expect(links.resolveAsset({ target, allAssetPaths })).toBe(expected)
+      expect(linkResolverOracle.resolveAsset({ target, allAssetPaths })).toBe(expected)
+    },
+  )
+})
+
+// ── Resolution cost ──────────────────────────────────────────────
+
+/** The helper's path list grows eightfold, so a resolver that scans the list
+ *  grows about 8x and one that reads a lookup stays about flat. Four sits
+ *  between the two with room for scheduling noise. */
+const LOOKUP_GROWTH_LIMIT = 4
+
+describe("resolution cost against the path list", () => {
+  it.each([
+    { label: "unresolved note targets", variant: "notes" },
+    {
+      label: "folder-qualified targets naming notes that all share one name",
+      variant: "same-name",
+    },
+    { label: "unresolved file targets", variant: "files" },
+  ])(
+    "resolves 2,000 $label against eight times the paths in about the same time",
+    ({ variant }) => {
+      const helperPath = new URL("./helpers/link-resolution-growth.ts", import.meta.url)
+      const output = execFileSync(
+        process.execPath,
+        ["--import", "tsx", helperPath.pathname, variant],
+        { encoding: "utf8", timeout: CHILD_DEADLINE_MS, killSignal: "SIGKILL" },
+      )
+      const { measurements } = JSON.parse(output)
+      const [small, large] = measurements
+
+      type Measurement = { pathCount: number; resolvedCount: number }
+
+      expect(
+        measurements.map(({ pathCount, resolvedCount }: Measurement) => {
+          return { pathCount, resolvedCount }
+        }),
+      ).toEqual([
+        { pathCount: 1_000, resolvedCount: 0 },
+        { pathCount: 8_000, resolvedCount: 0 },
+      ])
+      expect(large.leastMs).toBeLessThanOrEqual(
+        Math.max(TIMING_FLOOR_MS, small.leastMs) * LOOKUP_GROWTH_LIMIT,
+      )
+    },
+    CHILD_TEST_TIMEOUT_MS,
+  )
 })
 
 // ── Link-target limits ───────────────────────────────────────────
@@ -1238,14 +1482,23 @@ describe("link-target limits", () => {
     expect(boundaryTargets.map(links.isWithinLinkTargetLimit)).toEqual([true, false])
   })
 
-  it("joinToSourceFolder returns null for a leading '..' run that climbs above the vault root", () => {
-    expect(links.joinToSourceFolder("a/note.md", ".././/../x")).toBeNull()
-    expect(links.joinToSourceFolder("note.md", "../x")).toBeNull()
+  it("resolve skips the join for a target that climbs above the vault root from a note at the root", () => {
+    const joinSpy = vi.spyOn(posix, "join")
+    onTestFinished(() => joinSpy.mockRestore())
+
+    expect(links.resolve({ target: "../x", allPaths: ["x.md"], sourcePath: "note.md" })).toBeNull()
+    expect(joinSpy).not.toHaveBeenCalled()
   })
 
-  it("joinToSourceFolder joins a leading '..' run that climbs at most to the vault root", () => {
-    expect(links.joinToSourceFolder("a/note.md", "./../x")).toBe("x")
-    expect(links.joinToSourceFolder("note.md", "x/../y")).toBe("y")
+  it("resolve joins a target with a '..' after a name from a note at the vault root", () => {
+    const joinSpy = vi.spyOn(posix, "join")
+    onTestFinished(() => joinSpy.mockRestore())
+
+    expect(links.resolve({ target: "x/../y", allPaths: ["y.md"], sourcePath: "note.md" })).toBe(
+      "y.md",
+    )
+    expect(joinSpy).toHaveBeenCalledTimes(1)
+    expect(joinSpy).toHaveBeenCalledWith(".", "x/../y.md")
   })
 
   it("resolve skips the join for a target that climbs above the vault root", () => {

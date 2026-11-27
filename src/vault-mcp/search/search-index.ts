@@ -43,7 +43,6 @@ import {
   buildChunkTitleLine,
   buildFtsMetadataText,
   buildFtsNameText,
-  escapeLikeWildcards,
   foldTag,
   NOTE_METADATA_COLUMNS_SQL,
   parseStringArray,
@@ -394,9 +393,11 @@ export type OutgoingLinkEntry = {
 //      links ([text](target) / ![alt](target)) from the note body (skipping fenced code
 //      blocks and inline code spans); links.extractFromFrontmatter() adds
 //      [[wikilinks]] from frontmatter property values (e.g. related:).
-//   2. links.resolve() maps each raw target to a vault-relative path by trying
-//      exact match → relative-to-source match → basename/shortest-path heuristic,
-//      first in the link's own letter case, then with letter case folded.
+//   2. links.resolve() maps each raw target to a note path by trying
+//      exact match → relative-to-source match → shortest path ending with the target,
+//      first in the link's own letter case, then with letter case folded. A
+//      target no note matches goes to links.resolveAsset() over the
+//      non_md_files paths, the resolver the note mover uses for file links.
 //   3. upsertNote stores each link's resolved target beside its text. Unresolved
 //      targets are stored as-is (raw text) for broken-link detection.
 //   4. Each link re-resolves from its text when the files it could name change:
@@ -637,19 +638,25 @@ export const createSearchIndex = (
     CREATE INDEX IF NOT EXISTS idx_links_target ON links(target);
     CREATE INDEX IF NOT EXISTS idx_links_name ON links(link_name);
 
+    -- basename holds the file name without its extension, which backlinks
+    -- show as a file's title. No query reads base_path; it stays because an
+    -- earlier release reads and writes it, so dropping it would break a
+    -- downgrade onto this database.
     CREATE TABLE IF NOT EXISTS non_md_files (
       path      TEXT PRIMARY KEY,
       base_path TEXT NOT NULL,
       basename  TEXT NOT NULL,
       bytes     INTEGER
     );
-    CREATE INDEX IF NOT EXISTS idx_non_md_base_path ON non_md_files(base_path);
-    CREATE INDEX IF NOT EXISTS idx_non_md_basename ON non_md_files(basename);
-    -- The letter-case-blind lookups compare with COLLATE NOCASE, which the
-    -- BINARY indexes above cannot serve.
-    CREATE INDEX IF NOT EXISTS idx_non_md_path_nocase ON non_md_files(path COLLATE NOCASE);
-    CREATE INDEX IF NOT EXISTS idx_non_md_base_path_nocase ON non_md_files(base_path COLLATE NOCASE);
-    CREATE INDEX IF NOT EXISTS idx_non_md_basename_nocase ON non_md_files(basename COLLATE NOCASE);
+
+    -- File links resolve in memory through links.resolveAsset, so no query reads
+    -- these indexes; dropping them where an index database already holds them
+    -- saves a write on every file insert.
+    DROP INDEX IF EXISTS idx_non_md_base_path;
+    DROP INDEX IF EXISTS idx_non_md_basename;
+    DROP INDEX IF EXISTS idx_non_md_path_nocase;
+    DROP INDEX IF EXISTS idx_non_md_base_path_nocase;
+    DROP INDEX IF EXISTS idx_non_md_basename_nocase;
 
     CREATE TABLE IF NOT EXISTS tasks (
       note_path     TEXT NOT NULL,
@@ -958,15 +965,16 @@ export const createSearchIndex = (
     `SELECT body_tags FROM notes WHERE path = ?`,
   )
 
-  /** Note paths cached for resolving canvas links. Note upserts, removals, rebuild resets and
-   *  rebuild rollbacks clear the cache. */
-  let cachedNotePathsForCanvasLinks: readonly string[] | undefined
-  const getNotePathsForCanvasLinks = (): readonly string[] => {
-    if (cachedNotePathsForCanvasLinks) return cachedNotePathsForCanvasLinks
-
-    const notePaths = selectAllNotePathsStmt.all().map((note) => note.path)
-    cachedNotePathsForCanvasLinks = notePaths
-    return notePaths
+  /** The note paths every link resolves against, read from the notes table on first use.
+   *  - links.resolve caches its lookups by array, so they last until a cleared list is read
+   *    again as a new array.
+   *  - A write that adds or removes a note clears the list inside its transaction, before
+   *    anything resolves against it; an edit of an existing note keeps it.
+   *  - A failed write that could have changed either list clears both (runListChangingWrite). */
+  let cachedNotePaths: readonly string[] | undefined
+  const getNotePaths = (): readonly string[] => {
+    cachedNotePaths ??= selectAllNotePathsStmt.all().map((note) => note.path)
+    return cachedNotePaths
   }
 
   // ── Non-markdown file awareness ────────────────────────────────
@@ -984,48 +992,37 @@ export const createSearchIndex = (
     `SELECT path FROM non_md_files WHERE path = ?`,
   )
   const deleteNonMdFileStmt = db.prepare(`DELETE FROM non_md_files WHERE path = ?`)
-  /** Direct path match for targets that already include a non-md extension
-   *  (e.g. `[[photo.png]]`, `![[diagram.svg]]`). */
-  const resolveNonMdByFullPathStmt = db.prepare<[string], { path: string }>(
-    `SELECT path FROM non_md_files WHERE path = ? LIMIT 1`,
+  const selectAllNonMdPathsStmt = db.prepare<unknown[], { path: string }>(
+    `SELECT path FROM non_md_files`,
   )
-  /** The multi-match resolution queries (resolveNonMdByBasePath, ByBasename,
-   *  ByBasePathSuffix, ByFullPathSuffix) all ORDER BY length(path), path so
-   *  the shortest path wins deterministically — matching links.resolve's
-   *  note-resolution heuristic. */
-  const resolveNonMdByBasePathStmt = db.prepare<[string], { path: string }>(
-    `SELECT path FROM non_md_files WHERE base_path = ? ORDER BY length(path), path LIMIT 1`,
-  )
-  const resolveNonMdByBasenameStmt = db.prepare<[string], { path: string }>(
-    `SELECT path FROM non_md_files WHERE basename = ? ORDER BY length(path), path LIMIT 1`,
-  )
-  /** The folded-case twins of the three equality queries above, for the
-   *  second resolution pass. NOCASE folds ASCII letters only, matching
-   *  links.resolveAsset's folded pass. The collation applies to the comparison
-   *  alone, so ORDER BY stays BINARY like links.resolveAsset's shortestOf, and
-   *  two files that differ only in letter case resolve the same way in both. */
-  const resolveNonMdByFullPathIgnoringCaseStmt = db.prepare<[string], { path: string }>(
-    `SELECT path FROM non_md_files WHERE path = ? COLLATE NOCASE ORDER BY length(path), path LIMIT 1`,
-  )
-  const resolveNonMdByBasePathIgnoringCaseStmt = db.prepare<[string], { path: string }>(
-    `SELECT path FROM non_md_files WHERE base_path = ? COLLATE NOCASE ORDER BY length(path), path LIMIT 1`,
-  )
-  const resolveNonMdByBasenameIgnoringCaseStmt = db.prepare<[string], { path: string }>(
-    `SELECT path FROM non_md_files WHERE basename = ? COLLATE NOCASE ORDER BY length(path), path LIMIT 1`,
-  )
-  /** Suffix-path match: finds non-md files whose base_path ends with the target
-   *  (preserving folder segments). Mirrors links.resolveAsset's stem-suffix
-   *  tier. LIKE ignores ASCII letter case, so this and the full-path suffix
-   *  query below match in either letter case. ESCAPE clause prevents `_` and
-   *  `%` in the target from acting as LIKE wildcards. */
-  const resolveNonMdByBasePathSuffixStmt = db.prepare<[string], { path: string }>(
-    `SELECT path FROM non_md_files WHERE base_path LIKE '%/' || ? ESCAPE '\\' ORDER BY length(path), path LIMIT 1`,
-  )
-  /** Full-filename suffix matches precede stem matches, so photo.png beats photo.png.canvas.
-   *  Escape LIKE wildcards as in the base-path suffix query. */
-  const resolveNonMdByFullPathSuffixStmt = db.prepare<[string], { path: string }>(
-    `SELECT path FROM non_md_files WHERE path LIKE '%/' || ? ESCAPE '\\' ORDER BY length(path), path LIMIT 1`,
-  )
+
+  /** The non-markdown paths every file link resolves against, cached and cleared as
+   *  getNotePaths' list is, by the writes that add or remove a file. */
+  let cachedNonMarkdownPaths: readonly string[] | undefined
+  const getNonMarkdownPaths = (): readonly string[] => {
+    cachedNonMarkdownPaths ??= selectAllNonMdPathsStmt.all().map((file) => file.path)
+    return cachedNonMarkdownPaths
+  }
+
+  /** Clears both path lists, for a rebuild reset and for a write that failed. */
+  const clearPathListCaches = (): void => {
+    cachedNotePaths = undefined
+    cachedNonMarkdownPaths = undefined
+  }
+
+  /** Runs a transaction that can add or remove a note or file.
+   *  - When it throws, both path lists are cleared, since it may have read a list holding a
+   *    change the rollback undid.
+   *  - The catch encloses the transaction call, so a failed COMMIT clears the lists too. */
+  const runListChangingWrite = (write: () => void): void => {
+    try {
+      write()
+    } catch (error) {
+      clearPathListCaches()
+      throw error
+    }
+  }
+
   // ── File content prepared statements (conditional on fileToolsEnabled) ──
   // Each file_content_fts row has its file_content row's rowid, as the comment
   // above upsertNotesStmt explains.
@@ -1429,164 +1426,17 @@ export const createSearchIndex = (
     `SELECT ${NOTE_METADATA_COLUMNS_SQL} FROM notes WHERE path = ?`,
   )
 
-  /** The first walk over every tier that resolveNonMarkdownFile describes. The
-   *  equality queries keep the link's letter case, and the two LIKE suffix
-   *  queries ignore ASCII letter case. */
-  const resolveNonMarkdownFileInExactCase = (params: {
-    target: string
-    relativeTarget: string | null
-  }): string | null => {
-    const { target, relativeTarget } = params
+  /** An unresolved link keeps its text as the target. */
+  const resolveLinkTarget = (params: { linkText: string; sourcePath: string }): string => {
+    const { linkText, sourcePath } = params
+    const resolvedTarget = links.resolveNoteOrAsset({
+      target: linkText,
+      allPaths: getNotePaths(),
+      allAssetPaths: getNonMarkdownPaths(),
+      sourcePath,
+    })
 
-    // ── Full-filename family: exact → relative → path suffix ──
-
-    // Exact path match for targets that already include a non-md extension
-    // (e.g. [[photo.png]], ![[diagram.svg]]).
-    const fullPathMatch = resolveNonMdByFullPathStmt.get(target)
-
-    if (fullPathMatch) return fullPathMatch.path
-
-    // Relative-to-source match ("path from current file"), e.g.
-    // ![x](../assets/photo.png).
-    if (relativeTarget) {
-      const relativeFullPathMatch = resolveNonMdByFullPathStmt.get(relativeTarget)
-
-      if (relativeFullPathMatch) return relativeFullPathMatch.path
-    }
-
-    // Path-suffix match ("photo.png", "assets/photo.png") — Obsidian's
-    // shortest-path format for assets in a deeper folder.
-    const fullPathSuffixMatch = resolveNonMdByFullPathSuffixStmt.get(escapeLikeWildcards(target))
-
-    if (fullPathSuffixMatch) return fullPathSuffixMatch.path
-
-    // ── Stem family: exact → relative → suffix/basename ──
-
-    // Exact base_path match ("path from vault folder")
-    const basePathMatch = resolveNonMdByBasePathStmt.get(target)
-
-    if (basePathMatch) return basePathMatch.path
-
-    // Relative-to-source match for extensionless targets
-    // (e.g. [[../boards/Trip Route]]).
-    if (relativeTarget) {
-      const relativeBasePathMatch = resolveNonMdByBasePathStmt.get(relativeTarget)
-
-      if (relativeBasePathMatch) return relativeBasePathMatch.path
-    }
-
-    // Basename / suffix-path match (Obsidian's shortest-path resolution).
-    // When the target includes folder segments (e.g. "views/Inventory"),
-    // preserve them in the match — only strip to pure basename when the
-    // target is already a bare name. Mirrors links.resolveAsset's endsWith check.
-    if (target.includes("/")) {
-      const basePathSuffixMatch = resolveNonMdByBasePathSuffixStmt.get(escapeLikeWildcards(target))
-      return basePathSuffixMatch?.path ?? null
-    }
-    const basenameMatch = resolveNonMdByBasenameStmt.get(target)
-    return basenameMatch?.path ?? null
-  }
-
-  /** The second, folded-case walk: the exact, relative and stem comparisons
-   *  with ASCII letter case folded. The suffix tiers already ignore ASCII letter
-   *  case through SQLite's LIKE, so their first miss stands and they are not
-   *  repeated. */
-  const resolveNonMarkdownFileIgnoringCase = (params: {
-    target: string
-    relativeTarget: string | null
-  }): string | null => {
-    const { target, relativeTarget } = params
-
-    // ── Full-filename family: exact → relative ──
-
-    const fullPathMatch = resolveNonMdByFullPathIgnoringCaseStmt.get(target)
-
-    if (fullPathMatch) return fullPathMatch.path
-
-    if (relativeTarget) {
-      const relativeFullPathMatch = resolveNonMdByFullPathIgnoringCaseStmt.get(relativeTarget)
-
-      if (relativeFullPathMatch) return relativeFullPathMatch.path
-    }
-
-    // ── Stem family: exact → relative → basename ──
-
-    const basePathMatch = resolveNonMdByBasePathIgnoringCaseStmt.get(target)
-
-    if (basePathMatch) return basePathMatch.path
-
-    if (relativeTarget) {
-      const relativeBasePathMatch = resolveNonMdByBasePathIgnoringCaseStmt.get(relativeTarget)
-
-      if (relativeBasePathMatch) return relativeBasePathMatch.path
-    }
-
-    // A target with folder segments ends at the base-path suffix tier, which
-    // already folded case and missed.
-    if (target.includes("/")) return null
-
-    const basenameMatch = resolveNonMdByBasenameIgnoringCaseStmt.get(target)
-    return basenameMatch?.path ?? null
-  }
-
-  /** Resolves a wikilink target to a known non-markdown file path, or null
-   *  when no match is found. Handles both extensionless targets ([[Trip Route]]
-   *  → Trip Route.canvas) and explicit-extension targets ([[photo.png]],
-   *  ![img](attachments/photo.png)) in every form Obsidian resolves — exact
-   *  path, relative to the source note, and basename/shortest path. SQL twin
-   *  of links.resolveAsset, which runs the same tiers in the same order over
-   *  an array of paths.
-   *
-   *  Resolution tiers fall into two families by what they match against, and
-   *  the full-filename family runs first:
-   *  - The full-filename family queries the path column as-is.
-   *  - The stem family queries the extension-stripped base_path/basename
-   *    columns.
-   *  - One target can match in both families. A multi-dot filename's stem
-   *    keeps its inner dots ("photo.png.canvas" → base_path "photo.png"), so
-   *    [[photo.png]] can stem-match a different file. Running full-filename
-   *    first makes it prefer a/photo.png, and the stem tiers still resolve it
-   *    when only photo.png.canvas exists, as Obsidian's
-   *    [[Trip Route]] → Trip Route.canvas stem matching does.
-   *  - An extensionless target can match in both too: the full-filename tiers
-   *    hit an extensionless file (LICENSE, Dockerfile) by exact path or path
-   *    suffix, and the stem tiers hit any file whose extension-stripped name
-   *    matches.
-   *
-   *  The exact, relative and stem tiers run with exact letter case first, and
-   *  the two path-suffix tiers ignore ASCII letter case, as LIKE does. Only
-   *  when every tier misses do the exact, relative and stem comparisons run
-   *  again with ASCII letter case folded. A target over the link-target limit
-   *  resolves to null, as in links.resolveAsset. */
-  const resolveNonMarkdownFile = (params: {
-    target: string
-    sourcePath?: string
-  }): string | null => {
-    const { target, sourcePath } = params
-
-    if (!links.isWithinLinkTargetLimit(target)) return null
-
-    const relativeTarget = sourcePath ? links.joinToSourceFolder(sourcePath, target) : null
-
-    return (
-      resolveNonMarkdownFileInExactCase({ target, relativeTarget }) ??
-      resolveNonMarkdownFileIgnoringCase({ target, relativeTarget })
-    )
-  }
-
-  /** A note wins over a non-markdown file, and an unresolved link keeps its text as the target. */
-  const resolveLinkTarget = (params: {
-    linkText: string
-    notePaths: readonly string[]
-    sourcePath: string
-  }): string => {
-    const { linkText, notePaths, sourcePath } = params
-
-    return (
-      links.resolve({ target: linkText, allPaths: notePaths, sourcePath }) ??
-      resolveNonMarkdownFile({ target: linkText, sourcePath }) ??
-      linkText
-    )
+    return resolvedTarget?.path ?? linkText
   }
 
   const insertLink = (params: {
@@ -1598,21 +1448,14 @@ export const createSearchIndex = (
     insertLinkStmt.run({ ...params, linkName: links.pathToLinkName(params.linkText) })
   }
 
-  /** Stores the links typed in one note, or in one canvas's text cards, as
-   *  "link" rows. They all resolve against the one `notePaths` list, and
-   *  links.resolve caches folded paths per list, so it folds that list only
-   *  once. */
-  const insertTypedLinks = (params: {
-    source: string
-    linkTexts: readonly string[]
-    notePaths: readonly string[]
-  }): void => {
-    const { source, linkTexts, notePaths } = params
+  /** Stores the links typed in one note, or in one canvas's text cards, as "link" rows. */
+  const insertTypedLinks = (params: { source: string; linkTexts: readonly string[] }): void => {
+    const { source, linkTexts } = params
 
     for (const linkText of linkTexts) {
       insertLink({
         source,
-        target: resolveLinkTarget({ linkText, notePaths, sourcePath: source }),
+        target: resolveLinkTarget({ linkText, sourcePath: source }),
         linkText,
         linkKind: "link",
       })
@@ -1621,15 +1464,10 @@ export const createSearchIndex = (
 
   /** Re-resolves "link" rows from their text and updates each row whose target
    *  changes. Call it inside the write that added or removed a file, after that
-   *  write's own changes. */
+   *  write's own changes and after it cleared the path list it changed. */
   const reResolveLinks = (storedLinks: readonly StoredLink[]): void => {
     if (storedLinks.length === 0) return
 
-    // Read here rather than from getNotePathsForCanvasLinks' cache, so the
-    // paths include the note the triggering write just added or removed.
-    // Every link resolves against this one list, so links.resolve folds it
-    // only once.
-    const notePaths = selectAllNotePathsStmt.all().map((note) => note.path)
     // Only the relative tiers read a link's source, and only its folder, so one
     // answer serves every link with the same text from the same folder.
     const resolvedTargets = new Map<string, string>()
@@ -1637,16 +1475,16 @@ export const createSearchIndex = (
       // The key joins the folder and the link text with a NUL:
       // - A vault path holds no NUL, so the first NUL ends the folder and two
       //   pairs never share a key.
-      // - The folder (at most 4,095 bytes), the NUL and the link text (at most
-      //   10,236 bytes) total at most 14,332 characters, since a string has
-      //   no more UTF-16 units than UTF-8 bytes. V8 hashes a string
-      //   longer than 16,383 characters by its length alone, and a Map of such
-      //   keys compares each new key with every key of that length.
-      // - JSON quoting would grow control characters six-fold, past that bound.
+      // - The folder is a vault path and the link text passed
+      //   links.isWithinLinkTargetLimit, so the key stays under 16,384
+      //   characters, since a string has no more UTF-16 units than UTF-8
+      //   bytes. V8 hashes a longer string by its length alone, and a Map of
+      //   such keys compares each new key with every key of that length.
+      // - The parts go in unescaped: JSON quoting grows a control character
+      //   to six, which could pass that bound.
       const memoKey = `${posix.dirname(source)}\u0000${linkText}`
       const resolvedTarget =
-        resolvedTargets.get(memoKey) ??
-        resolveLinkTarget({ linkText, notePaths, sourcePath: source })
+        resolvedTargets.get(memoKey) ?? resolveLinkTarget({ linkText, sourcePath: source })
       resolvedTargets.set(memoKey, resolvedTarget)
 
       if (resolvedTarget === target) continue
@@ -1657,6 +1495,7 @@ export const createSearchIndex = (
   /** Re-resolves the "link" rows that name a file new to the index: those can
    *  newly resolve to it, or move to it from a longer path with the same name. */
   const reResolveLinksNaming = (linkNames: readonly string[]): void => {
+    // The statement reads the names as one JSON array, through json_each.
     reResolveLinks(selectLinksByNameStmt.all(JSON.stringify(linkNames)))
   }
 
@@ -1670,7 +1509,9 @@ export const createSearchIndex = (
    *  - The caller owns entry filtering and stat (fs work stays out of the
    *    write transaction); this just writes the rows.
    *  - rebuildFromVault calls it after clearing the links table, so no stored
-   *    link needs re-resolving. */
+   *    link needs re-resolving.
+   *  - It runs inside rebuildFromVault's transaction, whose catch clears both
+   *    path lists when the transaction rolls back. */
   const indexNonMarkdownFiles = (
     files: ReadonlyArray<{ relativePath: string; bytes: number }>,
   ): number => {
@@ -1679,6 +1520,7 @@ export const createSearchIndex = (
       const baseFilename = links.stripExtension(basename(file.relativePath))
       upsertNonMdFileStmt.run(file.relativePath, basePath, baseFilename, file.bytes)
     }
+    cachedNonMarkdownPaths = undefined
     return files.length
   }
 
@@ -1689,17 +1531,20 @@ export const createSearchIndex = (
     const baseFilename = links.stripExtension(basename(filePath))
 
     // The wrap is immediate because it reads whether the path is new before
-    // its first write (see the busy_timeout comment above).
-    db.transaction(() => {
+    // its first write (see the busy_timeout comment where the database opens).
+    const upsertNonMdFileRow = db.transaction(() => {
       const isNewFile = !selectNonMdPathStmt.get(filePath)
       upsertNonMdFileStmt.run(filePath, basePath, baseFilename, bytes)
 
       if (!isNewFile) return
 
+      cachedNonMarkdownPaths = undefined
+
       // A link names the file by its full filename ([[photo.png]]) or by its
-      // stem ([[Trip Route]] for Trip Route.canvas), the basename column.
-      // pathToLinkName strips only a lowercase ".md" ending, so each name
-      // gives two keys. For the stem `x.MD` of `x.MD.png`:
+      // stem ([[Trip Route]] for Trip Route.canvas). A link's key drops a
+      // trailing ".md" only when the link spells it in lowercase, yet the
+      // folded pass can match either spelling, so each name gives two keys.
+      // For the stem `x.MD` of `x.MD.png`:
       // - lowercased first, it keys as `x`, like the link [[x.md]], which the
       //   folded pass matches to this file;
       // - with ".md" added, it keys as `x.md`, like the link [[x.MD]].
@@ -1709,16 +1554,22 @@ export const createSearchIndex = (
         links.pathToLinkName(`${fileName}.md`),
       ])
       reResolveLinksNaming(linkNames)
-    }).immediate()
+    }).immediate
+
+    runListChangingWrite(upsertNonMdFileRow)
   }
 
   /** Removes a non-markdown file. Called by the file watcher on unlink. The
    *  links that resolved to it re-resolve, to another file or to their text. */
   const removeNonMdFile = (filePath: string): void => {
-    db.transaction(() => {
-      deleteNonMdFileStmt.run(filePath)
-      reResolveLinksTo(filePath)
-    })()
+    runListChangingWrite(
+      db.transaction(() => {
+        const { changes } = deleteNonMdFileStmt.run(filePath)
+
+        if (changes > 0) cachedNonMarkdownPaths = undefined
+        reResolveLinksTo(filePath)
+      }),
+    )
   }
 
   // ── File content indexing ─────────────────────────────────────
@@ -1799,14 +1650,8 @@ export const createSearchIndex = (
           })
         }
 
-        // A link typed in a text card resolves as the same link in a note. A
-        // canvas with no such link skips reading every note path from the table.
-        const notePaths = canvasLinks.textCardLinks.length > 0 ? getNotePathsForCanvasLinks() : []
-        insertTypedLinks({
-          source: params.filePath,
-          linkTexts: canvasLinks.textCardLinks,
-          notePaths,
-        })
+        // A link typed in a text card resolves as the same link in a note.
+        insertTypedLinks({ source: params.filePath, linkTexts: canvasLinks.textCardLinks })
       }
     })()
 
@@ -2074,7 +1919,7 @@ export const createSearchIndex = (
     // throw rolls back), so code after the wrap runs on both paths
     // — no link-phase work may live there. The wrap is immediate because it
     // reads whether the note is new before its first write.
-    db.transaction(() => {
+    const upsertNoteRows = db.transaction(() => {
       const isNewNote = !selectNotePathStmt.get(note.path)
       const upsertedNoteRow = upsertNotesStmt.get(
         note.path,
@@ -2095,6 +1940,10 @@ export const createSearchIndex = (
 
       // RETURNING yields the inserted or updated row on every upsert.
       if (!upsertedNoteRow) throw new Error(`note upsert returned no row: ${note.path}`)
+
+      // A new note changes the set of notes, so this write's links read the list again.
+      if (isNewNote) cachedNotePaths = undefined
+
       deleteFtsStmt.run(upsertedNoteRow.rowid)
       insertFtsStmt.run({
         rowid: upsertedNoteRow.rowid,
@@ -2149,22 +1998,18 @@ export const createSearchIndex = (
 
       if (skipLinks) return
 
-      const allPaths = selectAllNotePathsStmt.all()
-      const pathList = allPaths.map((row) => row.path)
-
       deleteLinksStmt.run(note.path)
-      insertTypedLinks({
-        source: note.path,
-        linkTexts: links.extractAll(noteBody, frontmatter),
-        notePaths: pathList,
-      })
+      insertTypedLinks({ source: note.path, linkTexts: links.extractAll(noteBody, frontmatter) })
 
       // An edit leaves the set of paths, and so every other link's answer,
-      // unchanged; a new path can claim the links that name it.
+      // unchanged; a new path can claim the links that name it. A note path
+      // ends in a lowercase ".md", so every link that can reach the note
+      // shares this one key.
       if (isNewNote) reResolveLinksNaming([links.pathToLinkName(note.path)])
-    }).immediate()
+    }).immediate
 
-    cachedNotePathsForCanvasLinks = undefined
+    runListChangingWrite(upsertNoteRows)
+
     const sourceVersion = Symbol()
     sourceVersions.set(filePath, sourceVersion)
 
@@ -2660,19 +2505,23 @@ export const createSearchIndex = (
 
     // All deletes commit or roll back together — a mid-sequence throw must
     // not leave the note half-removed across notes/FTS/tasks/links.
-    db.transaction(() => {
-      const removedNoteRow = removeNotesStmt.get(filePath)
+    runListChangingWrite(
+      db.transaction(() => {
+        const removedNoteRow = removeNotesStmt.get(filePath)
 
-      if (removedNoteRow) deleteFtsStmt.run(removedNoteRow.rowid)
-      deleteLinksStmt.run(filePath)
-      reResolveLinksTo(filePath)
-      deleteTasksStmt.run(filePath)
-      removeNoteChunksAndVectors(filePath)
-      if (memoryFile) {
-        removeMemoryEntriesForFile(memoryFile)
-      }
-    })()
-    cachedNotePathsForCanvasLinks = undefined
+        if (removedNoteRow) {
+          deleteFtsStmt.run(removedNoteRow.rowid)
+          cachedNotePaths = undefined
+        }
+        deleteLinksStmt.run(filePath)
+        reResolveLinksTo(filePath)
+        deleteTasksStmt.run(filePath)
+        removeNoteChunksAndVectors(filePath)
+        if (memoryFile) {
+          removeMemoryEntriesForFile(memoryFile)
+        }
+      }),
+    )
     sourceVersions.delete(filePath)
   }
 
@@ -2717,7 +2566,7 @@ export const createSearchIndex = (
     )
 
     sourceVersions.clear()
-    cachedNotePathsForCanvasLinks = undefined
+    clearPathListCaches()
 
     // If directory listing fails after this reset, source tables stay empty until the next rebuild.
     db.exec("DELETE FROM notes_fts")
@@ -3076,9 +2925,6 @@ export const createSearchIndex = (
         // resolving targets that the per-note upsertNote pass may have missed
         // (e.g. Note A links to Note B, but Note B was indexed after Note A).
         // Each link resolves as in upsertNote's link step.
-        const allPaths = selectAllNotePathsStmt.all()
-        const pathList = allPaths.map((row) => row.path)
-        cachedNotePathsForCanvasLinks = pathList
 
         // No source write may run during a rebuild, so this second clear
         // normally finds nothing. It stays so that a link written during the
@@ -3097,7 +2943,6 @@ export const createSearchIndex = (
               insertTypedLinks({
                 source: note.relativePath,
                 linkTexts: links.extractAll(parsed.content, parsed.data),
-                notePaths: pathList,
               })
             })()
           } catch (error) {
@@ -3152,7 +2997,7 @@ export const createSearchIndex = (
       })()
     } catch (error) {
       sourceVersions.clear()
-      cachedNotePathsForCanvasLinks = undefined
+      clearPathListCaches()
       throw error
     }
 

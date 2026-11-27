@@ -6226,7 +6226,7 @@ describe("rebuildFromVault", () => {
     ).toBe(1)
   })
 
-  it("does not let LIKE wildcards in the target match unrelated files", async () => {
+  it("matches a _ in a link target only to a _ in a file path", async () => {
     await mkdir(join(vaultDir, "foo/aXb"), { recursive: true })
     await writeFile(join(vaultDir, "source.md"), "# Source\n\nSee [[a_b/c]].\n", "utf8")
     await writeFile(join(vaultDir, "foo/aXb/c.canvas"), "{}", "utf8")
@@ -6388,10 +6388,9 @@ describe("rebuildFromVault", () => {
     ).toBe(0)
   })
 
-  it("resolves a case-differing asset target through the SQL suffix tier's fold", async () => {
-    // The stored path differs from the link target only in case — the SQL
-    // suffix tier must match via LIKE's ASCII fold, mirroring the JS
-    // resolver's foldAsciiCase.
+  it("resolves a case-differing asset target through the suffix tier's ASCII fold", async () => {
+    // The stored path differs from the link target only in case, so only the
+    // path-suffix tier, which folds ASCII case in its first pass, matches it.
     await mkdir(join(vaultDir, "photos"), { recursive: true })
     await writeFile(join(vaultDir, "source.md"), "# Source\n\n![[sunset.png]]\n", "utf8")
     await writeFile(join(vaultDir, "photos", "Sunset.png"), "binary", "utf8")
@@ -7463,6 +7462,35 @@ describe("link-target limits", () => {
     },
     CHILD_TEST_TIMEOUT_MS,
   )
+
+  it(
+    "indexes 125 long missing links beside files 1,000 folders deep in about the time it takes beside shallow files",
+    () => {
+      const helperPath = new URL("./helpers/deep-file-link-growth.ts", import.meta.url)
+      const output = execFileSync(process.execPath, ["--import", "tsx", helperPath.pathname], {
+        encoding: "utf8",
+        timeout: LINEAR_TIMING_CHILD_DEADLINE_MS,
+        killSignal: "SIGKILL",
+        env: { ...process.env, LOG_LEVEL: "error" },
+      })
+      const { measurements } = JSON.parse(output)
+      const [shallow, deep] = measurements
+
+      type Measurement = { label: string; unresolved: number }
+
+      expect(
+        measurements.map(({ label, unresolved }: Measurement) => ({ label, unresolved })),
+      ).toEqual([
+        { label: "shallow", unresolved: 125 },
+        { label: "deep", unresolved: 125 },
+      ])
+      // Each link's cost depends on its own segments, not on how deep the
+      // files sit, so the deep run stays within a small multiple of the
+      // shallow one.
+      expect(deep.leastMs).toBeLessThanOrEqual(Math.max(TIMING_FLOOR_MS, shallow.leastMs) * 4)
+    },
+    CHILD_TEST_TIMEOUT_MS,
+  )
 })
 
 // ── Link rows ───────────────────────────────────────────────────
@@ -7629,6 +7657,41 @@ describe("links table schema", () => {
 
     expect(readLinkRows()).toEqual([
       { source: "source.md", target: "B.md", link_text: "B", link_kind: "link", link_name: "b" },
+    ])
+  })
+})
+
+describe("non-markdown file table schema", () => {
+  it("drops the file-path indexes an earlier release created on the table", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "old-non-md-files-"))
+    onTestFinished(() => rm(directory, { recursive: true, force: true }))
+    const dbPath = join(directory, "index.db")
+    const oldDb = new Database(dbPath)
+    oldDb.exec(`
+      CREATE TABLE non_md_files (
+        path TEXT PRIMARY KEY, base_path TEXT NOT NULL, basename TEXT NOT NULL, bytes INTEGER
+      );
+      CREATE INDEX idx_non_md_base_path ON non_md_files(base_path);
+      CREATE INDEX idx_non_md_basename ON non_md_files(basename);
+      CREATE INDEX idx_non_md_path_nocase ON non_md_files(path COLLATE NOCASE);
+      CREATE INDEX idx_non_md_base_path_nocase ON non_md_files(base_path COLLATE NOCASE);
+      CREATE INDEX idx_non_md_basename_nocase ON non_md_files(basename COLLATE NOCASE);
+    `)
+    oldDb.close()
+
+    createSearchIndex(dbPath)
+
+    const inspect = new Database(dbPath)
+    onTestFinished(() => {
+      inspect.close()
+    })
+    const indexes = inspect
+      .prepare<[], { name: string }>(
+        "SELECT name FROM pragma_index_list('non_md_files') ORDER BY name",
+      )
+      .all()
+    expect(indexes.map((tableIndex) => tableIndex.name)).toEqual([
+      "sqlite_autoindex_non_md_files_1",
     ])
   })
 })
@@ -8544,6 +8607,34 @@ describe("links that differ from their file only in letter case", () => {
       expect(links.resolveAsset({ target, allAssetPaths: assetPaths, sourcePath })).toBe(expected)
     },
   )
+
+  it("leaves a link whose target holds a NUL unresolved, as links.resolveAsset does", () => {
+    index.upsertNonMdFile("dir/x", 100)
+    indexNote("source.md", "[[x\u0000garbage]]\n")
+
+    expect(
+      index.getOutgoingLinks(
+        { path: "source.md", dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT },
+        logger,
+      ),
+    ).toEqual([
+      {
+        path: "x\u0000garbage",
+        title: null,
+        exists: false,
+        kind: "note",
+        bytes: null,
+        daily_note_forward_ref: false,
+      },
+    ])
+    expect(
+      links.resolveAsset({
+        target: "x\u0000garbage",
+        allAssetPaths: ["dir/x"],
+        sourcePath: "source.md",
+      }),
+    ).toBeNull()
+  })
 
   it("leaves a link to a non-ASCII file name in another case unresolved in both resolvers", () => {
     index.upsertNonMdFile("Éclair.png", 100)
@@ -9586,9 +9677,9 @@ describe("file targets written with extensions", () => {
     },
   )
 
-  it("does not let LIKE wildcards in the target match unrelated files via full-path suffix", () => {
-    // Only photo1final.png exists — if the _ in the target were treated as a
-    // LIKE wildcard it would match (1 satisfies _), giving a false resolution.
+  it("matches a _ in a full-path suffix target only to a _ in a file path", () => {
+    // Only photo1final.png exists, so a _ matching any character would give a
+    // false resolution.
     index.upsertNonMdFile("img/photo1final.png", 100)
     index.upsertNote(
       withBodyTags({
@@ -10712,19 +10803,22 @@ describe("canvas note catalog reuse", () => {
     search.upsertNonMdFile("Target.canvas", 100)
     saveCanvas(search, "Target")
     expect(outgoingPaths(search)).toEqual(["Target.canvas"])
+    // Each write that adds or removes a note reads the catalog once, when it
+    // re-resolves the canvas link, and the save after it reuses that read.
+    scans.mockClear()
     search.upsertNote(
       withBodyTags({ filePath: "Target.md", rawContent: "targetamber", fileStat: testStat(1000) }),
       logger,
     )
-    scans.mockClear()
     saveCanvas(search, "Target")
     expect(scans).toHaveBeenCalledTimes(1)
     expect(outgoingPaths(search)).toEqual(["Target.md"])
-    search.removeNote("Target.md")
     scans.mockClear()
+    search.removeNote("Target.md")
     saveCanvas(search, "Target")
     expect(scans).toHaveBeenCalledTimes(1)
     expect(outgoingPaths(search)).toEqual(["Target.canvas"])
+    scans.mockClear()
     search.upsertNote(
       withBodyTags({
         filePath: "Target.md",
@@ -10733,7 +10827,6 @@ describe("canvas note catalog reuse", () => {
       }),
       logger,
     )
-    scans.mockClear()
     saveCanvas(search, "Target")
     saveCanvas(search, "Target")
     expect(scans).toHaveBeenCalledTimes(1)
@@ -10845,6 +10938,237 @@ describe("canvas note catalog reuse", () => {
     await recovered.pdfPass
     saveCanvas(search, "Target")
     expect(outgoingPaths(search)).toEqual(["Target.md"])
+  })
+})
+
+describe("path lists links resolve against", () => {
+  const saveNote = (search: SearchIndex, filePath: string, rawContent: string): void => {
+    search.upsertNote(withBodyTags({ filePath, rawContent, fileStat: testStat(1000) }), logger)
+  }
+  const outgoingPaths = (search: SearchIndex, notePath: string): string[] => {
+    return search
+      .getOutgoingLinks({ path: notePath, dailyNotesFormat: DEFAULT_DAILY_NOTES_FORMAT }, logger)
+      .map((link) => link.path)
+  }
+  const indexedNotePaths = (search: SearchIndex): string[] => {
+    return search
+      .recentNotes({}, logger)
+      .map((note) => note.path)
+      .toSorted()
+  }
+  const INJECTED_FAILURE = "injected failure"
+
+  // Each test fills the path lists before the change under test, so a write
+  // that kept a stale list would be caught:
+  // - most fill them through an edit of an existing note;
+  // - the rebuild tests fill them through a save before the rebuild, or
+  //   through the rebuild's own link pass.
+
+  it("a new note resolves a link to itself and claims a stored link that named it", () => {
+    const search = createSearchIndex(":memory:")
+    saveNote(search, "source.md", "[[New]]")
+    saveNote(search, "source.md", "[[New]] edited")
+
+    saveNote(search, "New.md", "[[New]]")
+
+    expect(outgoingPaths(search, "New.md")).toEqual(["New.md"])
+    expect(outgoingPaths(search, "source.md")).toEqual(["New.md"])
+  })
+
+  it("a removed note's incoming links fall back to their text", () => {
+    const search = createSearchIndex(":memory:")
+    saveNote(search, "Target.md", "# Target")
+    saveNote(search, "source.md", "[[Target]]")
+    saveNote(search, "source.md", "[[Target]] edited")
+    expect(outgoingPaths(search, "source.md")).toEqual(["Target.md"])
+
+    search.removeNote("Target.md")
+
+    expect(outgoingPaths(search, "source.md")).toEqual(["Target"])
+  })
+
+  it("a new non-markdown file claims a stored link that named it", () => {
+    const search = createSearchIndex(":memory:")
+    saveNote(search, "source.md", "![[photo.png]]")
+    saveNote(search, "source.md", "![[photo.png]] edited")
+    expect(outgoingPaths(search, "source.md")).toEqual(["photo.png"])
+
+    search.upsertNonMdFile("assets/photo.png", 100)
+
+    expect(outgoingPaths(search, "source.md")).toEqual(["assets/photo.png"])
+  })
+
+  it("a removed non-markdown file's incoming links fall back to their text", () => {
+    const search = createSearchIndex(":memory:")
+    search.upsertNonMdFile("assets/photo.png", 100)
+    saveNote(search, "source.md", "![[photo.png]]")
+    saveNote(search, "source.md", "![[photo.png]] edited")
+    expect(outgoingPaths(search, "source.md")).toEqual(["assets/photo.png"])
+
+    search.removeNonMdFile("assets/photo.png")
+
+    expect(outgoingPaths(search, "source.md")).toEqual(["photo.png"])
+  })
+
+  it("two edits of an existing note resolve against the same note path list", () => {
+    const search = createSearchIndex(":memory:")
+    saveNote(search, "Target.md", "# Target")
+    saveNote(search, "source.md", "[[Target]]")
+    const originalResolveNoteOrAsset = links.resolveNoteOrAsset
+    const notePathLists = new Set<readonly string[]>()
+    const resolveSpy = vi.spyOn(links, "resolveNoteOrAsset").mockImplementation((params) => {
+      notePathLists.add(params.allPaths)
+      return originalResolveNoteOrAsset(params)
+    })
+    onTestFinished(() => resolveSpy.mockRestore())
+
+    saveNote(search, "source.md", "[[Target]] edited once")
+    saveNote(search, "source.md", "[[Target]] edited twice")
+
+    expect(resolveSpy).toHaveBeenCalledTimes(2)
+    expect(notePathLists.size).toBe(1)
+    expect(outgoingPaths(search, "source.md")).toEqual(["Target.md"])
+  })
+
+  it("an edit after a new note's upsert fails does not resolve to the rolled-back note", () => {
+    const search = createSearchIndex(":memory:")
+    saveNote(search, "source.md", "[[Ghost]]")
+    saveNote(search, "other.md", "# Other")
+    const originalPathToLinkName = links.pathToLinkName
+    // insertLink keys every link through pathToLinkName, so the failure is
+    // limited to the new note's own path, which only its re-resolution step
+    // passes. That step runs after the link step refilled the note list.
+    const pathToLinkNameSpy = vi.spyOn(links, "pathToLinkName").mockImplementation((path) => {
+      if (path === "Ghost.md") throw new Error(INJECTED_FAILURE)
+      return originalPathToLinkName(path)
+    })
+    onTestFinished(() => pathToLinkNameSpy.mockRestore())
+
+    expect(() => saveNote(search, "Ghost.md", "[[other]]")).toThrow(new Error(INJECTED_FAILURE))
+    pathToLinkNameSpy.mockRestore()
+    expect(indexedNotePaths(search)).toEqual(["other.md", "source.md"])
+
+    saveNote(search, "source.md", "[[Ghost]] edited")
+
+    expect(outgoingPaths(search, "source.md")).toEqual(["Ghost"])
+  })
+
+  it("an edit after a note removal fails still resolves to the note the rollback kept", () => {
+    const search = createSearchIndex(":memory:")
+    saveNote(search, "Target.md", "# Target")
+    saveNote(search, "source.md", "[[Target]]")
+    saveNote(search, "other.md", "[[Target]]")
+    // The removal's re-resolution reads the note list, without Target.md, and
+    // then calls links.resolveNoteOrAsset, which fails.
+    const resolveSpy = vi.spyOn(links, "resolveNoteOrAsset").mockImplementationOnce(() => {
+      throw new Error(INJECTED_FAILURE)
+    })
+    onTestFinished(() => resolveSpy.mockRestore())
+
+    expect(() => search.removeNote("Target.md")).toThrow(new Error(INJECTED_FAILURE))
+    resolveSpy.mockRestore()
+    expect(indexedNotePaths(search)).toEqual(["Target.md", "other.md", "source.md"])
+
+    saveNote(search, "other.md", "[[Target]] edited")
+
+    expect(outgoingPaths(search, "other.md")).toEqual(["Target.md"])
+  })
+
+  it("an edit after a new file's upsert fails does not resolve to the rolled-back file", () => {
+    const search = createSearchIndex(":memory:")
+    saveNote(search, "source.md", "![[photo.png]]")
+    saveNote(search, "other.md", "# Other")
+    // The new file's re-resolution reads the file list, with the new file, and
+    // then calls links.resolveNoteOrAsset, which fails.
+    const resolveSpy = vi.spyOn(links, "resolveNoteOrAsset").mockImplementationOnce(() => {
+      throw new Error(INJECTED_FAILURE)
+    })
+    onTestFinished(() => resolveSpy.mockRestore())
+
+    expect(() => search.upsertNonMdFile("assets/photo.png", 100)).toThrow(
+      new Error(INJECTED_FAILURE),
+    )
+    resolveSpy.mockRestore()
+
+    saveNote(search, "other.md", "![[photo.png]]")
+
+    expect(outgoingPaths(search, "other.md")).toEqual(["photo.png"])
+  })
+
+  it("an edit after a file removal fails still resolves to the file the rollback kept", () => {
+    const search = createSearchIndex(":memory:")
+    search.upsertNonMdFile("assets/photo.png", 100)
+    saveNote(search, "source.md", "![[photo.png]]")
+    saveNote(search, "other.md", "# Other")
+    // The removal's re-resolution reads the file list, without the file, and
+    // then calls links.resolveNoteOrAsset, which fails.
+    const resolveSpy = vi.spyOn(links, "resolveNoteOrAsset").mockImplementationOnce(() => {
+      throw new Error(INJECTED_FAILURE)
+    })
+    onTestFinished(() => resolveSpy.mockRestore())
+
+    expect(() => search.removeNonMdFile("assets/photo.png")).toThrow(new Error(INJECTED_FAILURE))
+    resolveSpy.mockRestore()
+
+    saveNote(search, "other.md", "![[photo.png]]")
+
+    expect(outgoingPaths(search, "other.md")).toEqual(["assets/photo.png"])
+  })
+
+  /** A vault holding source.md, which links to photo.png, and assets/photo.png. */
+  const createPhotoVault = async (): Promise<string> => {
+    const directory = await mkdtemp(join(tmpdir(), "path-lists-rebuild-"))
+    onTestFinished(() => rm(directory, { recursive: true, force: true }))
+    await mkdir(join(directory, "assets"))
+    await writeFile(join(directory, "source.md"), "![[photo.png]]")
+    await writeFile(join(directory, "assets/photo.png"), "binary")
+    return directory
+  }
+  const rebuildParams = (vaultPath: string) => {
+    return {
+      vaultPath,
+      bodyTagParser: inProcessBodyTagParser,
+      pdfExtractor: createInProcessPdfExtractor(vaultPath),
+      maxFileBytes: 10_000_000,
+    }
+  }
+
+  it("a rebuild resolves file links against the files it indexes, not a list read before it", async () => {
+    const vaultPath = await createPhotoVault()
+    const search = createSearchIndex(":memory:")
+    search.upsertNonMdFile("old/photo.png", 100)
+    saveNote(search, "source.md", "![[photo.png]]")
+    expect(outgoingPaths(search, "source.md")).toEqual(["old/photo.png"])
+
+    const rebuilt = await search.rebuildFromVault(rebuildParams(vaultPath), logger)
+    await rebuilt.embedding
+    await rebuilt.pdfPass
+
+    expect(outgoingPaths(search, "source.md")).toEqual(["assets/photo.png"])
+  })
+
+  it("a link saved after a rebuild rolls back does not resolve to a file the rollback removed", async () => {
+    const vaultPath = await createPhotoVault()
+    // The canvas is indexed after the rebuild's link pass has read the file
+    // list, and its failure rolls the whole rebuild back.
+    await writeFile(join(vaultPath, "failed.canvas"), JSON.stringify({ nodes: [], edges: [] }))
+    const search = createSearchIndex(":memory:", undefined, undefined, { fileToolsEnabled: true })
+    const rebuildLogger = logger.child({ operation: "controlled-rebuild" })
+    vi.spyOn(rebuildLogger, "debug").mockImplementation((message) => {
+      if (message === "indexed file content") throw new Error(INJECTED_FAILURE)
+    })
+    vi.spyOn(rebuildLogger, "warn").mockImplementation(() => {
+      throw new Error(INJECTED_FAILURE)
+    })
+
+    await expect(search.rebuildFromVault(rebuildParams(vaultPath), rebuildLogger)).rejects.toThrow(
+      new Error(INJECTED_FAILURE),
+    )
+    expect(indexedNotePaths(search)).toEqual([])
+
+    saveNote(search, "other.md", "![[photo.png]]")
+
+    expect(outgoingPaths(search, "other.md")).toEqual(["photo.png"])
   })
 })
 
