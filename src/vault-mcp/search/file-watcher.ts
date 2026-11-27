@@ -171,6 +171,11 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
   //   current one.
   const pendingEmbeds = new Map<string, Promise<void>>()
 
+  // Each note path's newest content still waiting for its embedding step. A
+  // queued step takes the entry when it starts, so edits made while the index's
+  // queue is busy keep one copy of the note, not one per edit.
+  const pendingNoteEmbeds = new Map<string, { content: string; sourceVersion: symbol }>()
+
   /**
    * Each path's event token, which guards the path's read; source versions
    * guard the embedding that runs after it. The index mints a source version
@@ -496,6 +501,8 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
         logger,
       )
 
+      pendingNoteEmbeds.set(relativePath, { content, sourceVersion })
+
       // Each path queues model work; recovering a rejected predecessor
       // allows later jobs to run after a transient failure.
       const previousEmbed = pendingEmbeds.get(relativePath) ?? Promise.resolve()
@@ -507,8 +514,17 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
           })
         })
         .then(() => {
+          const embedRequest = pendingNoteEmbeds.get(relativePath)
+
+          // An earlier step already took the newest content
+          if (!embedRequest) return
+          pendingNoteEmbeds.delete(relativePath)
           return search.embedNote(
-            { notePath: relativePath, rawContent: content, sourceVersion },
+            {
+              notePath: relativePath,
+              rawContent: embedRequest.content,
+              sourceVersion: embedRequest.sourceVersion,
+            },
             logger,
           )
         })

@@ -1920,6 +1920,60 @@ describe("file watcher — obsolete events and embedding queues", () => {
     },
   )
 
+  it("embeds only a note's newest content when its edits wait behind another note's held job", async () => {
+    const vector = new Float32Array(384).fill(0.1)
+    const blockerEntered = Promise.withResolvers<undefined>()
+    const releaseBlocker = Promise.withResolvers<Float32Array>()
+    onTestFinished(() => releaseBlocker.resolve(vector))
+    const embedder = {
+      embedText: vi.fn(async (text: string) => {
+        if (text === "blocker\n\nheldtopaz") {
+          blockerEntered.resolve(undefined)
+          return releaseBlocker.promise
+        }
+        return vector
+      }),
+      embedBatch: vi.fn(async (texts: readonly string[]) => texts.map(() => vector)),
+    }
+    const { testVault, search, fire } = await createControlledWatcher(embedder)
+    const newestEmbedFinished = Promise.withResolvers<undefined>()
+    const realNoteEmbed = search.embedNote
+    const embedNoteSpy = vi
+      .spyOn(search, "embedNote")
+      .mockImplementation(async (params, requestLogger) => {
+        await realNoteEmbed(params, requestLogger)
+        if (params.rawContent === "thirdedit") newestEmbedFinished.resolve(undefined)
+      })
+
+    await writeFile(join(testVault, "blocker.md"), "heldtopaz")
+    await fire("change", "blocker.md")
+    await blockerEntered.promise
+
+    // The first edit's step starts at once and waits in the index's queue
+    // behind the held job; the next two wait behind it on the note's own chain
+    for (const editContent of ["firstedit", "secondedit", "thirdedit"]) {
+      await writeFile(join(testVault, "note.md"), editContent)
+      await fire("change", "note.md")
+    }
+    releaseBlocker.resolve(vector)
+    await newestEmbedFinished.promise
+
+    // Source versions are symbols the index mints, so only their type is known
+    expect(embedNoteSpy).toHaveBeenCalledTimes(3)
+    expect(embedNoteSpy).toHaveBeenNthCalledWith(
+      2,
+      { notePath: "note.md", rawContent: "firstedit", sourceVersion: expect.any(Symbol) },
+      logger,
+    )
+    expect(embedNoteSpy).toHaveBeenNthCalledWith(
+      3,
+      { notePath: "note.md", rawContent: "thirdedit", sourceVersion: expect.any(Symbol) },
+      logger,
+    )
+    expect(embedder.embedText).toHaveBeenCalledTimes(2)
+    expect(embedder.embedText).toHaveBeenLastCalledWith("note\n\nthirdedit")
+  })
+
   it.each([{ fileName: "page.html" }, { fileName: "page.htm" }])(
     "indexes the visible text of $fileName and replaces it when the page changes",
     async ({ fileName }) => {
