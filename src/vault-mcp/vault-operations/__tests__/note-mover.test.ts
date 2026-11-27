@@ -495,6 +495,26 @@ describe("moveNote — link rewriting forms", () => {
     })
   })
 
+  it("rewrites a table link with a space before its escaped pipe", async () => {
+    const { writeFixture, moveNote, readNote } = setupVault()
+    await writeFixture("Foo.md", "content\n")
+    await writeFixture("Hub.md", "| [[Foo \\|display]] | A topic |\n")
+
+    const result = await moveNote({
+      oldPath: "Foo.md",
+      newPath: "Bar.md",
+      backlinkSources: ["Hub.md"],
+    })
+
+    expect(await readNote("Hub.md")).toBe("| [[Bar\\|display]] | A topic |\n")
+    expect(result).toEqual({
+      moved_to: "Bar.md",
+      links_updated: 1,
+      updated_notes: ["Hub.md"],
+      pruned_empty_folders: 0,
+    })
+  })
+
   it("preserves an escaped pipe in a non-table context", async () => {
     const { writeFixture, moveNote, readNote } = setupVault()
     await writeFixture("Foo.md", "content\n")
@@ -1017,10 +1037,13 @@ describe("moveNote — selectivity (must-not-rewrite cases)", () => {
     })
   })
 
-  it("rewrites links inside a Templater expression in a note it rewrites", async () => {
+  it("rewrites links inside a Templater expression in a note it rewrites for a link outside one", async () => {
     const { writeFixture, moveNote, readNote } = setupVault()
     await writeFixture("Old.md", "content\n")
-    await writeFixture("Hub.md", '<% tp.file.include("[[Old]]") %> and <% "[x](Old.md)" %>\n')
+    await writeFixture(
+      "Hub.md",
+      'See [[Old]].\n<% tp.file.include("[[Old]]") %> and <% "[x](Old.md)" %>\n',
+    )
 
     const result = await moveNote({
       oldPath: "Old.md",
@@ -1029,11 +1052,11 @@ describe("moveNote — selectivity (must-not-rewrite cases)", () => {
     })
 
     expect(await readNote("Hub.md")).toBe(
-      '<% tp.file.include("[[New]]") %> and <% "[x](New.md)" %>\n',
+      'See [[New]].\n<% tp.file.include("[[New]]") %> and <% "[x](New.md)" %>\n',
     )
     expect(result).toEqual({
       moved_to: "New.md",
-      links_updated: 2,
+      links_updated: 3,
       updated_notes: ["Hub.md"],
       pruned_empty_folders: 0,
     })

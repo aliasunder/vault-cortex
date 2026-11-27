@@ -1,10 +1,11 @@
 /** Moves/renames a note and rewrites every vault-wide link that resolves to it,
  *  mirroring Obsidian's built-in rename. Reuses the link grammar, parsing,
  *  destination encoding and resolution from ../obsidian-markdown/links.ts so
- *  the rewriter and indexer read links alike. They differ in one place: the
- *  indexer skips Templater expressions, and the rewriter rewrites a link in
- *  one only in a note it rewrites for another link, since its backlink scan
- *  reads links as the indexer does.
+ *  the rewriter and indexer read links alike, with one difference:
+ *  - the indexer skips links inside Templater expressions;
+ *  - the rewriter rewrites a link inside a Templater expression only in the
+ *    moved note and in a note it already rewrites for another link, because
+ *    its backlink scan skips Templater expressions as the indexer does.
  *
  *  How it comes together — building blocks first, orchestrator last:
  *    1. Target classification — decides IF a link needs rewriting and what form
@@ -267,9 +268,9 @@ const rewriteTarget = (
     originalExtension.toLowerCase() === posix.extname(desiredTarget).toLowerCase()
   const keepExtension = grammarWritesExtension && carriesResolvedExtension
 
-  // A markdown link that starts with "./" or "../" keeps that start. Without
-  // it, Obsidian reads a link holding a ":", such as a ":" in its heading, as
-  // a URL.
+  // A markdown link that starts with "./" or "../" keeps a relative start.
+  // Without one, Obsidian reads a link holding a ":", such as a ":" in its
+  // heading, as a URL.
   const writesRelativeStart =
     grammar === "markdown" && (rawTarget.startsWith("./") || rawTarget.startsWith("../"))
 

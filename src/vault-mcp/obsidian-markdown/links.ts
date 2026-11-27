@@ -67,6 +67,12 @@ const WIKILINK_PARTS = /^(!?)\[\[([^\]#|]+)(#[^\]|]*)?(\|[^\]]+)?\]\]$/
  *  outside a table, because Obsidian does not allow a backslash in a file name. */
 const stripEscapedPipe = (target: string): string => target.replace(/\\$/, "")
 
+/** Trims a wikilink's target and drops a table-pipe escape, then trims the
+ *  space before that escape too, as Obsidian stores `[[Note \|Alias]]` as `Note`. */
+const readStoredWikilinkTarget = (rawTarget: string): string => {
+  return stripEscapedPipe(rawTarget.trim()).trimEnd()
+}
+
 // ── Types ───────────────────────────────────────────────────────
 
 /** A link found in a single line, with the character offsets needed to splice a
@@ -909,21 +915,21 @@ const scanMarkdownLinks = (params: {
   // `[[[…\\\\…]`.
   let checkedTextEnd = -1
 
-  const isLinkTextCloser = (position: number): boolean => {
-    return maskedText[position] === "]" && !isEscapedAt(maskedText, position)
+  const isUnescapedAt = (position: number, character: string): boolean => {
+    return maskedText[position] === character && !isEscapedAt(maskedText, position)
   }
 
   const findLinkTextEnd = (start: number): number => {
     textEnd = Math.max(textEnd, start + 1)
 
     if (textEnd === checkedTextEnd) return textEnd
-    while (textEnd < maskedText.length && !isLinkTextCloser(textEnd)) textEnd++
+    while (textEnd < maskedText.length && !isUnescapedAt(textEnd, "]")) textEnd++
     checkedTextEnd = textEnd
     return textEnd
   }
 
   for (let start = 0; start < maskedText.length; start++) {
-    if (maskedText[start] !== "[" || isEscapedAt(maskedText, start)) continue
+    if (!isUnescapedAt(start, "[")) continue
 
     const openParen = findLinkTextEnd(start) + 1
 
@@ -936,7 +942,7 @@ const scanMarkdownLinks = (params: {
 
     // An unescaped `!` directly before the `[` makes the link an embed.
     const markerStart = start - 1
-    const opensEmbed = maskedText[markerStart] === "!" && !isEscapedAt(maskedText, markerStart)
+    const opensEmbed = isUnescapedAt(markerStart, "!")
     const span = opensEmbed
       ? toMarkdownLinkSpan({ text: destinationText, start: markerStart, link, linkKind: "embed" })
       : toMarkdownLinkSpan({ text: destinationText, start, link, linkKind: "link" })
@@ -983,15 +989,22 @@ const maskTemplaterExpressions = (text: string): string => {
   return pieces.join("")
 }
 
+/** Matches what ends a wikilink's target as Obsidian reads it: `#`, `|` or
+ *  `]]`, but not a lone `]`. */
+const WIKILINK_TARGET_DELIMITER = /[#|]|\]\]/
+
 /** Calls the visitors for each link in a body line, wikilinks first and then
  *  markdown links:
  *  - `maskedLine` is `line` with the spans a caller skips blanked to spaces;
- *    markdown links are found in it and their destinations read from `line`,
- *    as scanMarkdownLinks describes;
+ *    markdown links are found in it and their destinations and titles read
+ *    from `line`, as scanMarkdownLinks describes;
  *  - a wikilink inside a markdown link's destination or title is part of that
  *    link, as Obsidian reads `[x](a.md "[[b]]")` and
  *    `[x](https://example.com "[[b]]")`, so wikilinks are found with every
- *    complete destination and title blanked too. */
+ *    complete destination and title blanked too;
+ *  - a wikilink's target ends at its first `#`, `|` or `]]` in `line`, inside
+ *    a code span or a Templater expression too, as Obsidian stores
+ *    ``[[a `|` b]]`` as ``a ` ``. */
 const scanBodyLineLinks = (params: {
   maskedLine: string
   line: string
@@ -1002,7 +1015,8 @@ const scanBodyLineLinks = (params: {
   const markdownSpans: MarkdownLinkSpan[] = []
   // The masked line with each destination and title blanked, built in pieces
   // as the scan reports them in text order. A wikilink cannot cross a link's
-  // `](`, so the blanking cuts no wikilink in two.
+  // `](`, so the blanking removes only wikilinks that start inside a
+  // destination or title.
   const wikilinkLinePieces: string[] = []
   // How much of the masked line the pieces already hold.
   let copiedThrough = 0
@@ -1023,14 +1037,24 @@ const scanBodyLineLinks = (params: {
       ? maskedLine
       : [...wikilinkLinePieces, maskedLine.slice(copiedThrough)].join("")
 
-  scanWikilinks(wikilinkLine, visitWikilink)
+  // Masking only blanks characters, so the first delimiter in `line` is never
+  // after the one the masked scan stopped at.
+  const visitWikilinkAsWritten = (span: LinkSpan): void => {
+    const delimiterOffset = line
+      .slice(span.targetStart, span.targetEnd)
+      .search(WIKILINK_TARGET_DELIMITER)
+    const targetEnd = delimiterOffset === -1 ? span.targetEnd : span.targetStart + delimiterOffset
+    visitWikilink({ ...span, targetEnd })
+  }
+
+  scanWikilinks(wikilinkLine, visitWikilinkAsWritten)
   for (const span of markdownSpans) visitMarkdownLink(span)
 }
 
 /** Finds a body line's wikilinks, then its markdown links (not in text order),
- *  outside inline code, as links.extractFromBody reads them except inside
- *  Templater expressions. Offsets and each match's `text` come from `line` as
- *  written. */
+ *  outside inline code, as links.extractFromBody reads them. Unlike
+ *  extractFromBody, it also finds links inside Templater expressions.
+ *  Offsets and each match's `text` come from `line` as written. */
 const matchLinksInLine = (line: string): LinkMatch[] => {
   const matches: LinkMatch[] = []
   scanBodyLineLinks({
@@ -1107,9 +1131,10 @@ const splitWikilink = (linkText: string): WikilinkParts | null => {
  *    moveNote can rewrite all of them;
  *  - path and extension come from the stored target, because percent-encoding
  *    can hide the dot (photo%2Epng) or span the extension (photo.p%6Eg);
- *  - the link text is read with its inline code blanked, as in its line. A
- *    code span that reaches outside the link starts after its `(`, where the
- *    text is read as written either way. */
+ *  - `linkText` is scanned with its inline code blanked, as its line was. A
+ *    code span that starts inside the link and ends after it must start after
+ *    the `(`, since one starting earlier would have hidden the link from the
+ *    line scan, and the destination and title are read as written. */
 const splitMarkdownLink = (linkText: string): MarkdownLinkParts | null => {
   const spans: MarkdownLinkSpan[] = []
   scanMarkdownLinks({
@@ -1203,9 +1228,9 @@ const joinToSourceFolder = (sourcePath: string, target: string): string | null =
 
 // ── Extraction ──────────────────────────────────────────────────
 
-/** Extracts link targets from a note body, skipping fenced code blocks and inline
- *  code spans. Returns deduplicated raw targets (pre-resolution) within the
- *  link-target limit. */
+/** Extracts link targets from a note body, skipping links inside fenced code
+ *  blocks, inline code spans and Templater expressions. Returns deduplicated
+ *  raw targets (pre-resolution) within the link-target limit. */
 const extractFromBody = (content: string): string[] => {
   const targets = new Set<string>()
 
@@ -1221,7 +1246,7 @@ const extractFromBody = (content: string): string[] => {
         // Obsidian reads a wikilink's target as written, backticks and
         // Templater expressions included (``[[a `b` c]]`` stores ``a `b` c``).
         const rawTarget = text.slice(targetStart, targetEnd)
-        const target = stripEscapedPipe(rawTarget.trim())
+        const target = readStoredWikilinkTarget(rawTarget)
 
         if (isExtractableTarget(target)) targets.add(target)
       },
@@ -1253,7 +1278,7 @@ const extractFromFrontmatter = (data: Record<string, unknown>): string[] => {
     if (typeof frontmatterValue === "string") {
       scanWikilinks(frontmatterValue, ({ targetStart, targetEnd }) => {
         const rawTarget = frontmatterValue.slice(targetStart, targetEnd)
-        const target = stripEscapedPipe(rawTarget.trim())
+        const target = readStoredWikilinkTarget(rawTarget)
 
         if (isExtractableTarget(target)) targets.add(target)
       })

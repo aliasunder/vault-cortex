@@ -139,7 +139,9 @@ describe("matchLinksInLine", () => {
         for (const { text, inCode } of classifyLines(document)) {
           if (inCode) continue
           for (const match of maskLikeExtraction(text).matchAll(legacyWiki)) {
-            const target = (match[1] ?? "").trim().replace(/\\$/, "")
+            // Obsidian also drops the space before an escaped pipe
+            // (`[[Note \|Alias]]` stores `Note`).
+            const target = (match[1] ?? "").trim().replace(/\\$/, "").trimEnd()
 
             if (target) expectedTargets.add(target)
           }
@@ -715,6 +717,12 @@ describe("extractFromBody", () => {
     expect(targets).toEqual(["sessions/log-a", "sessions/log-b"])
   })
 
+  // Obsidian 1.15.1 stores `[[Note \|Alias]]` in a table as `Note`.
+  it("drops the space before an escaped pipe in a table cell", () => {
+    const targets = links.extractFromBody("| [[Note \\|Alias]] | Topic |")
+    expect(targets).toEqual(["Note"])
+  })
+
   it("strips the escaped pipe backslash from aliased wikilinks outside tables", () => {
     const targets = links.extractFromBody("See [[Note A\\|display text]].")
     expect(targets).toEqual(["Note A"])
@@ -751,6 +759,21 @@ describe("extractFromBody", () => {
 // ── extractFromBody against Obsidian ─────────────────────────────
 
 describe("extractFromBody against Obsidian 1.15.1", () => {
+  // Splits each markdown link the rewriter finds in `input`, returning the
+  // text its parts rebuild and the target its path and extension spell.
+  const splitMarkdownLinksIn = (input: string) => {
+    return links
+      .matchLinksInLine(input)
+      .filter((linkMatch) => linkMatch.kind === "markdown")
+      .map(({ text }) => {
+        const parts = links.splitMarkdownLink(text)
+        return {
+          rebuilt: parts && `${parts.prefix}${parts.writtenTarget}${parts.heading}${parts.suffix}`,
+          storedTarget: parts && `${parts.path}${parts.extension}`,
+        }
+      })
+  }
+
   // Each case holds the links Obsidian 1.15.1's metadata cache stored for its
   // input, recorded by running the app's worker as a black box, and the
   // targets extraction returns: each link with its heading removed and
@@ -1030,14 +1053,8 @@ describe("extractFromBody against Obsidian 1.15.1", () => {
       const markdownMatches = links
         .matchLinksInLine(input)
         .filter((linkMatch) => linkMatch.kind === "markdown")
-      const splits = markdownMatches.map(({ text }) => {
-        const parts = links.splitMarkdownLink(text)
-        return {
-          rebuilt: parts && `${parts.prefix}${parts.writtenTarget}${parts.heading}${parts.suffix}`,
-          storedTarget: parts && `${parts.path}${parts.extension}`,
-        }
-      })
-      expect(splits).toEqual(
+
+      expect(splitMarkdownLinksIn(input)).toEqual(
         expected.map((storedTarget, index) => ({
           rebuilt: markdownMatches[index]?.text,
           storedTarget,
@@ -1089,15 +1106,41 @@ describe("extractFromBody against Obsidian 1.15.1", () => {
     { input: '[x](Old.md#[[Old]] "`c`")', obsidian: ["Old.md#[[Old]]"], expected: ["Old.md"] },
     { input: "[x](Old.md#`h`)", obsidian: ["Old.md#`h`"], expected: ["Old.md"] },
     { input: "[x](<Old.md#a `b` c>)", obsidian: ["Old.md#a `b` c"], expected: ["Old.md"] },
+  ]
+
+  it.each(inlineCodeInDestinationCases)("extracts $expected from $input", ({ input, expected }) => {
+    expect(links.extractFromBody(input)).toEqual(expected)
+  })
+
+  // Obsidian reads a wikilink's target as written: backticks and Templater
+  // expressions stay in it, and its first `#`, `|` or `]]` ends it even
+  // inside one, but a lone `]` does not.
+  const wikilinkTargetAsWrittenCases = [
     { input: "[[a `b` c]]", obsidian: ["a `b` c"], expected: ["a `b` c"] },
     {
       input: "[[Daily/<% tp.date.yesterday() %>]]",
       obsidian: ["Daily/<% tp.date.yesterday() %>"],
       expected: ["Daily/<% tp.date.yesterday() %>"],
     },
+    { input: "[[a `|` b]]", obsidian: ["a `"], expected: ["a `"] },
+    { input: "[[a `#h` c]]", obsidian: ["a `#h` c"], expected: ["a `"] },
+    { input: "[[a `]]` b]]", obsidian: ["a `"], expected: ["a `"] },
+    { input: "[[Daily/<% a|b %>]]", obsidian: ["Daily/<% a"], expected: ["Daily/<% a"] },
+    { input: "[[Daily/<% a#b %>]]", obsidian: ["Daily/<% a#b %>"], expected: ["Daily/<% a"] },
+    { input: "[[a `]` b]]", obsidian: ["a `]` b"], expected: ["a `]` b"] },
+    {
+      input: '[[<% tp.date.now("gggg-[W]ww") %>]]',
+      obsidian: ['<% tp.date.now("gggg-[W]ww") %>'],
+      expected: ['<% tp.date.now("gggg-[W]ww") %>'],
+    },
+    {
+      input: '[[Weekly/<% tp.date.now("gggg-[W]ww") %>|This week]]',
+      obsidian: ['Weekly/<% tp.date.now("gggg-[W]ww") %>'],
+      expected: ['Weekly/<% tp.date.now("gggg-[W]ww") %>'],
+    },
   ]
 
-  it.each(inlineCodeInDestinationCases)("extracts $expected from $input", ({ input, expected }) => {
+  it.each(wikilinkTargetAsWrittenCases)("extracts $expected from $input", ({ input, expected }) => {
     expect(links.extractFromBody(input)).toEqual(expected)
   })
 
@@ -1109,23 +1152,15 @@ describe("extractFromBody against Obsidian 1.15.1", () => {
     { input: "[x](Old.md`v2`)", storedTarget: "Old.md`v2`" },
     { input: "[x](<Report `draft` [[Old]].md>)", storedTarget: "Report `draft` [[Old]].md" },
     { input: '[x](<a b.md> "`t` [[Old]]")', storedTarget: "a b.md" },
+    { input: "[x](Old.md#`h`)", storedTarget: "Old.md" },
+    { input: "[x](<Old.md#a `b` c>)", storedTarget: "Old.md" },
+    { input: '[x](Old.md#[[Old]] "`c`")', storedTarget: "Old.md" },
   ]
 
   it.each(backtickDestinationSplitCases)(
     "splits $input into parts that rebuild it and spell $storedTarget",
     ({ input, storedTarget }) => {
-      const markdownMatches = links
-        .matchLinksInLine(input)
-        .filter((linkMatch) => linkMatch.kind === "markdown")
-      const splits = markdownMatches.map(({ text }) => {
-        const parts = links.splitMarkdownLink(text)
-        return {
-          rebuilt: parts && `${parts.prefix}${parts.writtenTarget}${parts.heading}${parts.suffix}`,
-          storedTarget: parts && `${parts.path}${parts.extension}`,
-        }
-      })
-
-      expect(splits).toEqual([{ rebuilt: input, storedTarget }])
+      expect(splitMarkdownLinksIn(input)).toEqual([{ rebuilt: input, storedTarget }])
     },
   )
 })
@@ -1372,6 +1407,10 @@ describe("extractFromFrontmatter", () => {
         related: ["[[sessions/log-a\\|log-a]]"],
       }),
     ).toEqual(["sessions/log-a"])
+  })
+
+  it("drops the space before an escaped pipe in a frontmatter wikilink", () => {
+    expect(links.extractFromFrontmatter({ related: ["[[Note \\|Alias]]"] })).toEqual(["Note"])
   })
 
   it("extracts wikilinks to non-markdown assets in frontmatter", () => {
