@@ -1404,6 +1404,45 @@ This is a note with many words that should be truncated when using a small snipp
       expect(reranked).toBe(true)
     })
 
+    it("cuts a long snippet to 32,768 code points before the reranker reads it", async () => {
+      const rerankedDocumentLengths: number[] = []
+      const recordingReranker = {
+        rerankPairs: vi.fn((_query: string, documents: readonly string[]) => {
+          rerankedDocumentLengths.push(...documents.map((document) => [...document].length))
+          return Promise.resolve(documents.map(() => 0))
+        }),
+      }
+      const rerankIndex = createSearchIndex(
+        ":memory:",
+        createHybridMockEmbedder(),
+        recordingReranker,
+      )
+      const noteASourceVersion = rerankIndex.upsertNote(
+        withBodyTags({ filePath: "a.md", rawContent: NOTE_A, fileStat: testStat(1000) }),
+        logger,
+      )
+      await rerankIndex.embedNote(
+        { sourceVersion: noteASourceVersion, notePath: "a.md", rawContent: NOTE_A },
+        logger,
+      )
+      // Not embedded yet, so the reranker reads its keyword snippet, which keeps
+      // the one 50,000-character word whole
+      rerankIndex.upsertNote(
+        withBodyTags({
+          filePath: "long.md",
+          rawContent: `findmeword ${"z".repeat(50_000)}`,
+          fileStat: testStat(2000),
+        }),
+        logger,
+      )
+
+      const { results, reranked } = await rerankIndex.hybridSearch({ query: "findmeword" }, logger)
+
+      expect(reranked).toBe(true)
+      expect(results.map((result) => result.path)).toEqual(["a.md", "long.md"])
+      expect(Math.max(...rerankedDocumentLengths)).toBe(32_768)
+    })
+
     it("sets reranked to false on FTS-only fallback", async () => {
       const noEmbedIndex = createSearchIndex(":memory:")
       noEmbedIndex.upsertNote(

@@ -16,7 +16,7 @@ import { sanitizeFtsQuery, sanitizeFtsQueryAnyTerm } from "./fts-query.js"
 import { computeRrfScores } from "./rrf.js"
 import { sigmoid } from "./reranker.js"
 import type { Reranker } from "./reranker.js"
-import { truncateModelInput } from "./chunker.js"
+import { memoryEntryModelText } from "./chunker.js"
 import {
   rowToMetadata,
   rowToTaskEntry,
@@ -554,11 +554,7 @@ const tryRerankMemoryCandidates = async (
   try {
     const rerankScores = await reranker.rerankPairs(
       query,
-      candidates.map((candidate) => {
-        return truncateModelInput(
-          `${candidate.row.file} > ${candidate.row.section}\n${candidate.row.entry_text}`,
-        )
-      }),
+      candidates.map((candidate) => memoryEntryModelText(candidate.row)),
     )
     // Convert raw reranker scores to probabilities (0–1) via sigmoid —
     // raw scores are unbounded (-10 to +10 typical); sigmoid maps them to

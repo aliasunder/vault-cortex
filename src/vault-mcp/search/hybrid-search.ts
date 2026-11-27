@@ -9,6 +9,7 @@ import { sanitizeFtsQuery } from "./fts-query.js"
 import { computeRrfScores } from "./rrf.js"
 import { blendScores } from "./reranker.js"
 import type { Reranker } from "./reranker.js"
+import { truncateModelInput } from "./chunker.js"
 import {
   noteRowToSearchResult,
   fileContentRowToSearchResult,
@@ -311,10 +312,12 @@ const tryRerank = async (params: {
 
       // Kind marker only — the chunk text already opens with the file's
       // title, so prefixing the filename again would just repeat it.
+      // A snippet keeps whole words and a chunk stored before the cut can be
+      // longer, so each document gets the chunks' cut too.
       if (params.rerankKindPrefix && result.kind === "file") {
-        return `${fileKindLabel(result.path)}: ${documentText}`
+        return truncateModelInput(`${fileKindLabel(result.path)}: ${documentText}`)
       }
-      return documentText
+      return truncateModelInput(documentText)
     })
 
     const rerankScores = await params.reranker.rerankPairs(params.query, documentTexts)

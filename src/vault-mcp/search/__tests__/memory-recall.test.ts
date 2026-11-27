@@ -257,10 +257,17 @@ describe("memoryRecall", () => {
 
     const { entries } = await index.memoryRecall({ query: "pacing recovery" }, logger)
 
-    expect(entries.map((entry) => entry.date)).toEqual(["2026-07-02"])
-    const [recalledEntry] = entries
-    const fullModelText = `Opinions > ${recalledEntry?.section}\n${recalledEntry?.text}`
-    expect(fullModelText.length).toBeGreaterThan(32_768)
+    // The recalled entry keeps its full text; only the models' copy is cut
+    const entryText = `- **2026-07-02**: Pacing ${"recovery ".repeat(5_000)}`
+    expect(entries).toEqual([
+      {
+        file: "Opinions",
+        section: "Working style (newest first)",
+        date: "2026-07-02",
+        text: entryText,
+      },
+    ])
+    const fullModelText = `Opinions > Working style (newest first)\n${entryText}`
     expect(embedder.embedBatch).toHaveBeenCalledTimes(1)
     expect(embedder.embedBatch).toHaveBeenCalledWith([fullModelText.slice(0, 32_768)])
     expect(reranker.rerankPairs).toHaveBeenCalledTimes(1)
