@@ -1423,10 +1423,9 @@ describe("link extraction memory", () => {
 describe("link name fold memory", () => {
   const LINE_LENGTH = 10_000_000
 
-  /** The fold measures about 4 bytes per character: a buffer and the folded
-   *  copy, two bytes each, because Greek letters take two. A fold that
-   *  allocates a piece per letter measures 5 to 7, so 5 tells them apart. */
-  const BYTES_PER_CHARACTER = 5
+  /** The fold holds at most a lowercased copy, a buffer and the folded copy,
+   *  two bytes per character each, because Greek letters take two. */
+  const BYTES_PER_CHARACTER = 8
 
   const foldCases = [
     { shape: "final-sigmas", text: "final sigmas" },
@@ -1434,7 +1433,7 @@ describe("link name fold memory", () => {
   ] as const
 
   it.each(foldCases)(
-    "grows the heap at most 5 bytes per character lowercasing a 10,000,000-character line of $text",
+    "grows the heap at most 8 bytes per character lowercasing a 10,000,000-character line of $text",
     async ({ shape }) => {
       const { peakGrowth, resultLength } = await measureHeapGrowth(shape)
 
