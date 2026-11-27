@@ -326,6 +326,7 @@ describe("splitWikilink", () => {
     { label: "a `]` just before the closing pair", input: "[[a]]]" },
     { label: "an empty target before a heading", input: "[[#h]]" },
     { label: "an empty target before an alias", input: "[[|x]]" },
+    { label: "an escape alone before an alias", input: "[[\\|x]]" },
   ])("returns null for $label", ({ input }) => {
     expect(links.splitWikilink(input)).toBeNull()
   })
@@ -1119,6 +1120,13 @@ describe("extractFromBody against Obsidian 1.15.1", () => {
       input: "[x](<&#x0110000;.md>)",
       obsidian: [`${REPLACEMENT_CHARACTER}.md`],
       expected: [`${REPLACEMENT_CHARACTER}.md`],
+    },
+    // More significant digits than any code point holds, decoded without
+    // parse-entities.
+    {
+      input: "[x](<&#0011141120;a.md>) [y](<&#x01100000;b.md>)",
+      obsidian: [`${REPLACEMENT_CHARACTER}a.md`, `${REPLACEMENT_CHARACTER}b.md`],
+      expected: [`${REPLACEMENT_CHARACTER}a.md`, `${REPLACEMENT_CHARACTER}b.md`],
     },
     { input: "[x](<&#65.md>)", obsidian: ["&#65.md"], expected: ["&"] },
     // A backslash run before a title's opening quote, odd or even, ends the link.

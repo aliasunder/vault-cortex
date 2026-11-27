@@ -23,7 +23,7 @@ const WHITESPACE = /\s/
 const ASCII_PUNCTUATION = /[!-/:-@[-`{-~]/
 
 /** A backslash before ASCII punctuation, which Obsidian drops from a stored
- *  markdown link. Global — use only with replace. */
+ *  markdown link. Global — use only through replaceAllInBatches, which copies it. */
 const ESCAPED_PUNCTUATION = new RegExp(String.raw`\\(${ASCII_PUNCTUATION.source})`, "g")
 
 /** An ASCII letter or digit, the characters parse-entities reads as part of a
@@ -56,11 +56,25 @@ const REPLACEMENT_CHARACTER = String.fromCodePoint(0xfffd)
 
 const NO_BREAK_SPACE = "\u00a0"
 
-/** Every no-break space. Global — use only with replace. */
+/** Every no-break space. Global — use only through replaceAllInBatches, which copies it. */
 const NO_BREAK_SPACES = new RegExp(NO_BREAK_SPACE, "g")
 
 /** Keeps the character an ESCAPED_PUNCTUATION match escapes. */
-const dropEscapeBackslash = (match: RegExpExecArray): string => match[0].slice("\\".length)
+const keepEscapedCharacter = (match: RegExpExecArray): string => match[0].slice("\\".length)
+
+/** Drops each backslash before ASCII punctuation, as a stored markdown link does. */
+const dropEscapeBackslashes = (text: string): string => {
+  return replaceAllInBatches({
+    text,
+    pattern: ESCAPED_PUNCTUATION,
+    replacement: keepEscapedCharacter,
+  })
+}
+
+/** Turns each no-break space into a space, as a stored markdown link does. */
+const replaceNoBreakSpaces = (text: string): string => {
+  return replaceAllInBatches({ text, pattern: NO_BREAK_SPACES, replacement: () => " " })
+}
 
 /** A link that starts in the linking note's folder (`./`) or its parent
  *  (`../`), which Obsidian keeps as a vault link even when it holds a `:`. */
@@ -71,7 +85,7 @@ const RELATIVE_LINK_START = /^\.\.?\//
 const LINE_TERMINATOR = /[\n\r\u2028\u2029]/
 
 /** Matches inline code spans so links inside backticks (e.g. `[[Note]]`) can be
- *  ignored. Global — use only with replace. */
+ *  ignored. Global — use only through replaceAllInBatches, which copies it. */
 const INLINE_CODE_RE = /`+[^`\n]*`+/g
 
 /** Treats a trailing backslash as Obsidian's table-pipe escape (`[[path\|alias]]`), even
@@ -195,9 +209,11 @@ const scanWikilinks = (text: string, visit: (span: LinkSpan) => void): void => {
 
 /** Decodes the numeric reference a piece opens with and keeps the rest of the
  *  piece as written. parse-entities decodes one only when a `;` ends a
- *  nonempty digit run, and it reads the run whole, so a long run reaches it
- *  without its leading zeros, which do not change the code point
- *  (`&#0000065;` is `A`). */
+ *  nonempty digit run, and it reads the run whole, so:
+ *  - a run reaches it without its leading zeros, which do not change the
+ *    code point (`&#0000065;` is `A`);
+ *  - a run with more significant digits than CODE_POINT_DIGITS allows
+ *    decodes to REPLACEMENT_CHARACTER without reaching it. */
 const decodeNumericReference = (piece: string): string => {
   const reference = NUMERIC_REFERENCE.exec(piece)
 
@@ -208,10 +224,10 @@ const decodeNumericReference = (piece: string): string => {
 
   if (!digits || !semicolon) return piece
   const significantDigits = digits.replace(LEADING_ZEROS, "")
-  const longestDigits = hexMarker ? CODE_POINT_DIGITS.hex : CODE_POINT_DIGITS.decimal
+  const maxSignificantDigits = hexMarker ? CODE_POINT_DIGITS.hex : CODE_POINT_DIGITS.decimal
   const rest = piece.slice(reference[0].length)
 
-  if (significantDigits.length > longestDigits) return `${REPLACEMENT_CHARACTER}${rest}`
+  if (significantDigits.length > maxSignificantDigits) return `${REPLACEMENT_CHARACTER}${rest}`
   return `${parseEntities(`&#${hexMarker}${significantDigits};`, REFERENCE_OPTIONS)}${rest}`
 }
 
@@ -346,21 +362,13 @@ const readStoredTarget = (params: {
   linkKind: MarkdownLinkKind
 }): StoredTarget | null => {
   const { content, linkKind } = params
-  const unescaped = replaceAllInBatches({
-    text: content,
-    pattern: ESCAPED_PUNCTUATION,
-    replacement: dropEscapeBackslash,
-  })
+  const unescaped = dropEscapeBackslashes(content)
   const { decoded, hashSource } = decodeCharacterReferences(unescaped)
   const decodedLink = decodeUriOrNull(decoded) ?? (linkKind === "embed" ? decoded : null)
 
   if (decodedLink === null) return null
 
-  const storedLink = replaceAllInBatches({
-    text: decodedLink,
-    pattern: NO_BREAK_SPACES,
-    replacement: () => " ",
-  }).trim()
+  const storedLink = replaceNoBreakSpaces(decodedLink).trim()
   // Obsidian checks how the link starts before percent-decoding and trimming, so
   // `%2E%2E/a:b.md` and `< ../a:b.md>` are still URLs.
   const readsAsUrl = storedLink.includes(":") && !RELATIVE_LINK_START.test(decoded)
@@ -380,7 +388,7 @@ const readStoredTarget = (params: {
   return { target, rawHeadingOffset }
 }
 
-/** A run of percent escapes. Global — use only with replace. */
+/** A run of percent escapes. Global — use only through replaceAllInBatches, which copies it. */
 const PERCENT_ESCAPE_RUN = /(?:%[0-9A-Fa-f]{2})+/g
 
 /** A character a link's destination decodes: an escape backslash, a percent
@@ -402,22 +410,14 @@ const decodeLinkSpellings = (text: string): string => {
   // passes below.
   if (!LINK_DECODED_CHARACTER.test(text)) return text
 
-  const unescaped = replaceAllInBatches({
-    text,
-    pattern: ESCAPED_PUNCTUATION,
-    replacement: dropEscapeBackslash,
-  })
+  const unescaped = dropEscapeBackslashes(text)
   const { decoded } = decodeCharacterReferences(unescaped)
   const percentDecoded = replaceAllInBatches({
     text: decoded,
     pattern: PERCENT_ESCAPE_RUN,
     replacement: ([run]) => decodeUriOrNull(run) ?? run,
   })
-  return replaceAllInBatches({
-    text: percentDecoded,
-    pattern: NO_BREAK_SPACES,
-    replacement: () => " ",
-  })
+  return replaceNoBreakSpaces(percentDecoded)
 }
 
 /** Characters a backslash keeps literal in both destination forms:
@@ -1091,8 +1091,10 @@ const scanBodyLineLinks = (params: {
     },
   })
 
-  if (copiedThrough > 0) wikilinkLineJoiner.push(maskedLine.slice(copiedThrough))
-  const wikilinkLine = copiedThrough > 0 ? wikilinkLineJoiner.join() : maskedLine
+  const blankedAnySpan = copiedThrough > 0
+
+  if (blankedAnySpan) wikilinkLineJoiner.push(maskedLine.slice(copiedThrough))
+  const wikilinkLine = blankedAnySpan ? wikilinkLineJoiner.join() : maskedLine
 
   // Masking only blanks characters, so each delimiter found in `line` is never
   // after the one the masked scan stopped at, and both searches stay inside
@@ -1162,12 +1164,13 @@ const stripExtension = (filePath: string): string => {
 const FINAL_SIGMA_CODE_UNIT = "ς".charCodeAt(0)
 const SIGMA_CODE_UNIT = "σ".charCodeAt(0)
 
-/** Lowercases text with "ς" folded to "σ", because toLowerCase turns a capital
- *  "Σ" into either one depending on what follows it, so one name could
- *  otherwise lowercase two ways (`ΟΣ` alone as `ος`, before `.md` as `οσ`).
- *  The fold copies the code units into one buffer instead of replacing, since
- *  a replace allocates a piece per "ς", about 30 bytes of heap per character
- *  on a long text dense with them; a lone surrogate is copied as it is. */
+/** Lowercases text with "ς" folded to "σ":
+ *  - toLowerCase turns a capital "Σ" into either one depending on what follows
+ *    it, so one name could otherwise lowercase two ways (`ΟΣ` alone as `ος`,
+ *    before `.md` as `οσ`);
+ *  - the fold copies the code units into one buffer, since a replace, even in
+ *    batches, allocates a piece per "ς", about 30 bytes of heap per character on
+ *    a long text dense with them; a lone surrogate is copied as it is. */
 const lowercaseLinkName = (text: string): string => {
   const lowercase = text.toLowerCase()
 
@@ -1204,23 +1207,24 @@ const pathToLinkName = (path: string): string => {
  *    into the heading, or into the alias when there is no heading, so the
  *    rebuilt link keeps it and the target reads as the index stores it
  *    (`[[a\ |b]]` stores `a`).
- *  String searches find the parts: a pattern that tests each `]` with a
- *  lookahead runs out of regex stack on a part of millions of characters. */
+ *  - The parts are found with string searches, because a pattern that tests
+ *    each `]` with a lookahead runs out of regex stack on a part of millions
+ *    of characters. */
 const splitWikilink = (linkText: string): WikilinkParts | null => {
   const embed = linkText.startsWith("!") ? "!" : ""
   const opener = `${embed}[[`
 
   if (!linkText.startsWith(opener) || !linkText.endsWith("]]")) return null
-  const inner = linkText.slice(opener.length, -"]]".length)
+  const bracketContent = linkText.slice(opener.length, -"]]".length)
 
   // A `]]` inside, or a `]` just before the closing pair, means the text runs
   // past the link's first `]]`.
-  if (`${inner}]`.includes("]]")) return null
-  const delimiterIndex = inner.search(WIKILINK_TARGET_DELIMITER)
-  const rawTarget = delimiterIndex === -1 ? inner : inner.slice(0, delimiterIndex)
+  if (bracketContent.includes("]]") || bracketContent.endsWith("]")) return null
+  const delimiterIndex = bracketContent.search(WIKILINK_TARGET_DELIMITER)
+  const rawTarget = delimiterIndex === -1 ? bracketContent : bracketContent.slice(0, delimiterIndex)
 
   if (!rawTarget) return null
-  const afterTarget = inner.slice(rawTarget.length)
+  const afterTarget = bracketContent.slice(rawTarget.length)
   const aliasIndex = afterTarget.indexOf("|")
   const heading = aliasIndex === -1 ? afterTarget : afterTarget.slice(0, aliasIndex)
   const alias = afterTarget.slice(heading.length)
@@ -1228,6 +1232,9 @@ const splitWikilink = (linkText: string): WikilinkParts | null => {
 
   if (!trimmedTarget.endsWith("\\")) return { embed, target: rawTarget, heading, alias }
   const target = trimmedTarget.slice(0, -1)
+
+  // An escape alone (`[[\|x]]`) leaves no target, which the index skips too.
+  if (!target) return null
   const escape = rawTarget.slice(target.length)
 
   if (heading) return { embed, target, heading: `${escape}${heading}`, alias }
