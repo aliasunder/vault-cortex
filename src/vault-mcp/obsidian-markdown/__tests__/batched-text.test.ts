@@ -38,6 +38,19 @@ describe("replaceAllInBatches", () => {
     },
   )
 
+  it("replaces from the start of the text when the pattern's lastIndex is past 0", () => {
+    const pattern = /\\(.)/g
+    pattern.lastIndex = 2
+
+    const replaced = replaceAllInBatches({
+      text: "\\a\\b\\c",
+      pattern,
+      replacement: ([escape]) => escape.slice(1),
+    })
+
+    expect(replaced).toBe("abc")
+  })
+
   it("returns the same string when nothing matches", () => {
     const text = "no escapes here"
 

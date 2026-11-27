@@ -45,7 +45,9 @@ export const replaceAllInBatches = (params: {
   // How much of the text the joiner already holds.
   let copiedThrough = 0
 
-  for (const match of text.matchAll(pattern)) {
+  // matchAll starts at the regex's lastIndex, which an earlier exec may have
+  // left past 0; a copy starts at 0, as replace does.
+  for (const match of text.matchAll(new RegExp(pattern))) {
     joiner.push(text.slice(copiedThrough, match.index))
     joiner.push(replacement(match))
     copiedThrough = match.index + match[0].length
