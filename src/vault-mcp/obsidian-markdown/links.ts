@@ -479,8 +479,6 @@ const extractFromFrontmatter = (data: Record<string, unknown>): string[] => {
  *  units, counts as one. */
 const codePointLength = (path: string): number => [...path].length
 
-/** Lowercases ASCII letters only, the fold resolveAsset compares
- *  non-markdown paths with. */
 const foldAsciiCase = (path: string): string => {
   return path.replace(/[A-Z]/g, (letter) => letter.toLowerCase())
 }
@@ -737,14 +735,13 @@ const notePathForComparison = (path: string, letterCase: LetterCase): string => 
   }
 }
 
-/** The form of an asset path or link target that one pass compares. The
- *  folded form lowercases ASCII letters only, because folding every letter
- *  would change which file an existing link names. */
+/** The form of an asset path or link target that one pass compares. */
 const assetPathForComparison = (path: string, letterCase: LetterCase): string => {
   switch (letterCase) {
     case "exact":
       return path
     case "folded":
+      // Folding every letter would change which file an existing link names.
       return foldAsciiCase(path)
   }
 }
