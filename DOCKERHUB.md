@@ -22,7 +22,7 @@
 > This is an abbreviated version for Docker Hub. See the full README for quick-start guides, authentication details, and development instructions.
 
 
-**Vault Cortex** is a standalone MCP server that gives any AI agent **hybrid search, task management, structured memory, and read/write access** to your [Obsidian](https://obsidian.md) vault. No plugins, no running Obsidian, no separate bridge. One Docker container, your vault folder, a full tool suite + guided prompts. Run it on a remote server with Obsidian Sync, and the same vault is accessible from your phone, claude.ai, or any remote MCP client, secured with OAuth 2.1. Deploy it with one click or self-host it; either way, the vault is always yours.
+**Vault Cortex** is a standalone MCP server that gives any AI agent **hybrid search, task management, structured memory, and read/write access** to your [Obsidian](https://obsidian.md) vault, from your laptop or your phone. No plugins, no running Obsidian, no separate bridge. One Docker container, your vault folder, a full tool suite + guided prompts. Run it on a remote server with Obsidian Sync, and the same vault is accessible from your phone, claude.ai, or any remote MCP client, secured with OAuth 2.1. Deploy it with one click or self-host it; either way, the vault is always yours.
 
 
 ## What you get
@@ -42,17 +42,17 @@
 
 <p align="center"><em>All three demos run on Claude mobile. The vault is on a remote server, not the phone.</em></p>
 
+**Tested across a 15-day trip through Europe.** 30+ sessions from a phone, 216 tool calls, zero laptop access needed. Writes in one session were immediately available in the next, across cities and days.
+
 - **[Remote access](https://github.com/aliasunder/vault-cortex#remote-access-from-anywhere)** — works from your phone, a remote server, or any MCP client via OAuth 2.1. One click on Render or Railway gets you there with no server to manage; a VPS works too.
-- **[Plugin-free](https://github.com/aliasunder/vault-cortex#how-it-works)** — Obsidian doesn't need to be running. The server works directly with `.md` files on disk. Headless sync keeps the vault current.
-- **[Hybrid search](https://github.com/aliasunder/vault-cortex#hybrid-search)** — FTS5 keyword matching + vector semantic similarity via RRF fusion, refined by cross-encoder reranking for intent-heavy queries. Keywords stay precise on exact terms and jargon; vectors find notes even when your words differ from the vault's.
 - **[Structured memory](https://github.com/aliasunder/vault-cortex#memory)** — dated, append-only entries accumulate into a personal knowledge layer, auto-initialized for AI personalization. Topic recall answers "what do I think about X?" with the current take and the dated history behind it — evolution included.
 - **[Tasks](https://github.com/aliasunder/vault-cortex#tasks)** — Kanban-aware task queries and updates: triage by status, dates, or priority, then complete, reprioritize, or move tasks between lanes in one call. Completing a recurring task spawns its next occurrence. Parses both [Tasks plugin](https://publish.obsidian.md/tasks/) emoji and [Dataview](https://blacksmithgu.github.io/obsidian-dataview/) inline-field formats.
-- **[Link graph](https://github.com/aliasunder/vault-cortex#tools)** — backlinks, outgoing links, and orphan detection across the vault
+- **[Hybrid search](https://github.com/aliasunder/vault-cortex#hybrid-search)** — FTS5 keyword matching + vector semantic similarity via RRF fusion, refined by cross-encoder reranking for intent-heavy queries. Keywords stay precise on exact terms and jargon; vectors find notes even when your words differ from the vault's.
 - **[Files](https://github.com/aliasunder/vault-cortex#files)** — read the vault's non-markdown files too: images arrive as actual images (shrunk to fit when needed), PDFs as structured text or rendered pages, canvases as readable outlines, data files, HTML pages, and scripts as text. Canvases, Bases, and other text files can be written back, and any non-markdown file can be deleted
-- **[Obsidian-native](https://github.com/aliasunder/vault-cortex#properties)** — understands frontmatter, wikilinks, tags, headings, and daily notes
+- **[Obsidian-native](https://github.com/aliasunder/vault-cortex#properties)** — understands frontmatter, wikilinks, tags, headings, and [daily notes](https://github.com/aliasunder/vault-cortex#daily-notes)
+  - **[Link graph](https://github.com/aliasunder/vault-cortex#tools)** — backlinks, outgoing links, and orphan detection across the vault
+- **[Plugin-free](https://github.com/aliasunder/vault-cortex#how-it-works)** — Obsidian doesn't need to be running. The server works directly with `.md` files on disk. Headless sync keeps the vault current.
 - **[Guided workflows](https://github.com/aliasunder/vault-cortex#prompts)** — built-in prompts for vault health, memory review, and daily reconciliation — assembled from live vault data each time
-
-**Tested across a 15-day trip through Europe.** 30+ sessions from a phone, 216 tool calls, zero laptop access needed. Writes in one session were immediately available in the next, across cities and days.
 
 ---
 
@@ -62,6 +62,8 @@
 See the [full Quick Start guide](https://github.com/aliasunder/vault-cortex#quick-start) for local setup (2 minutes with Docker), one-click hosting on Render or Railway, remote deployment with Obsidian Sync, and MCP client configuration.
 
 ## Tools
+
+Reads and edits are sized to the agent's context. `vault_read_note` can return just a note's properties, its heading outline, one section, or a window of lines instead of the whole note. `vault_replace_span` and `vault_delete_span` find a block by a short fragment of its first and last lines, and `vault_insert_at_anchor` places new lines beside a line found the same way, so the agent edits a block without reproducing it.
 
 | Category | Tool | Description |
 | --------------- | ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
@@ -108,10 +110,12 @@ See the [full Quick Start guide](https://github.com/aliasunder/vault-cortex#quic
 Tools are model-driven — the assistant calls them. **Prompts** are workflows _you_ trigger. Each one queries the search index, link graph, and memory layer at invocation time, then assembles the results with guided instructions — so the session starts grounded in your vault's actual state, not assumptions.
 
 | Prompt | Arguments | What it does |
-| ------------------- | --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| ------------------- | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `vault-orientation` | — | Surveys vault stats, folder distribution, property adoption rates (flags low adoption), orphans, broken link count, tags, recent notes, and the memory layer — with contextual tool suggestions |
-| `memory-review` | `file?`, `max_chars?` | Structural overview (scope callouts, section entry counts) + dated content as a timeline. Guided reflection: evolution narrative, scope-fit, backfill gaps, and coverage analysis — append-only by default, pruning proposed only for `entry-policy: living` files. Hidden when `MEMORY_ENABLED=false`, `READONLY_MODE=true`, or `DISABLED_TOOLS` includes `vault_update_memory`. |
+| `memory-review` | `file?`, `max_chars?` | Structural overview (scope callouts, section entry counts) + dated content as a timeline. Guided reflection: evolution narrative, scope-fit, backfill gaps, and coverage analysis — append-only by default, pruning proposed only for `entry-policy: living` files. |
 | `daily-review` | `date?`, `max_chars?` | Reconciles a day — daily note, vault-wide task status (due/overdue, scheduled), modified notes, outgoing links (broken-link detection), and backlinks — surfaces what happened, what's open, and what needs follow-up |
+
+`memory-review` is hidden when `MEMORY_ENABLED=false`, `READONLY_MODE=true` or `DISABLED_TOOLS` includes `vault_update_memory`.
 
 Prompts adapt to your configuration (`MEMORY_DIR`, daily-notes settings) and work for any vault out of the box. Pass `max_chars` to cap embedded content if your client has payload limits.
 
@@ -133,41 +137,24 @@ Vault Cortex indexes every [property](https://help.obsidian.md/Editing+and+forma
 
 ## Configuration
 
-All settings are environment variables with sensible defaults. Some defaults derive from other settings — the Default column shows each derivation, and a value you set replaces the whole derived default. Remote deployments also forward Obsidian Sync's own settings — `DEVICE_NAME`, `SYNC_MODE`, `CONFLICT_STRATEGY`, `SYNC_CONFIGS`, `SYNC_EXCLUDED_FOLDERS`, `SYNC_FILE_TYPES` — documented in the [remote guide's configuration table](https://github.com/aliasunder/vault-cortex/tree/main/deploy/remote/README.md#configuration).
+All settings are environment variables with sensible defaults. The table lists the required settings and the switches most installs change; every setting, with its default and limits, is in the [local](https://github.com/aliasunder/vault-cortex/tree/main/deploy/local/README.md#configuration) and [remote](https://github.com/aliasunder/vault-cortex/tree/main/deploy/remote/README.md#configuration) guides' configuration tables, which also cover Obsidian Sync's own settings.
 
 | Variable | Required for | Default | Description |
-| --------------------------- | ------------ | -------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| ---------------------- | ------------ | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `MCP_AUTH_TOKEN` | All | — | Bearer token for authentication (also the JWT signing key) |
-| `VAULT_PATH` | Local | — | Host path to your vault (bind mount source; remote uses a named volume). Must not contain `*`, `?`, or `[` — rejected at startup. |
-| `PUBLIC_URL` | Remote | — | Public URL for OAuth discovery metadata. Filled in automatically on Render and Railway (from `RENDER_EXTERNAL_URL` or `RAILWAY_PUBLIC_DOMAIN`) when left unset |
-| `OBSIDIAN_AUTH_TOKEN` | — | — | Obsidian Sync auth token. Leave empty to sign in through the `/setup` page after deploy; or the CLI's [`get-sync-token`](https://github.com/aliasunder/vault-cortex/blob/main/cli/README.md#get-sync-token) captures it for you |
+| `VAULT_PATH` | Local | — | Host path to your vault. Must not contain `*`, `?`, or `[` — rejected at startup. |
+| `PUBLIC_URL` | Remote | — | Public URL clients connect to, used for OAuth discovery. Filled in automatically on Render and Railway when left unset |
 | `VAULT_NAME` | Remote | — | Exact name of your Obsidian vault (case-sensitive) |
-| `VAULT_PASSWORD` | — | — | End-to-end encryption password, if your vault has one. Leave empty otherwise. |
-| `STORAGE_ROOT` | — | — | One directory for everything that must persist — the vault, the search index and its models, and Obsidian Sync state — for container hosting platforms that allow a single persistent volume (Railway, Render). Mount the volume there and set this to the same path. Must not contain `*`, `?`, or `[` — rejected at startup. |
-| `EMBEDDING_ENABLED` | — | `true` | Set `false` to disable the embedding pipeline — skips model download, vector tables, embedding passes, and hybrid search. Search falls back to FTS5 keyword matching. |
-| `RERANK_MODE` | — | `blended` | Cross-encoder reranking mode: `blended` applies position-aware score blending after RRF fusion (~200ms added latency), `none` skips reranking. Only takes effect when `EMBEDDING_ENABLED` is true. |
-| `MEMORY_ENABLED` | — | `true` | Set `false` to fully disable the memory layer — hides memory tools, skips bootstrap, omits memory from server metadata. `MEMORY_DIR` still supplies the defaults for `PROTECTED_PATHS` and `ORPHAN_EXCLUDE_FOLDERS` when `false`. |
-| `FILE_TOOLS_ENABLED` | — | `true` | Set `false` to hide file tools (`vault_read_file`, `vault_write_file`, `vault_delete_file`, `vault_list_files`). To keep reading files but turn off writing and deleting them, set `DISABLED_TOOLS=vault_write_file,vault_delete_file` instead. |
+| `EMBEDDING_ENABLED` | — | `true` | Set `false` for keyword-only search: no model download, no vector index, no hybrid search. |
+| `RERANK_MODE` | — | `blended` | `blended` reranks results with the cross-encoder (~200ms added latency); `none` skips reranking. Only takes effect when `EMBEDDING_ENABLED` is true. |
+| `MEMORY_ENABLED` | — | `true` | Set `false` to hide the memory tools and skip creating the memory folder. |
+| `FILE_TOOLS_ENABLED` | — | `true` | Set `false` to hide the file tools. To keep reading files but turn off writing and deleting them, set `DISABLED_TOOLS=vault_write_file,vault_delete_file` instead. |
 | `READONLY_MODE` | — | `false` | Set `true` to hide every tool that changes the vault and skip memory folder auto-creation — connected clients can read and search but never edit. |
-| `DISABLED_TOOLS` | — | — | Hide individual tools by name, comma-separated (e.g. `vault_delete_note,vault_move_note`). Names match the Tool column in the [tools table](https://github.com/aliasunder/vault-cortex#tools). Subtractive only — it cannot re-enable a tool another setting hides. An unknown tool name stops the server at startup, so typos surface immediately. |
-| `MEMORY_DIR` | — | `About Me` | Vault folder for structured memory files |
-| `PROTECTED_PATHS` | — | `MEMORY_DIR`, daily notes folder | Folders whose notes and files can't be deleted, whose notes can't be moved, and that no note can be moved into; their notes stay editable. The default daily notes folder is read from `DAILY_NOTES_FOLDER` or `.obsidian/daily-notes.json` (default `Daily Notes`); see [Daily notes](https://github.com/aliasunder/vault-cortex#daily-notes) for root and empty settings. A value you set replaces both default folders. |
-| `ORPHAN_EXCLUDE_FOLDERS` | — | daily notes folder, `Templates`, `MEMORY_DIR` | Folders excluded from orphan detection. The daily notes folder is read from `DAILY_NOTES_FOLDER` or `.obsidian/daily-notes.json` (default `Daily Notes`); see [Daily notes](https://github.com/aliasunder/vault-cortex#daily-notes) for root and empty settings. Set a list to replace all defaults, or `ORPHAN_EXCLUDE_FOLDERS=,` to exclude nothing. An empty value uses the defaults. |
-| `DAILY_NOTES_FOLDER` | — | from `daily-notes.json` | Sets the folder your daily notes live in. When unset, read from `.obsidian/daily-notes.json`; `Daily Notes` when that file is missing or unreadable. See [Daily notes](https://github.com/aliasunder/vault-cortex#daily-notes). |
-| `DAILY_NOTES_FORMAT` | — | from `daily-notes.json` | Sets the daily note filename format — same tokens as Obsidian's daily note date format setting. When unset, read from `.obsidian/daily-notes.json`, falling back to `YYYY-MM-DD`. See [Daily notes](https://github.com/aliasunder/vault-cortex#daily-notes). |
+| `DISABLED_TOOLS` | — | — | Hide individual tools by name, comma-separated (e.g. `vault_delete_note,vault_move_note`); names match the Tool column in the [tools table](https://github.com/aliasunder/vault-cortex#tools). It cannot re-enable a tool another setting hides, and an unknown name stops the server at startup. |
+| `PROTECTED_PATHS` | — | `MEMORY_DIR`, daily notes folder | Folders whose notes and files can't be deleted, whose notes can't be moved, and that no note can be moved into; their notes stay editable. A value you set replaces both default folders. |
 | `TZ` | — | `UTC` | IANA timezone for timestamps and daily note resolution |
-| `SERVICE_DOCUMENTATION_URL` | — | GitHub repo URL | URL returned in OAuth discovery metadata |
-| `LOG_LEVEL` | — | `info` | Logging verbosity: `debug`, `info`, `warn`, `error` |
-| `LOG_DIR` | — | `/data/logs` (remote), `$STORAGE_ROOT/data/logs` (single-volume), `none` (local) | Directory for log files that survive container re-creation. The container's own log (what `docker logs` shows) is always written, but Docker discards it whenever the container is recreated — on image updates or config changes. Date-stamped files under `LOG_DIR` live on the data volume and survive. `none` keeps only the container log. |
-| `LOG_RETENTION_DAYS` | — | `90` | Days kept; startup and daily cleanup. Digits only; `0` keeps today. Invalid values warn and use `90`. |
-| `LOG_MAX_DAILY_MB` | — | `25` | Daily file cap in whole MB ≥1 or `none`; resets at midnight in `TZ` (default UTC). Console continues. |
-| `WINDOWS_MODE` | — | `false` | On Windows? Set `true`. Switches the file watcher to polling, and note moves and new files from `vault_write_file` to rename-based writes, so a vault on a `C:` drive works through Docker Desktop. Safe to leave on for any Windows setup; unneeded on macOS/Linux/WSL2. |
-| `MAX_FILE_BYTES` | — | `52428800` (50 MiB) | Maximum file size `vault_read_file` will read (in bytes). Files exceeding this are rejected before reading, and a larger PDF is searchable by its name only. Raise for vaults with very large individual files. |
-| `MAX_IMAGE_OUTPUT_BYTES` | — | `49152` (48 KiB) | Byte budget for images delivered by `vault_read_file`, in binary bytes before base64 encoding. Images exceeding this are downscaled and recompressed to fit. Sized for the tightest mainstream MCP client cap; raise for clients that accept larger responses. |
-| `MAX_PDF_RENDER_PAGES` | — | `5` | Maximum PDF pages to render as images when `raw: true` is set on `vault_read_file`. The per-page byte budget is `MAX_IMAGE_OUTPUT_BYTES` divided evenly across the rendered pages — fewer pages means higher quality each. |
-| `TRASH_RETENTION_DAYS` | — | `30` | Days a note or file deleted under Obsidian's default "Move to system trash" setting stays in `.trash/` before the server cleans it up. Set `none` to keep them forever. Only the notes and files the server itself moved there are cleaned up. Unused with Obsidian Sync (the remote image), whose deletes are permanent and recoverable from Sync's version history. |
-| `TRUST_PROXY_HOPS` | — | `0` | Number of trusted reverse-proxy hops used to derive the client IP from `X-Forwarded-For` (OAuth rate limiting, request logs). Set `1` when exactly one proxy you control sits in front of the server (Caddy, nginx, Cloudflare Tunnel) and nothing else can reach the server's port. With `0`, injected forwarding headers are ignored. |
-| `TRUST_FORWARDED_HOPS` | — | `0` | How many trailing `for=` entries in the [RFC 7239](https://www.rfc-editor.org/rfc/rfc7239) `Forwarded` header belong to proxies you control. `0` ignores the header; `1` when the proxy in front writes it (e.g. AWS API Gateway) and is the only way to reach the server; `2` when a CDN fronts that proxy and is the only way to reach it. |
+| `TRASH_RETENTION_DAYS` | — | `30` | Days a note or file the server moved to `.trash/` stays there before it is cleaned up; `none` keeps them forever. Unused with Obsidian Sync, whose deletes are permanent. |
+
 
 ## Deployment Options
 
@@ -176,11 +163,11 @@ Local runs on your machine. Remote deployments run on a VPS or a hosted containe
 Whichever path you pick, the server is replaceable and your vault isn't. Your notes are plain Markdown files, synced by Obsidian to every device you own; the container holds a copy and an index it can rebuild from scratch. Shut down the VPS, delete the Render or Railway service, switch hosts — the same files are still on your machine and in Obsidian Sync, readable by anything. That's the difference from an AI notebook whose real home is the vendor's database: here the host is a convenience, not a custodian.
 
 | Path | What | Guide |
-| ------------------------ | ----------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
 | **Local** | Your vault on your machine — free, no cloud | [`deploy/local/`](https://github.com/aliasunder/vault-cortex/tree/main/deploy/local/) |
-| **Remote · one-click** | Render or Railway — one persistent volume, no server to manage | [`deploy/render/`](https://github.com/aliasunder/vault-cortex/tree/main/deploy/render/) · [`deploy/railway/`](https://github.com/aliasunder/vault-cortex/tree/main/deploy/railway/) |
+| **Remote · one-click** | Render or Railway — one persistent volume, no server to manage; Render deploys from the [`render.yaml`](https://github.com/aliasunder/vault-cortex/blob/main/render.yaml) Blueprint, Railway from a published template | [`deploy/render/`](https://github.com/aliasunder/vault-cortex/tree/main/deploy/render/) · [`deploy/railway/`](https://github.com/aliasunder/vault-cortex/tree/main/deploy/railway/) |
 | **Remote · self-hosted** | VPS + Obsidian Sync — access from any device | [`deploy/remote/`](https://github.com/aliasunder/vault-cortex/tree/main/deploy/remote/) |
-| **Remote · AWS (SST)** | IaC reference deployment — automated infra, defense-in-depth auth | [`DEPLOY.md`](https://github.com/aliasunder/vault-cortex/blob/main/DEPLOY.md) |
+| **Remote · AWS (SST)** | IaC reference deployment — automated infra, defense-in-depth auth, [~$17–29 USD/mo all-in](https://github.com/aliasunder/vault-cortex/blob/main/ARCHITECTURE.md#cost) | [`DEPLOY.md`](https://github.com/aliasunder/vault-cortex/blob/main/DEPLOY.md) |
 
 ## Versioning
 
