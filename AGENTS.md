@@ -1305,19 +1305,20 @@ Every doc edit follows these rules:
   that answers none is cut. One written for another doc's reader moves
   to that doc: how a mechanism works (RRF's rank constant, blend
   weights, chunk prefixes, temp-file naming) goes to ARCHITECTURE.md.
-  Each protection against data loss or attack (atomic writes, the
-  per-file mutex) keeps one clause saying how it works ("stages to a
-  temp file, then renames").
+  A doc that names a protection against data loss or attack (atomic
+  writes, the per-file mutex) keeps one clause saying how it works
+  ("stages to a temp file, then renames").
 - **In the README, DEPLOY.md, the `deploy/` guides and cli/README.md,
   features are stated as what the Obsidian user can do**, in their
   vocabulary ("complete a task," "move between lanes," "filter by due
   date"), never implementation vocabulary ("mutate," "atomic write
   cycle," "composable mutations"); ARCHITECTURE.md keeps its engineering
-  terms. Sentences about how the project is built use the standard names
-  for the techniques it chose and the hazards it guards against (FTS5,
-  RRF, cross-encoder, per-file mutex, TOCTOU, `link()`). The README and
-  SECURITY.md add no gloss to those names, even when a review calls
-  them jargon.
+  terms.
+- **In the README and SECURITY.md, sentences about how the project is
+  built use the standard names** for the techniques it chose and the
+  hazards it guards against (FTS5, RRF, cross-encoder, per-file mutex,
+  TOCTOU, `link()`). Those sentences add no gloss to the names, even
+  when a review calls them jargon.
 - **One home per fact; other docs link to it**, because a second copy
   goes stale when the first is edited. Windows setup lives in
   `deploy/local/`, and the README links there. Registry descriptions,
@@ -1335,9 +1336,10 @@ match their siblings' length and shape.
 
 **Doc quality rules:**
 
-- Before calling a doc done, pick each reader the doc serves (for the
-  main docs, listed under "Write for each doc's reader") and walk the
-  entire document start to finish — line-level fact-checking cannot
+- Before calling a doc done, pick each reader the doc serves (listed
+  under "Write for each doc's reader" for the main docs; for any other
+  doc, name its readers from what it covers) and walk the entire
+  document start to finish — line-level fact-checking cannot
   validate a doc; each sentence can be true while the doc as a whole
   misleads.
 - When a doc offers multiple paths (install methods, tools, runtimes),
@@ -1414,7 +1416,7 @@ changed:
 - `server.json`: Description changes. `description` has a 100-character limit per the MCP registry schema — counted in code points, not bytes, so em dashes are safe here (CI guards it).
 - `Dockerfile`: OCI `image.description` label — keep in sync with `server.json` and `deploy.yml` descriptions
 - `assets/social-preview.svg` + `.png`: Feature category changes (rendered in the image); regenerate PNG after SVG edits (run `npm run render:social-preview`)
-- `.devin/wiki.json`: New architectural area (new page), module renamed/moved (update `repo_notes` or `purpose` references). Purposes stay structural — what the page covers and which modules — never capability narratives, counts, or tuning values; capability narratives live in the README, tuning values in ARCHITECTURE.md, and DeepWiki derives them at index time.
+- `.devin/wiki.json`: New architectural area (new page), module renamed/moved (update `repo_notes` or `purpose` references). Purposes stay structural — what the page covers and which modules — never capability narratives, counts, or tuning values; DeepWiki derives capability narratives from the README and tuning values from ARCHITECTURE.md at index time.
 - `src/vault-mcp/mcp-core/__tests__/__snapshots__/tool-surface/`: Any change to tool schemas, descriptions, annotations, prompts, or server instructions — run `npm run snapshot:update` and commit the regenerated baseline in the same PR (the drift test fails until it matches). A dependency bump that changes the MCP SDK's schema serialization needs the same regen commit: that CI failure is the gate working, not flake.
 - `deploy/local/` + `deploy/remote/`: New env var, changed default, new deployment step, or Docker Compose service change — update `.env.example` and `README.md` in the affected directory
 - `render.yaml` + `deploy/render/` + `deploy/railway/`: A variable the image needs at boot is added or renamed, a shipped default changes (plan, disk size, hop count, health path, port), or the image tag changes. `templates.test.ts` pins `render.yaml`; only the maintainer can re-publish the Railway template from the two definition tables in `CONTRIBUTING.md` (settings and variables), and no test checks the live template, so a PR that edits either table (a variable description included) says so in its description and lists the re-publish as the maintainer's merge-time step — existing deployments keep their settings until their owners redeploy
