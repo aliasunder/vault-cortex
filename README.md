@@ -192,8 +192,6 @@ A remote server with a publicly reachable `https` URL adds directly in Claude De
 
 > The CLI's connect message and the [local guide](./deploy/local/#other-oauth-clients-cursor-and-most-mcp-clients) say to add the server as a "remote MCP server". "Remote" there names the connection type (HTTP); in the local setup the server still runs entirely on your machine.
 
-See [Authentication](#authentication) for both methods and token lifetimes.
-
 ---
 
 ## How It Works
@@ -267,7 +265,7 @@ Task metadata lives in plain markdown — scattered across files, encoded in emo
 The task layer handles this so agents don't have to:
 
 - **Find** — filter by status, six date fields (due, scheduled, start, created, done, cancelled), priority, folder, or Kanban lane. Each result carries its note path, line number, and nearest heading when the task sits under one (the lane on a Kanban board) — no follow-up reads needed to locate a task
-- **Create** — add a correctly-formatted task in one step: description, priority, dates, recurrence, "On completion" action, dependencies, block ID (`^id`), and checklist sub-items (text only, no dates), placed under a heading at the top, the bottom, or an exact position, or nested under a parent task as a sub-task with its own dates. Sub-tasks on a Kanban board take no block ID, which keeps the card's own ID intact
+- **Create** — add a correctly-formatted task in one step: description, priority, dates, recurrence, "On completion" action, dependencies, block ID (`^id`), and checklist sub-items (text only, no dates), placed under a heading at the top, the bottom, or an exact position, or nested under a parent task as a sub-task with its own dates
 - **Update** — complete, reprioritize, edit the text, set or clear dates, recurrence, and the "On completion" action, add checklist items, move tasks between headings, and reorder within a lane in a single call
 - **Complete** — marking a task done auto-detects the done lane and stamps the completion date, honoring the plugin's "Set done date" setting; reversing it removes the date. Completion also runs the Tasks plugin's own behaviors:
   - a recurring task spawns its next occurrence, dates advanced the way the plugin computes them
@@ -452,11 +450,7 @@ Two methods:
 | **OAuth 2.1**     | Claude Desktop, Claude Code, claude.ai, any OAuth client | JWT (HS256, 6h)      |
 | **Static bearer** | MCP Inspector, curl                                      | Raw `MCP_AUTH_TOKEN` |
 
-OAuth uses dynamic client registration — no manual Client ID or Secret needed:
-
-1. Your client registers automatically and receives a client ID and secret.
-2. Enter your `MCP_AUTH_TOKEN` on the browser consent page to approve access.
-3. Your client includes the issued secret in subsequent token requests automatically.
+OAuth uses dynamic client registration — no manual Client ID or Secret needed.
 
 Refresh tokens have a 60-day sliding expiry. Access tokens are bound to your server's URL, so a token minted for one deployment is never accepted by another. Rotating `MCP_AUTH_TOKEN` ends every session — each client re-authorizes through the consent page.
 
@@ -476,8 +470,6 @@ Whichever path you pick, the server is replaceable and your vault isn't. Your no
 | **Remote · one-click**   | Render or Railway — one persistent volume, no server to manage; Render deploys from the [`render.yaml`](./render.yaml) Blueprint, Railway from a published template | [`deploy/render/`](./deploy/render/) · [`deploy/railway/`](./deploy/railway/) |
 | **Remote · self-hosted** | VPS + Obsidian Sync — access from any device                                                                                                                        | [`deploy/remote/`](./deploy/remote/)                                          |
 | **Remote · AWS (SST)**   | IaC reference deployment — automated infra, defense-in-depth auth, [~$17–29 USD/mo all-in](./ARCHITECTURE.md#cost)                                                  | [`DEPLOY.md`](./DEPLOY.md)                                                    |
-
-The AWS path includes CI/CD workflows built for this repo — [forkers need to configure their own credentials and stage](./DEPLOY.md#dont-fork-deploy-without-re-staging) before deploying.
 
 Every path runs the same image, `ghcr.io/aliasunder/vault-cortex` — `:latest` is the MCP server alone (local), `:remote` bundles Obsidian Sync in the same container under [s6-overlay](https://github.com/just-containers/s6-overlay) supervision (one-click, self-hosted, and AWS). One container means any OCI runtime works: `docker run`, Podman, nerdctl — Docker Compose is optional.
 
@@ -515,16 +507,6 @@ tool and prompt over HTTP — verifying auth enforcement, config-gated tool
 surfaces, write mutation integrity (each write is read back), and boot
 rejection on misconfiguration. See [SECURITY.md](./SECURITY.md#testing-verification)
 for the security-relevant coverage.
-
-**MCP Inspector** — interactive browser UI for testing tools:
-
-```bash
-# Start server (terminal 1), then:
-npx @modelcontextprotocol/inspector
-# Enter http://localhost:8000/mcp as URL, local-dev-token as Bearer token
-```
-
-See [CONTRIBUTING.md](./CONTRIBUTING.md) for the full development setup.
 
 ---
 
