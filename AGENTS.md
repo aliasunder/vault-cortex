@@ -1325,11 +1325,14 @@ rules follow from each doc's readers:
   keeps is not a gloss.
 - **One home per fact; other docs link to it**, because a second copy
   goes stale when the first is edited. Windows setup lives in
-  `deploy/local/`, and the README links there. Deliberate copies stay:
-  registry descriptions, the generated DOCKERHUB.md, each doc's env var
-  table, the clause the first rule keeps beside a protection, an opt-out
-  stated in its feature's section and the recovery path beside a
-  destructive-outcome claim.
+  `deploy/local/`, and the README links there. The Configuration table
+  in `deploy/local/README.md` and the one in `deploy/remote/README.md`
+  are each the full settings reference for that setup; the README's
+  table keeps only the required settings and the switches most installs
+  change. Deliberate copies stay: registry descriptions, the generated
+  DOCKERHUB.md, each doc's env var table, the clause the first rule
+  keeps beside a protection, an opt-out stated in its feature's section
+  and the recovery path beside a destructive-outcome claim.
 - **Before calling a doc done, walk the entire document start to finish
   as each reader it serves.** Line-level fact-checking cannot validate a
   doc; each sentence can be true while the doc as a whole misleads.
@@ -1412,7 +1415,7 @@ Several files outside `src/` reflect the project's feature surface and
 need updating alongside code changes. What to check depends on what
 changed:
 
-- `README.md`: New deployment mode, new feature worth mentioning in the value prop
+- `README.md`: New deployment mode, new feature worth mentioning in the value prop, new required setting or a switch most installs change (its Configuration table)
 - `ARCHITECTURE.md`: New component, requirement, or design decision; component diagram changes. Write for scannability: bullet lists and numbered pipelines over dense prose — a reader landing on this page should grasp the flow at a glance, not parse nested parentheticals.
 - `ROADMAP.md`: Direction genuinely changes — a priority shifts between Planned and Exploring, or a non-goal is decided. Refreshed in periodic passes (roughly once or twice a year) that remove completed Planned entries; not updated per feature PR, and shipped items are never promoted into Delivered — that section is a static foundations sketch, not a changelog
 - `server.json`: Description changes. `description` has a 100-character limit per the MCP registry schema — counted in code points, not bytes, so em dashes are safe here (CI guards it).
@@ -1438,7 +1441,7 @@ changed:
 env var that the server reads (defined in `config.ts`, `server.ts`,
 `setup/setup-server.ts`, or `logger.ts`), update every downstream surface.
 Not every var goes in every file — container-internal vars (HOST, INDEX_DB_PATH) are hardcoded
-in compose and skip .env.example; remote-only vars (OBSIDIAN_AUTH_TOKEN,
+in compose and skip .env.example and the guides' Configuration tables; remote-only vars (OBSIDIAN_AUTH_TOKEN,
 PUID, etc.) only go in the remote surfaces. Use existing entries as a
 pattern:
 
@@ -1448,9 +1451,13 @@ pattern:
 2. **Deploy compose** (`deploy/local/docker-compose.yml` and/or
    `deploy/remote/docker-compose.yml`) — add `${VAR:-default}` passthrough
    in `environment:`
-3. **Deploy .env.example** (`deploy/local/.env.example` and/or
-   `deploy/remote/.env.example`) — document for users with comment + default.
-   These are the source of truth for optional var documentation.
+3. **Deploy .env.example and Configuration table** (`deploy/local/` and/or
+   `deploy/remote/`) — document the var in that folder's `.env.example`
+   with a comment and its default, then add its row to the Configuration
+   table in that folder's `README.md`. A required var or a switch most
+   installs change also gets a row in the root `README.md`'s Configuration table.
+   Step 4 syncs from the `.env.example` files; no drift test checks the
+   table rows.
 4. **Run `npm run sync:cli-env-blocks`** — syncs the optional sections from
    step 3 into `cli/src/rules/env-templates.ts` (`LOCAL_OPTIONAL_BLOCK` /
    `REMOTE_OPTIONAL_BLOCK`). Always run after editing deploy/ env files.
@@ -1469,8 +1476,9 @@ pattern:
    the remote guide's table. A PR that edits the Railway table says so in its
    description; the maintainer re-publishes the template at merge time.
 
-CI drift tests in `cli/src/rules/__tests__/templates.test.ts` catch omissions across
-steps 2–4 after the fact and pin the committed hosted templates (step 8);
+CI drift tests in `cli/src/rules/__tests__/templates.test.ts` catch omissions in
+the compose files, `.env.example` files and CLI templates (steps 2–4) after the
+fact and pin the committed hosted templates (step 8);
 following the checklist avoids the omissions in the first place.
 
 Not every PR touches these. A new tool in an existing category updates

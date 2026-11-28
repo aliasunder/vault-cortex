@@ -174,6 +174,6 @@ To serve a second vault from the same machine:
 
 ## More
 
-- Full configuration (memory folder, protected paths, timezone, logging): [README → Configuration](./README.md#configuration)
+- Full configuration (memory folder, protected paths, timezone, logging): [local guide → Configuration](./deploy/local/README.md#configuration)
 - Remote / multi-device setup (Obsidian Sync + OAuth 2.1): [`deploy/remote/`](./deploy/remote/)
 - Architecture and auth flow: [ARCHITECTURE.md](./ARCHITECTURE.md)

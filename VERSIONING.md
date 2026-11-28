@@ -98,8 +98,8 @@ When a covered part (a tool, parameter, setting, flag, route, tag, path or
 convention) has to go:
 
 1. Its replacement ships first.
-2. The old form keeps working, and its tool description, its row in the
-   README's configuration table, or its `--help` text says it is deprecated
+2. The old form keeps working, and its tool description, its row in each
+   configuration table that lists it, or its `--help` text says it is deprecated
    and names the replacement. The release notes say the same.
 3. Both forms stay available for at least one minor release after the one
    that deprecates the old form.
