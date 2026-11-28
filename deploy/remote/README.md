@@ -167,10 +167,9 @@ directory
 
 The CLI's `init` always creates the three-volume layout, so single-volume
 mode is set up with `docker run` or through a hosting platform. The same
-`.env` file works; the command sets `LOG_DIR` explicitly because the
-`.env.example` default, `/data/logs`, falls outside the volume. A
-`LOG_DIR` in `.env` (`none` included) has no effect here; change the
-`-e LOG_DIR` flag instead. The
+`.env` file works; the command sets `LOG_DIR` itself (the `.env.example`
+default, `/data/logs`, falls outside the volume), so a `LOG_DIR` in `.env`
+has no effect here. The
 command's `-p 8000:8000` publishes on every address, so `BIND_ADDRESS` in
 `.env` has no effect here. For a server behind a tunnel or reverse proxy,
 pass `-p 127.0.0.1:8000:8000` instead. On a plain Docker host the complete
