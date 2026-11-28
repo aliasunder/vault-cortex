@@ -112,10 +112,11 @@ mkdir -p .data && PUBLIC_URL=http://localhost:8000 MCP_AUTH_TOKEN=local-dev-toke
 
 # Terminal 2 — launch the inspector
 npx @modelcontextprotocol/inspector
+# Enter http://localhost:8000/mcp as the URL and local-dev-token as the Bearer token
 ```
 
 The [README's Development section](./README.md#development) also gives the full
-check suite command, plus the URL and token the MCP Inspector asks for.
+check suite command.
 
 ## Agent command setup
 
